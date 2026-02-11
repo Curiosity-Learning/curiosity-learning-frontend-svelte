@@ -1,0 +1,285 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.attendances (
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  session_id uuid NOT NULL,
+  profile_id uuid NOT NULL,
+  created_by uuid DEFAULT auth.uid(),
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  CONSTRAINT attendances_pkey PRIMARY KEY (id),
+  CONSTRAINT sessions_club_members_session_id_fkey FOREIGN KEY (session_id) REFERENCES public.sessions(id),
+  CONSTRAINT attendance_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT attendance_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.audit_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  action text,
+  method text,
+  path text,
+  ip text,
+  request_body jsonb,
+  query_params jsonb,
+  headers jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT audit_logs_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.booklet_activities (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text,
+  content text,
+  minutes smallint,
+  status text,
+  reviewed_at timestamp with time zone,
+  previous_activity_id uuid,
+  created_by uuid,
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT booklet_activities_pkey PRIMARY KEY (id),
+  CONSTRAINT activities_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id),
+  CONSTRAINT booklet_activities_previous_activity_id_fkey FOREIGN KEY (previous_activity_id) REFERENCES public.booklet_activities(id)
+);
+CREATE TABLE public.booklet_activities_building_blocks (
+  activity_id uuid NOT NULL,
+  building_block_id uuid NOT NULL,
+  CONSTRAINT booklet_activities_building_blocks_pkey PRIMARY KEY (activity_id, building_block_id),
+  CONSTRAINT activities_building_blocks_activity_id_fkey FOREIGN KEY (activity_id) REFERENCES public.booklet_activities(id),
+  CONSTRAINT activities_building_blocks_building_block_id_fkey FOREIGN KEY (building_block_id) REFERENCES public.building_blocks(id)
+);
+CREATE TABLE public.building_blocks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text NOT NULL DEFAULT 'Unnamed Block'::text,
+  description text,
+  slug text,
+  CONSTRAINT building_blocks_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.club_codes (
+  id uuid NOT NULL,
+  code text NOT NULL DEFAULT generate_invite_code() UNIQUE,
+  CONSTRAINT club_codes_pkey PRIMARY KEY (id),
+  CONSTRAINT club_codes_id_fkey FOREIGN KEY (id) REFERENCES public.clubs(id)
+);
+CREATE TABLE public.club_members (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  club_id uuid NOT NULL,
+  profile_id uuid NOT NULL,
+  role_id uuid NOT NULL,
+  left_at timestamp with time zone,
+  CONSTRAINT club_members_pkey PRIMARY KEY (id),
+  CONSTRAINT users_clubs_roles_club_id_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id),
+  CONSTRAINT users_clubs_roles_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.club_roles(id),
+  CONSTRAINT memberships_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.club_roles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text UNIQUE,
+  description text,
+  color text,
+  permissions ARRAY,
+  order smallint NOT NULL DEFAULT '100'::smallint,
+  CONSTRAINT club_roles_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.clubs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text NOT NULL,
+  location text,
+  description text,
+  time timestamp with time zone,
+  video_url text,
+  meeting_day text,
+  meeting_time time without time zone,
+  CONSTRAINT clubs_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  room_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  content text,
+  type text NOT NULL DEFAULT 'text'::text,
+  media_url text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  is_deleted boolean NOT NULL DEFAULT false,
+  CONSTRAINT messages_pkey PRIMARY KEY (id),
+  CONSTRAINT messages_room_id_fkey FOREIGN KEY (room_id) REFERENCES public.rooms(id),
+  CONSTRAINT messages_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  club_id uuid,
+  title text NOT NULL,
+  message text NOT NULL,
+  is_read boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  url text,
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT notifications_club_id_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id)
+);
+CREATE TABLE public.participants (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  room_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  is_admin boolean DEFAULT false,
+  CONSTRAINT participants_pkey PRIMARY KEY (id),
+  CONSTRAINT participants_room_id_fkey FOREIGN KEY (room_id) REFERENCES public.rooms(id),
+  CONSTRAINT participants_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.privacy_policy (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  title text DEFAULT 'Privacy Policy'::text,
+  content text NOT NULL,
+  version text DEFAULT '1.0'::text,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT privacy_policy_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  first_name text NOT NULL,
+  last_name text,
+  username text,
+  cover_photo_url text,
+  date_of_birth date,
+  is_verified boolean DEFAULT false,
+  email text UNIQUE,
+  active_club_id uuid,
+  last_login timestamp without time zone,
+  fcm_token text,
+  updated_at timestamp with time zone DEFAULT now(),
+  first_login_completed boolean DEFAULT false,
+  about text,
+  howdidyoufindus text,
+  identity character varying,
+  locationaddress text,
+  videourl text,
+  pending_club_code text,
+  pending_role text,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id),
+  CONSTRAINT profiles_active_club_id_fkey FOREIGN KEY (active_club_id) REFERENCES public.clubs(id)
+);
+CREATE TABLE public.project_members (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  project_id uuid,
+  profile_id uuid,
+  left_at timestamp with time zone,
+  role_id uuid NOT NULL,
+  CONSTRAINT project_members_pkey PRIMARY KEY (id),
+  CONSTRAINT project_members_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT projects_members_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT project_members_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.project_roles(id)
+);
+CREATE TABLE public.project_roles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  permissions ARRAY,
+  name text NOT NULL,
+  order smallint NOT NULL DEFAULT '100'::smallint,
+  CONSTRAINT project_roles_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.projects (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text,
+  due_date date,
+  done_date date,
+  description text,
+  CONSTRAINT projects_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.projects_clubs (
+  project_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  club_id uuid NOT NULL,
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  CONSTRAINT projects_clubs_pkey PRIMARY KEY (id),
+  CONSTRAINT projects_clubs_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT projects_clubs_club_id_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id)
+);
+CREATE TABLE public.questions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  content text,
+  CONSTRAINT questions_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.rooms (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  is_group_chat boolean NOT NULL DEFAULT false,
+  name text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT rooms_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.session_activities (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text,
+  slug text,
+  content text,
+  minutes smallint,
+  created_by uuid DEFAULT auth.uid(),
+  session_id uuid,
+  booklet_activity_id uuid,
+  CONSTRAINT session_activities_pkey PRIMARY KEY (id),
+  CONSTRAINT activities_sessions_created_by_fkey1 FOREIGN KEY (created_by) REFERENCES public.club_members(id),
+  CONSTRAINT session_activities_session_id_fkey FOREIGN KEY (session_id) REFERENCES public.sessions(id),
+  CONSTRAINT session_activities_booklet_activity_id_fkey FOREIGN KEY (booklet_activity_id) REFERENCES public.booklet_activities(id)
+);
+CREATE TABLE public.session_activities_building_blocks (
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  building_block_id uuid NOT NULL,
+  session_activity_id uuid NOT NULL,
+  CONSTRAINT session_activities_building_blocks_pkey PRIMARY KEY (building_block_id, session_activity_id),
+  CONSTRAINT sessions_activities_building_blocks_building_block_id_fkey FOREIGN KEY (building_block_id) REFERENCES public.building_blocks(id),
+  CONSTRAINT sessions_activities_building_blocks_session_activity_id_fkey FOREIGN KEY (session_activity_id) REFERENCES public.session_activities(id)
+);
+CREATE TABLE public.sessions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  club_id uuid NOT NULL,
+  datetime timestamp with time zone,
+  description text NOT NULL,
+  start_time timestamp with time zone NOT NULL,
+  end_time timestamp with time zone NOT NULL,
+  created_by uuid DEFAULT auth.uid(),
+  CONSTRAINT sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT sessions_club_id_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id),
+  CONSTRAINT sessions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.updates (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  project_id uuid,
+  content text,
+  created_by uuid,
+  question_id uuid,
+  CONSTRAINT updates_pkey PRIMARY KEY (id),
+  CONSTRAINT learnings_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT learnings_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.club_members(id),
+  CONSTRAINT learnings_question_id_fkey FOREIGN KEY (question_id) REFERENCES public.questions(id)
+);
+CREATE TABLE public.updates_files (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  object_id uuid,
+  update_id uuid,
+  CONSTRAINT updates_files_pkey PRIMARY KEY (id),
+  CONSTRAINT learnings_files_object_id_fkey FOREIGN KEY (object_id) REFERENCES storage.objects(id),
+  CONSTRAINT updates_files_update_id_fkey FOREIGN KEY (update_id) REFERENCES public.updates(id)
+);
+CREATE TABLE public.user_preferences (
+  user_id uuid NOT NULL,
+  active_club_id uuid,
+  theme text DEFAULT 'light'::text,
+  notifications_enabled boolean DEFAULT true,
+  notification_preferences jsonb DEFAULT '{}'::jsonb,
+  CONSTRAINT user_preferences_pkey PRIMARY KEY (user_id),
+  CONSTRAINT user_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT user_preferences_active_club_id_fkey FOREIGN KEY (active_club_id) REFERENCES public.clubs(id)
+);

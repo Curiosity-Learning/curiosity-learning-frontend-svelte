@@ -1,0 +1,309 @@
+import { ConvexError, v } from 'convex/values';
+import { mutation, query } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import type { MutationCtx, QueryCtx } from './_generated/server';
+import { hasPermission, requireIdentity } from './permissions';
+
+type Ctx = QueryCtx | MutationCtx;
+
+const canManageProject = async (ctx: Ctx, projectId: Id<'projects'>, userId: string) => {
+	const links = await ctx.db
+		.query('projectClubs')
+		.withIndex('by_project', (q) => q.eq('projectId', projectId))
+		.collect();
+
+	for (const link of links) {
+		if (await hasPermission(ctx, link.clubId, userId, 'project:update')) {
+			return true;
+		}
+	}
+
+	const membership = await ctx.db
+		.query('projectMembers')
+		.withIndex('by_project_and_user', (q) => q.eq('projectId', projectId).eq('userId', userId))
+		.first();
+	if (!membership || membership.leftAt) {
+		return false;
+	}
+
+	const role = await ctx.db.get(membership.roleId);
+	return role?.permissions.includes('project:update') ?? false;
+};
+
+export const listByProject = query({
+	args: {
+		projectId: v.id('projects'),
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const allowed = await canManageProject(ctx, args.projectId, identity.subject);
+		if (!allowed) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const queryBuilder = ctx.db
+			.query('updates')
+			.withIndex('by_project_and_created', (q) => q.eq('projectId', args.projectId));
+
+		if (args.limit) {
+			// Keep chronological ordering (oldest -> newest) while limiting.
+			const newestFirst = await queryBuilder.order('desc').take(args.limit);
+			return newestFirst.reverse();
+		}
+
+		return await queryBuilder.collect();
+	}
+});
+
+export const listByClub = query({
+	args: {
+		clubId: v.id('clubs'),
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await hasPermission(ctx, args.clubId, identity.subject, 'project:read');
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const limit = args.limit ?? 50;
+
+		// New path: read a single indexed stream of updates for the club.
+		const updateClubRows = await ctx.db
+			.query('updateClubs')
+			.withIndex('by_club_and_created', (q) => q.eq('clubId', args.clubId))
+			.order('desc')
+			.take(limit);
+
+		const seen = new Set<Id<'updates'>>();
+		const items: Array<{
+			updateId: Id<'updates'>;
+			projectId: Id<'projects'> | null;
+			projectName: string | null;
+			content: string;
+			createdAt: number;
+			createdByUserId: string;
+		}> = [];
+
+		for (const row of updateClubRows) {
+			if (seen.has(row.updateId)) continue;
+			seen.add(row.updateId);
+
+			const update = await ctx.db.get(row.updateId);
+			if (!update) continue;
+			const projectId = row.projectId ?? update.projectId ?? null;
+			const project = projectId ? await ctx.db.get(projectId) : null;
+
+			items.push({
+				updateId: update._id,
+				projectId,
+				projectName: project?.name ?? null,
+				content: update.content,
+				createdAt: update.createdAt,
+				createdByUserId: update.createdByUserId
+			});
+		}
+
+		return items.slice(0, limit);
+	}
+});
+
+export const listForViewer = query({
+	args: {
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const limit = args.limit ?? 50;
+
+		const memberships = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		if (!activeMemberships.length) {
+			return [];
+		}
+
+		const readableClubIdSet = new Set<string>();
+		for (const membership of activeMemberships) {
+			const role = await ctx.db.get(membership.roleId);
+			if (role?.permissions.includes('project:read')) {
+				readableClubIdSet.add(membership.clubId);
+			}
+		}
+
+		const readableClubIds = [...readableClubIdSet] as Array<Id<'clubs'>>;
+		if (!readableClubIds.length) {
+			return [];
+		}
+
+		// Since we can only query updateClubs by a single clubId at a time, take a handful per club,
+		// then merge-sort and de-dupe on updateId.
+		const takePerClub = Math.min(limit, Math.ceil((limit * 2) / readableClubIds.length));
+		const rowsByClub = await Promise.all(
+			readableClubIds.map((clubId) =>
+				ctx.db
+					.query('updateClubs')
+					.withIndex('by_club_and_created', (q) => q.eq('clubId', clubId))
+					.order('desc')
+					.take(takePerClub)
+			)
+		);
+
+		const rows = rowsByClub.flat().sort((a, b) => b.createdAt - a.createdAt);
+
+		const seen = new Set<Id<'updates'>>();
+		const items: Array<{
+			updateId: Id<'updates'>;
+			clubId: Id<'clubs'>;
+			clubName: string | null;
+			projectId: Id<'projects'> | null;
+			projectName: string | null;
+			content: string;
+			createdAt: number;
+			createdByUserId: string;
+		}> = [];
+
+		for (const row of rows) {
+			if (items.length >= limit) break;
+			if (seen.has(row.updateId)) continue;
+			seen.add(row.updateId);
+
+			const update = await ctx.db.get(row.updateId);
+			if (!update) continue;
+
+			const club = await ctx.db.get(row.clubId);
+			const projectId = row.projectId ?? update.projectId ?? null;
+			const project = projectId ? await ctx.db.get(projectId) : null;
+
+			items.push({
+				updateId: update._id,
+				clubId: row.clubId,
+				clubName: club?.name ?? null,
+				projectId,
+				projectName: project?.name ?? null,
+				content: update.content,
+				createdAt: update.createdAt,
+				createdByUserId: update.createdByUserId
+			});
+		}
+
+		return items;
+	}
+});
+
+export const create = mutation({
+	args: {
+		projectId: v.id('projects'),
+		content: v.string(),
+		questionId: v.optional(v.id('questions'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const allowed = await canManageProject(ctx, args.projectId, identity.subject);
+		if (!allowed) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const now = Date.now();
+		const updateId = await ctx.db.insert('updates', {
+			projectId: args.projectId,
+			content: args.content,
+			createdByUserId: identity.subject,
+			questionId: args.questionId,
+			createdAt: now,
+			updatedAt: now
+		});
+
+		// Denormalize updates -> clubs for a fast club feed.
+		const projectLinks = await ctx.db
+			.query('projectClubs')
+			.withIndex('by_project', (q) => q.eq('projectId', args.projectId))
+			.collect();
+		for (const link of projectLinks) {
+			await ctx.db.insert('updateClubs', {
+				updateId,
+				clubId: link.clubId,
+				projectId: args.projectId,
+				createdAt: now
+			});
+		}
+
+		return await ctx.db.get(updateId);
+	}
+});
+
+export const update = mutation({
+	args: {
+		updateId: v.id('updates'),
+		content: v.string(),
+		questionId: v.optional(v.id('questions'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const existing = await ctx.db.get(args.updateId);
+		if (!existing || !existing.projectId) {
+			throw new ConvexError('Update not found');
+		}
+
+		const allowed = await canManageProject(ctx, existing.projectId, identity.subject);
+		if (!allowed) {
+			throw new ConvexError('Permission denied');
+		}
+
+		await ctx.db.patch(args.updateId, {
+			content: args.content,
+			questionId: args.questionId,
+			updatedAt: Date.now()
+		});
+
+		return await ctx.db.get(args.updateId);
+	}
+});
+
+export const attachFiles = mutation({
+	args: {
+		updateId: v.id('updates'),
+		storageIds: v.array(v.string())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const existing = await ctx.db.get(args.updateId);
+		if (!existing || !existing.projectId) {
+			throw new ConvexError('Update not found');
+		}
+
+		const allowed = await canManageProject(ctx, existing.projectId, identity.subject);
+		if (!allowed) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const inserted = [];
+		for (const storageId of args.storageIds) {
+			const id = await ctx.db.insert('updateFiles', {
+				updateId: args.updateId,
+				storageId,
+				createdAt: Date.now()
+			});
+			inserted.push(id);
+		}
+
+		return inserted;
+	}
+});
+
+export const listFiles = query({
+	args: {
+		updateId: v.id('updates')
+	},
+	handler: async (ctx, args) => {
+		await requireIdentity(ctx);
+		return await ctx.db
+			.query('updateFiles')
+			.withIndex('by_update', (q) => q.eq('updateId', args.updateId))
+			.collect();
+	}
+});

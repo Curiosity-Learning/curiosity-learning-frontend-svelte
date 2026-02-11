@@ -1,0 +1,375 @@
+import { ConvexError, v } from 'convex/values';
+import { mutation, query } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import type { MutationCtx, QueryCtx } from './_generated/server';
+import { hasPermission, requireIdentity, requireProfile } from './permissions';
+
+type Ctx = QueryCtx | MutationCtx;
+
+const isProjectPermissionAllowed = async (
+	ctx: Ctx,
+	projectId: Id<'projects'>,
+	userId: string,
+	permission: string
+) => {
+	const links = await ctx.db
+		.query('projectClubs')
+		.withIndex('by_project', (q) => q.eq('projectId', projectId))
+		.collect();
+
+	for (const link of links) {
+		if (await hasPermission(ctx, link.clubId, userId, permission)) {
+			return true;
+		}
+	}
+
+	const membership = await ctx.db
+		.query('projectMembers')
+		.withIndex('by_project_and_user', (q) => q.eq('projectId', projectId).eq('userId', userId))
+		.first();
+	if (!membership || membership.leftAt) {
+		return false;
+	}
+
+	const role = await ctx.db.get(membership.roleId);
+	return role?.permissions.includes(permission) ?? false;
+};
+
+export const listByClub = query({
+	args: {
+		clubId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await hasPermission(ctx, args.clubId, identity.subject, 'project:read');
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const links = await ctx.db
+			.query('projectClubs')
+			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
+			.collect();
+
+		const projects = await Promise.all(links.map((link) => ctx.db.get(link.projectId)));
+		return projects.filter((project): project is NonNullable<typeof project> => Boolean(project));
+	}
+});
+
+export const listPreviewsByClub = query({
+	args: {
+		clubId: v.id('clubs'),
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await hasPermission(ctx, args.clubId, identity.subject, 'project:read');
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const links = await ctx.db
+			.query('projectClubs')
+			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
+			.collect();
+
+		const projects = (await Promise.all(links.map((link) => ctx.db.get(link.projectId)))).filter(
+			(project): project is NonNullable<typeof project> => Boolean(project)
+		);
+
+		projects.sort(
+			(a, b) => (a.dueDate ?? Number.MAX_SAFE_INTEGER) - (b.dueDate ?? Number.MAX_SAFE_INTEGER)
+		);
+		const limited = projects.slice(0, args.limit ?? 6);
+
+		const result: Array<{
+			project: (typeof limited)[number];
+			members: Array<{ name: string; imageUrl: string | null }>;
+		}> = [];
+
+		for (const project of limited) {
+			const memberships = await ctx.db
+				.query('projectMembers')
+				.withIndex('by_project', (q) => q.eq('projectId', project._id))
+				.collect();
+			const activeMemberships = memberships.filter((membership) => !membership.leftAt).slice(0, 3);
+
+			const members = activeMemberships.map((membership) => {
+				const fullName = [membership.firstName, membership.lastName].filter(Boolean).join(' ').trim();
+				const name = fullName || membership.username || membership.email || membership.userId;
+				return { name, imageUrl: membership.coverPhotoUrl ?? null };
+			});
+
+			result.push({ project, members });
+		}
+
+		return result;
+	}
+});
+
+export const getById = query({
+	args: {
+		projectId: v.id('projects')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await isProjectPermissionAllowed(
+			ctx,
+			args.projectId,
+			identity.subject,
+			'project:read'
+		);
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const project = await ctx.db.get(args.projectId);
+		if (!project) {
+			throw new ConvexError('Project not found');
+		}
+		return project;
+	}
+});
+
+export const create = mutation({
+	args: {
+		clubId: v.id('clubs'),
+		name: v.string(),
+		description: v.optional(v.string()),
+		dueDate: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canCreate = await hasPermission(ctx, args.clubId, identity.subject, 'project:create');
+		if (!canCreate) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const profile = await requireProfile(ctx, identity.subject);
+
+		const now = Date.now();
+		const projectId = await ctx.db.insert('projects', {
+			name: args.name,
+			description: args.description,
+			dueDate: args.dueDate,
+			createdByUserId: identity.subject,
+			createdAt: now,
+			updatedAt: now
+		});
+
+		await ctx.db.insert('projectClubs', {
+			projectId,
+			clubId: args.clubId,
+			createdAt: now
+		});
+
+		const creatorRole = await ctx.db
+			.query('projectRoles')
+			.withIndex('by_name', (q) => q.eq('name', 'Creator'))
+			.first();
+		if (creatorRole) {
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				userId: identity.subject,
+				roleId: creatorRole._id,
+				firstName: profile.firstName,
+				lastName: profile.lastName,
+				username: profile.username,
+				email: profile.email,
+				coverPhotoUrl: profile.coverPhotoUrl,
+				createdAt: now
+			});
+		}
+
+		return await ctx.db.get(projectId);
+	}
+});
+
+export const update = mutation({
+	args: {
+		projectId: v.id('projects'),
+		name: v.optional(v.string()),
+		description: v.optional(v.string()),
+		dueDate: v.optional(v.number()),
+		doneDate: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canUpdate = await isProjectPermissionAllowed(
+			ctx,
+			args.projectId,
+			identity.subject,
+			'project:update'
+		);
+		if (!canUpdate) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const project = await ctx.db.get(args.projectId);
+		if (!project) {
+			throw new ConvexError('Project not found');
+		}
+
+		await ctx.db.patch(args.projectId, {
+			name: args.name ?? project.name,
+			description: args.description ?? project.description,
+			dueDate: args.dueDate ?? project.dueDate,
+			doneDate: args.doneDate ?? project.doneDate,
+			updatedAt: Date.now()
+		});
+
+		return await ctx.db.get(args.projectId);
+	}
+});
+
+export const listMembers = query({
+	args: {
+		projectId: v.id('projects')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await isProjectPermissionAllowed(
+			ctx,
+			args.projectId,
+			identity.subject,
+			'project:read'
+		);
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const memberships = await ctx.db
+			.query('projectMembers')
+			.withIndex('by_project', (q) => q.eq('projectId', args.projectId))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+
+		const result = [];
+		for (const membership of activeMemberships) {
+			const role = await ctx.db.get(membership.roleId);
+			result.push({
+				projectMemberId: membership._id,
+				profileId: membership.userId,
+				firstName: membership.firstName ?? '',
+				lastName: membership.lastName ?? null,
+				username: membership.username ?? null,
+				email: membership.email ?? null,
+				coverPhotoUrl: membership.coverPhotoUrl ?? null,
+				roleId: membership.roleId,
+				roleName: role?.name ?? 'Contributor',
+				leftAt: membership.leftAt ?? null
+			});
+		}
+
+		return result;
+	}
+});
+
+export const addMember = mutation({
+	args: {
+		projectId: v.id('projects'),
+		userId: v.string(),
+		roleName: v.optional(v.union(v.literal('Creator'), v.literal('Contributor')))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canUpdate = await isProjectPermissionAllowed(
+			ctx,
+			args.projectId,
+			identity.subject,
+			'project:update'
+		);
+		if (!canUpdate) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const role = await ctx.db
+			.query('projectRoles')
+			.withIndex('by_name', (q) => q.eq('name', args.roleName ?? 'Contributor'))
+			.first();
+		if (!role) {
+			throw new ConvexError('Role not found');
+		}
+
+		const existing = await ctx.db
+			.query('projectMembers')
+			.withIndex('by_project_and_user', (q) =>
+				q.eq('projectId', args.projectId).eq('userId', args.userId)
+			)
+			.first();
+
+		if (existing && !existing.leftAt) {
+			throw new ConvexError('User is already a project member');
+		}
+
+		if (existing && existing.leftAt) {
+			const profile = await requireProfile(ctx, args.userId);
+			await ctx.db.patch(existing._id, {
+				leftAt: undefined,
+				roleId: role._id,
+				firstName: profile.firstName,
+				lastName: profile.lastName,
+				username: profile.username,
+				email: profile.email,
+				coverPhotoUrl: profile.coverPhotoUrl
+			});
+			return await ctx.db.get(existing._id);
+		}
+
+		const profile = await requireProfile(ctx, args.userId);
+		const memberId = await ctx.db.insert('projectMembers', {
+			projectId: args.projectId,
+			userId: args.userId,
+			roleId: role._id,
+			firstName: profile.firstName,
+			lastName: profile.lastName,
+			username: profile.username,
+			email: profile.email,
+			coverPhotoUrl: profile.coverPhotoUrl,
+			createdAt: Date.now()
+		});
+
+		return await ctx.db.get(memberId);
+	}
+});
+
+export const removeMember = mutation({
+	args: {
+		projectMemberId: v.id('projectMembers')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const member = await ctx.db.get(args.projectMemberId);
+		if (!member) {
+			throw new ConvexError('Project member not found');
+		}
+
+		const canUpdate = await isProjectPermissionAllowed(
+			ctx,
+			member.projectId,
+			identity.subject,
+			'project:update'
+		);
+		if (!canUpdate) {
+			throw new ConvexError('Permission denied');
+		}
+
+		await ctx.db.patch(args.projectMemberId, { leftAt: Date.now() });
+		return { success: true };
+	}
+});
+
+export const canManageProject = query({
+	args: {
+		projectId: v.id('projects')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		return await isProjectPermissionAllowed(
+			ctx,
+			args.projectId,
+			identity.subject,
+			'project:update'
+		);
+	}
+});
