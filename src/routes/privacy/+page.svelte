@@ -29,7 +29,7 @@
 		<CardContent>
 			{#if data.policy}
 				<div class="prose prose-sm max-w-none text-foreground">
-					<h2>{data.policy.title}</h2>
+					<h2 class="type-h5-medium">{data.policy.title}</h2>
 					<p class="whitespace-pre-wrap">{data.policy.content}</p>
 				</div>
 			{:else}

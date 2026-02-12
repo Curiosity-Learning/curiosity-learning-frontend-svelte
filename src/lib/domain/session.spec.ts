@@ -7,7 +7,6 @@ const makeSession = (id: string, startTime: number): Doc<'sessions'> =>
 		_id: id as Id<'sessions'>,
 		_creationTime: Date.now(),
 		clubId: 'club_1' as Id<'clubs'>,
-		datetime: startTime,
 		description: `Session ${id}`,
 		startTime,
 		endTime: startTime + 3_600_000,

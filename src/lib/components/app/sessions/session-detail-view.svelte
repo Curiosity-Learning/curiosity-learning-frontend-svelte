@@ -10,7 +10,6 @@
 		PageHeaderTitle
 	} from '$lib/components/app';
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
-	import { profileReady } from '$lib/app/client-init';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -18,13 +17,18 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { toLocalDateTimeInput } from '$lib/domain/session';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { useConvexClient, useQuery } from 'convex-svelte';
+
+	type Props = {
+		view: 'activities' | 'attendees';
+	};
+
+	let { view }: Props = $props();
 
 	const convexClient = useConvexClient();
 
@@ -36,7 +40,7 @@
 	);
 	let session = $derived(sessionResponse.data ?? null);
 
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($profileReady ? {} : 'skip'));
+	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
 	let clubItem = $derived(
 		session ? (clubsResponse.data ?? []).find((club) => club.clubId === session.clubId) ?? null : null
 	);
@@ -51,28 +55,30 @@
 	let canManageAttendance = $derived(clubPermissions.includes('attendance:create'));
 
 	const activitiesResponse = useQuery(api.sessions.listActivities, () =>
-		sessionIdTyped ? { sessionId: sessionIdTyped } : 'skip'
+		sessionIdTyped && view === 'activities' ? { sessionId: sessionIdTyped } : 'skip'
 	);
-	const blocksResponse = useQuery(api.sessions.listBuildingBlocks, {});
+	const blocksResponse = useQuery(api.sessions.listBuildingBlocks, () =>
+		view === 'activities' ? {} : 'skip'
+	);
 	const attendanceResponse = useQuery(api.sessions.listAttendance, () =>
-		sessionIdTyped && canReadAttendance ? { sessionId: sessionIdTyped } : 'skip'
+		sessionIdTyped && canReadAttendance && view === 'attendees'
+			? { sessionId: sessionIdTyped }
+			: 'skip'
 	);
 	const membersResponse = useQuery(api.clubs.getMembers, () =>
-		session && canReadMembers ? { clubId: session.clubId } : 'skip'
+		session && canReadMembers && view === 'attendees' ? { clubId: session.clubId } : 'skip'
 	);
 
 	const sessionCardDataResponse = useQuery(api.sessions.getSessionCardData, () =>
 		sessionIdTyped ? { sessionId: sessionIdTyped } : 'skip'
 	);
 
-	let activeTab = $state('activities');
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let activityError = $state('');
 
 	let sessionDialogOpen = $state(false);
 	let sessionForm = $state({
-		datetime: '',
 		startTime: '',
 		endTime: '',
 		description: ''
@@ -110,7 +116,6 @@
 	const openSessionEditor = () => {
 		if (!session) return;
 		sessionForm = {
-			datetime: toLocalDateTimeInput(session.datetime),
 			startTime: toLocalDateTimeInput(session.startTime),
 			endTime: toLocalDateTimeInput(session.endTime),
 			description: session.description
@@ -120,10 +125,9 @@
 
 	const saveSession = async () => {
 		if (!session) return;
-		const datetime = new Date(sessionForm.datetime).getTime();
 		const startTime = new Date(sessionForm.startTime).getTime();
 		const endTime = new Date(sessionForm.endTime).getTime();
-		if (!Number.isFinite(datetime) || !Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+		if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
 			errorMessage = 'Invalid session date or time.';
 			return;
 		}
@@ -133,7 +137,6 @@
 		try {
 			await convexClient.mutation(api.sessions.update, {
 				sessionId: session._id,
-				datetime,
 				startTime,
 				endTime,
 				description: sessionForm.description.trim()
@@ -261,6 +264,7 @@
 			onSelect: () => void removeSession()
 		}
 	]);
+
 </script>
 
 <PageHeaderBackButton fallbackHref={fallbackHref} />
@@ -275,7 +279,7 @@
 		<AlertDescription>This session ID is not valid.</AlertDescription>
 	</Alert>
 {:else if sessionResponse.isLoading}
-	<p class="text-sm text-muted-foreground">Loading session...</p>
+	<p class="type-sm text-muted-foreground">Loading session...</p>
 {:else if !session}
 	<Alert variant="destructive">
 		<AlertTitle>Session not found</AlertTitle>
@@ -284,7 +288,7 @@
 {:else}
 	<div class="flex flex-col gap-4 pb-24 lg:pb-8">
 		{#if session.description}
-			<p class="text-base text-muted-foreground">{session.description}</p>
+			<p class="type-lead text-muted-foreground">{session.description}</p>
 		{/if}
 
 		{#if sessionTags.length}
@@ -308,19 +312,9 @@
 			</Alert>
 		{/if}
 
-		<Tabs bind:value={activeTab}>
-			<TabsList>
-				<TabsTrigger value="activities">
-					Activities
-				</TabsTrigger>
-				<TabsTrigger value="attendees">
-					Attendees
-				</TabsTrigger>
-			</TabsList>
-
-			<TabsContent value="activities">
+		{#if view === 'activities'}
 				{#if (activitiesResponse.data?.length ?? 0) === 0}
-					<p class="text-sm text-muted-foreground">No activities yet.</p>
+					<p class="type-sm text-muted-foreground">No activities yet.</p>
 				{:else}
 					{#each activitiesResponse.data ?? [] as activity (activity.id)}
 						<SessionActivityCard
@@ -343,30 +337,29 @@
 				{#if canCreateActivity}
 					<div class="pointer-events-none sticky bottom-22 flex justify-center lg:bottom-8">
 						<div class="pointer-events-auto">
-							<Button class="rounded-full px-8 py-3 text-lg font-semibold shadow-md" onclick={openCreateActivity}>
+							<Button class="rounded-full px-8 py-3 type-h6-bold shadow-md" onclick={openCreateActivity}>
 								<PlusIcon class="size-5" />
 								Add from booklet
 							</Button>
 						</div>
 					</div>
 				{/if}
-			</TabsContent>
-
-			<TabsContent value="attendees" class="flex flex-col gap-3">
+		{:else}
+			<div class="flex flex-col gap-3">
 				{#if !canReadMembers}
-					<p class="text-sm text-muted-foreground">You do not have access to club members.</p>
+					<p class="type-sm text-muted-foreground">You do not have access to club members.</p>
 				{:else if membersResponse.isLoading}
-					<p class="text-sm text-muted-foreground">Loading attendees...</p>
+					<p class="type-sm text-muted-foreground">Loading attendees...</p>
 				{:else if (membersResponse.data?.length ?? 0) === 0}
-					<p class="text-sm text-muted-foreground">No members found.</p>
+					<p class="type-sm text-muted-foreground">No members found.</p>
 				{:else}
 					{#each membersResponse.data ?? [] as member (member.clubMemberId)}
 						<div class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
 							<div class="flex flex-col gap-1">
-								<p class="font-medium">
+								<p class="type-body-medium">
 									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() || 'Member'}
 								</p>
-								<p class="text-sm text-muted-foreground">{member.email ?? member.userId}</p>
+								<p class="type-sm text-muted-foreground">{member.email ?? member.userId}</p>
 							</div>
 							<div class="flex items-center gap-2">
 								<Label for={`attendance-${member.clubMemberId}`}>Attending</Label>
@@ -383,8 +376,8 @@
 						</div>
 					{/each}
 				{/if}
-			</TabsContent>
-		</Tabs>
+			</div>
+		{/if}
 	</div>
 
 	<Dialog.Root bind:open={sessionDialogOpen}>
@@ -394,10 +387,6 @@
 				<Dialog.Description>Update local date and time values for this session.</Dialog.Description>
 			</Dialog.Header>
 			<div class="flex flex-col gap-3">
-				<div class="flex flex-col gap-2">
-					<Label for="sessionDatetime">Session date and time</Label>
-					<Input id="sessionDatetime" type="datetime-local" bind:value={sessionForm.datetime} />
-				</div>
 				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 					<div class="flex flex-col gap-2">
 						<Label for="sessionStart">Start</Label>
@@ -423,56 +412,58 @@
 		</Dialog.Content>
 	</Dialog.Root>
 
-	<Dialog.Root bind:open={activityDialogOpen}>
-		<Dialog.Content>
-			<Dialog.Header>
-				<Dialog.Title>{activityEditId ? 'Edit activity' : 'Add activity'}</Dialog.Title>
-				<Dialog.Description>Customize activity details for this session plan.</Dialog.Description>
-			</Dialog.Header>
-			<div class="flex flex-col gap-3">
-				<div class="flex flex-col gap-2">
-					<Label for="activityName">Name</Label>
-					<Input id="activityName" bind:value={activityName} placeholder="The Envelope Please" />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="activityContent">Description</Label>
-					<Textarea id="activityContent" bind:value={activityContent} rows={4} />
-				</div>
-				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+	{#if view === 'activities'}
+		<Dialog.Root bind:open={activityDialogOpen}>
+			<Dialog.Content>
+				<Dialog.Header>
+					<Dialog.Title>{activityEditId ? 'Edit activity' : 'Add activity'}</Dialog.Title>
+					<Dialog.Description>Customize activity details for this session plan.</Dialog.Description>
+				</Dialog.Header>
+				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-2">
-						<Label for="activityMinutes">Minutes</Label>
-						<Input id="activityMinutes" bind:value={activityMinutes} type="number" min={1} />
+						<Label for="activityName">Name</Label>
+						<Input id="activityName" bind:value={activityName} placeholder="The Envelope Please" />
 					</div>
 					<div class="flex flex-col gap-2">
-						<Label>Building blocks</Label>
-						<div class="flex flex-wrap gap-2">
-							{#each blocksResponse.data ?? [] as block (block._id)}
-								<Button
-									type="button"
-									size="sm"
-									variant={activityBlockIds.includes(block._id) ? 'default' : 'outline'}
-									onclick={() => toggleActivityBlock(block._id)}
-								>
-									{block.name}
-								</Button>
-							{/each}
+						<Label for="activityContent">Description</Label>
+						<Textarea id="activityContent" bind:value={activityContent} rows={4} />
+					</div>
+					<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+						<div class="flex flex-col gap-2">
+							<Label for="activityMinutes">Minutes</Label>
+							<Input id="activityMinutes" bind:value={activityMinutes} type="number" min={1} />
+						</div>
+						<div class="flex flex-col gap-2">
+							<Label>Building blocks</Label>
+							<div class="flex flex-wrap gap-2">
+								{#each blocksResponse.data ?? [] as block (block._id)}
+									<Button
+										type="button"
+										size="sm"
+										variant={activityBlockIds.includes(block._id) ? 'default' : 'outline'}
+										onclick={() => toggleActivityBlock(block._id)}
+									>
+										{block.name}
+									</Button>
+								{/each}
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
-			<Dialog.Footer>
-				<Button variant="outline" onclick={() => (activityDialogOpen = false)}>Cancel</Button>
-				<Button
-					disabled={
-						pending ||
-						!activityName.trim() ||
-						!(activityEditId ? canUpdateActivity : canCreateActivity)
-					}
-					onclick={() => void saveActivity()}
-				>
-					{pending ? 'Saving...' : activityEditId ? 'Update activity' : 'Add activity'}
-				</Button>
-			</Dialog.Footer>
-		</Dialog.Content>
-	</Dialog.Root>
+				<Dialog.Footer>
+					<Button variant="outline" onclick={() => (activityDialogOpen = false)}>Cancel</Button>
+					<Button
+						disabled={
+							pending ||
+							!activityName.trim() ||
+							!(activityEditId ? canUpdateActivity : canCreateActivity)
+						}
+						onclick={() => void saveActivity()}
+					>
+						{pending ? 'Saving...' : activityEditId ? 'Update activity' : 'Add activity'}
+					</Button>
+				</Dialog.Footer>
+			</Dialog.Content>
+		</Dialog.Root>
+	{/if}
 {/if}

@@ -19,7 +19,9 @@
 
 <Card>
 	<CardHeader class={compact ? 'gap-1 py-4' : 'gap-2'}>
-		<CardTitle class={compact ? 'text-base' : 'text-lg'}>{title}</CardTitle>
+		<CardTitle class={compact ? 'type-h6-medium' : 'type-h5-medium'}>
+			{title}
+		</CardTitle>
 		{#if description}
 			<CardDescription>{description}</CardDescription>
 		{/if}

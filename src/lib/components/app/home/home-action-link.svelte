@@ -18,14 +18,14 @@
 	variant="ghost"
 	size="sm"
 	class={cn(
-		'text-sm font-semibold hover:bg-transparent',
+		'type-sm-bold hover:bg-transparent',
 		tone === 'primary' ? 'text-primary hover:text-primary/80' : 'text-muted-foreground',
 		Icon ? 'gap-2' : ''
 	)}
 	data-sveltekit-preload-code="hover"
 	data-sveltekit-preload-data="hover"
 >
-	<span class="leading-none">{label}</span>
+	<span>{label}</span>
 	{#if Icon}
 		<Icon class="size-4" />
 	{/if}

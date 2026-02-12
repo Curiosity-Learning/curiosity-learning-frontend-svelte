@@ -2,13 +2,11 @@
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
 	import { setContext } from 'svelte';
-	import { authClient } from '$lib/auth-client';
 	import AppShell from '$lib/components/app/app-shell.svelte';
 	import { buildAppNavigation, type AppNavKey, type AppNavItem } from '$lib/components/app/navigation';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import { ensureProfileOnce, profileReady, setProfileInitUser } from '$lib/app/client-init';
 	import {
 		PAGE_HEADER_CTX,
 		type HeaderActionsOverride,
@@ -20,47 +18,14 @@
 
 	let { children } = $props();
 
-	const session = authClient.useSession();
 	const convexClient = useConvexClient();
-
-	const viewerIdentity = useQuery(api.auth.getViewerIdentity, () => ($session.data ? {} : 'skip'));
-
-	// Client-side init: create/update the user's profile in Convex once per authenticated user.
-	$effect(() => {
-		if (!$session.data) {
-			setProfileInitUser(null);
-			return;
-		}
-
-		const userId = viewerIdentity.data?.userId ?? null;
-		if (!userId) return;
-
-		setProfileInitUser(userId);
-
-		// Retry with backoff on transient errors so the app doesn't get stuck in "not ready".
-		let cancelled = false;
-		void (async () => {
-			let backoffMs = 400;
-			while (!cancelled) {
-				try {
-					await ensureProfileOnce(convexClient, api);
-					return;
-				} catch {
-					await new Promise((resolve) => setTimeout(resolve, backoffMs));
-					backoffMs = Math.min(backoffMs * 2, 5000);
-				}
-			}
-		})();
-
-		return () => {
-			cancelled = true;
-		};
-	});
+	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
+	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, {});
+	let clubs = $derived(clubsResponse.data ?? []);
 
 	$effect(() => {
 		if (!browser) return;
-		if (!$session.data) return;
-		if (!$profileReady) return;
+		if (clubsResponse.isLoading) return;
 		// Run seeding in the background; it is idempotent but can be slow.
 		const key = 'cl_bootstrapped_v1';
 		if (localStorage.getItem(key) === '1') return;
@@ -92,19 +57,8 @@
 
 	let activePath = $derived(page.url.pathname);
 
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($session.data ? {} : 'skip'));
-	const profileResponse = useQuery(api.profiles.getMe, () => ($profileReady ? {} : 'skip'));
-	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, () =>
-		$profileReady ? {} : 'skip'
-	);
-
 	let clubIdFromUrl = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
-	let activeClubId = $derived(
-		clubIdFromUrl ??
-			activeContextResponse.data?.activeClubId ??
-			(profileResponse.data as any)?.activeClubId ??
-			null
-	);
+	let activeClubId = $derived(clubIdFromUrl ?? activeContextResponse.data?.activeClubId ?? null);
 
 	$effect(() => {
 		if (!browser) return;
@@ -117,10 +71,10 @@
 	});
 
 	let activeClubItem = $derived(
-		(clubsResponse.data ?? []).find((club) => club.clubId === activeClubId) ?? null
+		clubs.find((club) => club.clubId === activeClubId) ?? null
 	);
 
-	let clubIdForNav = $derived(activeClubId ?? (clubsResponse.data?.[0]?.clubId ?? null));
+	let clubIdForNav = $derived(activeClubId ?? (clubs[0]?.clubId ?? null));
 	let navigation = $derived(buildAppNavigation(clubIdForNav));
 	let navState = $derived(deriveNavState(navigation, activePath));
 	let activeNav = $derived(navState.activeNav);
@@ -175,8 +129,13 @@
 	headerActions={actionsOverride === null || actionsOverride === false ? undefined : actionsOverride}
 	banner={bannerOverride ?? undefined}
 >
-
-	{#if activeNav === 'club' && $session.data && !clubIdForNav && !clubsResponse.isLoading}
+	{#if clubsResponse.error || activeContextResponse.error}
+		<Alert variant="destructive">
+			<AlertTitle>Unable to load account context</AlertTitle>
+			<AlertDescription>Please refresh the page. If this keeps happening, sign out and sign in again.</AlertDescription>
+		</Alert>
+	{/if}
+	{#if activeNav === 'club' && !clubIdForNav && !clubsResponse.isLoading}
 		<Alert>
 			<AlertTitle>No active club</AlertTitle>
 			<AlertDescription

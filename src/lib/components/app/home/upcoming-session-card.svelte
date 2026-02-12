@@ -11,9 +11,10 @@
 	type Props = {
 		session: Doc<'sessions'>;
 		canReadMembers: boolean;
+		href?: string;
 	};
 
-	let { session, canReadMembers }: Props = $props();
+	let { session, canReadMembers, href }: Props = $props();
 
 	const cardData = useQuery(api.sessions.getSessionCardData, () => ({
 		sessionId: session._id,
@@ -35,13 +36,13 @@
 	let attendees = $derived(cardData.data?.attendees ?? []);
 </script>
 
-<Card class="gap-0 py-0">
+<Card class="gap-0 py-0" {href}>
 	<CardContent class="flex flex-col gap-4 p-5">
 		<div class="flex items-center gap-3">
 			<div class="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
 				<CalendarIcon class="size-5" />
 			</div>
-			<p class="text-lg font-semibold tracking-tight">{formatSessionLine(session.startTime)}</p>
+			<p class="type-h6-bold">{formatSessionLine(session.startTime)}</p>
 		</div>
 
 		{#if tagNames.length}
@@ -58,11 +59,11 @@
 
 		{#if canReadMembers}
 			<div class="flex flex-col gap-2">
-				<p class="text-sm font-semibold text-muted-foreground">Attendees</p>
+				<p class="type-sm-bold text-muted-foreground">Attendees</p>
 				{#if cardData.isLoading}
-					<p class="text-sm text-muted-foreground">Loading attendees...</p>
+					<p class="type-sm text-muted-foreground">Loading attendees...</p>
 				{:else if attendees.length === 0}
-					<p class="text-sm text-muted-foreground">No attendees yet.</p>
+					<p class="type-sm text-muted-foreground">No attendees yet.</p>
 				{:else}
 					<AvatarStack people={attendees} max={4} />
 				{/if}

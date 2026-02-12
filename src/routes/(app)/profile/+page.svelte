@@ -15,11 +15,10 @@
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { api } from '$convex/_generated/api';
 	import { useQuery } from 'convex-svelte';
-	import { profileReady } from '$lib/app/client-init';
 
-	const profileResponse = useQuery(api.profiles.getMe, () => ($profileReady ? {} : 'skip'));
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($profileReady ? {} : 'skip'));
-	const activeContext = useQuery(api.clubs.getActiveClubContext, () => ($profileReady ? {} : 'skip'));
+	const profileResponse = useQuery(api.profiles.getMe, {});
+	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
+	const activeContext = useQuery(api.clubs.getActiveClubContext, {});
 
 	let activeClubItem = $derived(
 		(clubsResponse.data ?? []).find((club) => club.clubId === activeContext.data?.activeClubId) ??

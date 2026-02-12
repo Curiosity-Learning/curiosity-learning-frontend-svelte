@@ -9,7 +9,6 @@
 		PageHeaderBackButton
 	} from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
-	import { profileReady } from '$lib/app/client-init';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
@@ -22,7 +21,7 @@
 
 	const convexClient = useConvexClient();
 
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($profileReady ? {} : 'skip'));
+	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
 	let clubIdTyped = $derived((clubId ? (clubId as Id<'clubs'>) : null));
@@ -42,7 +41,6 @@
 	let sessionDialogOpen = $state(false);
 	let sessionEditId = $state<Id<'sessions'> | null>(null);
 	let sessionForm = $state({
-		datetime: '',
 		startTime: '',
 		endTime: '',
 		description: ''
@@ -74,7 +72,6 @@
 		sessionEditId = null;
 		const now = Date.now();
 		sessionForm = {
-			datetime: toLocalDateTimeInput(now + 3_600_000),
 			startTime: toLocalDateTimeInput(now + 3_600_000),
 			endTime: toLocalDateTimeInput(now + 7_200_000),
 			description: ''
@@ -85,7 +82,6 @@
 	const openEditSession = (session: NonNullable<typeof sessionsResponse.data>[number]) => {
 		sessionEditId = session._id;
 		sessionForm = {
-			datetime: toLocalDateTimeInput(session.datetime),
 			startTime: toLocalDateTimeInput(session.startTime),
 			endTime: toLocalDateTimeInput(session.endTime),
 			description: session.description
@@ -95,10 +91,9 @@
 
 	const saveSession = async () => {
 		if (!clubIdTyped) return;
-		const datetime = new Date(sessionForm.datetime).getTime();
 		const startTime = new Date(sessionForm.startTime).getTime();
 		const endTime = new Date(sessionForm.endTime).getTime();
-		if (!Number.isFinite(datetime) || !Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+		if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
 			errorMessage = 'Invalid session date or time.';
 			return;
 		}
@@ -109,7 +104,6 @@
 			if (sessionEditId) {
 				await convexClient.mutation(api.sessions.update, {
 					sessionId: sessionEditId,
-					datetime,
 					startTime,
 					endTime,
 					description: sessionForm.description.trim()
@@ -117,7 +111,6 @@
 			} else {
 				await convexClient.mutation(api.sessions.create, {
 					clubId: clubIdTyped,
-					datetime,
 					startTime,
 					endTime,
 					description: sessionForm.description.trim()
@@ -221,10 +214,6 @@
 				>
 			</Dialog.Header>
 			<div class="flex flex-col gap-3">
-				<div class="flex flex-col gap-2">
-					<Label for="sessionDatetime">Session date and time</Label>
-					<Input id="sessionDatetime" type="datetime-local" bind:value={sessionForm.datetime} />
-				</div>
 				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 					<div class="flex flex-col gap-2">
 						<Label for="sessionStart">Start</Label>

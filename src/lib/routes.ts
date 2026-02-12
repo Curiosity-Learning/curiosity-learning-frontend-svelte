@@ -1,6 +1,8 @@
 export const routes = {
 	onboardingGetStarted: '/onboarding/get-started',
 	feed: '/feed',
+	feedMyClubs: '/feed/my-clubs',
+	feedGlobal: '/feed/global',
 	chat: '/chat',
 	profile: '/profile',
 	settings: '/settings',

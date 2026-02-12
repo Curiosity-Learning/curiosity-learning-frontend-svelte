@@ -45,14 +45,14 @@
 	};
 </script>
 
-<div class={cn('relative h-9', widthClassFor(Math.min(max, people.length) + (remaining ? 1 : 0)))}>
+<div class={cn('isolate relative h-9', widthClassFor(Math.min(max, people.length) + (remaining ? 1 : 0)))}>
 	{#each visiblePeople as person, index (person.name + index)}
-		<div class={cn('absolute left-0 top-0', translateClassFor(index))} style:z-index={50 - index}>
+		<div class={cn('absolute left-0 top-0', translateClassFor(index))} style:z-index={visiblePeople.length - index}>
 			<Avatar class={cn(sizeClass, 'ring-2 ring-background')}>
 				{#if person.imageUrl}
 					<AvatarImage src={person.imageUrl} alt={person.name} />
 				{/if}
-				<AvatarFallback class="text-xs font-semibold">{initialsFor(person.name)}</AvatarFallback>
+				<AvatarFallback class="type-caption-bold">{initialsFor(person.name)}</AvatarFallback>
 			</Avatar>
 		</div>
 	{/each}
@@ -65,7 +65,7 @@
 			<div
 				class={cn(
 					sizeClass,
-					'flex items-center justify-center rounded-full bg-accent text-sm font-semibold text-primary ring-2 ring-background'
+					'flex items-center justify-center rounded-full bg-accent type-sm-bold text-primary ring-2 ring-background'
 				)}
 			>
 				+{remaining}

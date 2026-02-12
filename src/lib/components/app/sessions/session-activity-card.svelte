@@ -57,10 +57,10 @@
 <Card class="gap-0 py-0">
 	<CardContent class="flex flex-col gap-3 p-4">
 		<div class="flex items-start justify-between gap-3">
-			<h3 class="text-xl font-semibold">{activity.name}</h3>
+			<h3 class="type-h5-medium">{activity.name}</h3>
 			<ActionMenu items={actionItems} ariaLabel={`Open actions for ${activity.name}`} />
 		</div>
-		<p class="text-base text-muted-foreground">
+		<p class="text-muted-foreground">
 			{activity.content ??
 				'No activity notes yet. Add details to include prep steps, prompts, or handouts.'}
 		</p>

@@ -20,19 +20,16 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import { authClient } from '$lib/auth-client';
-	import { profileReady } from '$lib/app/client-init';
 
 	const session = authClient.useSession();
 	const convexClient = useConvexClient();
-	const profileResponse = useQuery(api.profiles.getMe, () => ($profileReady ? {} : 'skip'));
-	const preferencesResponse = useQuery(api.preferences.get, () => ($profileReady ? {} : 'skip'));
+	const profileResponse = useQuery(api.profiles.getMe, {});
+	const preferencesResponse = useQuery(api.preferences.get, {});
 	const privacyPolicyResponse = useQuery(api.privacyPolicy.getActive, () =>
 		$session.data ? {} : 'skip'
 	);
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($profileReady ? {} : 'skip'));
-	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, () =>
-		$profileReady ? {} : 'skip'
-	);
+	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
+	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, {});
 
 	let profileInitialized = $state(false);
 	let preferencesInitialized = $state(false);

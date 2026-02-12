@@ -20,8 +20,8 @@
 		nav === 'bottom'
 			? 'flex h-auto w-full flex-col items-center justify-center gap-1 rounded-md px-0 py-2 text-center'
 			: nav === 'side'
-				? 'flex h-auto w-full items-center justify-start gap-3 rounded-md px-3 py-2 text-left text-base font-medium'
-				: 'flex h-auto w-full items-center justify-start gap-2 rounded-md pr-3 pl-10 py-2 text-left text-sm font-medium'
+				? 'flex h-auto w-full items-center justify-start gap-3 rounded-md px-3 py-2 text-left type-lead-medium'
+				: 'flex h-auto w-full items-center justify-start gap-2 rounded-md pr-3 pl-10 py-2 text-left type-label'
 	);
 
 	let tone = $derived(
@@ -53,13 +53,13 @@
 		{#if Icon}
 			<Icon class="size-6" />
 		{/if}
-		<span class="text-xs leading-none font-medium">{label}</span>
+		<span class="type-caption-medium">{label}</span>
 	{:else if nav === 'side'}
 		{#if Icon}
 			<Icon class="size-4 shrink-0" />
 		{/if}
-		<span class="leading-none">{label}</span>
+		<span>{label}</span>
 	{:else}
-		<span class="leading-none">{label}</span>
+		<span>{label}</span>
 	{/if}
 </Button>

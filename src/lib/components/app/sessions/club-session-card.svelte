@@ -5,10 +5,15 @@
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
 	import { useQuery } from 'convex-svelte';
-	import ActionMenu from '$lib/components/app/action-menu.svelte';
-	import AvatarStack from '$lib/components/app/home/avatar-stack.svelte';
-	import { Badge } from '$lib/components/ui/badge';
-	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
+	import {
+		ActionMenu,
+		DataRecordCard,
+		DataRecordHeader,
+		RelationAvatarStack,
+		RelationChipSet,
+		RelationListCards,
+		RelationSection
+	} from '$lib/components/app';
 	import { Separator } from '$lib/components/ui/separator';
 
 	type Props = {
@@ -52,6 +57,13 @@
 	let tagNames = $derived(cardData.data?.tagNames ?? []);
 	let attendees = $derived(cardData.data?.attendees ?? []);
 	let activities = $derived((activitiesResponse.data ?? []).slice(0, 3));
+	let activityItems = $derived(
+		activities.map((activity) => ({
+			id: String(activity.id),
+			title: activity.name,
+			description: activity.content ?? session.description
+		}))
+	);
 	let actionItems = $derived([
 		{
 			id: 'edit',
@@ -72,74 +84,60 @@
 	]);
 </script>
 
-<Card>
-	<CardHeader>
-		<div class="flex items-center justify-between gap-3">
-			<a
-				href={sessionHref}
-				class="flex min-w-0 items-center gap-3"
-				data-sveltekit-preload-code="hover"
-				data-sveltekit-preload-data="hover"
-			>
-				<div class="flex size-8 shrink-0 items-center justify-center rounded-xl bg-accent text-primary">
-					<CalendarIcon class="size-4" />
-				</div>
-				<CardTitle class="truncate text-m">{formatSessionLine(session.startTime)}</CardTitle>
-			</a>
-			<ActionMenu items={actionItems} ariaLabel="Open session actions" />
-		</div>
-		{#if tagNames.length}
-			<div class="flex flex-wrap gap-2">
-				{#each tagNames as tag (tag)}
-					<Badge variant="secondary" class="bg-accent/60 px-3 py-1 text-sm font-semibold text-primary">
-						{tag}
-					</Badge>
-				{/each}
-			</div>
+<DataRecordCard href={sessionHref}>
+	{#snippet header()}
+		{#if tagNames.length > 0}
+			<DataRecordHeader title={formatSessionLine(session.startTime)}>
+				{#snippet leading()}
+					<div class="flex size-8 items-center justify-center rounded-xl bg-accent text-primary">
+						<CalendarIcon class="size-4" />
+					</div>
+				{/snippet}
+
+				{#snippet actions()}
+					<ActionMenu items={actionItems} ariaLabel="Open session actions" />
+				{/snippet}
+
+				{#snippet meta()}
+					<RelationChipSet chips={tagNames} tone="accent" />
+				{/snippet}
+			</DataRecordHeader>
+		{:else}
+			<DataRecordHeader title={formatSessionLine(session.startTime)}>
+				{#snippet leading()}
+					<div class="flex size-8 items-center justify-center rounded-xl bg-accent text-primary">
+						<CalendarIcon class="size-4" />
+					</div>
+				{/snippet}
+
+				{#snippet actions()}
+					<ActionMenu items={actionItems} ariaLabel="Open session actions" />
+				{/snippet}
+			</DataRecordHeader>
 		{/if}
-	</CardHeader>
+	{/snippet}
 
 	<Separator class="opacity-70" />
 
-	<CardContent class="flex flex-col gap-3">
-		<div class="flex flex-col gap-3">
-			<p class="text-xl font-semibold tracking-tight text-muted-foreground">Activities</p>
-			{#if activitiesResponse.isLoading}
-				<p class="text-sm text-muted-foreground">Loading activities...</p>
-			{:else if activities.length === 0}
-				<p class="text-sm text-muted-foreground">No activities yet.</p>
-			{:else}
-				<div class="flex flex-col gap-3">
-					{#each activities as activity (activity.id)}
-						<a
-							href={sessionHref}
-							class="flex flex-col gap-2 rounded-xl bg-muted/50 p-4"
-							data-sveltekit-preload-code="hover"
-							data-sveltekit-preload-data="hover"
-						>
-							<p class="text-xl font-semibold tracking-tight">{activity.name}</p>
-							<p class="line-clamp-2 text-sm text-muted-foreground">
-								{activity.content ?? session.description}
-							</p>
-						</a>
-					{/each}
-				</div>
-			{/if}
-			</div>
+	<RelationSection title="Activities">
+		{#if activitiesResponse.isLoading}
+			<p class="type-lead text-slate-500">Loading activities...</p>
+		{:else if activityItems.length === 0}
+			<p class="type-lead text-slate-500">No activities yet.</p>
+		{:else}
+			<RelationListCards items={activityItems} fallbackDescription={session.description} />
+		{/if}
+	</RelationSection>
 
-		<Separator class="opacity-70" />
+	<Separator class="opacity-70" />
 
-		<section class="flex flex-col gap-3">
-			<p class="text-xl font-semibold tracking-tight text-muted-foreground">Attendees</p>
-			{#if !canReadMembers}
-				<p class="text-sm text-muted-foreground">You do not have access to attendees.</p>
-			{:else if cardData.isLoading}
-				<p class="text-sm text-muted-foreground">Loading attendees...</p>
-			{:else if attendees.length === 0}
-				<p class="text-sm text-muted-foreground">No attendees yet.</p>
-			{:else}
-				<AvatarStack people={attendees} max={6} sizeClass="size-11" />
-			{/if}
-		</section>
-	</CardContent>
-</Card>
+	<RelationSection title="Attendees">
+		{#if !canReadMembers}
+			<p class="type-lead text-slate-500">You do not have access to attendees.</p>
+		{:else if cardData.isLoading}
+			<p class="type-lead text-slate-500">Loading attendees...</p>
+		{:else}
+			<RelationAvatarStack people={attendees} max={6} sizeClass="size-11" />
+		{/if}
+	</RelationSection>
+</DataRecordCard>

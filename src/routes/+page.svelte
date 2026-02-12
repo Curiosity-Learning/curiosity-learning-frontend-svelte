@@ -3,30 +3,13 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import { authClient } from '$lib/auth-client';
-	import { ensureProfileOnce, profileReady, setProfileInitUser } from '$lib/app/client-init';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useQuery } from 'convex-svelte';
 
 	const session = authClient.useSession();
-	const convexClient = useConvexClient();
-
-	const viewerIdentity = useQuery(api.auth.getViewerIdentity, () => ($session.data ? {} : 'skip'));
-
-	// Kick off profile init as soon as Convex auth is confirmed; do not block UI.
-	$effect(() => {
-		if (!$session.data) {
-			setProfileInitUser(null);
-			return;
-		}
-
-		const userId = viewerIdentity.data?.userId ?? null;
-		if (!userId) return;
-
-		setProfileInitUser(userId);
-		void ensureProfileOnce(convexClient, api).catch(() => {});
-	});
-
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($profileReady ? {} : 'skip'));
-	const profileResponse = useQuery(api.profiles.getMe, () => ($profileReady ? {} : 'skip'));
+	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($session.data ? {} : 'skip'));
+	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, () =>
+		$session.data ? {} : 'skip'
+	);
 
 	const pickClubId = () => {
 		const clubs = clubsResponse.data ?? [];
@@ -40,7 +23,7 @@
 			// ignore
 		}
 
-		const activeClubId = profileResponse.data?.activeClubId;
+		const activeClubId = activeContextResponse.data?.activeClubId;
 		if (activeClubId && clubs.some((c) => c.clubId === activeClubId)) return activeClubId;
 
 		// clubs[0] is the first club for the current logged-in user (not global).
@@ -61,11 +44,16 @@
 			return;
 		}
 
-		// Signed in but profile init isn't ready yet.
-		if (!$profileReady) return;
+		if (clubsResponse.isLoading || activeContextResponse.isLoading) return;
+
+		if (clubsResponse.error || activeContextResponse.error) return;
 
 		const clubId = pickClubId();
-		if (!clubId) return; // still loading clubs
+		if (!clubId) {
+			redirected = true;
+			void goto('/onboarding/get-started');
+			return;
+		}
 
 		redirected = true;
 		const target = `/${clubId}/sessions`;

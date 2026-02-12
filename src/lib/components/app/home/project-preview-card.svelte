@@ -11,9 +11,10 @@
 	type Props = {
 		project: Doc<'projects'>;
 		memberPreview?: MemberPreview[];
+		href?: string;
 	};
 
-	let { project, memberPreview }: Props = $props();
+	let { project, memberPreview, href }: Props = $props();
 
 	const membersResponse = useQuery(api.projects.listMembers, () =>
 		memberPreview ? 'skip' : { projectId: project._id }
@@ -40,21 +41,21 @@
 	);
 </script>
 
-<Card class="w-[18.5rem] shrink-0 gap-0 py-0 sm:w-[20rem]">
+<Card class="w-[18.5rem] shrink-0 gap-0 py-0 sm:w-[20rem]" {href}>
 	<CardContent class="flex h-full flex-col gap-4 p-5">
 		<div class="flex flex-col gap-2">
-			<p class="text-lg font-semibold tracking-tight">{project.name}</p>
+			<p class="type-h6-bold">{project.name}</p>
 			{#if project.description}
-				<p class="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{project.description}</p>
+				<p class="line-clamp-3 type-sm text-muted-foreground">{project.description}</p>
 			{:else}
-				<p class="text-sm text-muted-foreground">No description yet.</p>
+				<p class="type-sm text-muted-foreground">No description yet.</p>
 			{/if}
 		</div>
 
 		<div class="flex flex-col gap-3">
 			<AvatarStack people={people} max={3} sizeClass="size-8" />
 			{#if project.dueDate}
-				<div class="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+				<div class="flex items-center gap-2 type-label text-muted-foreground">
 					<CalendarIcon class="size-4 text-primary" />
 					<p class="line-clamp-1">{formatDueDate(project.dueDate)}</p>
 				</div>
