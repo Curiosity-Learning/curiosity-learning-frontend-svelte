@@ -1,15 +1,13 @@
-# Curiosity Learning Migration Plan (Flutter -> SvelteKit + shadcn + Convex)
+# Implementation Plan
 
-## Objective
+> Migration progress from Flutter to SvelteKit. For feature parity checklist see [parity-matrix.md](parity-matrix.md).
 
-Port `/Users/ronberlinski/Documents/Curosity-Learning-Frontend` into this repository with production-quality SvelteKit frontend, shadcn-svelte components, and Convex-backed data/auth flows.
+## Source of Truth
 
-## Source Of Truth
+- Flutter app: `/Users/ronberlinski/Documents/Curosity-Learning-Frontend`
+- Legacy reference: `/Users/ronberlinski/Documents/curiosity-learning-flutter-to-svelte/ref`
 
-- Flutter routes/screens in `/Users/ronberlinski/Documents/Curosity-Learning-Frontend`
-- Legacy table/function reference in `/Users/ronberlinski/Documents/curiosity-learning-flutter-to-svelte/ref`
-
-## Phase Status
+## Phases
 
 - [x] Phase 0: Audit + migration design
 - [x] Phase 1: Foundation (shadcn, app shell, routing groups)
@@ -21,35 +19,17 @@ Port `/Users/ronberlinski/Documents/Curosity-Learning-Frontend` into this reposi
 - [x] Phase 7: Terms/privacy and initial chat slice
 - [x] Phase 8: Hardening, tests, screenshots, lint/check gates
 
-## Delivered Route Surface
+## Delivered Routes
 
 - `/auth/sign-in`, `/auth/sign-up`, `/auth/reset-password`
 - `/onboarding/get-started`, `/onboarding/join-club`, `/onboarding/join-club/[code]`, `/onboarding/start-club`
 - `/app/home`, `/app/sessions`, `/app/projects`, `/app/people`, `/app/settings`, `/app/notifications`, `/app/chat`
+- `/[clubId]/projects/new` — project creation (dedicated page, not modal)
 - `/privacy`, `/terms`
 
-## Validation Gates
+## Visual QA
 
-- `npm run lint` ✅
-- `npm run check` ✅
-- `npm run test:unit -- --run` ✅
-- `npm run test:e2e` ✅
-
-## Visual QA Artifacts
-
-Playwright screenshots saved in `docs/screenshots/`:
-
-- `auth-sign-in.png`
-- `auth-sign-up.png`
-- `onboarding-get-started.png`
-- `onboarding-join-club.png`
-- `onboarding-start-club.png`
-- `privacy.png`
-- `terms.png`
-- `app-home-auth-gate.png`
-- `app-sessions-auth-gate.png`
-- `app-projects-auth-gate.png`
-- `app-settings-auth-gate.png`
+Playwright screenshots saved in `docs/screenshots/`.
 
 ## Open Follow-ups
 

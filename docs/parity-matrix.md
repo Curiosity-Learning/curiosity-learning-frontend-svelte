@@ -1,4 +1,6 @@
-# Flutter -> SvelteKit Parity Matrix
+# Parity Matrix
+
+> Feature-by-feature checklist: Flutter vs SvelteKit. For migration phases see [implementation-plan.md](implementation-plan.md).
 
 ## Core Flows
 

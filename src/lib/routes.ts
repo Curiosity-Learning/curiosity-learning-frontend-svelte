@@ -11,6 +11,7 @@ export const routes = {
 	clubHome: (clubId: string) => `/${clubId}`,
 	clubSessions: (clubId: string) => `/${clubId}/sessions`,
 	clubProjects: (clubId: string) => `/${clubId}/projects`,
+	clubProjectsNew: (clubId: string) => `/${clubId}/projects/new`,
 	clubMembers: (clubId: string) => `/${clubId}/members`,
 	sessionDetail: (sessionId: string) => `/session/${sessionId}`
 } as const;

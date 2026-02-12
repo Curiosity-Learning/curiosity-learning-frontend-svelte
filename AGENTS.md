@@ -42,6 +42,16 @@ When working in this repo:
 - Auth work: use `better-auth-best-practices` guidelines (trusted origins, secrets, email flows).
 - Browser validation/screenshots: use `playwright-skill` when explicitly requested or when verifying complex flows.
 
+## Documentation Maintenance
+
+Keep documentation up to date as you work. This is an ongoing responsibility, not a one-time task.
+
+- **Architecture decisions**: When making a significant design choice (new pattern, rejecting an alternative, choosing a library), create an ADR in `docs/adr/` and link it from `docs/architecture.md`.
+- **QA log**: After completing a feature or fixing a notable bug, add an entry to `docs/qa-log.md` with the date and a brief summary.
+- **Architecture doc**: When adding new routes, patterns, or conventions, update `docs/architecture.md` to reflect the current state.
+- **Parity matrix**: When implementing a new flow or data contract, check the corresponding item in `docs/parity-matrix.md`.
+- **Implementation plan**: Update `docs/implementation-plan.md` when phases are completed or new phases are added.
+
 ## Notes / Guardrails
 
 - Keep secrets out of the repo. Use Convex env vars for backend secrets.

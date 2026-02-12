@@ -138,7 +138,7 @@
 				</div>
 		</aside>
 
-		<div class="flex min-h-screen flex-1 flex-col">
+		<div class="flex min-h-screen min-w-0 flex-1 flex-col">
 			<header
 				class="sticky top-0 z-20 flex justify-center border-b border-border/70 bg-background/80 backdrop-blur"
 			>

@@ -7,11 +7,8 @@
 	import { PageHeaderActions, PageHeaderBackButton } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
-	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
-	import { Textarea } from '$lib/components/ui/textarea';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useQuery } from 'convex-svelte';
 	import ClubProjectCard from './club-project-card.svelte';
 
 	type Props = {
@@ -20,7 +17,6 @@
 
 	let { status }: Props = $props();
 
-	const convexClient = useConvexClient();
 	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
@@ -35,46 +31,9 @@
 		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
 	);
 
-	let projectDialogOpen = $state(false);
-	let projectForm = $state({ name: '', description: '', dueDate: '' });
-	let pending = $state(false);
 	let errorMessage = $state('');
 	let searchOpen = $state(false);
 	let searchText = $state('');
-
-	const openCreateProject = () => {
-		projectForm = { name: '', description: '', dueDate: '' };
-		projectDialogOpen = true;
-	};
-
-	const saveProject = async () => {
-		if (!clubIdTyped) return;
-		if (!projectForm.name.trim()) return;
-
-		pending = true;
-		errorMessage = '';
-		try {
-			let dueDate: number | undefined = undefined;
-			if (projectForm.dueDate) {
-				dueDate = new Date(projectForm.dueDate).getTime();
-				if (!Number.isFinite(dueDate)) {
-					throw new Error('Please enter a valid due date.');
-				}
-			}
-
-			await convexClient.mutation(api.projects.create, {
-				clubId: clubIdTyped,
-				name: projectForm.name.trim(),
-				description: projectForm.description.trim() || undefined,
-				dueDate
-			});
-			projectDialogOpen = false;
-		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to save project.';
-		} finally {
-			pending = false;
-		}
-	};
 
 	const toggleSearch = () => {
 		searchOpen = !searchOpen;
@@ -136,7 +95,7 @@
 			size="icon"
 			aria-label="Create project"
 			disabled={!canCreate}
-			onclick={openCreateProject}
+			href={clubId ? `/${clubId}/projects/new` : undefined}
 		>
 			<PlusIcon class="size-5 text-muted-foreground" />
 		</Button>
@@ -193,32 +152,4 @@
 		{/if}
 	</div>
 
-	<Dialog.Root bind:open={projectDialogOpen}>
-		<Dialog.Content>
-			<Dialog.Header>
-				<Dialog.Title>Create project</Dialog.Title>
-				<Dialog.Description>Keep goals and due dates visible for your club.</Dialog.Description>
-			</Dialog.Header>
-			<div class="flex flex-col gap-3">
-				<div class="flex flex-col gap-2">
-					<Label for="projectName">Project name</Label>
-					<Input id="projectName" bind:value={projectForm.name} />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="projectDescription">Description</Label>
-					<Textarea id="projectDescription" bind:value={projectForm.description} rows={4} />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="projectDueDate">Due date</Label>
-					<Input id="projectDueDate" type="date" bind:value={projectForm.dueDate} />
-				</div>
-			</div>
-			<Dialog.Footer>
-				<Button variant="outline" onclick={() => (projectDialogOpen = false)}>Cancel</Button>
-				<Button disabled={pending || !projectForm.name.trim()} onclick={() => void saveProject()}>
-					{pending ? 'Saving...' : 'Save project'}
-				</Button>
-			</Dialog.Footer>
-		</Dialog.Content>
-	</Dialog.Root>
 {/if}

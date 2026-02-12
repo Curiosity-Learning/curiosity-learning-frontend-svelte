@@ -1,0 +1,110 @@
+# Security & Access Control
+
+> Permissions model, per-endpoint access rules, and known gaps. For table schemas see [data-model.md](data-model.md).
+
+## Auth Plumbing
+
+- **Provider:** Better Auth with Convex integration.
+- **Token flow:** SvelteKit `hooks.server.ts` populates `event.locals.token` from Better Auth cookies. Server-side Convex client is created with this token.
+- **Identity:** `identity.subject` is the canonical `userId` string used across all tables.
+- **Trusted origins:** Configured in `src/convex/auth.ts`. LAN origins only enabled when `ALLOW_LAN_TRUSTED_ORIGINS === 'true'`.
+
+## Permissions Model
+
+Source: `src/convex/permissions.ts`
+
+- `requireIdentity(ctx)` — base auth gate.
+- Club permissions: `clubMembers` → `clubRoles.permissions[]`.
+- Project permissions: club-level via `projectClubs` OR project-membership via `projectMembers` → `projectRoles.permissions[]`.
+- Seeded roles (via `src/convex/bootstrap.ts`): Club has `Guide` and `Learner`; Project has `Creator` and `Contributor`.
+
+## Access Control Matrix
+
+### Profiles
+
+| Endpoint                          | Auth | Permission           | Notes                          |
+| --------------------------------- | ---- | -------------------- | ------------------------------ |
+| `profiles.getMe`                  | Yes  | —                    |                                |
+| `profiles.updateMe`              | Yes  | —                    | Enforces username uniqueness   |
+| `profiles.checkUsernameAvailability` | No | —                   | Public                         |
+
+### Clubs
+
+| Endpoint                    | Auth | Permission              | Notes                                    |
+| --------------------------- | ---- | ----------------------- | ---------------------------------------- |
+| `clubs.getMyClubs`          | Yes  | —                       |                                          |
+| `clubs.getClubPreviewByCode`| No   | —                       | Public; returns basic metadata           |
+| `clubs.createClub`          | Yes  | —                       | Creator becomes Guide; generates code    |
+| `clubs.joinClubWithCode`    | Yes  | —                       | Joins as Learner                         |
+| `clubs.switchActiveClub`    | Yes  | —                       | Must be non-left member                  |
+| `clubs.getActiveClubContext`| Yes  | —                       | Returns empty permissions if no membership |
+| `clubs.getClubById`         | Yes  | `club:read`             |                                          |
+| `clubs.updateClub`          | Yes  | `club:edit`             |                                          |
+| `clubs.getMembers`          | Yes  | `club_member:read_active` |                                        |
+| `clubs.kickMember`          | Yes  | `club_member:kick`      | Role-order check (can't kick equal/higher) |
+
+### Sessions
+
+All require auth + club permission via `requirePermission`:
+`session:read|create|update|delete`, `session_activity:read|create|update|delete`, `attendance:read|create`
+
+### Projects
+
+| Endpoint                     | Auth | Permission        | Notes                                 |
+| ---------------------------- | ---- | ----------------- | ------------------------------------- |
+| `projects.listByClub`        | Yes  | `project:read`    | Scoped to club                        |
+| `projects.getById`           | Yes  | `project:read`    | Via linked clubs OR project membership |
+| `projects.create`            | Yes  | `project:create`  | Links to club; creator gets Creator role |
+| `projects.update`            | Yes  | `project:update`  | Via linked clubs OR project membership |
+| `projects.listMembers`       | Yes  | `project:read`    | Via linked clubs OR project membership |
+| `projects.addMember/removeMember` | Yes | `project:update` | Via linked clubs OR project membership |
+
+### Updates
+
+| Endpoint               | Auth | Permission        | Notes                                           |
+| ---------------------- | ---- | ----------------- | ----------------------------------------------- |
+| `updates.listByProject`| Yes  | `project:update`  | Stricter than `project:read` — see gaps below   |
+| `updates.listByClub`   | Yes  | `project:read`    | Aggregates across linked projects               |
+| `updates.create/update`| Yes  | `project:update`  |                                                 |
+| `updates.attachFiles`  | Yes  | `project:update`  |                                                 |
+| `updates.listFiles`    | Yes  | —                 | **Gap:** only checks auth, not project scope    |
+
+### Preferences / Notifications / Privacy
+
+| Endpoint                     | Auth | Permission | Notes                                     |
+| ---------------------------- | ---- | ---------- | ----------------------------------------- |
+| `preferences.get/upsert`    | Yes  | —          |                                           |
+| `notifications.list/markRead`| Yes  | —          | `markRead` enforces ownership             |
+| `privacyPolicy.getActive`   | No   | —          | Public                                    |
+| `privacyPolicy.upsertActive`| Yes  | —          | **Gap:** any auth user can edit policy    |
+
+### Chat
+
+| Endpoint                          | Auth | Permission | Notes                                   |
+| --------------------------------- | ---- | ---------- | --------------------------------------- |
+| `chat.listRooms/listRoomSummaries`| Yes  | —          | Scoped to user's `participants`         |
+| `chat.getOrCreateDirectRoom`      | Yes  | —          | **Gap:** no shared-club check           |
+| `chat.listMessages/sendMessage`   | Yes  | —          | Must be room participant                |
+
+## Known Gaps
+
+### High Priority
+
+1. **Privacy policy write is too broad** — `privacyPolicy.upsertActive` callable by any auth user. Should restrict to admin.
+2. **Update file listing is too broad** — `updates.listFiles(updateId)` only checks auth. Any user who knows an `updateId` can list its files.
+3. **Bootstrap is unauthenticated** — `bootstrap.seedDefaults` should be `internalMutation` or require auth.
+
+### Medium Priority
+
+4. **Chat rooms unrestricted** — `getOrCreateDirectRoom` doesn't enforce shared club membership.
+5. **Permission string drift** — Roles have `updates:*` but code checks `project:*`. `updates.listByProject` requires `project:update` (not `project:read`), inconsistent with `listByClub`.
+6. **Storage IDs typed as `string`** — Should use `Id<'_storage'>` for Convex file storage.
+
+## Hardening Plan
+
+1. Write explicit access-control matrix (this document).
+2. Fix high-priority gaps (policy write, file listing, bootstrap).
+3. Resolve permission string drift (pick `updates:*` or `project:*`).
+4. Decide and enforce chat scope.
+5. Tighten storage ID types.
+6. Add focused tests for security boundaries.

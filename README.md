@@ -50,6 +50,10 @@ npm run test:e2e
 
 Playwright screenshots are saved in `docs/screenshots/`.
 
+## Documentation
+
+See [`docs/README.md`](docs/README.md) for the full docs index — architecture, data model, security, ADRs, and more.
+
 ## Notes
 
 - Convex codegen output lives in `src/convex/_generated`.
