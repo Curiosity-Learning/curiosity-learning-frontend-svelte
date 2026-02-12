@@ -77,7 +77,6 @@ export default defineSchema({
 
 	sessions: defineTable({
 		clubId: v.id('clubs'),
-		datetime: v.number(),
 		description: v.string(),
 		startTime: v.number(),
 		endTime: v.number(),

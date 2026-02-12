@@ -53,7 +53,6 @@ export const getById = query({
 export const create = mutation({
 	args: {
 		clubId: v.id('clubs'),
-		datetime: v.number(),
 		startTime: v.number(),
 		endTime: v.number(),
 		description: v.string()
@@ -69,7 +68,6 @@ export const create = mutation({
 		const now = Date.now();
 		const sessionId = await ctx.db.insert('sessions', {
 			clubId: args.clubId,
-			datetime: args.datetime,
 			startTime: args.startTime,
 			endTime: args.endTime,
 			description: args.description,
@@ -85,7 +83,6 @@ export const create = mutation({
 export const update = mutation({
 	args: {
 		sessionId: v.id('sessions'),
-		datetime: v.number(),
 		startTime: v.number(),
 		endTime: v.number(),
 		description: v.string()
@@ -95,7 +92,7 @@ export const update = mutation({
 		const session = await getSession(ctx, args.sessionId);
 		await requirePermission(ctx, session.clubId, identity.subject, 'session:update');
 
-		if (session.datetime < Date.now()) {
+		if (session.startTime < Date.now()) {
 			throw new ConvexError('Cannot update past sessions');
 		}
 		if (args.endTime <= args.startTime) {
@@ -103,7 +100,6 @@ export const update = mutation({
 		}
 
 		await ctx.db.patch(args.sessionId, {
-			datetime: args.datetime,
 			startTime: args.startTime,
 			endTime: args.endTime,
 			description: args.description,
