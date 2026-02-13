@@ -73,7 +73,7 @@
 	{/if}
 
 	{#if (blocksResponse.data?.length ?? 0) > 0}
-		<div class="overflow-x-auto">
+		<div class="overflow-x-auto py-2">
 			<ToggleGroup.Root
 				type="multiple"
 				bind:value={selectedBlockNames}
