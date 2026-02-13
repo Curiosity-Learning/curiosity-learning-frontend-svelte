@@ -76,5 +76,6 @@ Forms use **shadcn-svelte Field.* components + Superforms + Zod v4** — no Form
 - **ActionMenu** provides edit/delete/toggle actions on detail pages via a dropdown triggered by an ellipsis icon.
 - **Field component hierarchy**: `Field.Group > Field.Field > Field.Label + Input + Field.Error + Field.Description`.
 - **Session Building Booklet**: Reusable activity templates browsable at `/activity-booklet`, with copy-on-add into sessions and drag-and-drop reordering. See [ADR-004](adr/004-session-building-booklet.md).
+- **Bottom nav clearance**: The app shell defines a `--bottom-nav-h` CSS variable (currently `4.5rem`) on the outermost wrapper. Content padding (`pb-[var(--bottom-nav-h)]`) and sticky floating element offsets (`bottom-[calc(var(--bottom-nav-h,0rem)+1rem)]`) derive from this single value. On desktop (`lg:`) the sidebar replaces the bottom nav and the padding is removed. Pages should not add their own bottom padding for nav clearance.
 - **Drag-and-drop reordering**: Session activities use `svelte-dnd-action` for sortable lists with an `order` field persisted via Convex mutation.
 - **Toggle chips**: `ToggleGroup` renders as pill-shaped filter chips by default (rounded-full, spaced, wrapping). Used for building block filtering in booklet and activity dialogs.
