@@ -10,20 +10,24 @@
 		PageHeaderTitle
 	} from '$lib/components/app';
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
+	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { DateTimePicker } from '$lib/components/ui/date-picker';
+	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { Input } from '$lib/components/ui/input';
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { dndzone } from 'svelte-dnd-action';
 
 	type Props = {
 		view: 'activities' | 'attendees';
@@ -92,6 +96,44 @@
 	let activityMinutes = $state('');
 	let activityBlockIds = $state<Array<Id<'buildingBlocks'>>>([]);
 
+	// Drag-and-drop state: local copy of activities that syncs with query data.
+	// svelte-dnd-action requires items with `id: string | number`.
+	type ActivityData = NonNullable<typeof activitiesResponse.data>[number];
+	type DndActivity = Omit<ActivityData, 'id'> & { id: string };
+	let dndItems = $state<DndActivity[]>([]);
+	let isDragging = $state(false);
+
+	// Sync query data into dnd items when not mid-drag
+	$effect(() => {
+		const data = activitiesResponse.data;
+		if (!data || isDragging) return;
+		dndItems = data.map((a) => ({ ...a, id: String(a.id) }));
+	});
+
+	const handleDndConsider = (e: CustomEvent<{ items: DndActivity[] }>) => {
+		isDragging = true;
+		dndItems = e.detail.items;
+	};
+
+	const handleDndFinalize = async (e: CustomEvent<{ items: DndActivity[] }>) => {
+		dndItems = e.detail.items;
+		if (!sessionIdTyped || !canUpdateActivity) {
+			isDragging = false;
+			return;
+		}
+		const activityIds = dndItems.map((item) => item.id as Id<'sessionActivities'>);
+		try {
+			await convexClient.mutation(api.sessions.reorderActivities, {
+				sessionId: sessionIdTyped,
+				activityIds
+			});
+		} catch (error) {
+			activityError = error instanceof Error ? error.message : 'Failed to reorder activities.';
+		} finally {
+			isDragging = false;
+		}
+	};
+
 	let attendanceSet = $derived(new Set((attendanceResponse.data ?? []).map((entry) => entry.userId)));
 	let blockNameById = $derived(
 		new Map((blocksResponse.data ?? []).map((block) => [String(block._id), block.name] as const))
@@ -119,7 +161,7 @@
 		sessionForm = {
 			startTime: session.startTime,
 			endTime: session.endTime,
-			description: session.description
+			description: session.description ?? ''
 		};
 		sessionDialogOpen = true;
 	};
@@ -130,11 +172,12 @@
 		pending = true;
 		errorMessage = '';
 		try {
+			const desc = sessionForm.description.trim();
 			await convexClient.mutation(api.sessions.update, {
 				sessionId: session._id,
 				startTime: sessionForm.startTime,
 				endTime: sessionForm.endTime,
-				description: sessionForm.description.trim()
+				...(desc ? { description: desc } : {})
 			});
 			sessionDialogOpen = false;
 		} catch (error) {
@@ -177,14 +220,6 @@
 		activityBlockIds = activity.buildingBlocks;
 		activityError = '';
 		activityDialogOpen = true;
-	};
-
-	const toggleActivityBlock = (blockId: Id<'buildingBlocks'>) => {
-		if (activityBlockIds.includes(blockId)) {
-			activityBlockIds = activityBlockIds.filter((entry) => entry !== blockId);
-			return;
-		}
-		activityBlockIds = [...activityBlockIds, blockId];
 	};
 
 	const saveActivity = async () => {
@@ -309,32 +344,59 @@
 
 		{#if view === 'activities'}
 				{#if (activitiesResponse.data?.length ?? 0) === 0}
-					<p class="type-sm text-muted-foreground">No activities yet.</p>
+					<div class="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 text-center">
+						<p class="type-lead text-muted-foreground">No activities yet.</p>
+						<p class="text-sm text-muted-foreground">Start building your session plan.</p>
+						{#if canCreateActivity}
+							<div class="flex flex-wrap justify-center gap-3">
+								<Button variant="outline" onclick={openCreateActivity}>
+									<PlusIcon class="size-4" />
+									New activity
+								</Button>
+								<Button onclick={() => void goto(routes.activityBooklet + '?session=' + sessionIdParam)}>
+									<BookOpenIcon class="size-4" />
+									Choose from booklet
+								</Button>
+							</div>
+						{/if}
+					</div>
 				{:else}
-					{#each activitiesResponse.data ?? [] as activity (activity.id)}
-						<SessionActivityCard
-							activity={{
-								id: String(activity.id),
-								name: activity.name,
-								content: activity.content,
-								minutes: activity.minutes,
-								buildingBlocks: activity.buildingBlocks.map((blockId) => String(blockId))
-							}}
-							{blockNameById}
-							canEdit={canUpdateActivity}
-							canDelete={canDeleteActivity}
-							onEdit={() => openEditActivity(activity)}
-							onDelete={() => void deleteActivity(activity.id)}
-						/>
-					{/each}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						use:dndzone={{ items: dndItems, flipDurationMs: 200, dropTargetStyle: {} }}
+						onconsider={handleDndConsider}
+						onfinalize={handleDndFinalize}
+						class="flex flex-col gap-4"
+					>
+						{#each dndItems as activity (activity.id)}
+							<SessionActivityCard
+								activity={{
+									id: activity.id,
+									name: activity.name,
+									content: activity.content,
+									minutes: activity.minutes,
+									buildingBlocks: activity.buildingBlocks.map((blockId) => String(blockId))
+								}}
+								{blockNameById}
+								canEdit={canUpdateActivity}
+								canDelete={canDeleteActivity}
+								onEdit={() => openEditActivity({ ...activity, id: activity.id as Id<'sessionActivities'> })}
+								onDelete={() => void deleteActivity(activity.id as Id<'sessionActivities'>)}
+							/>
+						{/each}
+					</div>
 				{/if}
 
-				{#if canCreateActivity}
+				{#if canCreateActivity && (activitiesResponse.data?.length ?? 0) > 0}
 					<div class="pointer-events-none sticky bottom-22 flex justify-center lg:bottom-8">
-						<div class="pointer-events-auto">
-							<Button class="rounded-full px-8 py-3 type-h6-bold shadow-md" onclick={openCreateActivity}>
+						<div class="pointer-events-auto flex gap-2">
+							<Button variant="outline" class="rounded-full px-6 py-3 shadow-md" onclick={openCreateActivity}>
 								<PlusIcon class="size-5" />
-								Add from booklet
+								New activity
+							</Button>
+							<Button class="rounded-full px-6 py-3 type-h6-bold shadow-md" onclick={() => void goto(routes.activityBooklet + '?session=' + sessionIdParam)}>
+								<BookOpenIcon class="size-5" />
+								From booklet
 							</Button>
 						</div>
 					</div>
@@ -382,25 +444,19 @@
 				<Dialog.Description>Update local date and time values for this session.</Dialog.Description>
 			</Dialog.Header>
 			<div class="flex flex-col gap-3">
-				<div class="flex flex-col gap-3">
-					<div class="flex flex-col gap-2">
-						<FieldLabel for="sessionStart" required>Start</FieldLabel>
-						<DateTimePicker id="sessionStart" bind:value={sessionForm.startTime} />
-					</div>
-					<div class="flex flex-col gap-2">
-						<FieldLabel for="sessionEnd" required>End</FieldLabel>
-						<DateTimePicker id="sessionEnd" bind:value={sessionForm.endTime} />
-					</div>
-				</div>
+				<SessionDateTimeForm
+					bind:startTime={sessionForm.startTime}
+					bind:endTime={sessionForm.endTime}
+				/>
 				<div class="flex flex-col gap-2">
-					<FieldLabel for="sessionDescription" required>Description</FieldLabel>
-					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} required />
+					<FieldLabel for="sessionDescription">Description</FieldLabel>
+					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
 				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
 				<Button
-					disabled={pending || !sessionForm.description.trim() || !canUpdateSession}
+					disabled={pending || !canUpdateSession}
 					onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
 				>
 			</Dialog.Footer>
@@ -430,18 +486,18 @@
 						</div>
 						<div class="flex flex-col gap-2">
 							<Label>Building blocks</Label>
-							<div class="flex flex-wrap gap-2">
+							<ToggleGroup.Root
+								type="multiple"
+								bind:value={activityBlockIds}
+								variant="outline"
+								size="sm"
+							>
 								{#each blocksResponse.data ?? [] as block (block._id)}
-									<Button
-										type="button"
-										size="sm"
-										variant={activityBlockIds.includes(block._id) ? 'default' : 'outline'}
-										onclick={() => toggleActivityBlock(block._id)}
-									>
+									<ToggleGroup.Item value={block._id}>
 										{block.name}
-									</Button>
+									</ToggleGroup.Item>
 								{/each}
-							</div>
+							</ToggleGroup.Root>
 						</div>
 					</div>
 				</div>

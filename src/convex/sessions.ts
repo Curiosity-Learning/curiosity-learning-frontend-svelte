@@ -55,7 +55,7 @@ export const create = mutation({
 		clubId: v.id('clubs'),
 		startTime: v.number(),
 		endTime: v.number(),
-		description: v.string()
+		description: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -85,7 +85,7 @@ export const update = mutation({
 		sessionId: v.id('sessions'),
 		startTime: v.number(),
 		endTime: v.number(),
-		description: v.string()
+		description: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -156,10 +156,13 @@ export const listActivities = query({
 		const session = await getSession(ctx, args.sessionId);
 		await requirePermission(ctx, session.clubId, identity.subject, 'session_activity:read');
 
-		const activities = await ctx.db
+		const rawActivities = await ctx.db
 			.query('sessionActivities')
 			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
 			.collect();
+		const activities = rawActivities.sort(
+			(a, b) => (a.order ?? a._creationTime) - (b.order ?? b._creationTime)
+		);
 
 		// Fast path (newer data): fetch all links for this session in one query.
 		const sessionLinks = await ctx.db
@@ -363,6 +366,28 @@ export const deleteActivity = mutation({
 		}
 
 		await ctx.db.delete(args.activityId);
+		return { success: true };
+	}
+});
+
+export const reorderActivities = mutation({
+	args: {
+		sessionId: v.id('sessions'),
+		activityIds: v.array(v.id('sessionActivities'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const session = await getSession(ctx, args.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'session_activity:update');
+
+		const now = Date.now();
+		for (let i = 0; i < args.activityIds.length; i++) {
+			await ctx.db.patch(args.activityIds[i], {
+				order: i,
+				updatedAt: now
+			});
+		}
+
 		return { success: true };
 	}
 });

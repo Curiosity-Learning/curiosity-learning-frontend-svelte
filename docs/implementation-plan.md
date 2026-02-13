@@ -25,8 +25,10 @@
 - `/onboarding/get-started`, `/onboarding/join-club`, `/onboarding/join-club/[code]`, `/onboarding/start-club`
 - `/app/home`, `/app/sessions`, `/app/projects`, `/app/people`, `/app/settings`, `/app/notifications`, `/app/chat`
 - `/project/[projectId]` — project detail page (view, edit, updates feed)
-- `/session/[sessionId]/activities` — session detail (activities tab)
+- `/session/[sessionId]/activities` — session detail (activities tab, drag-and-drop reordering)
 - `/session/[sessionId]/attendees` — session detail (attendees tab)
+- `/activity-booklet` — browsable activity template library (filterable by building block)
+- `/activity-booklet/[activityId]` — activity detail with "Add to session" action
 - `/privacy`, `/terms`
 
 ## Visual QA

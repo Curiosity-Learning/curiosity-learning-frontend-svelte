@@ -149,17 +149,38 @@ export const seedDefaults = mutation({
 
 		const baseBlocks = [
 			{
-				name: 'Icebreaker',
-				slug: 'icebreaker',
-				description: 'Opening activity to start the session.'
+				name: 'Team building',
+				slug: 'team-building',
+				description: 'Activities that build trust, connection, and group cohesion.'
 			},
 			{
-				name: 'Core Build',
-				slug: 'core-build',
-				description: 'Main collaborative building activity.'
+				name: 'Get curious',
+				slug: 'get-curious',
+				description: 'Spark curiosity and explore new ideas together.'
 			},
-			{ name: 'Reflection', slug: 'reflection', description: 'Group reflection and close-out.' }
+			{
+				name: 'Plan projects',
+				slug: 'plan-projects',
+				description: 'Plan and scope project work as a team.'
+			},
+			{
+				name: 'Work on projects',
+				slug: 'work-on-projects',
+				description: 'Hands-on project execution time.'
+			},
+			{
+				name: 'Share experiences',
+				slug: 'share-experiences',
+				description: 'Share progress, learnings, and reflections with the group.'
+			},
+			{
+				name: 'Mini projects',
+				slug: 'mini-projects',
+				description: 'Short standalone activities that deliver a quick result.'
+			}
 		];
+
+		const desiredSlugs = new Set(baseBlocks.map((b) => b.slug));
 
 		for (const block of baseBlocks) {
 			const existing = await ctx.db
@@ -176,6 +197,224 @@ export const seedDefaults = mutation({
 			}
 		}
 
+		// Remove building blocks not in the desired set
+		const allBlocks = await ctx.db.query('buildingBlocks').collect();
+		for (const block of allBlocks) {
+			if (block.slug && !desiredSlugs.has(block.slug)) {
+				// Remove any join rows referencing this block
+				const bookletLinks = await ctx.db
+					.query('bookletActivityBuildingBlocks')
+					.withIndex('by_building_block', (q) => q.eq('buildingBlockId', block._id))
+					.collect();
+				for (const link of bookletLinks) {
+					await ctx.db.delete(link._id);
+				}
+				const sessionLinks = await ctx.db
+					.query('sessionActivityBuildingBlocks')
+					.withIndex('by_building_block', (q) => q.eq('buildingBlockId', block._id))
+					.collect();
+				for (const link of sessionLinks) {
+					await ctx.db.delete(link._id);
+				}
+				await ctx.db.delete(block._id);
+			}
+		}
+
 		return { success: true };
+	}
+});
+
+const bookletActivitiesData: Array<{
+	name: string;
+	content: string;
+	minutes: number;
+	blocks: string[];
+}> = [
+	{
+		name: 'Two Truths and a Lie',
+		content:
+			'Each person shares three statements about themselves — two true, one false. The group guesses which is the lie. Great for learning fun facts about each other and breaking the ice in new or mixed groups.',
+		minutes: 15,
+		blocks: ['team-building']
+	},
+	{
+		name: 'The Human Knot',
+		content:
+			'Everyone stands in a circle, reaches across, and grabs two different hands. Without letting go, the group works together to untangle into a circle. Builds communication, patience, and problem-solving skills.',
+		minutes: 10,
+		blocks: ['team-building']
+	},
+	{
+		name: 'Marshmallow Challenge',
+		content:
+			'Teams of 4 get 20 sticks of spaghetti, 1 metre of tape, 1 metre of string, and 1 marshmallow. The goal: build the tallest freestanding structure with the marshmallow on top. Debrief on prototyping and iteration.',
+		minutes: 25,
+		blocks: ['team-building', 'mini-projects']
+	},
+	{
+		name: 'Appreciation Circle',
+		content:
+			'Sit in a circle. Each person shares one thing they appreciate about the person to their left. Strengthens bonds and creates a positive atmosphere. Works best after a few sessions together.',
+		minutes: 10,
+		blocks: ['team-building', 'share-experiences']
+	},
+	{
+		name: 'Question Carousel',
+		content:
+			'Post big questions around the room (e.g., "What problem would you love to solve?", "What skill do you wish you had?"). Learners rotate in pairs, discussing each question for 2 minutes before moving on.',
+		minutes: 20,
+		blocks: ['get-curious']
+	},
+	{
+		name: 'Wonder Wall',
+		content:
+			'Give everyone sticky notes. Each person writes 3 things they wonder about or want to learn. Post them on a shared wall. Group similar questions together and discuss the top themes.',
+		minutes: 15,
+		blocks: ['get-curious']
+	},
+	{
+		name: 'Expert Interview',
+		content:
+			'Invite a community member, parent, or professional as a guest. Learners prepare questions in advance, then conduct the interview as a group. Debrief on what surprised them.',
+		minutes: 30,
+		blocks: ['get-curious', 'share-experiences']
+	},
+	{
+		name: 'Curiosity Safari',
+		content:
+			'Go on a walk around the local area with notebooks. Learners document interesting things they notice — patterns, problems, surprises. Return and share top findings. Great for sparking project ideas.',
+		minutes: 30,
+		blocks: ['get-curious']
+	},
+	{
+		name: 'Project Pitch Practice',
+		content:
+			'Each team gets 5 minutes to pitch their project idea to the group. Use the format: Problem → Solution → First Step. Other teams give constructive feedback using "I like / I wish / What if" prompts.',
+		minutes: 25,
+		blocks: ['plan-projects']
+	},
+	{
+		name: 'Goal Setting Workshop',
+		content:
+			'Each team defines their project goal using the SMART framework (Specific, Measurable, Achievable, Relevant, Time-bound). Write it on a poster and present to the group for feedback.',
+		minutes: 20,
+		blocks: ['plan-projects']
+	},
+	{
+		name: 'Task Breakdown',
+		content:
+			'Teams take their project goal and break it into individual tasks. Use sticky notes — one task per note. Arrange them in order, assign owners, and estimate time. Post the plan visibly.',
+		minutes: 20,
+		blocks: ['plan-projects', 'work-on-projects']
+	},
+	{
+		name: 'Focused Work Sprint',
+		content:
+			'Set a timer for 25 minutes of focused project work (Pomodoro style). No phones, no switching tasks. After the sprint, take a 5-minute break and share one thing you accomplished.',
+		minutes: 30,
+		blocks: ['work-on-projects']
+	},
+	{
+		name: 'Pair Programming / Pair Work',
+		content:
+			'Two learners work on the same task together — one drives, one navigates. Switch roles halfway. Builds collaboration skills and helps learners get unstuck faster.',
+		minutes: 25,
+		blocks: ['work-on-projects']
+	},
+	{
+		name: 'Stand-Up Check-In',
+		content:
+			'Quick round-the-room update: each person shares (1) what they did since last session, (2) what they plan to do today, (3) any blockers. Keep it to 1-2 minutes per person.',
+		minutes: 10,
+		blocks: ['work-on-projects', 'share-experiences']
+	},
+	{
+		name: 'Demo Day',
+		content:
+			'Each team demonstrates their project progress to the group. Can be a working prototype, a design, or a plan walkthrough. Other teams ask questions and give feedback.',
+		minutes: 30,
+		blocks: ['share-experiences']
+	},
+	{
+		name: 'Reflection Journal',
+		content:
+			'Give learners 10 minutes of quiet writing time. Prompts: "What did I learn today?", "What am I proud of?", "What would I do differently?". Optional: share one highlight with the group.',
+		minutes: 15,
+		blocks: ['share-experiences']
+	},
+	{
+		name: 'Gallery Walk',
+		content:
+			'Teams set up stations showing their work. Everyone walks around, views each project, and leaves feedback on sticky notes. Rotate every 3-4 minutes. Debrief as a full group.',
+		minutes: 20,
+		blocks: ['share-experiences']
+	},
+	{
+		name: 'One-Hour Website',
+		content:
+			'Build a simple personal or project website in one session using a free tool (Google Sites, Carrd, or HTML). Focus on "done is better than perfect". Share the link at the end.',
+		minutes: 45,
+		blocks: ['mini-projects']
+	},
+	{
+		name: 'Design a Logo',
+		content:
+			'Each learner or team designs a logo for their project or club using paper, markers, or a free design tool like Canva. Present the logo and explain the design choices.',
+		minutes: 25,
+		blocks: ['mini-projects']
+	},
+	{
+		name: 'The Envelope Please',
+		content:
+			'Write a challenge on a card and seal it in an envelope. Teams swap envelopes and have 20 minutes to solve the challenge. Present solutions at the end. Challenges can be creative, technical, or community-based.',
+		minutes: 30,
+		blocks: ['mini-projects', 'get-curious']
+	}
+];
+
+export const seedBookletActivities = mutation({
+	args: {},
+	handler: async (ctx) => {
+		const now = Date.now();
+
+		// Ensure building blocks exist first
+		const allBlocks = await ctx.db.query('buildingBlocks').collect();
+		const blockBySlug = new Map(allBlocks.map((b) => [b.slug, b._id] as const));
+
+		// Clear existing booklet activities and their links
+		const existingActivities = await ctx.db.query('bookletActivities').collect();
+		for (const activity of existingActivities) {
+			const links = await ctx.db
+				.query('bookletActivityBuildingBlocks')
+				.withIndex('by_activity', (q) => q.eq('activityId', activity._id))
+				.collect();
+			for (const link of links) {
+				await ctx.db.delete(link._id);
+			}
+			await ctx.db.delete(activity._id);
+		}
+
+		for (const item of bookletActivitiesData) {
+			const activityId = await ctx.db.insert('bookletActivities', {
+				name: item.name,
+				content: item.content,
+				minutes: item.minutes,
+				status: 'published',
+				createdAt: now,
+				updatedAt: now
+			});
+
+			for (const slug of item.blocks) {
+				const blockId = blockBySlug.get(slug);
+				if (blockId) {
+					await ctx.db.insert('bookletActivityBuildingBlocks', {
+						activityId,
+						buildingBlockId: blockId
+					});
+				}
+			}
+		}
+
+		return { success: true, count: bookletActivitiesData.length };
 	}
 });

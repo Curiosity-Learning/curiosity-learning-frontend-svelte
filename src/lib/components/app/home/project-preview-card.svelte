@@ -56,7 +56,7 @@
 			<AvatarStack people={people} max={3} sizeClass="size-8" />
 			<div class="flex items-center gap-2 type-label text-muted-foreground">
 				<CalendarIcon class="size-4 text-primary" />
-				<p class="line-clamp-1">{formatDueDate(project.dueDate)}</p>
+				<p class="line-clamp-1">{project.dueDate ? formatDueDate(project.dueDate) : 'No due date'}</p>
 			</div>
 		</div>
 	</CardContent>

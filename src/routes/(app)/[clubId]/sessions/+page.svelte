@@ -13,11 +13,10 @@
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
-	import { DateTimePicker } from '$lib/components/ui/date-picker';
+	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { FieldLabel } from '$lib/components/ui/field';
-	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 
@@ -84,11 +83,12 @@
 		pending = true;
 		errorMessage = '';
 		try {
+			const desc = sessionForm.description.trim();
 			const session = await convexClient.mutation(api.sessions.create, {
 				clubId: clubIdTyped,
 				startTime: sessionForm.startTime,
 				endTime: sessionForm.endTime,
-				description: sessionForm.description.trim()
+				...(desc ? { description: desc } : {})
 			});
 			createDialogOpen = false;
 			if (session?._id) {
@@ -189,25 +189,19 @@
 				>
 			</Dialog.Header>
 			<div class="flex flex-col gap-3">
-				<div class="flex flex-col gap-3">
-					<div class="flex flex-col gap-2">
-						<FieldLabel for="sessionStart" required>Start</FieldLabel>
-						<DateTimePicker id="sessionStart" bind:value={sessionForm.startTime} />
-					</div>
-					<div class="flex flex-col gap-2">
-						<FieldLabel for="sessionEnd" required>End</FieldLabel>
-						<DateTimePicker id="sessionEnd" bind:value={sessionForm.endTime} />
-					</div>
-				</div>
+				<SessionDateTimeForm
+					bind:startTime={sessionForm.startTime}
+					bind:endTime={sessionForm.endTime}
+				/>
 				<div class="flex flex-col gap-2">
-					<FieldLabel for="sessionDescription" required>Description</FieldLabel>
-					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} required />
+					<FieldLabel for="sessionDescription">Description</FieldLabel>
+					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
 				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
 				<Button
-					disabled={pending || !sessionForm.description.trim()}
+					disabled={pending}
 					onclick={() => void createSession()}>{pending ? 'Creating...' : 'Open'}</Button
 				>
 			</Dialog.Footer>

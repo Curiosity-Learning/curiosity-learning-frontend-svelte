@@ -62,7 +62,7 @@
 			if (project.doneDate) return `Completed on ${formatDateLabel(project.doneDate)}`;
 			return 'Completed';
 		}
-		return `Due by ${formatDateLabel(project.dueDate)}`;
+		return project.dueDate ? `Due by ${formatDateLabel(project.dueDate)}` : 'No due date';
 	});
 </script>
 

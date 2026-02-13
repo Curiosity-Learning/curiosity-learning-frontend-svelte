@@ -94,7 +94,7 @@
 		}
 
 		return projects.sort((left, right) => {
-			if (left.dueDate !== right.dueDate) return left.dueDate - right.dueDate;
+			if (left.dueDate !== right.dueDate) return (left.dueDate ?? 0) - (right.dueDate ?? 0);
 			return left.createdAt - right.createdAt;
 		});
 	});

@@ -77,7 +77,7 @@ export default defineSchema({
 
 	sessions: defineTable({
 		clubId: v.id('clubs'),
-		description: v.string(),
+		description: v.optional(v.string()),
 		startTime: v.number(),
 		endTime: v.number(),
 		createdByUserId: v.string(),
@@ -119,6 +119,7 @@ export default defineSchema({
 		slug: v.optional(v.string()),
 		content: v.optional(v.string()),
 		minutes: v.optional(v.number()),
+		order: v.optional(v.number()),
 		createdByUserId: v.string(),
 		bookletActivityId: v.optional(v.id('bookletActivities')),
 		createdAt: v.number(),
@@ -154,7 +155,7 @@ export default defineSchema({
 
 	projects: defineTable({
 		name: v.string(),
-		dueDate: v.number(),
+		dueDate: v.optional(v.number()),
 		doneDate: v.optional(v.number()),
 		description: v.optional(v.string()),
 		createdByUserId: v.string(),

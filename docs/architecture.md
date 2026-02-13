@@ -33,6 +33,9 @@ session/[sessionId]/
 
 project/[projectId]/   ← single page, no tabs
 
+activity-booklet/      ← browsable activity library (?session= query param for context)
+├── [activityId]/      ← activity detail page
+
 feed/
 ├── (tabbed)/          ← My Clubs/Global tabs
 │   ├── my-clubs/
@@ -72,3 +75,6 @@ Forms use **shadcn-svelte Field.* components + Superforms + Zod v4** — no Form
 - **Page headers** use `PageHeaderBackButton`, `PageHeaderTitle`, `PageHeaderActions` — these communicate with AppShell via Svelte context.
 - **ActionMenu** provides edit/delete/toggle actions on detail pages via a dropdown triggered by an ellipsis icon.
 - **Field component hierarchy**: `Field.Group > Field.Field > Field.Label + Input + Field.Error + Field.Description`.
+- **Session Building Booklet**: Reusable activity templates browsable at `/activity-booklet`, with copy-on-add into sessions and drag-and-drop reordering. See [ADR-004](adr/004-session-building-booklet.md).
+- **Drag-and-drop reordering**: Session activities use `svelte-dnd-action` for sortable lists with an `order` field persisted via Convex mutation.
+- **Toggle chips**: `ToggleGroup` renders as pill-shaped filter chips by default (rounded-full, spaced, wrapping). Used for building block filtering in booklet and activity dialogs.

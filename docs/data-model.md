@@ -24,11 +24,11 @@ Schema source: `src/convex/schema.ts`
 
 | Table                          | Purpose                               | Key Fields                                                    | Indexes                                    |
 | ------------------------------ | ------------------------------------- | ------------------------------------------------------------- | ------------------------------------------ |
-| `sessions`                     | Session event within a club           | `clubId`, `datetime`, `startTime`, `endTime`, `description`, `createdByUserId` | `by_club`, `by_club_and_start` |
+| `sessions`                     | Session event within a club           | `clubId`, `datetime`, `startTime`, `endTime`, `description?`, `createdByUserId` | `by_club`, `by_club_and_start` |
 | `buildingBlocks`               | Global taxonomy for activities        | `name`, `slug`                                                | `by_slug`                                  |
 | `bookletActivities`            | Reusable activity templates           | `name?`, `content?`, `minutes?`, `status?`, `createdByUserId?` | `by_created_by`                           |
 | `bookletActivityBuildingBlocks`| Join: activities ↔ building blocks    | `activityId`, `buildingBlockId`                               | `by_activity`, `by_building_block`         |
-| `sessionActivities`            | Activities inside a session           | `sessionId`, `name`, `slug?`, `content?`, `minutes?`, `bookletActivityId?` | `by_session`                  |
+| `sessionActivities`            | Activities inside a session           | `sessionId`, `name`, `slug?`, `content?`, `minutes?`, `order?`, `bookletActivityId?` | `by_session`                  |
 | `sessionActivityBuildingBlocks`| Join: session activities ↔ blocks     | `sessionActivityId`, `buildingBlockId`                        | `by_session_activity`, `by_building_block` |
 | `attendances`                  | User attendance at a session          | `sessionId`, `userId`, `createdByUserId`, `createdAt`         | `by_session`, `by_session_and_user`        |
 

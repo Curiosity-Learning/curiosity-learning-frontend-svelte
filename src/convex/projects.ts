@@ -77,7 +77,7 @@ export const listPreviewsByClub = query({
 			(project): project is NonNullable<typeof project> => Boolean(project)
 		);
 
-		projects.sort((a, b) => a.dueDate - b.dueDate);
+		projects.sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
 		const limited = projects.slice(0, args.limit ?? 6);
 
 		const result: Array<{

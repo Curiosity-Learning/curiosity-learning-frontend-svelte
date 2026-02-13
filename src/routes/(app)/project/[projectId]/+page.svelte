@@ -108,7 +108,7 @@
 			if (project.doneDate) return `Completed on ${formatDateLabel(project.doneDate)}`;
 			return 'Completed';
 		}
-		return `Due by ${formatDateLabel(project.dueDate)}`;
+		return project.dueDate ? `Due by ${formatDateLabel(project.dueDate)}` : 'No due date';
 	});
 
 	let memberPeople = $derived(
@@ -127,7 +127,7 @@
 		editForm = {
 			name: project.name,
 			description: project.description ?? '',
-			dueDate: project.dueDate
+			dueDate: project.dueDate ?? null
 		};
 		editDialogOpen = true;
 	};
