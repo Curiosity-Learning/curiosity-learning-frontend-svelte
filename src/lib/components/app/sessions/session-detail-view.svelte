@@ -12,7 +12,6 @@
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
@@ -138,7 +137,6 @@
 	let blockNameById = $derived(
 		new Map((blocksResponse.data ?? []).map((block) => [String(block._id), block.name] as const))
 	);
-	let sessionTags = $derived(sessionCardDataResponse.data?.tagNames ?? []);
 
 	const formatHeaderLine = (timestamp: number) => {
 		const date = new Date(timestamp);
@@ -317,14 +315,6 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4 pb-2 lg:pb-6">
-		{#if sessionTags.length}
-			<div class="flex flex-wrap gap-2">
-				{#each sessionTags as tag (tag)}
-					<Badge variant="secondary" class="bg-accent/70 px-3 py-1 text-primary">{tag}</Badge>
-				{/each}
-			</div>
-		{/if}
-
 		{#if errorMessage}
 			<Alert variant="destructive">
 				<AlertTitle>Action failed</AlertTitle>
