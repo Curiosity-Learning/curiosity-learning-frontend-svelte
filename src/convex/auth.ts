@@ -49,7 +49,9 @@ const trustedOrigins = [
 	process.env.PUBLIC_CONVEX_SITE_URL,
 	// Local dev / preview ports.
 	'http://localhost:5173',
-	'http://localhost:4173'
+	'http://localhost:4173',
+	// ngrok tunnel for external device testing.
+	'https://arrased-semiurban-jean.ngrok-free.dev'
 ].filter((value): value is string => Boolean(value));
 
 // Optional: allow LAN/loopback origins for local development.
