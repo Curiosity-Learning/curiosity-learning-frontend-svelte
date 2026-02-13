@@ -73,18 +73,21 @@
 	{/if}
 
 	{#if (blocksResponse.data?.length ?? 0) > 0}
-		<ToggleGroup.Root
-			type="multiple"
-			bind:value={selectedBlockNames}
-			variant="outline"
-			size="sm"
-		>
-			{#each blocksResponse.data ?? [] as block (block._id)}
-				<ToggleGroup.Item value={block.name}>
-					{block.name}
-				</ToggleGroup.Item>
-			{/each}
-		</ToggleGroup.Root>
+		<div class="overflow-x-auto">
+			<ToggleGroup.Root
+				type="multiple"
+				bind:value={selectedBlockNames}
+				variant="outline"
+				size="sm"
+				class="w-max flex-nowrap"
+			>
+				{#each blocksResponse.data ?? [] as block (block._id)}
+					<ToggleGroup.Item value={block.name}>
+						{block.name}
+					</ToggleGroup.Item>
+				{/each}
+			</ToggleGroup.Root>
+		</div>
 	{/if}
 
 	{#if activitiesResponse.isLoading}
