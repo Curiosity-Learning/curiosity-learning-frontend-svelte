@@ -12,6 +12,15 @@
 	 * into the element whenever the user is NOT focused, so two users viewing
 	 * the same session see each other's changes in realtime.
 	 *
+	 * ### Initial content rendering (important for drag-and-drop)
+	 * The contentEditable <p> renders `{activity.content ?? ''}` as its inline
+	 * text child rather than starting empty and populating via `$effect`.
+	 * This is critical because svelte-dnd-action clones DOM elements
+	 * synchronously on drag start — if the <p> were empty at clone time
+	 * (waiting for the $effect to run), the cloned card would have the wrong
+	 * height, causing a visible shrink-then-grow flash. The $effect still
+	 * handles subsequent remote updates from Convex.
+	 *
 	 * ### Optimistic guard (`lastSaved`)
 	 * On blur the local text is saved optimistically — `lastSaved` prevents the
 	 * sync effect from overwriting it with the stale Convex value while the
@@ -27,6 +36,14 @@
 	 * If `onContentSave` rejects, `lastSaved` is cleared (letting the element
 	 * revert to the last known Convex state) and a small "Save failed" message
 	 * is shown. Focusing the field again clears the error for retry.
+	 *
+	 * ## Drag-and-drop reordering
+	 *
+	 * When `showDragHandle` is true, a grip icon appears on the left edge of the
+	 * card. It uses svelte-dnd-action's `dragHandle` action so only the grip
+	 * initiates drag — taps on content, buttons, and the contentEditable field
+	 * work normally. The handle has `touch-none` to prevent the browser from
+	 * intercepting touch events for scrolling.
 	 */
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import GripVerticalIcon from '@lucide/svelte/icons/grip-vertical';
@@ -165,6 +182,10 @@
 				<ActionMenu items={actionItems} ariaLabel={`Open actions for ${activity.name}`} />
 			</div>
 		{#if canEdit && onContentSave}
+			<!-- Inline text child is intentional — do NOT leave the <p> empty and
+			     populate via $effect. svelte-dnd-action clones the DOM synchronously
+			     on drag start; an empty <p> produces a shorter clone and a height flash.
+			     See docs/inline-activity-editing.md for details. -->
 			<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 			<p
 				bind:this={contentEl}
@@ -175,7 +196,7 @@
 				onblur={handleBlur}
 				onfocus={handleFocus}
 				class="text-muted-foreground whitespace-pre-wrap rounded-md px-2 py-1 -mx-2 -my-1 transition-colors outline-none focus:bg-muted/50 hover:bg-muted/30 cursor-text empty:before:content-[attr(data-placeholder)] empty:before:italic empty:before:opacity-60"
-			></p>
+			>{activity.content ?? ''}</p>
 			{#if saveError}
 				<p class="text-xs text-destructive">Save failed — tap to retry.</p>
 			{/if}
