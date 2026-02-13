@@ -39,10 +39,3 @@ export const groupSessionsByBucket = (sessions: Array<Doc<'sessions'>>) => {
 
 	return grouped;
 };
-
-export const toLocalDateTimeInput = (value: number) => {
-	const date = new Date(value);
-	const offset = date.getTimezoneOffset();
-	const local = new Date(date.getTime() - offset * 60_000);
-	return local.toISOString().slice(0, 16);
-};

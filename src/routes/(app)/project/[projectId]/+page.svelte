@@ -21,7 +21,9 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import { DatePicker } from '$lib/components/ui/date-picker';
 	import { Input } from '$lib/components/ui/input';
+	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { useConvexClient, useQuery } from 'convex-svelte';
@@ -59,20 +61,12 @@
 	let editForm = $state({
 		name: '',
 		description: '',
-		dueDate: ''
+		dueDate: null as number | null
 	});
 
 	// Post update state
 	let updateContent = $state('');
 	let updatePending = $state(false);
-
-	const toDateInput = (timestamp: number) => {
-		const date = new Date(timestamp);
-		const year = date.getFullYear();
-		const month = String(date.getMonth() + 1).padStart(2, '0');
-		const day = String(date.getDate()).padStart(2, '0');
-		return `${year}-${month}-${day}`;
-	};
 
 	const toOrdinalDay = (day: number) => {
 		const moduloTen = day % 10;
@@ -133,7 +127,7 @@
 		editForm = {
 			name: project.name,
 			description: project.description ?? '',
-			dueDate: toDateInput(project.dueDate)
+			dueDate: project.dueDate
 		};
 		editDialogOpen = true;
 	};
@@ -144,7 +138,7 @@
 			errorMessage = 'Project name is required.';
 			return;
 		}
-		if (!editForm.dueDate) {
+		if (editForm.dueDate === null) {
 			errorMessage = 'Due date is required.';
 			return;
 		}
@@ -152,16 +146,11 @@
 		pending = true;
 		errorMessage = '';
 		try {
-			const dueDateMs = new Date(editForm.dueDate).getTime();
-			if (!Number.isFinite(dueDateMs)) {
-				throw new Error('Please enter a valid due date.');
-			}
-
 			await convexClient.mutation(api.projects.update, {
 				projectId: project._id,
 				name: editForm.name.trim(),
 				description: editForm.description.trim() || undefined,
-				dueDate: dueDateMs
+				dueDate: editForm.dueDate
 			});
 			editDialogOpen = false;
 		} catch (error) {
@@ -341,8 +330,8 @@
 			</Dialog.Header>
 			<div class="flex flex-col gap-3">
 				<div class="flex flex-col gap-2">
-					<Label for="editProjectName">Name</Label>
-					<Input id="editProjectName" bind:value={editForm.name} placeholder="Project name" />
+					<FieldLabel for="editProjectName" required>Name</FieldLabel>
+					<Input id="editProjectName" bind:value={editForm.name} placeholder="Project name" required />
 				</div>
 				<div class="flex flex-col gap-2">
 					<Label for="editProjectDescription">Description</Label>
@@ -354,14 +343,14 @@
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
-					<Label for="editProjectDueDate">Due date</Label>
-					<Input id="editProjectDueDate" type="date" bind:value={editForm.dueDate} />
+					<FieldLabel for="editProjectDueDate" required>Due date</FieldLabel>
+					<DatePicker id="editProjectDueDate" bind:value={editForm.dueDate} />
 				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (editDialogOpen = false)}>Cancel</Button>
 				<Button
-					disabled={pending || !editForm.name.trim() || !editForm.dueDate}
+					disabled={pending || !editForm.name.trim() || editForm.dueDate === null}
 					onclick={() => void saveProject()}
 				>
 					{pending ? 'Saving...' : 'Save'}

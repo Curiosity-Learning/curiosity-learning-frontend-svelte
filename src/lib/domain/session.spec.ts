@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Doc, Id } from '$convex/_generated/dataModel';
-import { groupSessionsByBucket, toLocalDateTimeInput } from './session';
+import { groupSessionsByBucket } from './session';
 
 const makeSession = (id: string, startTime: number): Doc<'sessions'> =>
 	({
@@ -33,10 +33,5 @@ describe('session domain helpers', () => {
 		expect(grouped.Tomorrow).toHaveLength(1);
 		expect(grouped.Upcoming).toHaveLength(1);
 		expect(grouped.Past).toHaveLength(1);
-	});
-
-	it('formats datetime values for datetime-local inputs', () => {
-		const value = toLocalDateTimeInput(new Date('2026-02-01T15:45:00.000Z').getTime());
-		expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
 	});
 });

@@ -13,11 +13,12 @@
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
+	import { DateTimePicker } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
+	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { toLocalDateTimeInput } from '$lib/domain/session';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 
 	const convexClient = useConvexClient();
@@ -40,8 +41,8 @@
 
 	let createDialogOpen = $state(false);
 	let sessionForm = $state({
-		startTime: '',
-		endTime: '',
+		startTime: null as number | null,
+		endTime: null as number | null,
 		description: ''
 	});
 
@@ -70,29 +71,23 @@
 	const openCreateSession = () => {
 		const now = Date.now();
 		sessionForm = {
-			startTime: toLocalDateTimeInput(now + 3_600_000),
-			endTime: toLocalDateTimeInput(now + 7_200_000),
+			startTime: now + 3_600_000,
+			endTime: now + 7_200_000,
 			description: ''
 		};
 		createDialogOpen = true;
 	};
 
 	const createSession = async () => {
-		if (!clubIdTyped) return;
-		const startTime = new Date(sessionForm.startTime).getTime();
-		const endTime = new Date(sessionForm.endTime).getTime();
-		if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
-			errorMessage = 'Invalid session date or time.';
-			return;
-		}
+		if (!clubIdTyped || sessionForm.startTime === null || sessionForm.endTime === null) return;
 
 		pending = true;
 		errorMessage = '';
 		try {
 			const session = await convexClient.mutation(api.sessions.create, {
 				clubId: clubIdTyped,
-				startTime,
-				endTime,
+				startTime: sessionForm.startTime,
+				endTime: sessionForm.endTime,
 				description: sessionForm.description.trim()
 			});
 			createDialogOpen = false;
@@ -194,19 +189,19 @@
 				>
 			</Dialog.Header>
 			<div class="flex flex-col gap-3">
-				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-2">
-						<Label for="sessionStart">Start</Label>
-						<Input id="sessionStart" type="datetime-local" bind:value={sessionForm.startTime} />
+						<FieldLabel for="sessionStart" required>Start</FieldLabel>
+						<DateTimePicker id="sessionStart" bind:value={sessionForm.startTime} />
 					</div>
 					<div class="flex flex-col gap-2">
-						<Label for="sessionEnd">End</Label>
-						<Input id="sessionEnd" type="datetime-local" bind:value={sessionForm.endTime} />
+						<FieldLabel for="sessionEnd" required>End</FieldLabel>
+						<DateTimePicker id="sessionEnd" bind:value={sessionForm.endTime} />
 					</div>
 				</div>
 				<div class="flex flex-col gap-2">
-					<Label for="sessionDescription">Description</Label>
-					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
+					<FieldLabel for="sessionDescription" required>Description</FieldLabel>
+					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} required />
 				</div>
 			</div>
 			<Dialog.Footer>

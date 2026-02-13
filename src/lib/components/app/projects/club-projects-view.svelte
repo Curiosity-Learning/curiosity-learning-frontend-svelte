@@ -9,7 +9,9 @@
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import { DatePicker } from '$lib/components/ui/date-picker';
 	import { Input } from '$lib/components/ui/input';
+	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { routes } from '$lib/routes';
 	import { useConvexClient, useQuery } from 'convex-svelte';
@@ -42,30 +44,26 @@
 
 	let createDialogOpen = $state(false);
 	let createName = $state('');
-	let createDueDate = $state('');
+	let createDueDate = $state<number | null>(null);
 	let createPending = $state(false);
 	let createError = $state('');
 
 	const openCreateDialog = () => {
 		createName = '';
-		createDueDate = '';
+		createDueDate = null;
 		createError = '';
 		createDialogOpen = true;
 	};
 
 	const createProject = async () => {
-		if (!clubIdTyped || !createName.trim() || !createDueDate) return;
+		if (!clubIdTyped || !createName.trim() || createDueDate === null) return;
 		createPending = true;
 		createError = '';
 		try {
-			const dueDateMs = new Date(createDueDate).getTime();
-			if (!Number.isFinite(dueDateMs)) {
-				throw new Error('Please enter a valid due date.');
-			}
 			const project = await convexClient.mutation(api.projects.create, {
 				clubId: clubIdTyped,
 				name: createName.trim(),
-				dueDate: dueDateMs
+				dueDate: createDueDate
 			});
 			createDialogOpen = false;
 			if (project?._id) {
@@ -202,12 +200,12 @@
 			</Dialog.Header>
 			<div class="flex flex-col gap-3">
 				<div class="flex flex-col gap-2">
-					<Label for="projectName">Name</Label>
-					<Input id="projectName" bind:value={createName} placeholder="Enter project name" />
+					<FieldLabel for="projectName" required>Name</FieldLabel>
+					<Input id="projectName" bind:value={createName} placeholder="Enter project name" required />
 				</div>
 				<div class="flex flex-col gap-2">
-					<Label for="projectDueDate">Due date</Label>
-					<Input id="projectDueDate" type="date" bind:value={createDueDate} />
+					<FieldLabel for="projectDueDate" required>Due date</FieldLabel>
+					<DatePicker id="projectDueDate" bind:value={createDueDate} />
 				</div>
 			</div>
 			{#if createError}
@@ -215,7 +213,7 @@
 			{/if}
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
-				<Button disabled={createPending || !createName.trim() || !createDueDate} onclick={() => void createProject()}>
+				<Button disabled={createPending || !createName.trim() || createDueDate === null} onclick={() => void createProject()}>
 					{createPending ? 'Creating...' : 'Open'}
 				</Button>
 			</Dialog.Footer>

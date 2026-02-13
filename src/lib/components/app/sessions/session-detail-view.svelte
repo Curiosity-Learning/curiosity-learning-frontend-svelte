@@ -14,11 +14,12 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import { DateTimePicker } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
+	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { toLocalDateTimeInput } from '$lib/domain/session';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -79,8 +80,8 @@
 
 	let sessionDialogOpen = $state(false);
 	let sessionForm = $state({
-		startTime: '',
-		endTime: '',
+		startTime: null as number | null,
+		endTime: null as number | null,
 		description: ''
 	});
 
@@ -116,29 +117,23 @@
 	const openSessionEditor = () => {
 		if (!session) return;
 		sessionForm = {
-			startTime: toLocalDateTimeInput(session.startTime),
-			endTime: toLocalDateTimeInput(session.endTime),
+			startTime: session.startTime,
+			endTime: session.endTime,
 			description: session.description
 		};
 		sessionDialogOpen = true;
 	};
 
 	const saveSession = async () => {
-		if (!session) return;
-		const startTime = new Date(sessionForm.startTime).getTime();
-		const endTime = new Date(sessionForm.endTime).getTime();
-		if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
-			errorMessage = 'Invalid session date or time.';
-			return;
-		}
+		if (!session || sessionForm.startTime === null || sessionForm.endTime === null) return;
 
 		pending = true;
 		errorMessage = '';
 		try {
 			await convexClient.mutation(api.sessions.update, {
 				sessionId: session._id,
-				startTime,
-				endTime,
+				startTime: sessionForm.startTime,
+				endTime: sessionForm.endTime,
 				description: sessionForm.description.trim()
 			});
 			sessionDialogOpen = false;
@@ -387,19 +382,19 @@
 				<Dialog.Description>Update local date and time values for this session.</Dialog.Description>
 			</Dialog.Header>
 			<div class="flex flex-col gap-3">
-				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-2">
-						<Label for="sessionStart">Start</Label>
-						<Input id="sessionStart" type="datetime-local" bind:value={sessionForm.startTime} />
+						<FieldLabel for="sessionStart" required>Start</FieldLabel>
+						<DateTimePicker id="sessionStart" bind:value={sessionForm.startTime} />
 					</div>
 					<div class="flex flex-col gap-2">
-						<Label for="sessionEnd">End</Label>
-						<Input id="sessionEnd" type="datetime-local" bind:value={sessionForm.endTime} />
+						<FieldLabel for="sessionEnd" required>End</FieldLabel>
+						<DateTimePicker id="sessionEnd" bind:value={sessionForm.endTime} />
 					</div>
 				</div>
 				<div class="flex flex-col gap-2">
-					<Label for="sessionDescription">Description</Label>
-					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
+					<FieldLabel for="sessionDescription" required>Description</FieldLabel>
+					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} required />
 				</div>
 			</div>
 			<Dialog.Footer>
@@ -421,8 +416,8 @@
 				</Dialog.Header>
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-2">
-						<Label for="activityName">Name</Label>
-						<Input id="activityName" bind:value={activityName} placeholder="The Envelope Please" />
+						<FieldLabel for="activityName" required>Name</FieldLabel>
+						<Input id="activityName" bind:value={activityName} placeholder="The Envelope Please" required />
 					</div>
 					<div class="flex flex-col gap-2">
 						<Label for="activityContent">Description</Label>
