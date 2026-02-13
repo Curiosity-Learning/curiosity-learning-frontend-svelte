@@ -26,7 +26,7 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import { dndzone } from 'svelte-dnd-action';
+	import { dragHandleZone } from 'svelte-dnd-action';
 
 	type Props = {
 		view: 'activities' | 'attendees';
@@ -352,7 +352,16 @@
 				{:else}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						use:dndzone={{ items: dndItems, flipDurationMs: 200, dropTargetStyle: {} }}
+						use:dragHandleZone={{
+						items: dndItems,
+						flipDurationMs: 200,
+						dropTargetStyle: {},
+						transformDraggedElement: (el?: HTMLElement) => {
+							if (!el) return;
+							el.style.outline = 'none';
+							el.style.boxShadow = '0 10px 25px -5px rgba(0,0,0,0.2), 0 4px 10px -5px rgba(0,0,0,0.1)';
+						}
+					}}
 						onconsider={handleDndConsider}
 						onfinalize={handleDndFinalize}
 						class="flex flex-col gap-4"
@@ -369,6 +378,7 @@
 								{blockNameById}
 								canEdit={canUpdateActivity}
 								canDelete={canDeleteActivity}
+								showDragHandle={canUpdateActivity}
 								onEdit={() => openEditActivity({ ...activity, id: activity.id as Id<'sessionActivities'> })}
 								onDelete={() => void deleteActivity(activity.id as Id<'sessionActivities'>)}
 								onContentSave={async (content) => {

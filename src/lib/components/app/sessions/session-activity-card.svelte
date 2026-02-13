@@ -29,11 +29,13 @@
 	 * is shown. Focusing the field again clears the error for retry.
 	 */
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
+	import GripVerticalIcon from '@lucide/svelte/icons/grip-vertical';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import PencilLineIcon from '@lucide/svelte/icons/pencil-line';
 	import ActionMenu from '$lib/components/app/action-menu.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Card, CardContent } from '$lib/components/ui/card';
+	import { dragHandle } from 'svelte-dnd-action';
 
 	type Activity = {
 		id: string;
@@ -48,14 +50,24 @@
 		blockNameById: Map<string, string>;
 		canEdit: boolean;
 		canDelete: boolean;
+		/** Show a drag handle on the left of the card for reordering. */
+		showDragHandle?: boolean;
 		onEdit?: () => void;
 		onDelete?: () => void;
 		/** Async callback fired on blur when content changes. Should persist to Convex. */
 		onContentSave?: (content: string) => Promise<void>;
 	};
 
-	let { activity, blockNameById, canEdit, canDelete, onEdit, onDelete, onContentSave }: Props =
-		$props();
+	let {
+		activity,
+		blockNameById,
+		canEdit,
+		canDelete,
+		showDragHandle = false,
+		onEdit,
+		onDelete,
+		onContentSave
+	}: Props = $props();
 
 	let contentEl: HTMLParagraphElement | undefined = $state();
 	let isEditing = $state(false);
@@ -136,11 +148,22 @@
 </script>
 
 <Card class="gap-0 py-0">
-	<CardContent class="flex flex-col gap-3 p-4">
-		<div class="flex items-start justify-between gap-3">
-			<h3 class="type-h5-medium">{activity.name}</h3>
-			<ActionMenu items={actionItems} ariaLabel={`Open actions for ${activity.name}`} />
-		</div>
+	<div class="flex">
+		{#if showDragHandle}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				use:dragHandle
+				aria-label="Drag to reorder"
+				class="flex shrink-0 cursor-grab items-center justify-center px-1.5 text-muted-foreground/50 touch-none select-none active:cursor-grabbing"
+			>
+				<GripVerticalIcon class="size-5" />
+			</div>
+		{/if}
+		<CardContent class="flex min-w-0 flex-1 flex-col gap-3 p-4">
+			<div class="flex items-start justify-between gap-3">
+				<h3 class="type-h5-medium">{activity.name}</h3>
+				<ActionMenu items={actionItems} ariaLabel={`Open actions for ${activity.name}`} />
+			</div>
 		{#if canEdit && onContentSave}
 			<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 			<p
@@ -179,5 +202,6 @@
 				</Badge>
 			{/each}
 		</div>
-	</CardContent>
+		</CardContent>
+	</div>
 </Card>
