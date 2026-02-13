@@ -317,10 +317,6 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4 pb-2 lg:pb-6">
-		{#if session.description}
-			<p class="type-lead text-muted-foreground">{session.description}</p>
-		{/if}
-
 		{#if sessionTags.length}
 			<div class="flex flex-wrap gap-2">
 				{#each sessionTags as tag (tag)}
@@ -343,6 +339,9 @@
 		{/if}
 
 		{#if view === 'activities'}
+			{#if session.description}
+				<p class="type-lead text-muted-foreground">{session.description}</p>
+			{/if}
 				{#if (activitiesResponse.data?.length ?? 0) === 0}
 					<div class="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 text-center">
 						<p class="type-lead text-muted-foreground">No activities yet.</p>
