@@ -58,7 +58,10 @@
 	};
 </script>
 
-<div class="relative flex min-h-screen flex-col pb-28 lg:pb-0">
+<!-- --bottom-nav-h: height of the fixed mobile bottom nav. Used here for content
+     clearance (pb) and by child components for sticky element offsets. On desktop
+     (lg:) the sidebar replaces the bottom nav so the padding is removed. -->
+<div class="relative flex min-h-screen flex-col pb-[var(--bottom-nav-h)] lg:pb-0" style="--bottom-nav-h: 4.5rem;">
 	<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
 		<aside
 			class="hidden w-72 flex-col border-r border-border/70 bg-background/70 backdrop-blur lg:flex lg:sticky lg:top-0 lg:h-screen lg:self-start"

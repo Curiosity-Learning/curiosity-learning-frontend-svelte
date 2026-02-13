@@ -316,7 +316,7 @@
 		<AlertDescription>The requested session could not be loaded.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="flex flex-col gap-4 pb-24 lg:pb-8">
+	<div class="flex flex-col gap-4 pb-2 lg:pb-6">
 		{#if session.description}
 			<p class="type-lead text-muted-foreground">{session.description}</p>
 		{/if}
@@ -388,7 +388,8 @@
 				{/if}
 
 				{#if canCreateActivity && (activitiesResponse.data?.length ?? 0) > 0}
-					<div class="pointer-events-none sticky bottom-22 flex justify-center lg:bottom-8">
+					<!-- Sticky offset derives from --bottom-nav-h (set in app-shell) to clear the mobile nav -->
+					<div class="pointer-events-none sticky bottom-[calc(var(--bottom-nav-h,0rem)+1rem)] flex justify-center lg:bottom-8">
 						<div class="pointer-events-auto flex gap-2">
 							<Button variant="outline" class="rounded-full px-6 py-3 shadow-md" onclick={openCreateActivity}>
 								<PlusIcon class="size-5" />

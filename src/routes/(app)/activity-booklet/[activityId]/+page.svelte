@@ -88,7 +88,7 @@
 		<AlertDescription>The requested booklet activity could not be loaded.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="flex flex-col gap-4 pb-24 lg:pb-8">
+	<div class="flex flex-col gap-4 pb-2 lg:pb-6">
 		{#if errorMessage}
 			<Alert variant="destructive">
 				<AlertTitle>Action failed</AlertTitle>
