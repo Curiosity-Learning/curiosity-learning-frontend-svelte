@@ -371,6 +371,19 @@
 								canDelete={canDeleteActivity}
 								onEdit={() => openEditActivity({ ...activity, id: activity.id as Id<'sessionActivities'> })}
 								onDelete={() => void deleteActivity(activity.id as Id<'sessionActivities'>)}
+								onContentSave={async (content) => {
+									// Inline content save — awaited so the card can show
+									// error state if the mutation fails (e.g. offline).
+									if (!sessionIdTyped) return;
+									await convexClient.mutation(api.sessions.upsertActivity, {
+										sessionId: sessionIdTyped,
+										activityId: activity.id as Id<'sessionActivities'>,
+										name: activity.name,
+										content: content || undefined,
+										minutes: activity.minutes ?? undefined,
+										buildingBlockIds: activity.buildingBlocks
+									});
+								}}
 							/>
 						{/each}
 					</div>
@@ -404,9 +417,11 @@
 						<div class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
 							<div class="flex flex-col gap-1">
 								<p class="type-body-medium">
-									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() || 'Member'}
+									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() || member.username || member.email || 'Member'}
 								</p>
-								<p class="type-sm text-muted-foreground">{member.email ?? member.userId}</p>
+								{#if member.email}
+									<p class="type-sm text-muted-foreground">{member.email}</p>
+								{/if}
 							</div>
 							<div class="flex items-center gap-2">
 								<Label for={`attendance-${member.clubMemberId}`}>Attending</Label>
