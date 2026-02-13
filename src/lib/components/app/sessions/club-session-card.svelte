@@ -1,6 +1,5 @@
 <script lang="ts">
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
-	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
@@ -20,9 +19,7 @@
 		session: Doc<'sessions'>;
 		sessionHref: string;
 		canReadMembers: boolean;
-		canEdit: boolean;
 		canDelete: boolean;
-		onEdit?: () => void;
 		onDelete?: () => void;
 	};
 
@@ -30,9 +27,7 @@
 		session,
 		sessionHref,
 		canReadMembers,
-		canEdit,
 		canDelete,
-		onEdit,
 		onDelete
 	}: Props = $props();
 
@@ -66,18 +61,10 @@
 	);
 	let actionItems = $derived([
 		{
-			id: 'edit',
-			label: 'Edit session',
-			Icon: PencilIcon,
-			disabled: !canEdit,
-			onSelect: onEdit
-		},
-		{
 			id: 'delete',
 			label: 'Delete session',
 			Icon: Trash2Icon,
 			tone: 'destructive' as const,
-			separatorBefore: canEdit,
 			disabled: !canDelete,
 			onSelect: onDelete
 		}

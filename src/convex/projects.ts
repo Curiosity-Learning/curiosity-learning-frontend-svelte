@@ -77,9 +77,7 @@ export const listPreviewsByClub = query({
 			(project): project is NonNullable<typeof project> => Boolean(project)
 		);
 
-		projects.sort(
-			(a, b) => (a.dueDate ?? Number.MAX_SAFE_INTEGER) - (b.dueDate ?? Number.MAX_SAFE_INTEGER)
-		);
+		projects.sort((a, b) => a.dueDate - b.dueDate);
 		const limited = projects.slice(0, args.limit ?? 6);
 
 		const result: Array<{
@@ -136,7 +134,7 @@ export const create = mutation({
 		clubId: v.id('clubs'),
 		name: v.string(),
 		description: v.optional(v.string()),
-		dueDate: v.optional(v.number())
+		dueDate: v.number()
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);

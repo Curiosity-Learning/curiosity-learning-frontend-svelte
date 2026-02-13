@@ -17,10 +17,11 @@
 		project: Doc<'projects'>;
 		status?: 'current' | 'completed';
 		memberPreview?: MemberPreview[];
+		href?: string;
 		class?: string;
 	};
 
-	let { project, status, memberPreview, class: className }: Props = $props();
+	let { project, status, memberPreview, href, class: className }: Props = $props();
 
 	const membersResponse = useQuery(api.projects.listMembers, () =>
 		memberPreview ? 'skip' : { projectId: project._id }
@@ -61,12 +62,11 @@
 			if (project.doneDate) return `Completed on ${formatDateLabel(project.doneDate)}`;
 			return 'Completed';
 		}
-		if (project.dueDate) return `Due by ${formatDateLabel(project.dueDate)}`;
-		return 'No due date';
+		return `Due by ${formatDateLabel(project.dueDate)}`;
 	});
 </script>
 
-<Card class={cn('w-full gap-0 py-0 shadow-none', className)}>
+{#snippet cardContent()}
 	<CardContent class="flex flex-col gap-5 p-5">
 		<div class="flex flex-col gap-2">
 			<p class="type-h5-bold">{project.name}</p>
@@ -89,4 +89,16 @@
 			</div>
 		</div>
 	</CardContent>
-</Card>
+{/snippet}
+
+{#if href}
+	<a {href} class="block" data-sveltekit-preload-code="hover">
+		<Card class={cn('w-full gap-0 py-0 shadow-none', className)}>
+			{@render cardContent()}
+		</Card>
+	</a>
+{:else}
+	<Card class={cn('w-full gap-0 py-0 shadow-none', className)}>
+		{@render cardContent()}
+	</Card>
+{/if}

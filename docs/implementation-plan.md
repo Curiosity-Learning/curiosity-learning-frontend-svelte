@@ -24,7 +24,9 @@
 - `/auth/sign-in`, `/auth/sign-up`, `/auth/reset-password`
 - `/onboarding/get-started`, `/onboarding/join-club`, `/onboarding/join-club/[code]`, `/onboarding/start-club`
 - `/app/home`, `/app/sessions`, `/app/projects`, `/app/people`, `/app/settings`, `/app/notifications`, `/app/chat`
-- `/[clubId]/projects/new` — project creation (dedicated page, not modal)
+- `/project/[projectId]` — project detail page (view, edit, updates feed)
+- `/session/[sessionId]/activities` — session detail (activities tab)
+- `/session/[sessionId]/attendees` — session detail (attendees tab)
 - `/privacy`, `/terms`
 
 ## Visual QA

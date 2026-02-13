@@ -54,12 +54,10 @@
 
 		<div class="flex flex-col gap-3">
 			<AvatarStack people={people} max={3} sizeClass="size-8" />
-			{#if project.dueDate}
-				<div class="flex items-center gap-2 type-label text-muted-foreground">
-					<CalendarIcon class="size-4 text-primary" />
-					<p class="line-clamp-1">{formatDueDate(project.dueDate)}</p>
-				</div>
-			{/if}
+			<div class="flex items-center gap-2 type-label text-muted-foreground">
+				<CalendarIcon class="size-4 text-primary" />
+				<p class="line-clamp-1">{formatDueDate(project.dueDate)}</p>
+			</div>
 		</div>
 	</CardContent>
 </Card>

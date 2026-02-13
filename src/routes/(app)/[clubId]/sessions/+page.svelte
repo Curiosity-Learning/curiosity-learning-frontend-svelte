@@ -1,6 +1,7 @@
 <script lang="ts">
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -30,7 +31,6 @@
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canCreate = $derived(clubPermissions.includes('session:create'));
-	let canUpdate = $derived(clubPermissions.includes('session:update'));
 	let canDelete = $derived(clubPermissions.includes('session:delete'));
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 
@@ -38,8 +38,7 @@
 		clubIdTyped ? { clubId: clubIdTyped, upcomingOnly: false } : 'skip'
 	);
 
-	let sessionDialogOpen = $state(false);
-	let sessionEditId = $state<Id<'sessions'> | null>(null);
+	let createDialogOpen = $state(false);
 	let sessionForm = $state({
 		startTime: '',
 		endTime: '',
@@ -69,27 +68,16 @@
 	);
 
 	const openCreateSession = () => {
-		sessionEditId = null;
 		const now = Date.now();
 		sessionForm = {
 			startTime: toLocalDateTimeInput(now + 3_600_000),
 			endTime: toLocalDateTimeInput(now + 7_200_000),
 			description: ''
 		};
-		sessionDialogOpen = true;
+		createDialogOpen = true;
 	};
 
-	const openEditSession = (session: NonNullable<typeof sessionsResponse.data>[number]) => {
-		sessionEditId = session._id;
-		sessionForm = {
-			startTime: toLocalDateTimeInput(session.startTime),
-			endTime: toLocalDateTimeInput(session.endTime),
-			description: session.description
-		};
-		sessionDialogOpen = true;
-	};
-
-	const saveSession = async () => {
+	const createSession = async () => {
 		if (!clubIdTyped) return;
 		const startTime = new Date(sessionForm.startTime).getTime();
 		const endTime = new Date(sessionForm.endTime).getTime();
@@ -101,24 +89,18 @@
 		pending = true;
 		errorMessage = '';
 		try {
-			if (sessionEditId) {
-				await convexClient.mutation(api.sessions.update, {
-					sessionId: sessionEditId,
-					startTime,
-					endTime,
-					description: sessionForm.description.trim()
-				});
-			} else {
-				await convexClient.mutation(api.sessions.create, {
-					clubId: clubIdTyped,
-					startTime,
-					endTime,
-					description: sessionForm.description.trim()
-				});
+			const session = await convexClient.mutation(api.sessions.create, {
+				clubId: clubIdTyped,
+				startTime,
+				endTime,
+				description: sessionForm.description.trim()
+			});
+			createDialogOpen = false;
+			if (session?._id) {
+				await goto(routes.sessionDetail(session._id) + '/activities');
 			}
-			sessionDialogOpen = false;
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to save session.';
+			errorMessage = error instanceof Error ? error.message : 'Failed to create session.';
 		} finally {
 			pending = false;
 		}
@@ -170,7 +152,7 @@
 		<AlertDescription>Choose or create a club first from onboarding.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="mx-auto flex w-full max-w-2xl flex-col gap-4">
+	<div class="mx-auto flex w-full flex-col gap-4">
 		{#if searchOpen}
 			<Input bind:value={searchText} placeholder="Search by title or date" />
 		{/if}
@@ -195,9 +177,7 @@
 						{session}
 						sessionHref={routes.sessionDetail(session._id)}
 						{canReadMembers}
-						canEdit={canUpdate}
 						{canDelete}
-						onEdit={() => openEditSession(session)}
 						onDelete={() => void removeSession(session._id)}
 					/>
 				{/each}
@@ -205,10 +185,10 @@
 		{/if}
 	</div>
 
-	<Dialog.Root bind:open={sessionDialogOpen}>
+	<Dialog.Root bind:open={createDialogOpen}>
 		<Dialog.Content>
 			<Dialog.Header>
-				<Dialog.Title>{sessionEditId ? 'Edit session' : 'Create session'}</Dialog.Title>
+				<Dialog.Title>Create session</Dialog.Title>
 				<Dialog.Description
 					>Use local date and time values for this club session.</Dialog.Description
 				>
@@ -230,10 +210,10 @@
 				</div>
 			</div>
 			<Dialog.Footer>
-				<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
+				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
 				<Button
 					disabled={pending || !sessionForm.description.trim()}
-					onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
+					onclick={() => void createSession()}>{pending ? 'Creating...' : 'Open'}</Button
 				>
 			</Dialog.Footer>
 		</Dialog.Content>

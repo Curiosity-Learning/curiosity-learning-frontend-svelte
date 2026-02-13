@@ -74,3 +74,24 @@
 ### Run: Type Check
 
 - `npm run check` ✅
+
+### Refactor: Dialog-to-Detail-Page Pattern
+
+- Reverted project creation from dedicated `/[clubId]/projects/new` page back to a creation dialog in `club-projects-view.svelte` with "Open" button.
+- Created project detail page at `/project/[projectId]/+page.svelte` with description, status, members (AvatarStack), updates feed, and edit dialog via ActionMenu.
+- Added `href` prop to `club-project-card.svelte` for linking to project detail page.
+- Simplified session list dialog to creation-only (removed edit mode). "Open" creates session and navigates to `/session/[id]/activities`.
+- Removed "Edit session" action from `ClubSessionCard` on list page; editing happens on the session detail page only.
+- Updated ADR-003 to document the refined dialog-to-detail-page pattern.
+- Deleted `src/routes/(app)/[clubId]/projects/new/` route files (page + schema).
+
+### Schema: Project Due Date Required
+
+- Changed `projects.dueDate` from `v.optional(v.number())` to `v.number()` in Convex schema.
+- Updated `projects.create` mutation arg to require `dueDate`.
+- Creation and edit dialogs now require due date (label updated, button disabled without it).
+- Removed "No due date" fallback from project cards and detail page status labels.
+
+### Run: Type Check
+
+- `npm run check` ✅

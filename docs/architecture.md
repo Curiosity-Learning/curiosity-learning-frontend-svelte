@@ -18,19 +18,20 @@
 
 ### Layout Groups
 
-Routes that share a tab bar use `(tabbed)/` layout groups so non-tabbed siblings (e.g., creation pages) do not inherit the tabs. See [ADR-001](adr/001-layout-groups-for-tabbed-routes.md).
+Routes that share a tab bar use `(tabbed)/` layout groups so non-tabbed siblings do not inherit the tabs. See [ADR-001](adr/001-layout-groups-for-tabbed-routes.md).
 
 ```
 [clubId]/projects/
 ├── (tabbed)/          ← Current/Completed tabs
 │   ├── current/
 │   └── completed/
-└── new/               ← no tabs
 
 session/[sessionId]/
 ├── (tabbed)/          ← Activities/Attendees tabs
 │   ├── activities/
 │   └── attendees/
+
+project/[projectId]/   ← single page, no tabs
 
 feed/
 ├── (tabbed)/          ← My Clubs/Global tabs
@@ -65,10 +66,9 @@ Forms use **shadcn-svelte Field.* components + Superforms + Zod v4** — no Form
 - `SPA: true` because the backend is Convex, not SvelteKit form actions.
 - `Field.Label` supports a `required` prop for red asterisk indicators.
 
-Reference implementation: `src/routes/(app)/[clubId]/projects/new/+page.svelte`.
-
 ## UI Patterns
 
-- **Creation flows use dedicated pages**, not modals. See [ADR-003](adr/003-modal-to-page-refactor.md).
+- **Dialog → Detail Page pattern**: Creation via minimal dialog with "Open" button → create entity → navigate to detail page. Editing happens on the detail page via ActionMenu. See [ADR-003](adr/003-modal-to-page-refactor.md).
 - **Page headers** use `PageHeaderBackButton`, `PageHeaderTitle`, `PageHeaderActions` — these communicate with AppShell via Svelte context.
+- **ActionMenu** provides edit/delete/toggle actions on detail pages via a dropdown triggered by an ellipsis icon.
 - **Field component hierarchy**: `Field.Group > Field.Field > Field.Label + Input + Field.Error + Field.Description`.

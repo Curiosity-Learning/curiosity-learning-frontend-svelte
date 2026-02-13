@@ -1,14 +1,18 @@
 <script lang="ts">
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { PageHeaderActions, PageHeaderBackButton } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
-	import { useQuery } from 'convex-svelte';
+	import { Label } from '$lib/components/ui/label';
+	import { routes } from '$lib/routes';
+	import { useConvexClient, useQuery } from 'convex-svelte';
 	import ClubProjectCard from './club-project-card.svelte';
 
 	type Props = {
@@ -17,6 +21,7 @@
 
 	let { status }: Props = $props();
 
+	const convexClient = useConvexClient();
 	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
@@ -34,6 +39,44 @@
 	let errorMessage = $state('');
 	let searchOpen = $state(false);
 	let searchText = $state('');
+
+	let createDialogOpen = $state(false);
+	let createName = $state('');
+	let createDueDate = $state('');
+	let createPending = $state(false);
+	let createError = $state('');
+
+	const openCreateDialog = () => {
+		createName = '';
+		createDueDate = '';
+		createError = '';
+		createDialogOpen = true;
+	};
+
+	const createProject = async () => {
+		if (!clubIdTyped || !createName.trim() || !createDueDate) return;
+		createPending = true;
+		createError = '';
+		try {
+			const dueDateMs = new Date(createDueDate).getTime();
+			if (!Number.isFinite(dueDateMs)) {
+				throw new Error('Please enter a valid due date.');
+			}
+			const project = await convexClient.mutation(api.projects.create, {
+				clubId: clubIdTyped,
+				name: createName.trim(),
+				dueDate: dueDateMs
+			});
+			createDialogOpen = false;
+			if (project?._id) {
+				await goto(routes.projectDetail(project._id));
+			}
+		} catch (error) {
+			createError = error instanceof Error ? error.message : 'Failed to create project.';
+		} finally {
+			createPending = false;
+		}
+	};
 
 	const toggleSearch = () => {
 		searchOpen = !searchOpen;
@@ -53,9 +96,7 @@
 		}
 
 		return projects.sort((left, right) => {
-			const leftDue = left.dueDate ?? Number.MAX_SAFE_INTEGER;
-			const rightDue = right.dueDate ?? Number.MAX_SAFE_INTEGER;
-			if (leftDue !== rightDue) return leftDue - rightDue;
+			if (left.dueDate !== right.dueDate) return left.dueDate - right.dueDate;
 			return left.createdAt - right.createdAt;
 		});
 	});
@@ -95,7 +136,7 @@
 			size="icon"
 			aria-label="Create project"
 			disabled={!canCreate}
-			href={clubId ? `/${clubId}/projects/new` : undefined}
+			onclick={openCreateDialog}
 		>
 			<PlusIcon class="size-5 text-muted-foreground" />
 		</Button>
@@ -145,6 +186,7 @@
 					<ClubProjectCard
 						{project}
 						{status}
+						href={routes.projectDetail(project._id)}
 						class={status === 'completed' ? 'border-border/70' : undefined}
 					/>
 				{/each}
@@ -152,4 +194,31 @@
 		{/if}
 	</div>
 
+	<Dialog.Root bind:open={createDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>Create project</Dialog.Title>
+				<Dialog.Description>Give your project a name to get started.</Dialog.Description>
+			</Dialog.Header>
+			<div class="flex flex-col gap-3">
+				<div class="flex flex-col gap-2">
+					<Label for="projectName">Name</Label>
+					<Input id="projectName" bind:value={createName} placeholder="Enter project name" />
+				</div>
+				<div class="flex flex-col gap-2">
+					<Label for="projectDueDate">Due date</Label>
+					<Input id="projectDueDate" type="date" bind:value={createDueDate} />
+				</div>
+			</div>
+			{#if createError}
+				<p class="type-sm text-destructive">{createError}</p>
+			{/if}
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
+				<Button disabled={createPending || !createName.trim() || !createDueDate} onclick={() => void createProject()}>
+					{createPending ? 'Creating...' : 'Open'}
+				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
 {/if}

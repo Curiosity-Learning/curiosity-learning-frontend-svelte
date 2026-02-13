@@ -1,52 +1,73 @@
-# ADR-003: Modal-to-Page Refactor for Creation Flows
+# ADR-003: Dialog-to-Detail-Page Pattern
 
-**Status:** Accepted
+**Status:** Accepted (revised)
 **Date:** 2026-02-12
 
 ## Context
 
-Project creation was originally implemented as a modal dialog inside `club-projects-view.svelte`. This pattern has several downsides:
+The app needs a consistent pattern for creating and editing entities (sessions, projects). Several approaches were considered:
 
-- **No URL** — the creation state is not addressable or shareable.
-- **Limited space** — complex forms with validation, descriptions, and helper text feel cramped in a dialog.
-- **Mixed concerns** — the list view component manages both display and creation logic.
-- **No back button** — users cannot navigate away and return to a partially filled form.
+- **Modal-only:** Creation and editing happen in dialogs on list pages. Feels cramped for complex entities and mixes display/edit concerns.
+- **Dedicated creation pages:** A `/new` page with full forms. Adds URL-addressable creation but creates extra files and feels heavy for simple entities.
+- **Draft pattern:** Immediately create a record on "+" and navigate to an editable detail page. Blocked by required fields in the Convex schema.
 
 ## Decision
 
-Refactor creation flows from modals into **dedicated route pages**.
+Adopt a **dialog for quick creation → detail page for editing** pattern:
 
-### What Changed
+### Creation Dialogs (list pages)
 
-1. **Created a new route** at `/[clubId]/projects/new/+page.svelte` with the full form.
-2. **Removed dialog code** from `club-projects-view.svelte` — all dialog state, form state, mutation logic, and the `<Dialog.Root>` template block.
-3. **Changed the trigger** from `onclick={openCreateProject}` to `href={clubId ? \`/${clubId}/projects/new\` : undefined}` on the "+" button.
-4. **Added route helper** `clubProjectsNew` in `src/lib/routes.ts`.
+- Minimal fields only (name, dates) with a **"Open"** button.
+- On submit: create the entity via Convex mutation, then `goto()` the detail page.
+- No edit mode in creation dialogs — they are creation-only.
+- Example: sessions list "+" opens a dialog with start time, end time, and description. On "Open", creates the session and navigates to `/session/[id]/activities`.
 
-### Page Header Pattern
+### Detail Pages (viewing + editing)
 
-The new page uses the existing `PageHeader*` components to integrate with the AppShell:
+- Full viewing experience: description, status, members, content feeds.
+- Editing via **ActionMenu → "Edit details"** dialog for name, description, dates.
+- Additional actions in ActionMenu (e.g., "Mark as done", "Delete").
+- Detail pages are the single place where editing happens — no editing on list pages.
 
-```svelte
-<PageHeaderBackButton fallbackHref="/{clubId}/projects/current" />
-<PageHeaderTitle title="Add project details" />
-<PageHeaderActions none />
-```
+### Inline Dialogs (sub-entities + info)
 
-These components communicate with the AppShell via Svelte context to control the top navigation bar.
+- **Activities:** Created/edited via dialog within the session detail view (sub-entity of a session).
+- **Invite learner:** Info popup for sharing invite codes (no entity creation).
+- These stay as dialogs because they are lightweight, contextual, and don't need their own URL.
+
+## What Changed
+
+### Projects
+
+1. Reverted from `/[clubId]/projects/new` page back to a creation dialog in `club-projects-view.svelte`.
+2. Created detail page at `/project/[projectId]/+page.svelte` with project info, members, updates feed, and edit dialog.
+3. Project cards link to the detail page via `href` prop.
+
+### Sessions
+
+1. Simplified the session list dialog to **creation-only** (removed edit mode, `sessionEditId`, `openEditSession`).
+2. "Open" button creates the session and navigates to the detail page.
+3. Removed "Edit session" action from `ClubSessionCard` ActionMenu on the list page.
+4. Editing stays on the session detail view (already had an edit dialog via ActionMenu).
+
+### Route Helpers
+
+- Removed `clubProjectsNew` from `src/lib/routes.ts`.
+- Added `projectDetail: (projectId) => \`/project/${projectId}\``.
 
 ## Consequences
 
-- **Positive:** Creation forms have their own URL, enabling deep linking and browser navigation.
-- **Positive:** Full page real estate for form layout, validation messages, and helper text.
-- **Positive:** List view components stay focused on display logic only.
-- **Positive:** Clean separation works naturally with layout groups (ADR-001) — the creation page sits outside `(tabbed)/` and does not inherit the tab bar.
-- **Negative:** Slightly more files (route page + schema), but the separation is worth it.
+- **Positive:** Consistent pattern across entity types — dialogs for quick creation, detail pages for working.
+- **Positive:** List pages stay focused on browsing — no edit state management.
+- **Positive:** Detail pages are URL-addressable for deep linking and collaboration.
+- **Positive:** Component-based edit dialogs on detail pages can be upgraded to inline editing later.
+- **Negative:** Two interaction patterns (dialog + page) instead of one, but each serves a distinct purpose.
 
 ## When to Apply
 
-Use dedicated pages (not modals) for any creation or editing flow that:
-- Has more than 2-3 form fields
-- Needs validation and error messages
-- Benefits from a URL (bookmarking, sharing, back button)
-- Would feel cramped in a dialog
+| Scenario | Pattern |
+|----------|---------|
+| Creating a top-level entity (session, project) | Creation dialog on list page → navigate to detail page |
+| Editing a top-level entity | ActionMenu + edit dialog on detail page |
+| Creating/editing a sub-entity (activity) | Dialog within parent detail page |
+| Displaying info (invite code) | Info dialog |
