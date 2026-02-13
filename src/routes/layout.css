@@ -11,6 +11,106 @@
 	--radius: 0.625rem;
 	--font-family-sans: 'DM Sans', sans-serif;
 	--font-family-heading: 'DM Sans', sans-serif;
+
+	/* ── Neutral ── */
+	--neutral-black: #191919;
+	--neutral-white: #FFFFFF;
+
+	/* ── Grayscale ── */
+	--gray-50: #F6F7F9;
+	--gray-100: #EDEEF2;
+	--gray-200: #DCDEE6;
+	--gray-300: #BBBFCC;
+	--gray-400: #9EA2B3;
+	--gray-500: #838799;
+	--gray-600: #6B6F80;
+	--gray-700: #545766;
+	--gray-800: #3E414C;
+	--gray-900: #292B33;
+
+	/* ── Primary Orange ── */
+	--orange-50: #FEF2E8;
+	--orange-100: #FDE4D2;
+	--orange-200: #FBC9A5;
+	--orange-300: #F9AF77;
+	--orange-400: #F7944A;
+	--orange-500: #F5791D;
+	--orange-600: #C46117;
+	--orange-700: #934911;
+	--orange-800: #62300C;
+	--orange-900: #311806;
+
+	/* ── Secondary Green ── */
+	--green-50: #A5D0C3;
+	--green-100: #96C1B4;
+	--green-200: #79A497;
+	--green-300: #5B8679;
+	--green-400: #3E695C;
+	--green-500: #204B3E;
+	--green-600: #1A3C32;
+	--green-700: #132D25;
+	--green-800: #0D1E19;
+	--green-900: #060F0C;
+
+	/* ── Secondary Purple ── */
+	--purple-50: #F7F7FD;
+	--purple-100: #EFF0FA;
+	--purple-200: #E0E1F5;
+	--purple-300: #D0D1F1;
+	--purple-400: #C1C2EC;
+	--purple-500: #B1B3E7;
+	--purple-600: #9395CA;
+	--purple-700: #7577AD;
+	--purple-800: #565990;
+	--purple-900: #383B73;
+
+	/* ── Secondary Yellow ── */
+	--yellow-50: #FEFBEB;
+	--yellow-100: #FEF8D7;
+	--yellow-200: #FCF0AF;
+	--yellow-300: #FBE988;
+	--yellow-400: #F9E160;
+	--yellow-500: #F8DA38;
+	--yellow-600: #C8B02D;
+	--yellow-700: #988622;
+	--yellow-800: #685B16;
+	--yellow-900: #38310B;
+
+	/* ── Utility: Success Green ── */
+	--success-0: #F0FFF8;
+	--success-50: #E6FFF3;
+	--success-100: #82E6B6;
+	--success-200: #3DCC87;
+	--success-300: #18B368;
+	--success-400: #069952;
+	--success-500: #008042;
+
+	/* ── Utility: Warning Orange ── */
+	--warning-50: #FFF5E6;
+	--warning-100: #EDA12F;
+	--warning-200: #DB8400;
+	--warning-300: #C97900;
+	--warning-400: #B86E00;
+	--warning-500: #A66300;
+
+	/* ── Utility: Danger Red ── */
+	--danger-0: #FFF0F0;
+	--danger-50: #FFE6E6;
+	--danger-100: #E62E2E;
+	--danger-200: #CC0000;
+	--danger-300: #B30000;
+	--danger-400: #990000;
+	--danger-500: #800000;
+
+	/* ── Utility: Info Blue ── */
+	--info-50: #E6F6FF;
+	--info-100: #2EA2E6;
+	--info-200: #0081CC;
+	--info-300: #0071B3;
+	--info-400: #006199;
+	--info-500: #005180;
+
+	/* ── Semantic tokens (shadcn) ── */
 	--background: oklch(0.994 0.003 95.6);
 	--foreground: oklch(0.196 0.012 42.5);
 	--card: oklch(1 0 0);
@@ -107,6 +207,106 @@
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
 	--radius-xl: calc(var(--radius) + 4px);
+
+	/* ── Neutral ── */
+	--color-neutral-black: var(--neutral-black);
+	--color-neutral-white: var(--neutral-white);
+
+	/* ── Grayscale ── */
+	--color-gray-50: var(--gray-50);
+	--color-gray-100: var(--gray-100);
+	--color-gray-200: var(--gray-200);
+	--color-gray-300: var(--gray-300);
+	--color-gray-400: var(--gray-400);
+	--color-gray-500: var(--gray-500);
+	--color-gray-600: var(--gray-600);
+	--color-gray-700: var(--gray-700);
+	--color-gray-800: var(--gray-800);
+	--color-gray-900: var(--gray-900);
+
+	/* ── Primary Orange ── */
+	--color-orange-50: var(--orange-50);
+	--color-orange-100: var(--orange-100);
+	--color-orange-200: var(--orange-200);
+	--color-orange-300: var(--orange-300);
+	--color-orange-400: var(--orange-400);
+	--color-orange-500: var(--orange-500);
+	--color-orange-600: var(--orange-600);
+	--color-orange-700: var(--orange-700);
+	--color-orange-800: var(--orange-800);
+	--color-orange-900: var(--orange-900);
+
+	/* ── Secondary Green ── */
+	--color-green-50: var(--green-50);
+	--color-green-100: var(--green-100);
+	--color-green-200: var(--green-200);
+	--color-green-300: var(--green-300);
+	--color-green-400: var(--green-400);
+	--color-green-500: var(--green-500);
+	--color-green-600: var(--green-600);
+	--color-green-700: var(--green-700);
+	--color-green-800: var(--green-800);
+	--color-green-900: var(--green-900);
+
+	/* ── Secondary Purple ── */
+	--color-purple-50: var(--purple-50);
+	--color-purple-100: var(--purple-100);
+	--color-purple-200: var(--purple-200);
+	--color-purple-300: var(--purple-300);
+	--color-purple-400: var(--purple-400);
+	--color-purple-500: var(--purple-500);
+	--color-purple-600: var(--purple-600);
+	--color-purple-700: var(--purple-700);
+	--color-purple-800: var(--purple-800);
+	--color-purple-900: var(--purple-900);
+
+	/* ── Secondary Yellow ── */
+	--color-yellow-50: var(--yellow-50);
+	--color-yellow-100: var(--yellow-100);
+	--color-yellow-200: var(--yellow-200);
+	--color-yellow-300: var(--yellow-300);
+	--color-yellow-400: var(--yellow-400);
+	--color-yellow-500: var(--yellow-500);
+	--color-yellow-600: var(--yellow-600);
+	--color-yellow-700: var(--yellow-700);
+	--color-yellow-800: var(--yellow-800);
+	--color-yellow-900: var(--yellow-900);
+
+	/* ── Utility: Success ── */
+	--color-success-0: var(--success-0);
+	--color-success-50: var(--success-50);
+	--color-success-100: var(--success-100);
+	--color-success-200: var(--success-200);
+	--color-success-300: var(--success-300);
+	--color-success-400: var(--success-400);
+	--color-success-500: var(--success-500);
+
+	/* ── Utility: Warning ── */
+	--color-warning-50: var(--warning-50);
+	--color-warning-100: var(--warning-100);
+	--color-warning-200: var(--warning-200);
+	--color-warning-300: var(--warning-300);
+	--color-warning-400: var(--warning-400);
+	--color-warning-500: var(--warning-500);
+
+	/* ── Utility: Danger ── */
+	--color-danger-0: var(--danger-0);
+	--color-danger-50: var(--danger-50);
+	--color-danger-100: var(--danger-100);
+	--color-danger-200: var(--danger-200);
+	--color-danger-300: var(--danger-300);
+	--color-danger-400: var(--danger-400);
+	--color-danger-500: var(--danger-500);
+
+	/* ── Utility: Info ── */
+	--color-info-50: var(--info-50);
+	--color-info-100: var(--info-100);
+	--color-info-200: var(--info-200);
+	--color-info-300: var(--info-300);
+	--color-info-400: var(--info-400);
+	--color-info-500: var(--info-500);
+
+	/* ── Semantic (shadcn) ── */
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
