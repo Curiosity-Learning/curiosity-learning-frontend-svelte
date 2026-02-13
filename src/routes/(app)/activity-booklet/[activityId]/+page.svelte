@@ -3,11 +3,7 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import {
-		PageHeaderActions,
-		PageHeaderBackButton,
-		PageHeaderTitle
-	} from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
@@ -61,20 +57,6 @@
 
 <PageHeaderBackButton fallbackHref={fallbackHref()} />
 <PageHeaderTitle title={activity?.name ?? 'Activity'} />
-{#if sessionId}
-	<PageHeaderActions>
-		<Button
-			variant="ghost"
-			size="icon"
-			aria-label="Add to session"
-			disabled={pending}
-			onclick={() => void addToSession()}
-		>
-			<PlusIcon class="size-5 text-muted-foreground" />
-		</Button>
-	</PageHeaderActions>
-{/if}
-
 {#if !activityIdTyped}
 	<Alert variant="destructive">
 		<AlertTitle>Invalid activity</AlertTitle>
@@ -115,5 +97,20 @@
 				</Badge>
 			{/each}
 		</div>
+
+		{#if sessionId}
+			<div
+				class="pointer-events-none sticky bottom-[calc(var(--bottom-nav-h,0rem)+1rem)] flex justify-center lg:bottom-8"
+			>
+				<Button
+					class="pointer-events-auto rounded-full px-6 py-3 shadow-md"
+					disabled={pending}
+					onclick={() => void addToSession()}
+				>
+					<PlusIcon class="size-5" />
+					Add to session
+				</Button>
+			</div>
+		{/if}
 	</div>
 {/if}
