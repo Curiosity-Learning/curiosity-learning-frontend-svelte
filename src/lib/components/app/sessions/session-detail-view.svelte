@@ -26,7 +26,7 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import { dragHandleZone } from 'svelte-dnd-action';
+	import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
 
 	type Props = {
 		view: 'activities' | 'attendees';
@@ -98,7 +98,8 @@
 	// Drag-and-drop state: local copy of activities that syncs with query data.
 	// svelte-dnd-action requires items with `id: string | number`.
 	type ActivityData = NonNullable<typeof activitiesResponse.data>[number];
-	type DndActivity = Omit<ActivityData, 'id'> & { id: string };
+	type DndShadowMarker = { [K in typeof SHADOW_ITEM_MARKER_PROPERTY_NAME]?: boolean };
+	type DndActivity = Omit<ActivityData, 'id'> & { id: string } & DndShadowMarker;
 	let dndItems = $state<DndActivity[]>([]);
 	let isDragging = $state(false);
 
@@ -375,6 +376,7 @@
 									minutes: activity.minutes,
 									buildingBlocks: activity.buildingBlocks.map((blockId) => String(blockId))
 								}}
+								isDndShadowItem={activity[SHADOW_ITEM_MARKER_PROPERTY_NAME] === true}
 								{blockNameById}
 								canEdit={canUpdateActivity}
 								canDelete={canDeleteActivity}

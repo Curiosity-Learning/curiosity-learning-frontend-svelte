@@ -67,6 +67,8 @@
 		blockNameById: Map<string, string>;
 		canEdit: boolean;
 		canDelete: boolean;
+		/** True when this row is the temporary dnd shadow placeholder item. */
+		isDndShadowItem?: boolean;
 		/** Show a drag handle on the left of the card for reordering. */
 		showDragHandle?: boolean;
 		onEdit?: () => void;
@@ -80,11 +82,14 @@
 		blockNameById,
 		canEdit,
 		canDelete,
+		isDndShadowItem = false,
 		showDragHandle = false,
 		onEdit,
 		onDelete,
 		onContentSave
 	}: Props = $props();
+
+	let cardClass = $derived(isDndShadowItem ? 'gap-0 py-0 invisible' : 'gap-0 py-0');
 
 	let contentEl: HTMLParagraphElement | undefined = $state();
 	let isEditing = $state(false);
@@ -164,7 +169,7 @@
 	]);
 </script>
 
-<Card class="gap-0 py-0">
+<Card class={cardClass}>
 	<div class="flex">
 		{#if showDragHandle}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->

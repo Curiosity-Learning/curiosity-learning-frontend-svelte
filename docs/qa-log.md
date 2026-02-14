@@ -75,6 +75,8 @@
 
 - `npm run check` ✅
 
+## 2026-02-13
+
 ### Refactor: Dialog-to-Detail-Page Pattern
 
 - Reverted project creation from dedicated `/[clubId]/projects/new` page back to a creation dialog in `club-projects-view.svelte` with "Open" button.
@@ -91,6 +93,16 @@
 - Updated `projects.create` mutation arg to require `dueDate`.
 - Creation and edit dialogs now require due date (label updated, button disabled without it).
 - Removed "No due date" fallback from project cards and detail page status labels.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Bug Fix: DnD Shadow Action Menu Flash
+
+- Fixed one-frame ghost `⋮` action-menu flash on activity drag start in session detail.
+- `session-detail-view.svelte` now reads `SHADOW_ITEM_MARKER_PROPERTY_NAME` from `svelte-dnd-action` item data and passes `isDndShadowItem` to each card.
+- `session-activity-card.svelte` renders dnd shadow rows with `invisible` immediately, preserving layout while hiding content before library `decorateShadowEl()` runs.
 
 ### Run: Type Check
 
