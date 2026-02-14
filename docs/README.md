@@ -24,3 +24,4 @@ When a significant design choice is made, it gets an ADR in `adr/`:
 - [ADR-002](adr/002-form-architecture.md) — Form architecture (Field.* + Superforms + Zod)
 - [ADR-003](adr/003-modal-to-page-refactor.md) — Modal-to-page refactor for creation flows
 - [ADR-004](adr/004-session-building-booklet.md) — Session building booklet (reusable activity library)
+- [ADR-005](adr/005-responsive-page-header-search.md) — Responsive page-header search modes

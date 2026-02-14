@@ -6,6 +6,7 @@ import DataRecordHeader from './record-card/data-record-header.svelte';
 import PageHeaderActions from './page-header-actions.svelte';
 import PageHeaderBackButton from './page-header-back-button.svelte';
 import PageHeaderBanner from './page-header-banner.svelte';
+import PageHeaderSearch from './page-header-search.svelte';
 import PageHeaderTitle from './page-header-title.svelte';
 import RelationAvatarStack from './record-card/relation-avatar-stack.svelte';
 import RelationChipSet from './record-card/relation-chip-set.svelte';
@@ -22,6 +23,7 @@ export {
 	PageHeaderActions,
 	PageHeaderBackButton,
 	PageHeaderBanner,
+	PageHeaderSearch,
 	PageHeaderTitle,
 	RelationAvatarStack,
 	RelationChipSet,

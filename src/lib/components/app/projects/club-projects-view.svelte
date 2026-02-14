@@ -1,11 +1,10 @@
 <script lang="ts">
 	import PlusIcon from '@lucide/svelte/icons/plus';
-	import SearchIcon from '@lucide/svelte/icons/search';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { PageHeaderActions, PageHeaderBackButton } from '$lib/components/app';
+	import { PageHeaderActions, PageHeaderBackButton, PageHeaderSearch } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -39,7 +38,6 @@
 	);
 
 	let errorMessage = $state('');
-	let searchOpen = $state(false);
 	let searchText = $state('');
 
 	let createDialogOpen = $state(false);
@@ -73,13 +71,6 @@
 			createError = error instanceof Error ? error.message : 'Failed to create project.';
 		} finally {
 			createPending = false;
-		}
-	};
-
-	const toggleSearch = () => {
-		searchOpen = !searchOpen;
-		if (!searchOpen) {
-			searchText = '';
 		}
 	};
 
@@ -126,7 +117,13 @@
 	);
 </script>
 
-<PageHeaderBackButton fallbackHref={clubId ? `/${clubId}` : '/onboarding/get-started'} />
+<PageHeaderBackButton fallbackHref={clubId ? `/club/${clubId}` : '/onboarding/get-started'} />
+<PageHeaderSearch
+	bind:value={searchText}
+	placeholder="Search projects by title, date, or description"
+	ariaLabel="Search projects"
+	mode="auto"
+/>
 <PageHeaderActions>
 	<div class="flex items-center gap-1">
 		<Button
@@ -138,14 +135,6 @@
 		>
 			<PlusIcon class="size-5 text-muted-foreground" />
 		</Button>
-		<Button
-			variant="ghost"
-			size="icon"
-			aria-label={searchOpen ? 'Hide search' : 'Search projects'}
-			onclick={toggleSearch}
-		>
-			<SearchIcon class="size-5 text-muted-foreground" />
-		</Button>
 	</div>
 </PageHeaderActions>
 
@@ -156,10 +145,6 @@
 	</Alert>
 {:else}
 	<div class="flex w-full max-w-2xl self-center flex-col gap-4">
-		{#if searchOpen}
-			<Input bind:value={searchText} placeholder="Search projects by title, date, or description" />
-		{/if}
-
 		{#if errorMessage}
 			<Alert variant="destructive">
 				<AlertTitle>Action failed</AlertTitle>

@@ -3,9 +3,11 @@
 	import { goto } from '$app/navigation';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import SearchIcon from '@lucide/svelte/icons/search';
 	import logoIconAndText from '$lib/assets/Icon and Text.svg';
-	import type { HeaderBackConfig } from '$lib/app/page-header';
+	import type { HeaderBackConfig, HeaderSearchConfig, HeaderSearchMode } from '$lib/app/page-header';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils.js';
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '$lib/components/ui/collapsible';
 	import { Separator } from '$lib/components/ui/separator';
@@ -19,18 +21,53 @@
 		navigation: AppNavItemType[];
 		headerBack?: HeaderBackConfig;
 		headerActions?: import('svelte').Snippet;
+		headerSearch?: HeaderSearchConfig;
 		banner?: import('svelte').Snippet;
 		children: import('svelte').Snippet;
 	};
 
-	let { title, activeNav, activePath, navigation, headerBack, headerActions, banner, children }: Props =
-		$props();
+	let {
+		title,
+		activeNav,
+		activePath,
+		navigation,
+		headerBack,
+		headerActions,
+		headerSearch,
+		banner,
+		children
+	}: Props = $props();
 
 	const topNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'top'));
 	const bottomNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'bottom'));
+	// Auto mode chooses the most stable layout for current header width.
+	const SEARCH_INLINE_MIN_WIDTH = 920;
+	const SEARCH_COLLAPSIBLE_MIN_WIDTH = 680;
 
 	let clubOpen = $state(false);
 	let clubNavOpen = $derived(activeNav === 'club' ? true : clubOpen);
+	let headerRowWidth = $state(0);
+	let searchInputRef = $state<HTMLInputElement | null>(null);
+	let collapsibleSearchContainerRef = $state<HTMLDivElement | null>(null);
+	let searchFieldOpen = $state(false);
+	let headerSearchValue = $derived(headerSearch?.value ?? '');
+	let headerSearchPlaceholder = $derived(headerSearch?.placeholder ?? 'Search');
+	let headerSearchAriaLabel = $derived(headerSearch?.ariaLabel ?? 'Search');
+	let searchHasValue = $derived(Boolean(headerSearchValue.trim()));
+	let requestedSearchMode = $derived(headerSearch?.mode ?? 'auto');
+	let resolvedSearchMode: HeaderSearchMode | null = $derived.by(() => {
+		if (!headerSearch) return null;
+		if (requestedSearchMode !== 'auto') return requestedSearchMode;
+		if (headerRowWidth >= SEARCH_INLINE_MIN_WIDTH) return 'inline';
+		if (headerRowWidth >= SEARCH_COLLAPSIBLE_MIN_WIDTH) return 'collapsible';
+		return 'overlay';
+	});
+	let showCollapsibleSearchField = $derived(
+		resolvedSearchMode === 'collapsible' && (searchFieldOpen || searchHasValue)
+	);
+	let showOverlaySearchField = $derived(
+		resolvedSearchMode === 'overlay' && (searchFieldOpen || searchHasValue)
+	);
 
 	const isActivePath = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
 
@@ -56,6 +93,58 @@
 			await goto(headerBack.fallbackHref);
 		}
 	};
+
+	const focusSearchInput = () => {
+		if (!browser) return;
+		requestAnimationFrame(() => {
+			searchInputRef?.focus();
+		});
+	};
+
+	const handleSearchInput = (event: Event) => {
+		if (!headerSearch) return;
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		headerSearch.onValueChange(target.value);
+	};
+
+	const openSearchField = () => {
+		searchFieldOpen = true;
+		focusSearchInput();
+	};
+
+	const handleSearchIconClick = () => {
+		if (!headerSearch || resolvedSearchMode === 'inline') return;
+		if (!searchFieldOpen) {
+			openSearchField();
+			return;
+		}
+		focusSearchInput();
+	};
+
+	const handleCollapsibleSearchFocusOut = (event: FocusEvent) => {
+		if (!headerSearch || !showCollapsibleSearchField) return;
+		const nextTarget = event.relatedTarget;
+		if (nextTarget instanceof Node && collapsibleSearchContainerRef?.contains(nextTarget)) return;
+		if (!headerSearchValue.trim()) {
+			searchFieldOpen = false;
+		}
+	};
+
+	const handleOverlaySearchBlur = (event: FocusEvent) => {
+		if (!headerSearch || resolvedSearchMode !== 'overlay') return;
+		const nextTarget = event.relatedTarget;
+		if (
+			nextTarget instanceof HTMLElement &&
+			nextTarget.dataset.headerSearchToggle === 'true'
+		) {
+			return;
+		}
+		if (!headerSearchValue.trim()) {
+			searchFieldOpen = false;
+		}
+	};
+
 </script>
 
 <!-- --bottom-nav-h: height of the fixed mobile bottom nav. Used here for content
@@ -151,8 +240,8 @@
 						banner ? 'pt-4 pb-0' : 'py-4'
 					)}
 				>
-					<div class="flex flex-wrap items-center justify-between gap-3">
-						<div class="flex min-w-0 flex-1 items-center gap-2">
+					<div class="relative flex flex-wrap items-center justify-between gap-3" bind:clientWidth={headerRowWidth}>
+						<div class="relative flex min-w-0 flex-1 items-center gap-2">
 							{#if headerBack}
 								<Button
 									variant="ghost"
@@ -164,13 +253,97 @@
 									<ArrowLeftIcon class="size-5" />
 								</Button>
 							{/if}
-							<h1 class="type-h4-bold min-w-0 truncate">
+							<h1
+								class={cn(
+									'type-h4-bold min-w-0 truncate transition-opacity duration-200',
+									showOverlaySearchField ? 'opacity-0' : 'opacity-100'
+								)}
+							>
 								{title}
 							</h1>
+
+							{#if showOverlaySearchField}
+								<div class="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center">
+									<div
+										class={cn('pointer-events-auto min-w-0 flex-1', headerBack ? 'pl-10' : undefined)}
+									>
+										<Input
+											bind:ref={searchInputRef}
+											value={headerSearchValue}
+											placeholder={headerSearchPlaceholder}
+											aria-label={headerSearchAriaLabel}
+											class="h-9"
+											onblur={handleOverlaySearchBlur}
+											oninput={handleSearchInput}
+										/>
+									</div>
+								</div>
+							{/if}
 						</div>
-						{#if headerActions}
-							<div class="flex flex-wrap items-center gap-2">
-								{@render headerActions()}
+						{#if headerActions || headerSearch}
+							<div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
+								{#if headerSearch}
+									{#if resolvedSearchMode === 'inline'}
+										<div class="w-[min(22rem,45vw)] min-w-[13rem] max-w-full">
+											<Input
+												bind:ref={searchInputRef}
+												value={headerSearchValue}
+												placeholder={headerSearchPlaceholder}
+												aria-label={headerSearchAriaLabel}
+												class="h-9"
+												oninput={handleSearchInput}
+											/>
+										</div>
+									{:else if resolvedSearchMode === 'collapsible'}
+										<div
+											bind:this={collapsibleSearchContainerRef}
+											class="flex min-w-0 items-center gap-1"
+											onfocusout={handleCollapsibleSearchFocusOut}
+										>
+											<div
+												class={cn(
+													// Padding gives the default input focus ring room;
+													// matching negative margin keeps surrounding layout alignment unchanged.
+													'overflow-x-hidden overflow-y-visible transition-[width,opacity,padding,margin] duration-200 ease-out',
+													showCollapsibleSearchField
+														? 'w-[min(20rem,42vw)] -m-2 px-2 py-2 opacity-100'
+														: 'w-0 m-0 px-0 py-0 opacity-0'
+												)}
+											>
+												<Input
+													bind:ref={searchInputRef}
+													value={headerSearchValue}
+													placeholder={headerSearchPlaceholder}
+													aria-label={headerSearchAriaLabel}
+													class="h-9"
+													oninput={handleSearchInput}
+												/>
+											</div>
+											<Button
+												variant="ghost"
+												size="icon"
+												aria-label={headerSearchAriaLabel}
+												data-header-search-toggle="true"
+												onclick={handleSearchIconClick}
+											>
+												<SearchIcon class="size-5 text-muted-foreground" />
+											</Button>
+										</div>
+									{:else if resolvedSearchMode === 'overlay'}
+										<Button
+											variant="ghost"
+											size="icon"
+											aria-label={headerSearchAriaLabel}
+											data-header-search-toggle="true"
+											onclick={handleSearchIconClick}
+										>
+											<SearchIcon class="size-5 text-muted-foreground" />
+										</Button>
+									{/if}
+								{/if}
+								{#if headerActions}
+									{@render headerActions()}
+								{/if}
 							</div>
 						{/if}
 					</div>

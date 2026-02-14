@@ -12,6 +12,7 @@
 		type HeaderActionsOverride,
 		type HeaderBackConfig,
 		type HeaderBannerOverride,
+		type HeaderSearchOverride,
 		type HeaderTitleOverride,
 		type PageHeaderController
 	} from '$lib/app/page-header';
@@ -85,6 +86,7 @@
 	);
 
 	let actionsOverride: HeaderActionsOverride = $state(null);
+	let searchOverride: HeaderSearchOverride = $state(null);
 	let bannerOverride: HeaderBannerOverride = $state(null);
 	let backConfigOverride: HeaderBackConfig = $state(null);
 	let titleOverride: HeaderTitleOverride = $state(null);
@@ -97,6 +99,12 @@
 			},
 			clearActions: () => {
 				actionsOverride = null;
+			},
+			setSearch: (value) => {
+				searchOverride = value;
+			},
+			clearSearch: () => {
+				searchOverride = null;
 			},
 			setBanner: (value) => {
 				bannerOverride = value;
@@ -127,6 +135,7 @@
 	navigation={navigation}
 	headerBack={backConfigOverride ?? undefined}
 	headerActions={actionsOverride === null || actionsOverride === false ? undefined : actionsOverride}
+	headerSearch={searchOverride ?? undefined}
 	banner={bannerOverride ?? undefined}
 >
 	{#if clubsResponse.error || activeContextResponse.error}

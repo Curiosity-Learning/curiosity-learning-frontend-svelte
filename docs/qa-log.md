@@ -98,6 +98,32 @@
 
 - `npm run check` ✅
 
+## 2026-02-14
+
+### Feature: Responsive Header Search
+
+- Added `PageHeaderSearch` as a first-class page-header override, parallel to `PageHeaderActions` and `PageHeaderTitle`.
+- Extended app header rendering in `AppShell` with three search modes:
+  - `inline`: always-open field in header actions area.
+  - `collapsible`: search icon expands to input with autofocus and collapses when blurred + empty.
+  - `overlay`: always-open field intentionally overlays title lane while preserving back-button lane.
+- Added `auto` mode to resolve between inline/collapsible/overlay based on available header width.
+- Tuned responsive behavior after manual QA:
+  - only large (`inline`) mode is open by default;
+  - medium (`collapsible`) and narrow (`overlay`) modes are icon-triggered;
+  - collapsible expansion now opens to the left of the search icon;
+  - collapsible focus ring clipping was fixed while preserving default `Input` styles by using padded animated wrapper spacing with compensating negative margin.
+- Migrated project and session list pages off duplicated in-page search UI to the shared header search API.
+
+### Documentation
+
+- Added ADR-005 for responsive header search mode architecture.
+- Updated architecture and docs index references.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
 ### Bug Fix: DnD Shadow Action Menu Flash
 
 - Fixed one-frame ghost `⋮` action-menu flash on activity drag start in session detail.

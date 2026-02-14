@@ -73,6 +73,7 @@ Forms use **shadcn-svelte Field.* components + Superforms + Zod v4** — no Form
 
 - **Dialog → Detail Page pattern**: Creation via minimal dialog with "Open" button → create entity → navigate to detail page. Editing happens on the detail page via ActionMenu. See [ADR-003](adr/003-modal-to-page-refactor.md).
 - **Page headers** use `PageHeaderBackButton`, `PageHeaderTitle`, `PageHeaderActions` — these communicate with AppShell via Svelte context.
+- **Header search** uses `PageHeaderSearch` to opt in per-page search from AppShell, with responsive `auto` mode that resolves between inline, collapsible, and title-overlay variants. See [ADR-005](adr/005-responsive-page-header-search.md).
 - **ActionMenu** provides edit/delete/toggle actions on detail pages via a dropdown triggered by an ellipsis icon.
 - **Field component hierarchy**: `Field.Group > Field.Field > Field.Label + Input + Field.Error + Field.Description`.
 - **Session Building Booklet**: Reusable activity templates browsable at `/activity-booklet`, with copy-on-add into sessions and drag-and-drop reordering. See [ADR-004](adr/004-session-building-booklet.md).
