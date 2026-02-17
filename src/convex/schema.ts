@@ -155,7 +155,7 @@ export default defineSchema({
 
 	projects: defineTable({
 		name: v.string(),
-		dueDate: v.optional(v.number()),
+		dueDate: v.number(),
 		doneDate: v.optional(v.number()),
 		description: v.optional(v.string()),
 		createdByUserId: v.string(),

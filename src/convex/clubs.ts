@@ -416,17 +416,33 @@ export const getMembers = query({
 				continue;
 			}
 
+			// Fall back to the profiles table when denormalized fields are missing
+			let { firstName, lastName, username, email, coverPhotoUrl } = member;
+			if (!firstName && !lastName && !email) {
+				const profile = await ctx.db
+					.query('profiles')
+					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
+					.first();
+				if (profile) {
+					firstName = firstName ?? profile.firstName;
+					lastName = lastName ?? profile.lastName;
+					username = username ?? profile.username;
+					email = email ?? profile.email;
+					coverPhotoUrl = coverPhotoUrl ?? profile.coverPhotoUrl;
+				}
+			}
+
 			output.push({
 				clubMemberId: member._id,
 				userId: member.userId,
 				roleId: member.roleId,
 				roleName: role?.name ?? null,
 				rolePermissions: role?.permissions ?? [],
-				firstName: member.firstName ?? null,
-				lastName: member.lastName ?? null,
-				username: member.username ?? null,
-				email: member.email ?? null,
-				coverPhotoUrl: member.coverPhotoUrl ?? null
+				firstName: firstName ?? null,
+				lastName: lastName ?? null,
+				username: username ?? null,
+				email: email ?? null,
+				coverPhotoUrl: coverPhotoUrl ?? null
 			});
 		}
 
