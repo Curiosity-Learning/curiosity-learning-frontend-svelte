@@ -56,7 +56,7 @@
 		}
 
 		redirected = true;
-		const target = `/${clubId}/sessions`;
+		const target = `/club/${clubId}`;
 		if (page.url.pathname !== target) void goto(target);
 	});
 </script>

@@ -10,12 +10,12 @@
 			? [
 					{
 						label: 'Current',
-						href: `/${clubId}/projects/current`,
-						aliases: [`/${clubId}/projects`]
+						href: `/club/${clubId}/projects/current`,
+						aliases: [`/club/${clubId}/projects`]
 					},
 					{
 						label: 'Completed',
-						href: `/${clubId}/projects/completed`
+						href: `/club/${clubId}/projects/completed`
 					}
 				]
 			: []

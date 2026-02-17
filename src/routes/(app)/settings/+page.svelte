@@ -162,7 +162,7 @@
 		successMessage = '';
 		// Instant UX: navigate immediately and persist the preference in the background.
 		// Security is still enforced by Convex permission checks per query/mutation.
-		await goto(resolve(`/${clubId}/sessions`));
+		await goto(resolve(`/club/${clubId}/sessions`));
 
 		pending = true;
 		try {
@@ -327,7 +327,7 @@
 						size="sm"
 						variant={club.clubId === activeContextResponse.data?.activeClubId ? 'default' : 'outline'}
 						disabled={pending || club.clubId === activeContextResponse.data?.activeClubId}
-						onpointerenter={() => void preloadCode(`/${club.clubId}`)}
+						onpointerenter={() => void preloadCode(`/club/${club.clubId}`)}
 						onclick={() => void switchActiveClub(club.clubId)}
 					>
 						{club.clubName}

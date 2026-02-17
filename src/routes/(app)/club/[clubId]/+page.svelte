@@ -21,7 +21,7 @@
 	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
-	let clubPath = $derived(clubId ? `/${clubId}` : '/onboarding/get-started');
+	let clubPath = $derived(clubId ? `/club/${clubId}` : '/onboarding/get-started');
 
 	let clubItem = $derived(
 		clubId ? (clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null : null

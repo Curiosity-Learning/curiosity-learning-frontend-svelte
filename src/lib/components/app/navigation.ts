@@ -30,7 +30,7 @@ const clubHrefFor = (clubId: string | null | undefined) => {
 };
 
 // Route structure:
-// - Club scoped: /[clubId], /[clubId]/sessions, /[clubId]/projects, /[clubId]/members
+// - Club scoped: /club/[clubId], /club/[clubId]/sessions, /club/[clubId]/projects, /club/[clubId]/members
 // - Non-club: /feed, /chat, /profile, /settings, /notifications
 export const buildAppNavigation = (clubId: string | null | undefined): AppNavItem[] => {
 	const clubHref = clubHrefFor(clubId);
