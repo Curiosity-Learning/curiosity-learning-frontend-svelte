@@ -133,3 +133,139 @@
 ### Run: Type Check
 
 - `npm run check` ✅
+
+## 2026-02-18
+
+### Feature: Inline Activity Card Editing Expansion
+
+- Session activity cards now support inline title editing via a single-line input (blur-save), fixing caret/cursor instability seen with contenteditable title editing.
+- Reduced vertical spacing between title and description for tighter card density.
+- Replaced minutes badge with inline numeric input that persists on blur.
+- Removed static "Prep needed/Little prep" badge.
+- Added reusable `inline-multi-select.svelte` with searchable multi-select UX (chips + input + listbox) built from shadcn primitives, including keyboard navigation and focus-leave save behavior.
+- Updated session detail view to persist inline field changes through shared `saveInlineActivity` mutation helper.
+
+### Documentation
+
+- Updated `docs/inline-activity-editing.md` for title/minutes/building-block inline editing behavior.
+- Updated `docs/architecture.md` with inline activity editing pattern note.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing upstream warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Inline Multi-Select Interaction Hardening
+
+- Kept building-block options menu open after selection so users can make multiple picks without reopening.
+- Removed default first-option highlight on plain click focus; highlight now starts only from hover or arrow-key navigation.
+- Stabilized click behavior around chip remove and option select by retaining input focus and preventing unintended blur/open side effects.
+- Matched multi-select control height to the minutes input row and added explicit pointer cursors on clickable affordances.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### Finalization: In-Chip Remove UX + Documentation Cleanup
+
+- Finalized selected-tag removal in inline multi-select with a simple in-chip `x` control (`TagChip` removable mode).
+- Removed experimental external-remove-button layout from active implementation to keep MVP behavior predictable and maintainable.
+- Added inline code comments in multi-select for two non-obvious behaviors:
+  - optimistic selected-chip sync during async saves,
+  - delayed blur-close logic for intra-control focus movement.
+- Added ADR-006 documenting the `Badge` (primitive) + `TagChip` (token/interactions) split and updated docs references.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### Refactor: Multi-Select Component Cleanup
+
+- Cleaned `inline-multi-select.svelte` internals to reduce branching and duplicate save logic.
+- Introduced derived booleans (`canSave`, `canInteract`) for clearer template and interaction gates.
+- Centralized persistence in `persistSelection()` and reused it for blur-save and chip removal save paths.
+- No behavior changes intended; this is a maintainability/readability pass.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### UX Tweak: Multi-Select Remove Control Layout
+
+- Simplified `TagChip` to a visual token-chip component (no embedded remove action).
+- Multi-select now renders remove controls as separate sibling buttons to the right of each chip.
+- Remove button uses `self-stretch + aspect-square` so target size tracks chip height without fixed width/height values.
+- This avoids oversized hover fills inside chips while keeping a larger, explicit remove hitbox.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### Refactor: Token Chips as a Dedicated Reusable Component
+
+- Added `TagChip` at `src/lib/components/ui/badge/tag-chip.svelte` to centralize chip-specific styling and behavior (accent/muted tones, optional removable action, optional leading/trailing snippets).
+- Refactored inline multi-select selected items to use `TagChip` instead of custom badge instance classes and inline remove-button wiring.
+- Refactored session-related tag/minutes surfaces to use `TagChip` attributes instead of per-instance `Badge class="..."` overrides:
+  - `src/lib/components/app/record-card/relation-chip-set.svelte`
+  - `src/lib/components/app/home/upcoming-session-card.svelte`
+  - `src/lib/components/app/sessions/session-activity-card.svelte`
+  - `src/routes/(app)/activity-booklet/[activityId]/+page.svelte`
+- Kept `Badge` primitive simple (non-interactive status primitive), with interactive/removable token logic moved into the dedicated chip component.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### Refinement: Reusable Multi-Select UX + A11y
+
+- Moved inline multi-select into reusable UI location: `src/lib/components/ui/multi-select/inline-multi-select.svelte`.
+- Updated activity card import to use `src/lib/components/ui/multi-select/index.ts`.
+- Improved pointer interaction:
+  - clicking anywhere in the control (input/chips area) opens the list and focuses the input caret at the end;
+  - chip remove (`x`) remains excluded from open behavior.
+- Tuned readability/density:
+  - slightly larger multi-select text (`type-body-medium`);
+  - tighter vertical spacing with reduced control/chip padding.
+- Simplified internals by removing extra focus action/suppression plumbing and using a single pointer handler on the control container.
+- Added accessibility attributes (`aria-label`, `aria-haspopup`, `aria-busy`, `aria-invalid`) to improve screen-reader behavior and state signaling.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### UX Refinement: Global Reconnect Overlay + Disabled Inline Editors
+
+- Added persistent global reconnect overlay (`Trying to reconnect…`) with spinner in `AppShell` so connectivity state is communicated consistently across app pages.
+- Removed session-local offline alert in favor of the global overlay.
+- Session activity cards now keep inline editors visible for edit-capable users while disconnected, but disable interaction:
+  - title input disabled,
+  - description editor rendered as non-editable read surface,
+  - minutes input remains visible and disabled,
+  - building blocks multi-select remains visible and disabled.
+- Action mutations remain gated by online connectivity checks.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### Feature: Global Connectivity Gate for Editing
+
+- Added shared connectivity module at `src/lib/app/connectivity.ts` with:
+  - browser online status tracking,
+  - network-health gating for mutation surfaces,
+  - shared messaging,
+  - mutation success/failure reporting helpers.
+- Updated `session-detail-view.svelte` to consume the shared connectivity gate and disable mutation-capable actions (inline activity edits, activity create/edit/delete, drag reorder, session edits, attendance toggles) while offline/unreachable.
+- Added an inline alert to explain when editing is unavailable due to connectivity.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### Bug Fix: Building Block Blur Revert Flicker
+
+- Fixed transient “old values flash” after blur in inline building-block editing.
+- `inline-multi-select.svelte` now keeps an optimistic committed selection after close and only clears it when Convex-backed props catch up (or on save failure), matching the guard pattern used by other inline fields.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)

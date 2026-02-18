@@ -2,9 +2,15 @@
 
 ## Overview
 
-Session activity descriptions support inline editing directly on the activity
-card. Edits are persisted to Convex on blur and pushed to all connected viewers
-in realtime via Convex's `useQuery` subscriptions.
+Session activities support inline editing directly on the activity card:
+
+- Title (`name`) via single-line inline text input
+- Description (`content`) via multiline `contentEditable` paragraph
+- Minutes (`minutes`) via number input
+- Building blocks via reusable searchable multi-select (chips + input + listbox)
+
+Edits are persisted to Convex and pushed to all connected viewers in realtime
+via Convex's `useQuery` subscriptions.
 
 This enables collaborative session planning — two leaders can open the same
 session simultaneously and see each other's changes appear as they edit.
@@ -13,42 +19,48 @@ session simultaneously and see each other's changes appear as they edit.
 
 ### Editing flow
 
-1. User taps the activity description (a `contentEditable` paragraph).
-2. User types freely, including line breaks (Enter key).
-3. User taps away (blur) — the card compares the current text to the stored
-   value.
-4. If changed, the `onContentSave` async callback fires, which calls the
-   `upsertActivity` Convex mutation.
-5. Convex persists the update and pushes it to all subscribers.
-6. Other viewers' cards pick up the new `activity.content` via their
-   `useQuery` subscription, and the `$effect` in the card syncs it into
-   the DOM.
+1. User edits a field directly on the card.
+2. On blur (or focus-leave for building blocks), the card compares local value
+   vs current activity value.
+3. If changed, an async inline-save callback fires, which calls
+   `upsertActivity`.
+4. Convex persists and pushes updates to all subscribers.
+5. Other viewers receive new values through `useQuery` subscriptions.
 
 ### Key implementation details
 
 | Concern | Approach |
 |---------|----------|
-| **Initial content** | The `<p contenteditable>` renders `{activity.content ?? ''}` as an inline text child — NOT populated by `$effect`. See "Interaction with drag-and-drop" below. |
-| **Line breaks** | `innerText` (not `textContent`) preserves `\n` from Enter. `whitespace-pre-wrap` renders them. |
-| **Optimistic guard** | `lastSaved` holds the just-saved value to prevent the sync `$effect` from reverting to stale Convex data while the mutation is in flight. Cleared once Convex confirms. |
-| **Conflict avoidance** | Sync is skipped while the element is focused (`isEditing`). Last-write-wins on blur. |
+| **Initial content** | The description `<p contenteditable>` renders `{activity.content ?? ''}` inline — NOT populated on mount by `$effect`. See drag-and-drop notes below. |
+| **Title line control** | The title uses an inline `<input type="text">` so it stays single-line and avoids contenteditable caret quirks. |
+| **Minutes input** | Minutes are edited with an inline `<input type="number">` and only persisted on blur. Empty clears the field. |
+| **Building blocks** | A reusable searchable multi-select shows removable in-chip tags (`TagChip` + `x`), supports typing to filter options, and persists selection on focus leave. |
+| **Connectivity policy** | For now, inline editing is online-only. Session views use the shared connectivity module to disable editing while offline or when the backend is unreachable. Inputs remain visible in-place (for layout consistency) but are disabled until reconnect. |
+| **Optimistic guard** | Last-saved guards prevent stale Convex values from briefly overwriting local blur saves. |
+| **Conflict avoidance** | Remote sync is skipped while the user is actively editing each field. Last-write-wins on blur/close. |
 | **Error handling** | If the mutation rejects (e.g. offline), `lastSaved` clears so the element reverts, and a "Save failed" message appears. Focusing again clears the error for retry. |
 | **Placeholder** | CSS `empty:before` pseudo-element with `data-placeholder` attribute. No JS needed. |
-| **Permissions** | `contentEditable` only renders when `canEdit && onContentSave` — otherwise a static `<p>` is shown. |
+| **Permissions** | Inline editors render only when update callbacks are present and user has `session_activity:update`. |
 
 ### Data storage
 
-Content is stored as a plain string (`v.optional(v.string())`) in the
-`sessionActivities.content` field. Line breaks are `\n` characters within
-the string. No HTML or rich text is stored.
+Inline updates mutate the existing `sessionActivities` row through
+`upsertActivity`:
+
+- `name`: required string
+- `content`: optional string (`undefined` when empty)
+- `minutes`: optional number (`undefined` when empty)
+- `buildingBlockIds`: optional array of building block ids
 
 ## Files
 
 | File | Role |
 |------|------|
-| `src/lib/components/app/sessions/session-activity-card.svelte` | Card component with contentEditable, blur-save, optimistic guard, and remote sync |
+| `src/lib/components/app/sessions/session-activity-card.svelte` | Card component with inline editors, blur-save handlers, optimistic guards, and remote sync |
+| `src/lib/components/ui/multi-select/inline-multi-select.svelte` | Reusable shadcn-based searchable multi-select used for inline building block edits and other future multi-select surfaces |
+| `src/lib/components/ui/badge/tag-chip.svelte` | Reusable token chip wrapper around `Badge` for accent/muted tag styles, optional icons, and removable chip actions |
 | `src/lib/components/app/sessions/session-detail-view.svelte` | Parent view — passes `onContentSave` callback that calls `upsertActivity` mutation |
-| `src/convex/sessions.ts` | `upsertActivity` mutation — persists `content` field |
+| `src/convex/sessions.ts` | `upsertActivity` mutation — persists activity fields (`name`, `content`, `minutes`, building block links) |
 
 ## Interaction with drag-and-drop
 

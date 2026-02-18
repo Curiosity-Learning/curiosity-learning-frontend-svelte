@@ -6,7 +6,7 @@
 	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { Badge } from '$lib/components/ui/badge';
+	import { TagChip } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -86,15 +86,14 @@
 
 		<div class="flex flex-wrap gap-2">
 			{#if activity.minutes}
-				<Badge variant="secondary" class="bg-secondary text-primary">
-					<Clock3Icon class="size-3.5" />
-					{activity.minutes} mins
-				</Badge>
+				<TagChip label={`${activity.minutes} mins`} tone="muted">
+					{#snippet leading()}
+						<Clock3Icon class="size-3.5" />
+					{/snippet}
+				</TagChip>
 			{/if}
 			{#each activity.buildingBlockNames as blockName (blockName)}
-				<Badge variant="secondary" class="bg-accent/70 text-primary">
-					{blockName}
-				</Badge>
+				<TagChip label={blockName} tone="accent" />
 			{/each}
 		</div>
 

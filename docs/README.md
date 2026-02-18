@@ -25,3 +25,4 @@ When a significant design choice is made, it gets an ADR in `adr/`:
 - [ADR-003](adr/003-modal-to-page-refactor.md) — Modal-to-page refactor for creation flows
 - [ADR-004](adr/004-session-building-booklet.md) — Session building booklet (reusable activity library)
 - [ADR-005](adr/005-responsive-page-header-search.md) — Responsive page-header search modes
+- [ADR-006](adr/006-badge-and-tag-chip-split.md) — Keep `Badge` primitive and centralize token-chip behavior in `TagChip`

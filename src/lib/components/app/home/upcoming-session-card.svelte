@@ -3,7 +3,7 @@
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
 	import { useQuery } from 'convex-svelte';
-	import { Badge } from '$lib/components/ui/badge';
+	import { TagChip } from '$lib/components/ui/badge';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Separator } from '$lib/components/ui/separator';
 	import AvatarStack from './avatar-stack.svelte';
@@ -48,9 +48,7 @@
 		{#if tagNames.length}
 			<div class="flex flex-wrap gap-2">
 				{#each tagNames as tag (tag)}
-					<Badge variant="secondary" class="bg-accent text-primary">
-						{tag}
-					</Badge>
+					<TagChip label={tag} tone="accent" />
 				{/each}
 			</div>
 		{/if}

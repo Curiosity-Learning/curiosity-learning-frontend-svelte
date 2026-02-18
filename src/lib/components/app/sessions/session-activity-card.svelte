@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
 	 * SessionActivityCard — displays a single session activity with optional
-	 * inline editing of the description via contentEditable.
+	 * inline editing of title, description, minutes, and building blocks.
 	 *
 	 * ## Inline editing & Convex realtime sync
 	 *
@@ -37,6 +37,9 @@
 	 * revert to the last known Convex state) and a small "Save failed" message
 	 * is shown. Focusing the field again clears the error for retry.
 	 *
+	 * The title (`activity.name`) uses an inline text input with blur-save so
+	 * typing remains stable while still looking like inline text.
+	 *
 	 * ## Drag-and-drop reordering
 	 *
 	 * When `showDragHandle` is true, a grip icon appears on the left edge of the
@@ -50,8 +53,11 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import PencilLineIcon from '@lucide/svelte/icons/pencil-line';
 	import ActionMenu from '$lib/components/app/action-menu.svelte';
-	import { Badge } from '$lib/components/ui/badge';
+	import { TagChip } from '$lib/components/ui/badge';
+	import { InlineMultiSelect } from '$lib/components/ui/multi-select';
 	import { Card, CardContent } from '$lib/components/ui/card';
+	import { Input } from '$lib/components/ui/input';
+	import { cn } from '$lib/utils.js';
 	import { dragHandle } from 'svelte-dnd-action';
 
 	type Activity = {
@@ -62,47 +68,136 @@
 		buildingBlocks: string[];
 	};
 
+	type BuildingBlockOption = {
+		id: string;
+		name: string;
+	};
+
 	type Props = {
 		activity: Activity;
-		blockNameById: Map<string, string>;
+		buildingBlockOptions: BuildingBlockOption[];
+		/** Enables inline field rendering (title/content/minutes/blocks) for edit-capable users. */
+		canInlineEdit?: boolean;
+		/** Enables mutating actions (action menu, drag handle interactions). */
 		canEdit: boolean;
 		canDelete: boolean;
+		/** Disables inline editors while still rendering them. */
+		editingDisabled?: boolean;
 		/** True when this row is the temporary dnd shadow placeholder item. */
 		isDndShadowItem?: boolean;
 		/** Show a drag handle on the left of the card for reordering. */
 		showDragHandle?: boolean;
 		onEdit?: () => void;
 		onDelete?: () => void;
+		/** Async callback fired on blur when name changes. */
+		onNameSave?: (name: string) => Promise<void>;
 		/** Async callback fired on blur when content changes. Should persist to Convex. */
 		onContentSave?: (content: string) => Promise<void>;
+		/** Async callback fired on blur when minutes changes. */
+		onMinutesSave?: (minutes: number | null) => Promise<void>;
+		/** Async callback fired when building block selection is committed. */
+		onBuildingBlocksSave?: (buildingBlockIds: string[]) => Promise<void>;
 	};
 
 	let {
 		activity,
-		blockNameById,
+		buildingBlockOptions,
+		canInlineEdit,
 		canEdit,
 		canDelete,
+		editingDisabled = false,
 		isDndShadowItem = false,
 		showDragHandle = false,
 		onEdit,
 		onDelete,
-		onContentSave
+		onNameSave,
+		onContentSave,
+		onMinutesSave,
+		onBuildingBlocksSave
 	}: Props = $props();
+
+	let inlineEditingEnabled = $derived(canInlineEdit ?? canEdit);
 
 	let cardClass = $derived(isDndShadowItem ? 'gap-0 py-0 invisible' : 'gap-0 py-0');
 
-	let contentEl: HTMLParagraphElement | undefined = $state();
+	let draftName = $state('');
+	let isEditingName = $state(false);
+	let lastSavedName: string | null = $state(null);
+	let nameSaveError = $state(false);
+
+	let contentValue = $state('');
 	let isEditing = $state(false);
 	/** Optimistic guard — holds the value we just saved until Convex confirms it. */
 	let lastSaved: string | null = $state(null);
 	let saveError = $state(false);
+	let minutesValue = $state('');
+	let isEditingMinutes = $state(false);
+	let lastSavedMinutes: string | null = $state(null);
+	let minutesSaveError = $state(false);
+
+	const normalizeSingleLine = (value: string) =>
+		value
+			.replace(/\r\n/g, '\n')
+			.replace(/\n+/g, ' ')
+			.trim();
+
+	const normalizeIds = (ids: string[]) => Array.from(new Set(ids));
+	const idsMatch = (left: string[], right: string[]) => {
+		const sortedLeft = normalizeIds(left).sort();
+		const sortedRight = normalizeIds(right).sort();
+		if (sortedLeft.length !== sortedRight.length) return false;
+		for (let i = 0; i < sortedLeft.length; i += 1) {
+			if (sortedLeft[i] !== sortedRight[i]) return false;
+		}
+		return true;
+	};
+
+	const handleNameBlur = async () => {
+		if (!onNameSave || editingDisabled) return;
+		isEditingName = false;
+		nameSaveError = false;
+		const newName = normalizeSingleLine(draftName);
+		const oldName = normalizeSingleLine(activity.name);
+		if (!newName) {
+			draftName = oldName;
+			return;
+		}
+		if (newName !== oldName) {
+			draftName = newName;
+			lastSavedName = newName;
+			try {
+				await onNameSave(newName);
+			} catch {
+				lastSavedName = null;
+				nameSaveError = true;
+			}
+		}
+	};
+
+	const handleNameFocus = () => {
+		if (editingDisabled) return;
+		isEditingName = true;
+		nameSaveError = false;
+	};
+
+	const handleNameInput = (event: Event) => {
+		const target = event.currentTarget as HTMLInputElement;
+		draftName = target.value ?? '';
+	};
+
+	const handleNameKeydown = (event: KeyboardEvent) => {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			(event.currentTarget as HTMLInputElement | null)?.blur();
+		}
+	};
 
 	/** On blur: persist changed content via onContentSave, with optimistic guard. */
 	const handleBlur = async () => {
-		if (!contentEl || !onContentSave) return;
+		if (!onContentSave || editingDisabled) return;
 		isEditing = false;
 		saveError = false;
-		const newContent = contentEl.innerText?.trim() ?? '';
+		const newContent = contentValue.trim();
 		const oldContent = activity.content?.trim() ?? '';
 		if (newContent !== oldContent) {
 			lastSaved = newContent;
@@ -118,9 +213,77 @@
 	};
 
 	const handleFocus = () => {
+		if (editingDisabled) return;
 		isEditing = true;
 		saveError = false;
 	};
+
+	const handleMinutesInput = (event: Event) => {
+		const target = event.currentTarget as HTMLInputElement;
+		minutesValue = target.value;
+	};
+
+	const handleMinutesFocus = () => {
+		isEditingMinutes = true;
+		minutesSaveError = false;
+	};
+
+	const handleMinutesBlur = async () => {
+		if (!onMinutesSave || editingDisabled) return;
+		isEditingMinutes = false;
+		minutesSaveError = false;
+		const oldMinutes = activity.minutes ?? null;
+		const oldValue = oldMinutes === null ? '' : String(oldMinutes);
+		const trimmed = minutesValue.trim();
+		if (!trimmed) {
+			minutesValue = '';
+			if (oldMinutes !== null) {
+				lastSavedMinutes = '';
+				try {
+					await onMinutesSave(null);
+				} catch {
+					lastSavedMinutes = null;
+					minutesSaveError = true;
+					minutesValue = oldValue;
+				}
+			}
+			return;
+		}
+		const parsed = Number(trimmed);
+		if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+			minutesValue = oldValue;
+			return;
+		}
+		if (parsed !== oldMinutes) {
+			lastSavedMinutes = String(parsed);
+			try {
+				await onMinutesSave(parsed);
+			} catch {
+				lastSavedMinutes = null;
+				minutesSaveError = true;
+				minutesValue = oldValue;
+			}
+		}
+	};
+
+	const handleBuildingBlocksSave = async (buildingBlockIds: string[]) => {
+		if (!onBuildingBlocksSave || editingDisabled) return;
+		const currentIds = activity.buildingBlocks;
+		if (idsMatch(currentIds, buildingBlockIds)) return;
+		await onBuildingBlocksSave(buildingBlockIds);
+	};
+
+	$effect(() => {
+		const remoteName = normalizeSingleLine(activity.name);
+		if (isEditingName) return;
+		if (lastSavedName !== null && remoteName === lastSavedName) {
+			lastSavedName = null;
+		}
+		if (lastSavedName !== null) return;
+		if (draftName !== remoteName) {
+			draftName = remoteName;
+		}
+	});
 
 	// Sync remote Convex changes into the contentEditable element — but only
 	// when the user is NOT actively editing (prevents clobbering local input).
@@ -128,27 +291,30 @@
 	// (optimistic guard) to avoid a flash of stale content after blur.
 	$effect(() => {
 		const remoteContent = activity.content;
-		if (!contentEl || isEditing) return;
+		if (isEditing) return;
 		const display = remoteContent ?? '';
 		// Clear optimistic guard once Convex confirms our save
 		if (lastSaved !== null && display === lastSaved) {
 			lastSaved = null;
 		}
 		if (lastSaved !== null) return;
-		if (contentEl.innerText !== display) {
-			contentEl.innerText = display;
+		if (contentValue !== display) {
+			contentValue = display;
 		}
 	});
 
-	let blockNames = $derived(
-		activity.buildingBlocks
-			.map((id) => blockNameById.get(id) ?? id)
-			.filter((value, index, values) => values.indexOf(value) === index)
-	);
+	$effect(() => {
+		const remoteMinutes = activity.minutes === null ? '' : String(activity.minutes);
+		if (isEditingMinutes) return;
+		if (lastSavedMinutes !== null && remoteMinutes === lastSavedMinutes) {
+			lastSavedMinutes = null;
+		}
+		if (lastSavedMinutes !== null) return;
+		if (minutesValue !== remoteMinutes) {
+			minutesValue = remoteMinutes;
+		}
+	});
 
-	let prepLabel = $derived(
-		(activity.content ?? '').trim().length > 140 ? 'Prep needed' : 'Little prep'
-	);
 	let actionItems = $derived([
 		{
 			id: 'edit',
@@ -183,51 +349,101 @@
 		{/if}
 		<CardContent class="flex min-w-0 flex-1 flex-col gap-3 p-4">
 			<div class="flex items-start justify-between gap-3">
-				<h3 class="type-h5-medium">{activity.name}</h3>
+				<div class="flex min-w-0 flex-1 flex-col gap-1.5">
+					{#if inlineEditingEnabled && onNameSave}
+						<Input
+							type="text"
+							value={draftName}
+							disabled={editingDisabled}
+							oninput={handleNameInput}
+							onfocus={handleNameFocus}
+							onkeydown={handleNameKeydown}
+							onblur={() => void handleNameBlur()}
+							placeholder="Activity name"
+							class="type-h5-medium h-auto border-0 bg-transparent px-0 py-0 shadow-none focus-visible:border-transparent focus-visible:ring-0"
+						/>
+					{:else}
+						<h3 class="type-h5-medium">{activity.name}</h3>
+					{/if}
+					{#if inlineEditingEnabled && onContentSave}
+						{#if editingDisabled}
+							<p
+								data-placeholder="No activity notes yet. Tap to add details."
+								class="text-muted-foreground whitespace-pre-wrap rounded-md px-2 py-1 -mx-2 -my-1 cursor-not-allowed opacity-70 empty:before:content-[attr(data-placeholder)] empty:before:italic empty:before:opacity-60"
+							>
+								{contentValue}
+							</p>
+						{:else}
+							<!-- Inline text child is intentional — do NOT leave the <p> empty and
+							     populate via $effect. svelte-dnd-action clones the DOM synchronously
+							     on drag start; an empty <p> produces a shorter clone and a height flash.
+							     See docs/inline-activity-editing.md for details. -->
+							<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+							<p
+								bind:innerText={contentValue}
+								contenteditable="true"
+								role="textbox"
+								tabindex="0"
+								data-placeholder="No activity notes yet. Tap to add details."
+								onblur={handleBlur}
+								onfocus={handleFocus}
+								class="text-muted-foreground whitespace-pre-wrap rounded-md px-2 py-1 -mx-2 -my-1 transition-colors outline-none focus:bg-muted/50 hover:bg-muted/30 cursor-text empty:before:content-[attr(data-placeholder)] empty:before:italic empty:before:opacity-60"
+							>{activity.content ?? ''}</p>
+						{/if}
+					{:else}
+						<p class="text-muted-foreground whitespace-pre-wrap">
+							{activity.content ??
+								'No activity notes yet. Add details to include prep steps, prompts, or handouts.'}
+						</p>
+					{/if}
+				</div>
 				<ActionMenu items={actionItems} ariaLabel={`Open actions for ${activity.name}`} />
 			</div>
-		{#if canEdit && onContentSave}
-			<!-- Inline text child is intentional — do NOT leave the <p> empty and
-			     populate via $effect. svelte-dnd-action clones the DOM synchronously
-			     on drag start; an empty <p> produces a shorter clone and a height flash.
-			     See docs/inline-activity-editing.md for details. -->
-			<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
-			<p
-				bind:this={contentEl}
-				contenteditable="true"
-				role="textbox"
-				tabindex="0"
-				data-placeholder="No activity notes yet. Tap to add details."
-				onblur={handleBlur}
-				onfocus={handleFocus}
-				class="text-muted-foreground whitespace-pre-wrap rounded-md px-2 py-1 -mx-2 -my-1 transition-colors outline-none focus:bg-muted/50 hover:bg-muted/30 cursor-text empty:before:content-[attr(data-placeholder)] empty:before:italic empty:before:opacity-60"
-			>{activity.content ?? ''}</p>
+			{#if nameSaveError}
+				<p class="text-xs text-destructive">Save failed — tap title to retry.</p>
+			{/if}
 			{#if saveError}
-				<p class="text-xs text-destructive">Save failed — tap to retry.</p>
+				<p class="text-xs text-destructive">Save failed — tap description to retry.</p>
 			{/if}
-		{:else}
-			<p class="text-muted-foreground whitespace-pre-wrap">
-				{activity.content ??
-					'No activity notes yet. Add details to include prep steps, prompts, or handouts.'}
-			</p>
-		{/if}
-		<div class="flex flex-wrap gap-2">
-			{#if activity.minutes}
-				<Badge variant="secondary" class="bg-secondary text-primary">
-					<Clock3Icon class="size-3.5" />
-					Short ({activity.minutes} mins)
-				</Badge>
+			<div class="flex flex-wrap items-start gap-2">
+				{#if inlineEditingEnabled && onMinutesSave}
+					<div class="flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1">
+						<Clock3Icon class="size-3.5 text-muted-foreground" />
+						<Input
+							type="number"
+							min={1}
+							inputmode="numeric"
+							placeholder="mins"
+							value={minutesValue}
+							disabled={editingDisabled}
+							oninput={handleMinutesInput}
+							onfocus={handleMinutesFocus}
+							onblur={() => void handleMinutesBlur()}
+							class="h-7 w-20 bg-background"
+						/>
+					</div>
+				{:else if activity.minutes !== null}
+					<TagChip label={`${activity.minutes} mins`} tone="muted">
+						{#snippet leading()}
+							<Clock3Icon class="size-3.5" />
+						{/snippet}
+					</TagChip>
+				{/if}
+				<InlineMultiSelect
+					id={`activity-blocks-${activity.id}`}
+					options={buildingBlockOptions.map((block) => ({ id: block.id, label: block.name }))}
+					selectedIds={activity.buildingBlocks}
+					editable={inlineEditingEnabled}
+					disabled={editingDisabled}
+					class="min-w-64 flex-1"
+					emptyLabel="No building blocks selected"
+					placeholder="Search building blocks..."
+					onSave={handleBuildingBlocksSave}
+				/>
+			</div>
+			{#if minutesSaveError}
+				<p class="text-xs text-destructive">Save failed — update minutes again.</p>
 			{/if}
-			<Badge variant="secondary" class="bg-secondary text-primary">
-				<PencilLineIcon class="size-3.5" />
-				{prepLabel}
-			</Badge>
-			{#each blockNames as blockName (blockName)}
-				<Badge variant="secondary" class="bg-accent/70 text-primary">
-					{blockName}
-				</Badge>
-			{/each}
-		</div>
 		</CardContent>
 	</div>
 </Card>

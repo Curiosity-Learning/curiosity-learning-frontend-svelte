@@ -9,6 +9,12 @@
 		PageHeaderBackButton,
 		PageHeaderTitle
 	} from '$lib/components/app';
+	import {
+		canMutateOnline as canMutateOnlineStore,
+		connectivityMessage as connectivityMessageStore,
+		reportMutationFailure,
+		reportMutationSuccess
+	} from '$lib/app/connectivity';
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -27,6 +33,7 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
+	import { fromStore } from 'svelte/store';
 
 	type Props = {
 		view: 'activities' | 'attendees';
@@ -58,6 +65,18 @@
 	let canReadAttendance = $derived(clubPermissions.includes('attendance:read'));
 	let canManageAttendance = $derived(clubPermissions.includes('attendance:create'));
 
+	const canMutateOnlineState = fromStore(canMutateOnlineStore);
+	const connectivityMessageState = fromStore(connectivityMessageStore);
+	let canMutateOnline = $derived(canMutateOnlineState.current);
+	let connectivityMessage = $derived(connectivityMessageState.current);
+
+	let canUpdateSessionOnline = $derived(canUpdateSession && canMutateOnline);
+	let canDeleteSessionOnline = $derived(canDeleteSession && canMutateOnline);
+	let canCreateActivityOnline = $derived(canCreateActivity && canMutateOnline);
+	let canUpdateActivityOnline = $derived(canUpdateActivity && canMutateOnline);
+	let canDeleteActivityOnline = $derived(canDeleteActivity && canMutateOnline);
+	let canManageAttendanceOnline = $derived(canManageAttendance && canMutateOnline);
+
 	const activitiesResponse = useQuery(api.sessions.listActivities, () =>
 		sessionIdTyped && view === 'activities' ? { sessionId: sessionIdTyped } : 'skip'
 	);
@@ -80,6 +99,12 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let activityError = $state('');
+
+	const ensureOnlineForMutation = (setError: (message: string) => void) => {
+		if (canMutateOnline) return true;
+		setError(connectivityMessage);
+		return false;
+	};
 
 	let sessionDialogOpen = $state(false);
 	let sessionForm = $state({
@@ -117,7 +142,7 @@
 
 	const handleDndFinalize = async (e: CustomEvent<{ items: DndActivity[] }>) => {
 		dndItems = e.detail.items;
-		if (!sessionIdTyped || !canUpdateActivity) {
+		if (!sessionIdTyped || !canUpdateActivityOnline) {
 			isDragging = false;
 			return;
 		}
@@ -127,7 +152,9 @@
 				sessionId: sessionIdTyped,
 				activityIds
 			});
+			reportMutationSuccess();
 		} catch (error) {
+			reportMutationFailure(error);
 			activityError = error instanceof Error ? error.message : 'Failed to reorder activities.';
 		} finally {
 			isDragging = false;
@@ -135,9 +162,51 @@
 	};
 
 	let attendanceSet = $derived(new Set((attendanceResponse.data ?? []).map((entry) => entry.userId)));
-	let blockNameById = $derived(
-		new Map((blocksResponse.data ?? []).map((block) => [String(block._id), block.name] as const))
+	let buildingBlockOptions = $derived(
+		(blocksResponse.data ?? []).map((block) => ({ id: String(block._id), name: block.name }))
 	);
+
+	const saveInlineActivity = async (
+		activity: {
+			id: string;
+			name: string;
+			content: string | null;
+			minutes: number | null;
+			buildingBlocks: Array<Id<'buildingBlocks'>>;
+		},
+		updates: {
+			name?: string;
+			content?: string;
+			minutes?: number | null;
+			buildingBlockIds?: Array<Id<'buildingBlocks'>>;
+		}
+	) => {
+		if (!sessionIdTyped) return;
+		if (!canMutateOnline) {
+			throw new Error(connectivityMessage);
+		}
+		const nextName = (updates.name ?? activity.name).trim();
+		if (!nextName) {
+			throw new Error('Activity name is required.');
+		}
+		const nextContent = updates.content !== undefined ? updates.content : (activity.content ?? '');
+		const nextMinutes = updates.minutes !== undefined ? updates.minutes : activity.minutes;
+		const nextBuildingBlockIds = updates.buildingBlockIds ?? activity.buildingBlocks;
+		try {
+			await convexClient.mutation(api.sessions.upsertActivity, {
+				sessionId: sessionIdTyped,
+				activityId: activity.id as Id<'sessionActivities'>,
+				name: nextName,
+				content: nextContent.trim() || undefined,
+				minutes: nextMinutes ?? undefined,
+				buildingBlockIds: nextBuildingBlockIds
+			});
+			reportMutationSuccess();
+		} catch (error) {
+			reportMutationFailure(error);
+			throw error;
+		}
+	};
 
 	const formatHeaderLine = (timestamp: number) => {
 		const date = new Date(timestamp);
@@ -167,6 +236,7 @@
 
 	const saveSession = async () => {
 		if (!session || sessionForm.startTime === null || sessionForm.endTime === null) return;
+		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 
 		pending = true;
 		errorMessage = '';
@@ -178,8 +248,10 @@
 				endTime: sessionForm.endTime,
 				...(desc ? { description: desc } : {})
 			});
+			reportMutationSuccess();
 			sessionDialogOpen = false;
 		} catch (error) {
+			reportMutationFailure(error);
 			errorMessage = error instanceof Error ? error.message : 'Failed to update session.';
 		} finally {
 			pending = false;
@@ -189,12 +261,15 @@
 	const removeSession = async () => {
 		if (!session) return;
 		if (!window.confirm('Delete this session and all related activities?')) return;
+		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		pending = true;
 		errorMessage = '';
 		try {
 			await convexClient.mutation(api.sessions.remove, { sessionId: session._id });
+			reportMutationSuccess();
 			await goto(`/${session.clubId}/sessions`);
 		} catch (error) {
+			reportMutationFailure(error);
 			errorMessage = error instanceof Error ? error.message : 'Failed to delete session.';
 		} finally {
 			pending = false;
@@ -202,6 +277,10 @@
 	};
 
 	const openCreateActivity = () => {
+		if (!canCreateActivityOnline) {
+			activityError = connectivityMessage;
+			return;
+		}
 		activityEditId = null;
 		activityName = '';
 		activityContent = '';
@@ -212,6 +291,10 @@
 	};
 
 	const openEditActivity = (activity: NonNullable<typeof activitiesResponse.data>[number]) => {
+		if (!canUpdateActivityOnline) {
+			activityError = connectivityMessage;
+			return;
+		}
 		activityEditId = activity.id;
 		activityName = activity.name;
 		activityContent = activity.content ?? '';
@@ -227,6 +310,7 @@
 			activityError = 'Activity name is required.';
 			return;
 		}
+		if (!ensureOnlineForMutation((message) => (activityError = message))) return;
 		pending = true;
 		activityError = '';
 		try {
@@ -238,8 +322,10 @@
 				minutes: activityMinutes ? Number(activityMinutes) : undefined,
 				buildingBlockIds: activityBlockIds
 			});
+			reportMutationSuccess();
 			activityDialogOpen = false;
 		} catch (error) {
+			reportMutationFailure(error);
 			activityError = error instanceof Error ? error.message : 'Failed to save activity.';
 		} finally {
 			pending = false;
@@ -247,11 +333,14 @@
 	};
 
 	const deleteActivity = async (activityId: Id<'sessionActivities'>) => {
+		if (!ensureOnlineForMutation((message) => (activityError = message))) return;
 		pending = true;
 		activityError = '';
 		try {
 			await convexClient.mutation(api.sessions.deleteActivity, { activityId });
+			reportMutationSuccess();
 		} catch (error) {
+			reportMutationFailure(error);
 			activityError = error instanceof Error ? error.message : 'Failed to delete activity.';
 		} finally {
 			pending = false;
@@ -260,6 +349,7 @@
 
 	const setAttendance = async (userId: string, attending: boolean) => {
 		if (!sessionIdTyped) return;
+		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		pending = true;
 		errorMessage = '';
 		try {
@@ -268,7 +358,9 @@
 				userId,
 				attending
 			});
+			reportMutationSuccess();
 		} catch (error) {
+			reportMutationFailure(error);
 			errorMessage = error instanceof Error ? error.message : 'Failed to update attendance.';
 		} finally {
 			pending = false;
@@ -280,7 +372,7 @@
 			id: 'edit-session',
 			label: 'Edit details',
 			Icon: PencilIcon,
-			disabled: !canUpdateSession,
+			disabled: !canUpdateSessionOnline,
 			onSelect: openSessionEditor
 		},
 		{
@@ -288,8 +380,8 @@
 			label: 'Delete session',
 			Icon: Trash2Icon,
 			tone: 'destructive' as const,
-			separatorBefore: canUpdateSession,
-			disabled: !canDeleteSession,
+			separatorBefore: canUpdateSessionOnline,
+			disabled: !canDeleteSessionOnline,
 			onSelect: () => void removeSession()
 		}
 	]);
@@ -339,11 +431,14 @@
 						<p class="text-sm text-muted-foreground">Start building your session plan.</p>
 						{#if canCreateActivity}
 							<div class="flex flex-wrap justify-center gap-3">
-								<Button variant="outline" onclick={openCreateActivity}>
+								<Button variant="outline" onclick={openCreateActivity} disabled={!canCreateActivityOnline}>
 									<PlusIcon class="size-4" />
 									New activity
 								</Button>
-								<Button onclick={() => void goto(routes.activityBooklet + '?session=' + sessionIdParam)}>
+								<Button
+									onclick={() => void goto(routes.activityBooklet + '?session=' + sessionIdParam)}
+									disabled={!canCreateActivityOnline}
+								>
 									<BookOpenIcon class="size-4" />
 									Choose from booklet
 								</Button>
@@ -377,25 +472,60 @@
 									buildingBlocks: activity.buildingBlocks.map((blockId) => String(blockId))
 								}}
 								isDndShadowItem={activity[SHADOW_ITEM_MARKER_PROPERTY_NAME] === true}
-								{blockNameById}
-								canEdit={canUpdateActivity}
-								canDelete={canDeleteActivity}
-								showDragHandle={canUpdateActivity}
+								{buildingBlockOptions}
+								canInlineEdit={canUpdateActivity}
+								canEdit={canUpdateActivityOnline}
+								canDelete={canDeleteActivityOnline}
+								editingDisabled={canUpdateActivity && !canMutateOnline}
+								showDragHandle={canUpdateActivityOnline}
 								onEdit={() => openEditActivity({ ...activity, id: activity.id as Id<'sessionActivities'> })}
 								onDelete={() => void deleteActivity(activity.id as Id<'sessionActivities'>)}
-								onContentSave={async (content) => {
-									// Inline content save — awaited so the card can show
-									// error state if the mutation fails (e.g. offline).
-									if (!sessionIdTyped) return;
-									await convexClient.mutation(api.sessions.upsertActivity, {
-										sessionId: sessionIdTyped,
-										activityId: activity.id as Id<'sessionActivities'>,
-										name: activity.name,
-										content: content || undefined,
-										minutes: activity.minutes ?? undefined,
-										buildingBlockIds: activity.buildingBlocks
-									});
-								}}
+								onNameSave={(name) =>
+									saveInlineActivity(
+										{
+											id: activity.id,
+											name: activity.name,
+											content: activity.content,
+											minutes: activity.minutes,
+											buildingBlocks: activity.buildingBlocks
+										},
+										{ name }
+									)}
+								onContentSave={(content) =>
+									saveInlineActivity(
+										{
+											id: activity.id,
+											name: activity.name,
+											content: activity.content,
+											minutes: activity.minutes,
+											buildingBlocks: activity.buildingBlocks
+										},
+										{ content }
+									)}
+								onMinutesSave={(minutes) =>
+									saveInlineActivity(
+										{
+											id: activity.id,
+											name: activity.name,
+											content: activity.content,
+											minutes: activity.minutes,
+											buildingBlocks: activity.buildingBlocks
+										},
+										{ minutes }
+									)}
+								onBuildingBlocksSave={(buildingBlockIds) =>
+									saveInlineActivity(
+										{
+											id: activity.id,
+											name: activity.name,
+											content: activity.content,
+											minutes: activity.minutes,
+											buildingBlocks: activity.buildingBlocks
+										},
+										{
+											buildingBlockIds: buildingBlockIds as Array<Id<'buildingBlocks'>>
+										}
+									)}
 							/>
 						{/each}
 					</div>
@@ -405,11 +535,20 @@
 					<!-- Sticky offset derives from --bottom-nav-h (set in app-shell) to clear the mobile nav -->
 					<div class="pointer-events-none sticky bottom-[calc(var(--bottom-nav-h,0rem)+1rem)] flex justify-center lg:bottom-8">
 						<div class="pointer-events-auto flex gap-2">
-							<Button variant="outline" class="rounded-full px-6 py-3 shadow-md" onclick={openCreateActivity}>
+							<Button
+								variant="outline"
+								class="rounded-full px-6 py-3 shadow-md"
+								onclick={openCreateActivity}
+								disabled={!canCreateActivityOnline}
+							>
 								<PlusIcon class="size-5" />
 								New activity
 							</Button>
-							<Button class="rounded-full px-6 py-3 type-h6-bold shadow-md" onclick={() => void goto(routes.activityBooklet + '?session=' + sessionIdParam)}>
+							<Button
+								class="rounded-full px-6 py-3 type-h6-bold shadow-md"
+								onclick={() => void goto(routes.activityBooklet + '?session=' + sessionIdParam)}
+								disabled={!canCreateActivityOnline}
+							>
 								<BookOpenIcon class="size-5" />
 								From booklet
 							</Button>
@@ -440,9 +579,9 @@
 								<Checkbox
 									id={`attendance-${member.clubMemberId}`}
 									checked={attendanceSet.has(member.userId)}
-									disabled={!canManageAttendance || pending}
+									disabled={!canManageAttendanceOnline || pending}
 									onCheckedChange={(checked) => {
-										if (!canManageAttendance) return;
+										if (!canManageAttendanceOnline) return;
 										void setAttendance(member.userId, checked === true);
 									}}
 								/>
@@ -471,11 +610,11 @@
 				</div>
 			</div>
 			<Dialog.Footer>
-				<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
-				<Button
-					disabled={pending || !canUpdateSession}
-					onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
-				>
+					<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
+					<Button
+						disabled={pending || !canUpdateSessionOnline}
+						onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
+					>
 			</Dialog.Footer>
 		</Dialog.Content>
 	</Dialog.Root>
@@ -521,13 +660,13 @@
 				<Dialog.Footer>
 					<Button variant="outline" onclick={() => (activityDialogOpen = false)}>Cancel</Button>
 					<Button
-						disabled={
-							pending ||
-							!activityName.trim() ||
-							!(activityEditId ? canUpdateActivity : canCreateActivity)
-						}
-						onclick={() => void saveActivity()}
-					>
+							disabled={
+								pending ||
+								!activityName.trim() ||
+								!(activityEditId ? canUpdateActivityOnline : canCreateActivityOnline)
+							}
+							onclick={() => void saveActivity()}
+						>
 						{pending ? 'Saving...' : activityEditId ? 'Update activity' : 'Add activity'}
 					</Button>
 				</Dialog.Footer>
