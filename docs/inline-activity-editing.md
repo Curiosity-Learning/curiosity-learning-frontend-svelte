@@ -34,7 +34,7 @@ session simultaneously and see each other's changes appear as they edit.
 | **Initial content** | The description `<p contenteditable>` renders `{activity.content ?? ''}` inline — NOT populated on mount by `$effect`. See drag-and-drop notes below. |
 | **Title line control** | The title uses an inline `<input type="text">` so it stays single-line and avoids contenteditable caret quirks. |
 | **Minutes input** | Minutes are edited with an inline `<input type="number">` and only persisted on blur. Empty clears the field. |
-| **Building blocks** | A reusable searchable multi-select shows removable in-chip tags (`TagChip` + `x`), supports typing to filter options, and persists selection on focus leave. |
+| **Building blocks** | A reusable searchable multi-select shows removable in-chip tags (`TagChip` + `x`), supports typing to filter options, and persists selection on focus leave. To reduce visual clutter, the text input collapses out-of-flow when closed and expands to a full row with a minimum width when focused/open. |
 | **Connectivity policy** | For now, inline editing is online-only. Session views use the shared connectivity module to disable editing while offline or when the backend is unreachable. Inputs remain visible in-place (for layout consistency) but are disabled until reconnect. |
 | **Optimistic guard** | Last-saved guards prevent stale Convex values from briefly overwriting local blur saves. |
 | **Conflict avoidance** | Remote sync is skipped while the user is actively editing each field. Last-write-wins on blur/close. |

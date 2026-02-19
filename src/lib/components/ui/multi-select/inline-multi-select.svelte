@@ -73,6 +73,8 @@
 			.map((selectedId) => getOption(selectedId) ?? { id: selectedId, label: selectedId })
 			.filter((value, index, values) => values.findIndex((entry) => entry.id === value.id) === index)
 	);
+	// Keep the input out of flow when closed so chips don't reserve an empty row.
+	let showInlineInput = $derived(open || query.length > 0 || selectedOptions.length === 0);
 	let filteredOptions = $derived.by(() => {
 		const selectedSet = new Set(normalizeIds(draftSelectedIds));
 		const normalizedQuery = query.trim().toLowerCase();
@@ -255,7 +257,7 @@
 		aria-busy={pendingSave}
 		onpointerdown={handleRootPointerDown}
 		class={cn(
-			'flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-0.5',
+			'relative flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-0.5',
 			'focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50',
 			canInteract && 'cursor-pointer',
 			disabled && 'opacity-60'
@@ -281,7 +283,12 @@
 				value={query}
 				disabled={disabled || pendingSave}
 				placeholder={selectedOptions.length === 0 ? placeholder : ''}
-				class="h-7 min-w-36 flex-1 cursor-text border-0 bg-transparent px-0 py-0 text-base leading-6 font-medium shadow-none focus-visible:ring-0"
+				class={cn(
+					'cursor-text border-0 bg-transparent px-0 py-0 text-base leading-6 font-medium shadow-none focus-visible:ring-0',
+					showInlineInput
+						? 'relative h-7 min-w-36 basis-full flex-1 opacity-100'
+						: 'pointer-events-none absolute left-0 top-0 h-0 w-0 basis-0 min-w-0 overflow-hidden opacity-0'
+				)}
 				role="combobox"
 				aria-invalid={saveError}
 				aria-label={ariaLabel}
