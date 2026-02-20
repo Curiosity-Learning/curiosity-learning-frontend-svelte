@@ -28,3 +28,4 @@ When a significant design choice is made, it gets an ADR in `adr/`:
 - [ADR-005](adr/005-responsive-page-header-search.md) — Responsive page-header search modes
 - [ADR-006](adr/006-badge-and-tag-chip-split.md) — Keep `Badge` primitive and centralize token-chip behavior in `TagChip`
 - [ADR-007](adr/007-history-semantics-for-routing-and-back.md) — Back/history semantics for contextual flows
+- [ADR-008](adr/008-project-detail-tabs.md) — Project detail tabs (`Overview` / `Members`)

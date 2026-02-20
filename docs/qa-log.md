@@ -75,6 +75,28 @@
 
 - `npm run check` ✅
 
+### Bug Fix: Feed Query Auth Readiness Race
+
+- Updated `src/routes/(app)/feed/(tabbed)/my-clubs/+page.svelte` to gate `api.updates.listForViewer` behind `api.auth.getCurrentUser`, ensuring the updates query only runs after Convex auth is ready.
+- Added explicit UI branches for:
+  - Convex auth bootstrap/loading (`Preparing your feed...`),
+  - session verification failure,
+  - sign-in-required mismatch state.
+- This prevents the early `Unauthenticated` server error from surfacing as a stuck loading feed when Better Auth session state appears before Convex identity hydration.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Bug Fix: My Clubs Feed Loading Could Stall Without Visible Error
+
+- Hardened `api.updates.listForViewer` in `src/convex/updates.ts` to tolerate malformed legacy references when resolving related project/question and author profile metadata.
+- Added an explicit error branch in `src/routes/(app)/feed/(tabbed)/my-clubs/+page.svelte` so query failures render a destructive alert instead of appearing as a perpetual loading state.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
 ## 2026-02-13
 
 ### Refactor: Dialog-to-Detail-Page Pattern
@@ -378,6 +400,100 @@
 - Updated `src/routes/(app)/activity-booklet/+page.svelte` so multi-tag filtering now uses AND matching.
 - Selecting multiple building-block tags now only shows activities that include every selected tag, rather than any selected tag.
 - Converted `filteredActivities` to `$derived.by(...)` for Svelte 5 compliance and updated template references accordingly.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UX Default: Dialog Back-Dismiss Enabled by Default
+
+- Updated shared `Dialog.Root` in `src/lib/components/ui/dialog/dialog.svelte` so `closeOnBack` defaults to `true`.
+- Dialogs now close on browser/mobile back by default without per-page opt-in wiring.
+- Added per-dialog opt-out via `closeOnBack={false}` for edge cases.
+- Removed now-redundant explicit `closeOnBack` usage from project edit dialog in `src/lib/components/app/projects/project-detail-view.svelte`.
+- Updated docs to reflect default behavior in:
+  - `docs/architecture.md`
+  - `docs/routing-and-back-navigation.md`
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UX Tweak: Members Tab Heading Removal + Reusable Dialog Back-Dismiss
+
+- Removed the extra `Members` heading text from the project members tab while retaining avatar-based member rows in `src/lib/components/app/projects/project-detail-view.svelte`.
+- Added optional component-level back-dismiss behavior to shared dialog root:
+  - `src/lib/components/ui/dialog/dialog.svelte` now supports `closeOnBack?: boolean`.
+  - When enabled, opening a dialog creates a shallow history entry and browser/mobile back closes the dialog first.
+- Enabled this behavior for project edit dialog via `closeOnBack` in `src/lib/components/app/projects/project-detail-view.svelte`.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Refactor: Project Detail Uses Route-Backed Tabs
+
+- Replaced single-route project detail with tabbed routes:
+  - `/project/[projectId]/overview`
+  - `/project/[projectId]/members`
+  - `/project/[projectId]` now redirects to `/overview`.
+- Added project tab header layout using shared app `HeaderTabs` + `PageHeaderBanner`.
+- Added shared `src/lib/components/app/projects/project-detail-view.svelte` with `view` prop (`overview`/`members`) so both tabs share project fetch/header/action logic.
+- Overview tab now focuses on description/status/updates.
+- Members tab now provides a dedicated full member list surface.
+- Removed obsolete one-page route file and members-sheet component for this flow.
+
+### Docs
+
+- Added [ADR-008](adr/008-project-detail-tabs.md) documenting the decision and implementation footprint.
+- Updated:
+  - `docs/architecture.md` (route map + UI pattern note),
+  - `docs/README.md` ADR index.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Feature: Reusable Feed Update Card (Question/Project Aware)
+
+- Added `src/lib/components/app/feed/update-card.svelte` as the shared update presentation card for feed entries.
+- Card now supports:
+  - author row (avatar, name, relative timestamp),
+  - conditional related-question chip,
+  - conditional related-project heading/link,
+  - update body content.
+- Wired `/feed/my-clubs` to use `UpdateCard` instead of inline ad-hoc cards:
+  - `src/routes/(app)/feed/(tabbed)/my-clubs/+page.svelte`
+- Extended `api.updates.listForViewer` payload to include fields needed by the card:
+  - author summary (`authorName`, `authorImageUrl`) from profile lookup,
+  - related question context (`questionId`, `questionContent`),
+  - existing related project context (`projectId`, `projectName`) preserved.
+- Deferred attached media rendering by design for this step; media support will be added in a follow-up iteration.
+
+### Documentation
+
+- Updated `docs/architecture.md` UI patterns with the shared feed update card convention.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Docs: Standardized History-Driven Overlay Pattern
+
+- Updated `docs/routing-and-back-navigation.md` with a dedicated pattern for mobile-back-dismissible overlays:
+  - use shallow routing page state (`pushState('', state)`),
+  - close with `history.back()` plus `replaceState` fallback,
+  - use fully controlled overlay binding (`bind:open={get,set}`) for Bits UI components.
+- Updated `docs/architecture.md` UI patterns to codify history-driven overlays as a project convention.
+- Expanded `docs/adr/007-history-semantics-for-routing-and-back.md` to include overlay state decision details and implementation references (`project-members-section.svelte`, `src/app.d.ts`).
+
+### Bug Fix: Project Members Sheet Uses Fully Controlled Binding
+
+- Reworked `src/lib/components/app/projects/project-members-section.svelte` sheet control to the Bits UI “fully controlled” pattern with function binding:
+  - `bind:open={getMemberSheetOpen, setMemberSheetOpen}`.
+- Open now uses shallow routing state via `pushState('', { projectMembersSheetOpen: true })`.
+- Close now uses `history.back()` (with `replaceState` fallback) so mobile/browser back reliably dismisses the sheet.
+- This replaces prior `open` + `onOpenChange` synchronization logic that caused open/close race behavior.
 
 ### Run: Type Check
 

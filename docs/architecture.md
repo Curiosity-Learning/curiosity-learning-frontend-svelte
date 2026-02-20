@@ -32,7 +32,10 @@ session/[sessionId]/
 │   ├── activities/
 │   └── attendees/
 
-project/[projectId]/   ← single page, no tabs
+project/[projectId]/
+├── (tabbed)/          ← Overview/Members tabs
+│   ├── overview/
+│   └── members/
 
 activity-booklet/      ← browsable activity library (?session= query param for context)
 ├── [activityId]/      ← activity detail page
@@ -73,10 +76,14 @@ Forms use **shadcn-svelte Field.* components + Superforms + Zod v4** — no Form
 ## UI Patterns
 
 - **Dialog → Detail Page pattern**: Creation via minimal dialog with "Open" button → create entity → navigate to detail page. Editing happens on the detail page via ActionMenu. See [ADR-003](adr/003-modal-to-page-refactor.md).
+- **Project detail tabs**: Project detail uses route-backed tabs (`Overview` and `Members`) with `/project/[projectId]` redirecting to `overview`. See [ADR-008](adr/008-project-detail-tabs.md).
 - **Club home session planning**: The `No upcoming sessions` empty state on `/club/[clubId]` opens the same create-session dialog flow used on `/club/[clubId]/sessions` (submit label `Open`), and then routes to `/session/[sessionId]/activities`. The CTA and helper copy are shown only when the viewer has `session:create`.
 - **Shared session card surface**: `/club/[clubId]` and `/club/[clubId]/sessions` both render `src/lib/components/app/sessions/club-session-card.svelte` for upcoming/list cards. View-specific differences (for example, hiding attendees or action menu on dashboard) are controlled via component props instead of separate card implementations.
+- **Feed update card surface**: `/feed/my-clubs` renders updates through `src/lib/components/app/feed/update-card.svelte`, which supports conditional related-question and related-project rows. Media attachments are intentionally deferred to a follow-up iteration.
 - **Page headers** use `PageHeaderBackButton`, `PageHeaderTitle`, `PageHeaderActions` — these communicate with AppShell via Svelte context.
 - **Routing/back semantics**: Explicitly choose `pushState` vs `replaceState` per flow. Contextual completion flows (for example session -> booklet -> add -> session) use replace semantics to avoid stale back-stack entries. Header back behavior relies on SvelteKit history state, not `document.referrer`. See [routing-and-back-navigation.md](routing-and-back-navigation.md) and [ADR-007](adr/007-history-semantics-for-routing-and-back.md).
+- **History-driven overlays (mobile back close)**: For sheet/dialog overlays that are scoped to a parent page and should dismiss with browser/mobile back, use SvelteKit shallow routing page state (`pushState('', { ...page.state, overlayOpen: true })`) and close via `history.back()` (with `replaceState` fallback). Prefer fully controlled open-state wiring for Bits UI overlays (`bind:open={getOpen, setOpen}`). See [routing-and-back-navigation.md](routing-and-back-navigation.md) and [ADR-007](adr/007-history-semantics-for-routing-and-back.md).
+- **Dialog back-dismiss default**: Shared `Dialog.Root` enables browser/mobile-back-first close behavior by default. Set `closeOnBack={false}` to opt out for specific dialogs.
 - **Header search** uses `PageHeaderSearch` to opt in per-page search from AppShell, with responsive `auto` mode that resolves between inline, collapsible, and title-overlay variants. See [ADR-005](adr/005-responsive-page-header-search.md).
 - **ActionMenu** provides edit/delete/toggle actions on detail pages via a dropdown triggered by an ellipsis icon.
 - **Field component hierarchy**: `Field.Group > Field.Field > Field.Label + Input + Field.Error + Field.Description`.

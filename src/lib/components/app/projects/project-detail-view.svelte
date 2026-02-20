@@ -14,8 +14,7 @@
 		PageHeaderBackButton,
 		PageHeaderTitle
 	} from '$lib/components/app';
-	import ProjectMembersSection from '$lib/components/app/projects/project-members-section.svelte';
-	import { routes } from '$lib/routes';
+	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -26,7 +25,15 @@
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '$lib/components/ui/item';
+	import { routes } from '$lib/routes';
 	import { useConvexClient, useQuery } from 'convex-svelte';
+
+	type Props = {
+		view: 'overview' | 'members';
+	};
+
+	let { view }: Props = $props();
 
 	const convexClient = useConvexClient();
 
@@ -50,13 +57,12 @@
 	);
 
 	const updatesResponse = useQuery(api.updates.listByProject, () =>
-		projectIdTyped ? { projectId: projectIdTyped } : 'skip'
+		view === 'overview' && projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
 
 	let pending = $state(false);
 	let errorMessage = $state('');
 
-	// Edit dialog state
 	let editDialogOpen = $state(false);
 	let editForm = $state({
 		name: '',
@@ -64,7 +70,6 @@
 		dueDate: null as number | null
 	});
 
-	// Post update state
 	let updateContent = $state('');
 	let updatePending = $state(false);
 
@@ -101,6 +106,16 @@
 		});
 	};
 
+	const initialsFor = (name: string) => {
+		const cleaned = name.trim();
+		if (!cleaned) return '?';
+		const parts = cleaned.split(/\s+/g).filter(Boolean);
+		const letters = [parts[0]?.[0] ?? '', parts.at(-1)?.[0] ?? '']
+			.join('')
+			.toUpperCase();
+		return letters || cleaned.slice(0, 2).toUpperCase();
+	};
+
 	let isCompleted = $derived(Boolean(project?.doneDate));
 	let statusLabel = $derived.by(() => {
 		if (!project) return '';
@@ -125,6 +140,12 @@
 			roleName: member.roleName ?? null
 		}))
 	);
+
+	const memberSubtitleFor = (member: (typeof memberSummaries)[number]) => {
+		if (member.username) return `@${member.username}`;
+		if (member.email) return member.email;
+		return null;
+	};
 
 	const openEditDialog = () => {
 		if (!project) return;
@@ -242,74 +263,104 @@
 			</Alert>
 		{/if}
 
-		<!-- Description -->
-		{#if project.description}
-			<p class="type-lead text-muted-foreground">{project.description}</p>
+		{#if view === 'overview'}
+			{#if project.description}
+				<p class="type-lead text-muted-foreground">{project.description}</p>
+			{:else}
+				<p class="type-lead text-muted-foreground">No description yet.</p>
+			{/if}
+
+			<div class="flex items-center gap-2 type-lead text-muted-foreground">
+				{#if isCompleted}
+					<CheckIcon class="size-5 text-chart-2" />
+				{:else}
+					<CalendarIcon class="size-5 text-primary" />
+				{/if}
+				<p>{statusLabel}</p>
+				{#if isCompleted}
+					<Badge variant="secondary" class="bg-chart-2/15 text-chart-2">Done</Badge>
+				{/if}
+			</div>
+
+			<div class="flex flex-col gap-4">
+				<p class="type-body-medium">Updates</p>
+
+				{#if canManage}
+					<div class="flex gap-3">
+						<Textarea
+							bind:value={updateContent}
+							placeholder="Post an update..."
+							rows={2}
+							class="flex-1 resize-none"
+						/>
+						<Button
+							size="icon"
+							variant="ghost"
+							disabled={updatePending || !updateContent.trim()}
+							onclick={() => void postUpdate()}
+							aria-label="Post update"
+						>
+							<SendIcon class="size-5" />
+						</Button>
+					</div>
+				{/if}
+
+				{#if updatesResponse.isLoading}
+					<p class="type-sm text-muted-foreground">Loading updates...</p>
+				{:else if (updatesResponse.data ?? []).length === 0}
+					<p class="type-sm text-muted-foreground">No updates yet.</p>
+				{:else}
+					<div class="flex flex-col gap-3">
+						{#each [...(updatesResponse.data ?? [])].reverse() as update (update._id)}
+							<Card class="gap-0 py-0 shadow-none">
+								<CardContent class="flex flex-col gap-2 p-4">
+									<p class="type-body whitespace-pre-wrap">{update.content}</p>
+									<p class="type-sm text-muted-foreground">
+										{formatRelativeTime(update.createdAt)}
+									</p>
+								</CardContent>
+							</Card>
+						{/each}
+					</div>
+				{/if}
+			</div>
 		{:else}
-			<p class="type-lead text-muted-foreground">No description yet.</p>
+			<div class="flex flex-col gap-4">
+				{#if membersResponse.isLoading}
+					<p class="type-sm text-muted-foreground">Loading members...</p>
+				{:else if memberSummaries.length === 0}
+					<p class="type-sm text-muted-foreground">No members yet.</p>
+				{:else}
+					<ItemGroup class="gap-2">
+						{#each memberSummaries as member (member.id)}
+							<Item variant="outline" size="sm">
+								<ItemMedia>
+									<Avatar class="size-8">
+										{#if member.imageUrl}
+											<AvatarImage src={member.imageUrl} alt={member.name} />
+										{/if}
+										<AvatarFallback class="type-caption-bold">{initialsFor(member.name)}</AvatarFallback>
+									</Avatar>
+								</ItemMedia>
+								<ItemContent>
+									<ItemTitle class="w-full truncate">{member.name}</ItemTitle>
+									{#if memberSubtitleFor(member)}
+										<ItemDescription class="line-clamp-1 w-full">{memberSubtitleFor(member)}</ItemDescription>
+									{/if}
+								</ItemContent>
+								{#if member.roleName}
+									<ItemActions>
+										<Badge variant="outline">{member.roleName}</Badge>
+									</ItemActions>
+								{/if}
+							</Item>
+						{/each}
+					</ItemGroup>
+				{/if}
+			</div>
 		{/if}
-
-		<!-- Status badge -->
-		<div class="flex items-center gap-2 type-lead text-muted-foreground">
-			{#if isCompleted}
-				<CheckIcon class="size-5 text-chart-2" />
-			{:else}
-				<CalendarIcon class="size-5 text-primary" />
-			{/if}
-			<p>{statusLabel}</p>
-			{#if isCompleted}
-				<Badge variant="secondary" class="bg-chart-2/15 text-chart-2">Done</Badge>
-			{/if}
-		</div>
-
-		<ProjectMembersSection members={memberSummaries} isLoading={membersResponse.isLoading} />
-
-		<!-- Updates feed -->
-		<div class="flex flex-col gap-4">
-			<p class="type-body-medium">Updates</p>
-
-			{#if canManage}
-				<div class="flex gap-3">
-					<Textarea
-						bind:value={updateContent}
-						placeholder="Post an update..."
-						rows={2}
-						class="flex-1 resize-none"
-					/>
-					<Button
-						size="icon"
-						variant="ghost"
-						disabled={updatePending || !updateContent.trim()}
-						onclick={() => void postUpdate()}
-						aria-label="Post update"
-					>
-						<SendIcon class="size-5" />
-					</Button>
-				</div>
-			{/if}
-
-			{#if updatesResponse.isLoading}
-				<p class="type-sm text-muted-foreground">Loading updates...</p>
-			{:else if (updatesResponse.data ?? []).length === 0}
-				<p class="type-sm text-muted-foreground">No updates yet.</p>
-			{:else}
-				<div class="flex flex-col gap-3">
-					{#each [...(updatesResponse.data ?? [])].reverse() as update (update._id)}
-						<Card class="gap-0 py-0 shadow-none">
-							<CardContent class="flex flex-col gap-2 p-4">
-								<p class="type-body whitespace-pre-wrap">{update.content}</p>
-								<p class="type-sm text-muted-foreground">
-									{formatRelativeTime(update.createdAt)}
-								</p>
-							</CardContent>
-						</Card>
-					{/each}
-				</div>
-			{/if}
-		</div>
 	</div>
 
-	<!-- Edit project dialog -->
 	<Dialog.Root bind:open={editDialogOpen}>
 		<Dialog.Content>
 			<Dialog.Header>

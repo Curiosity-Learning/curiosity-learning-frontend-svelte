@@ -9,6 +9,7 @@ Two regressions exposed inconsistent navigation semantics:
 
 - Header back behavior incorrectly depended on `document.referrer`, causing fallback navigation during in-app SPA transitions.
 - Session -> booklet -> add -> session produced extra history entries, requiring multiple back presses and creating duplicate session entries.
+- Query-param-driven overlay state for project members sheet was brittle on mobile (URL changed but sheet state could desync), causing open/close races and unreliable back-dismiss behavior.
 
 The product expectation is that completed contextual flows return users to a stable page with intuitive single-step back behavior.
 
@@ -32,6 +33,15 @@ Applied pattern for session booklet flow:
 
 Add optional `replaceState` control to shared clickable-card navigation so feature flows can opt into replacement semantics without one-off navigation wrappers.
 
+### History-driven overlays
+
+For contextual overlays that should dismiss with browser/mobile back:
+
+- Model overlay state in `App.PageState` and read via `$app/state` `page.state`.
+- Open via shallow routing `pushState('', { ...page.state, overlayOpen: true })`.
+- Close via `history.back()` (with `replaceState` fallback when no prior history entry exists).
+- For Bits UI overlays, use fully controlled binding (`bind:open={getOpen, setOpen}`) to avoid races between local state and URL/history state.
+
 ## Files
 
 | Area | Files |
@@ -49,4 +59,5 @@ Add optional `replaceState` control to shared clickable-card navigation so featu
 - **Positive:** Header back and browser back are aligned for in-app transitions.
 - **Positive:** Contextual add flows feel complete and do not leave stale intermediate routes in history.
 - **Positive:** Navigation behavior becomes explicit and reviewable (`push` vs `replace`).
+- **Positive:** Contextual overlays can be dismissed with Back on mobile without ad-hoc query-param synchronization.
 - **Trade-off:** History behavior is now intentionally opinionated per flow; new routes must choose semantics deliberately.
