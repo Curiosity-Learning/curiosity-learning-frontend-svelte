@@ -6,6 +6,19 @@
 
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant hover {
+	@media (hover: hover) {
+		&:hover {
+			@slot;
+		}
+	}
+
+	@media (hover: none) and (pointer: coarse) {
+		&:active {
+			@slot;
+		}
+	}
+}
 
 :root {
 	--radius: 0.625rem;
@@ -651,4 +664,3 @@
 @media (width >= 48rem) {
 	/* Keep typography scale stable across viewport widths to match design-system tokens. */
 }
-
