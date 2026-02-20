@@ -383,6 +383,85 @@
 
 - `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+### Bug Fix: Project Members Sheet Controlled Open State + URL Sync
+
+- Updated `src/lib/components/app/projects/project-members-section.svelte` to remove `bind:open` and use controlled `open={...}` state with `onOpenChange`.
+- Sheet open state now derives from:
+  - route query state (`?members=1`), plus
+  - temporary pending target state while URL updates are in flight.
+- This resolves the open-then-close race where the sheet could flash and immediately dismiss on mobile.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Project Members Sheet Open Flicker During URL Sync
+
+- Updated `src/lib/components/app/projects/project-members-section.svelte` shallow-routing sync logic with a pending-route guard (`pendingRouteOpen`).
+- Prevents immediate re-close flicker when opening the sheet before `pushState` URL updates are reflected in `page.url`.
+- Preserves back-button close behavior and query-param driven sheet state.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Project Members Sheet Closes on Popstate Back
+
+- Updated `src/lib/components/app/projects/project-members-section.svelte` sheet state wiring:
+  - switched from a pure derived `open` flag to local bound state (`bind:open`),
+  - added URL -> sheet sync via `$effect` so `page.url` changes from browser/mobile back force-close the sheet,
+  - preserved shallow-routing URL behavior (`?members=1`) through `pushState`/`replaceState`.
+- Fixes case where URL query was removed by back navigation but the sheet remained visible.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UX Update: Mobile Pressed State Mirrors Hover
+
+- Updated `src/routes/layout.css` to override Tailwind `hover` variant behavior:
+  - keeps standard `:hover` behavior on hover-capable devices,
+  - applies `:active` with the same hover classes on coarse-pointer mobile devices.
+- This change cascades through shared interactive components without per-component or per-page class rewrites.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### UX Refinement: Project Members Sheet Trigger + Back-Driven Close
+
+- Updated `src/lib/components/app/projects/project-members-section.svelte` member trigger styling from `outline` to `ghost`.
+- Implemented URL-backed shallow routing for the member sheet using SvelteKit `pushState`/`replaceState` and `$app/state`:
+  - opening the sheet sets query state to `?members=1`,
+  - closing the sheet clears the query,
+  - mobile/browser back now dismisses the sheet instead of navigating away from the project page.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-02-20
+
+### Refactor: Shared Project Card Component on Club Home + Projects Tabs
+
+- Updated `src/routes/(app)/club/[clubId]/+page.svelte` to reuse `src/lib/components/app/projects/club-project-card.svelte` for the "Current projects" carousel, matching the card component used in `/club/[clubId]/projects/(tabbed)/*`.
+- Removed dashboard usage of `project-preview-card.svelte` so project surfaces now share one card implementation.
+- Updated card links in the home "Current projects" section to open each project detail route directly (`/project/[projectId]`), making whole-card click behavior consistent with tabbed project lists.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UI Tweak: Project Card Footer Alignment Across Variable Description Lengths
+
+- Updated shared project card layout in `src/lib/components/app/projects/club-project-card.svelte` so the avatar stack + due/completed row are pinned to the bottom of the card using flex (`mt-auto`).
+- Applied `h-full` to card wrappers/content so cards stretch consistently in both grid and horizontal-scroll rows when sibling cards have longer descriptions.
+- Result: member avatars and due/completed labels align at the bottom across cards, even when title/description copy lengths vary.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
 ### UI Refactor: Shared Upcoming Session Card + Activity Preview Parity
 
 - Removed the dashboard-specific `src/lib/components/app/home/upcoming-session-card.svelte` and switched club home to reuse `src/lib/components/app/sessions/club-session-card.svelte`, matching `/club/[clubId]/sessions`.

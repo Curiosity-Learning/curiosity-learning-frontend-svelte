@@ -67,7 +67,7 @@
 </script>
 
 {#snippet cardContent()}
-	<CardContent class="flex flex-col gap-5 p-5">
+	<CardContent class="flex h-full flex-col gap-5 p-5">
 		<div class="flex flex-col gap-2">
 			<p class="type-h5-bold">{project.name}</p>
 			{#if project.description}
@@ -77,7 +77,7 @@
 			{/if}
 		</div>
 
-		<div class="flex flex-col gap-4">
+		<div class="mt-auto flex flex-col gap-4">
 			<AvatarStack people={people} max={3} sizeClass="size-9" />
 			<div class="flex items-center gap-2 type-lead text-muted-foreground">
 				{#if isCompleted}
@@ -92,13 +92,13 @@
 {/snippet}
 
 {#if href}
-	<a {href} class="block" data-sveltekit-preload-code="hover">
-		<Card class={cn('w-full gap-0 py-0 shadow-none', className)}>
+	<a {href} class="block h-full" data-sveltekit-preload-code="hover">
+		<Card class={cn('h-full w-full gap-0 py-0 shadow-none', className)}>
 			{@render cardContent()}
 		</Card>
 	</a>
 {:else}
-	<Card class={cn('w-full gap-0 py-0 shadow-none', className)}>
+	<Card class={cn('h-full w-full gap-0 py-0 shadow-none', className)}>
 		{@render cardContent()}
 	</Card>
 {/if}

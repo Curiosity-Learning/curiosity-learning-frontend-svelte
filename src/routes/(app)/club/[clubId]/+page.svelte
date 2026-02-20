@@ -12,7 +12,7 @@
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
 	import HomeEmptyCard from '$lib/components/app/home/home-empty-card.svelte';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
-	import ProjectPreviewCard from '$lib/components/app/home/project-preview-card.svelte';
+	import ClubProjectCard from '$lib/components/app/projects/club-project-card.svelte';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
 	import { routes } from '$lib/routes';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
@@ -251,10 +251,12 @@
 			<div class="flex flex-col gap-3">
 				<div class="flex gap-4 overflow-x-auto pb-2">
 					{#each visibleProjects as entry (entry.project._id)}
-						<ProjectPreviewCard
+						<ClubProjectCard
 							project={entry.project}
 							memberPreview={entry.members}
-							href={`${clubPath}/projects`}
+							status="current"
+							href={routes.projectDetail(entry.project._id)}
+							class="w-[18.5rem] shrink-0 sm:w-[20rem]"
 						/>
 					{/each}
 				</div>
