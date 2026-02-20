@@ -26,11 +26,11 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 
-	let filteredActivities = $derived(() => {
+	let filteredActivities = $derived.by(() => {
 		const activities = activitiesResponse.data ?? [];
 		if (selectedBlockNames.length === 0) return activities;
 		return activities.filter((a) =>
-			a.buildingBlockNames.some((name) => selectedBlockNames.includes(name))
+			selectedBlockNames.every((name) => a.buildingBlockNames.includes(name))
 		);
 	});
 
@@ -92,7 +92,7 @@
 
 	{#if activitiesResponse.isLoading}
 		<p class="text-sm text-muted-foreground">Loading activities...</p>
-	{:else if filteredActivities().length === 0}
+	{:else if filteredActivities.length === 0}
 		<p class="text-sm text-muted-foreground">
 			{selectedBlockNames.length
 				? 'No activities match the selected filters.'
@@ -100,7 +100,7 @@
 		</p>
 	{:else}
 		<div class="flex flex-col gap-4">
-			{#each filteredActivities() as activity (activity._id)}
+			{#each filteredActivities as activity (activity._id)}
 				<BookletActivityCard
 					{activity}
 					href={buildDetailHref(activity._id)}

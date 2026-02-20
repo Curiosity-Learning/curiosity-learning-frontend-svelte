@@ -358,3 +358,13 @@
 ### UI Tweak: Always-Visible Minutes Unit
 
 - Updated `src/lib/components/app/sessions/session-activity-card.svelte` so the `mins` unit suffix is always visible in the minutes input (not conditional on value/focus).
+
+### Bug Fix: Activity Booklet Tag Filters Require All Selected Tags
+
+- Updated `src/routes/(app)/activity-booklet/+page.svelte` so multi-tag filtering now uses AND matching.
+- Selecting multiple building-block tags now only shows activities that include every selected tag, rather than any selected tag.
+- Converted `filteredActivities` to `$derived.by(...)` for Svelte 5 compliance and updated template references accordingly.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)

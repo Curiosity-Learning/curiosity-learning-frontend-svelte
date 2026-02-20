@@ -32,7 +32,7 @@ When a booklet activity is added to a session, it is **copied** into a new `sess
 
 ### Filtering: ToggleGroup chips
 
-Building block categories are rendered as pill-shaped toggle chips using shadcn-svelte `ToggleGroup` (multi-select, outline variant). Activities are filtered client-side by matching any selected block name.
+Building block categories are rendered as pill-shaped toggle chips using shadcn-svelte `ToggleGroup` (multi-select, outline variant). Activities are filtered client-side by matching all selected block names (AND semantics).
 
 ### Session activities: drag-and-drop reordering
 
