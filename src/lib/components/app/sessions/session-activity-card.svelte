@@ -53,7 +53,6 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import PencilLineIcon from '@lucide/svelte/icons/pencil-line';
 	import ActionMenu from '$lib/components/app/action-menu.svelte';
-	import { TagChip } from '$lib/components/ui/badge';
 	import { InlineMultiSelect } from '$lib/components/ui/multi-select';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
@@ -406,28 +405,28 @@
 				<p class="text-xs text-destructive">Save failed — tap description to retry.</p>
 			{/if}
 			<div class="flex flex-wrap items-start gap-2">
-				{#if inlineEditingEnabled && onMinutesSave}
+				{#if onMinutesSave}
 					<div class="flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1">
 						<Clock3Icon class="size-3.5 text-muted-foreground" />
-						<Input
-							type="number"
-							min={1}
-							inputmode="numeric"
-							placeholder="mins"
-							value={minutesValue}
-							disabled={editingDisabled}
-							oninput={handleMinutesInput}
-							onfocus={handleMinutesFocus}
-							onblur={() => void handleMinutesBlur()}
-							class="h-7 w-20 bg-background"
-						/>
+						<div class="relative">
+							<Input
+								type="number"
+								min={1}
+								inputmode="numeric"
+								value={minutesValue}
+								disabled={!inlineEditingEnabled || editingDisabled}
+								oninput={handleMinutesInput}
+								onfocus={handleMinutesFocus}
+								onblur={() => void handleMinutesBlur()}
+								class="h-7 w-20 pr-9 bg-background [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+							/>
+							<span
+								class="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-xs text-muted-foreground"
+							>
+								mins
+							</span>
+						</div>
 					</div>
-				{:else if activity.minutes !== null}
-					<TagChip label={`${activity.minutes} mins`} tone="muted">
-						{#snippet leading()}
-							<Clock3Icon class="size-3.5" />
-						{/snippet}
-					</TagChip>
 				{/if}
 				<InlineMultiSelect
 					id={`activity-blocks-${activity.id}`}
