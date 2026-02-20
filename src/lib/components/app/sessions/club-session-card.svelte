@@ -4,36 +4,41 @@
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
 	import { useQuery } from 'convex-svelte';
-	import {
-		ActionMenu,
-		DataRecordCard,
-		DataRecordHeader,
-		RelationAvatarStack,
-		RelationChipSet,
-		RelationListCards,
-		RelationSection
-	} from '$lib/components/app';
-	import { Separator } from '$lib/components/ui/separator';
+import {
+	ActionMenu,
+	DataRecordCard,
+	DataRecordHeader,
+	RelationAvatarStack,
+	RelationChipSet,
+	RelationListCards,
+	RelationSection
+} from '$lib/components/app';
+import { TagChip } from '$lib/components/ui/badge';
+import { Separator } from '$lib/components/ui/separator';
 
 	type Props = {
 		session: Doc<'sessions'>;
 		sessionHref: string;
-		canReadMembers: boolean;
-		canDelete: boolean;
+		canReadMembers?: boolean;
+		canDelete?: boolean;
+		showAttendeesSection?: boolean;
+		showActions?: boolean;
 		onDelete?: () => void;
 	};
 
 	let {
 		session,
 		sessionHref,
-		canReadMembers,
-		canDelete,
+		canReadMembers = false,
+		canDelete = false,
+		showAttendeesSection = true,
+		showActions = true,
 		onDelete
 	}: Props = $props();
 
 	const cardData = useQuery(api.sessions.getSessionCardData, () => ({
 		sessionId: session._id,
-		includeAttendees: canReadMembers
+		includeAttendees: showAttendeesSection && canReadMembers
 	}));
 
 	const activitiesResponse = useQuery(api.sessions.listActivities, () => ({ sessionId: session._id }));
@@ -51,12 +56,15 @@
 
 	let tagNames = $derived(cardData.data?.tagNames ?? []);
 	let attendees = $derived(cardData.data?.attendees ?? []);
-	let activities = $derived((activitiesResponse.data ?? []).slice(0, 3));
+	let visibleActivityLimit = 3;
+	let totalActivitiesCount = $derived(activitiesResponse.data?.length ?? 0);
+	let activities = $derived((activitiesResponse.data ?? []).slice(0, visibleActivityLimit));
+	let hiddenActivitiesCount = $derived(Math.max(totalActivitiesCount - activities.length, 0));
 	let activityItems = $derived(
 		activities.map((activity) => ({
 			id: String(activity.id),
 			title: activity.name,
-			description: activity.content ?? session.description
+			description: activity.content
 		}))
 	);
 	let actionItems = $derived([
@@ -76,13 +84,13 @@
 		{#if tagNames.length > 0}
 			<DataRecordHeader title={formatSessionLine(session.startTime)}>
 				{#snippet leading()}
-					<div class="flex size-8 items-center justify-center rounded-xl bg-accent text-primary">
-						<CalendarIcon class="size-4" />
-					</div>
+					<CalendarIcon class="size-5 shrink-0 text-primary" strokeWidth={2.75} />
 				{/snippet}
 
 				{#snippet actions()}
-					<ActionMenu items={actionItems} ariaLabel="Open session actions" />
+					{#if showActions}
+						<ActionMenu items={actionItems} ariaLabel="Open session actions" />
+					{/if}
 				{/snippet}
 
 				{#snippet meta()}
@@ -92,13 +100,13 @@
 		{:else}
 			<DataRecordHeader title={formatSessionLine(session.startTime)}>
 				{#snippet leading()}
-					<div class="flex size-8 items-center justify-center rounded-xl bg-accent text-primary">
-						<CalendarIcon class="size-4" />
-					</div>
+					<CalendarIcon class="size-5 shrink-0 text-primary" strokeWidth={2.75} />
 				{/snippet}
 
 				{#snippet actions()}
-					<ActionMenu items={actionItems} ariaLabel="Open session actions" />
+					{#if showActions}
+						<ActionMenu items={actionItems} ariaLabel="Open session actions" />
+					{/if}
 				{/snippet}
 			</DataRecordHeader>
 		{/if}
@@ -112,19 +120,30 @@
 		{:else if activityItems.length === 0}
 			<p class="type-lead text-slate-500">No activities yet.</p>
 		{:else}
-			<RelationListCards items={activityItems} fallbackDescription={session.description} />
+			<RelationListCards items={activityItems} fallbackDescription="No activity notes yet." />
+			{#if hiddenActivitiesCount > 0}
+				<div class="flex justify-start">
+					<TagChip
+						tone="muted"
+						label={`+${hiddenActivitiesCount} more`}
+						class="type-sm-bold text-muted-foreground"
+					/>
+				</div>
+			{/if}
 		{/if}
 	</RelationSection>
 
-	<Separator class="opacity-70" />
+	{#if showAttendeesSection}
+		<Separator class="opacity-70" />
 
-	<RelationSection title="Attendees">
-		{#if !canReadMembers}
-			<p class="type-lead text-slate-500">You do not have access to attendees.</p>
-		{:else if cardData.isLoading}
-			<p class="type-lead text-slate-500">Loading attendees...</p>
-		{:else}
-			<RelationAvatarStack people={attendees} max={6} sizeClass="size-11" />
-		{/if}
-	</RelationSection>
+		<RelationSection title="Attendees">
+			{#if !canReadMembers}
+				<p class="type-lead text-slate-500">You do not have access to attendees.</p>
+			{:else if cardData.isLoading}
+				<p class="type-lead text-slate-500">Loading attendees...</p>
+			{:else}
+				<RelationAvatarStack people={attendees} max={6} sizeClass="size-11" />
+			{/if}
+		</RelationSection>
+	{/if}
 </DataRecordCard>

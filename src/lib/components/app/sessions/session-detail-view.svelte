@@ -488,7 +488,10 @@
 									New activity
 								</Button>
 								<Button
-									onclick={() => void goto(routes.activityBooklet + '?session=' + sessionIdParam)}
+									onclick={() =>
+										void goto(routes.activityBooklet + '?session=' + sessionIdParam, {
+											replaceState: true
+										})}
 									disabled={!canCreateActivityOnline}
 								>
 									<BookOpenIcon class="size-4" />
@@ -598,7 +601,10 @@
 							</Button>
 							<Button
 								class="rounded-full px-6 py-3 type-h6-bold shadow-md"
-								onclick={() => void goto(routes.activityBooklet + '?session=' + sessionIdParam)}
+								onclick={() =>
+									void goto(routes.activityBooklet + '?session=' + sessionIdParam, {
+										replaceState: true
+									})}
 								disabled={!canCreateActivityOnline}
 							>
 								<BookOpenIcon class="size-5" />

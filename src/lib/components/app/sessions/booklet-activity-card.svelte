@@ -17,14 +17,22 @@
 		activity: Activity;
 		href: string;
 		sessionId?: string | null;
+		replaceState?: boolean;
 		onAddToSession?: () => void;
 		addPending?: boolean;
 	};
 
-	let { activity, href, sessionId = null, onAddToSession, addPending = false }: Props = $props();
+	let {
+		activity,
+		href,
+		sessionId = null,
+		replaceState = false,
+		onAddToSession,
+		addPending = false
+	}: Props = $props();
 </script>
 
-<Card {href} class="gap-0 py-0">
+<Card {href} {replaceState} class="gap-0 py-0">
 	<CardContent class="flex flex-col gap-3 p-4">
 		<div class="flex items-start justify-between gap-3">
 			<h3 class="type-h5-medium">{activity.name}</h3>

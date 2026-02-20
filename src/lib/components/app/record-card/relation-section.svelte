@@ -10,7 +10,7 @@
 	let {
 		title,
 		children,
-		titleClass = 'type-h6-bold text-slate-600'
+		titleClass = 'type-sm-bold text-slate-600'
 	}: Props = $props();
 </script>
 

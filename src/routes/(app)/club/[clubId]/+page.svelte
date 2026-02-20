@@ -11,7 +11,7 @@
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
 	import HomeEmptyCard from '$lib/components/app/home/home-empty-card.svelte';
-	import UpcomingSessionCard from '$lib/components/app/home/upcoming-session-card.svelte';
+	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import ProjectPreviewCard from '$lib/components/app/home/project-preview-card.svelte';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
 	import { routes } from '$lib/routes';
@@ -36,6 +36,7 @@
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 	let canCreateSession = $derived(clubPermissions.includes('session:create'));
+	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
 
 	let clubIdTyped = $derived((clubId ? (clubId as Id<'clubs'>) : null));
 
@@ -168,10 +169,13 @@
 				/>
 			{/if}
 		{:else}
-			<UpcomingSessionCard
+			<ClubSessionCard
 				session={nextSession}
+				sessionHref={routes.sessionDetail(nextSession._id)}
 				{canReadMembers}
-				href={routes.sessionDetail(nextSession._id)}
+				canDelete={canDeleteSession}
+				showAttendeesSection={false}
+				showActions={false}
 			/>
 		{/if}
 

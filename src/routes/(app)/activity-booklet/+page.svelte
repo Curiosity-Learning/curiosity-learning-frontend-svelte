@@ -52,7 +52,7 @@
 				bookletActivityId,
 				sessionId
 			});
-			await goto(routes.sessionDetail(sessionId) + '/activities');
+			await goto(routes.sessionDetail(sessionId) + '/activities', { replaceState: true });
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to add activity.';
 		} finally {
@@ -105,6 +105,7 @@
 					{activity}
 					href={buildDetailHref(activity._id)}
 					{sessionId}
+					replaceState={Boolean(sessionId)}
 					addPending={pending}
 					onAddToSession={() => void addToSession(activity._id)}
 				/>

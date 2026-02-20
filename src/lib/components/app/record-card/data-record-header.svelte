@@ -25,27 +25,27 @@
 				data-sveltekit-preload-data="hover"
 			>
 				{#if leading}
-					<div class="shrink-0">
+					<div class="flex shrink-0 items-center">
 						{@render leading()}
 					</div>
 				{/if}
 				{#if primary}
 					{@render primary()}
 				{:else if title}
-					<CardTitle class="truncate type-h6-bold text-foreground">{title}</CardTitle>
+					<CardTitle class="truncate type-body-bold text-foreground">{title}</CardTitle>
 				{/if}
 			</a>
 		{:else}
 			<div class="flex min-w-0 flex-1 items-center gap-3">
 				{#if leading}
-					<div class="shrink-0">
+					<div class="flex shrink-0 items-center">
 						{@render leading()}
 					</div>
 				{/if}
 				{#if primary}
 					{@render primary()}
 				{:else if title}
-					<CardTitle class="truncate type-h6-bold text-foreground">{title}</CardTitle>
+					<CardTitle class="truncate type-body-bold text-foreground">{title}</CardTitle>
 				{/if}
 			</div>
 		{/if}

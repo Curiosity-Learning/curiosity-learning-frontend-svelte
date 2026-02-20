@@ -14,6 +14,7 @@
 | Check migration progress from Flutter    | [implementation-plan.md](implementation-plan.md)                |
 | See what's been done and tested          | [qa-log.md](qa-log.md)                                          |
 | Check Flutter parity status              | [parity-matrix.md](parity-matrix.md)                            |
+| Implement routing/back correctly         | [routing-and-back-navigation.md](routing-and-back-navigation.md)|
 | See visual screenshots                   | [screenshots/](screenshots/)                                    |
 
 ## Architecture Decision Records
@@ -26,3 +27,4 @@ When a significant design choice is made, it gets an ADR in `adr/`:
 - [ADR-004](adr/004-session-building-booklet.md) — Session building booklet (reusable activity library)
 - [ADR-005](adr/005-responsive-page-header-search.md) — Responsive page-header search modes
 - [ADR-006](adr/006-badge-and-tag-chip-split.md) — Keep `Badge` primitive and centralize token-chip behavior in `TagChip`
+- [ADR-007](adr/007-history-semantics-for-routing-and-back.md) — Back/history semantics for contextual flows

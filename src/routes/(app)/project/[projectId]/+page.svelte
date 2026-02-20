@@ -14,7 +14,7 @@
 		PageHeaderBackButton,
 		PageHeaderTitle
 	} from '$lib/components/app';
-	import AvatarStack from '$lib/components/app/home/avatar-stack.svelte';
+	import ProjectMembersSection from '$lib/components/app/projects/project-members-section.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
@@ -111,14 +111,18 @@
 		return project.dueDate ? `Due by ${formatDateLabel(project.dueDate)}` : 'No due date';
 	});
 
-	let memberPeople = $derived(
+	let memberSummaries = $derived(
 		(membersResponse.data ?? []).map((member) => ({
+			id: member.projectMemberId,
 			name:
 				[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 				member.username ||
 				member.email ||
 				member.profileId,
-			imageUrl: member.coverPhotoUrl ?? null
+			imageUrl: member.coverPhotoUrl ?? null,
+			email: member.email ?? null,
+			username: member.username ?? null,
+			roleName: member.roleName ?? null
 		}))
 	);
 
@@ -258,23 +262,7 @@
 			{/if}
 		</div>
 
-		<!-- Members -->
-		<div class="flex flex-col gap-3">
-			<p class="type-body-medium">Members</p>
-			{#if membersResponse.isLoading}
-				<p class="type-sm text-muted-foreground">Loading members...</p>
-			{:else if memberPeople.length === 0}
-				<p class="type-sm text-muted-foreground">No members yet.</p>
-			{:else}
-				<div class="flex items-center gap-3">
-					<AvatarStack people={memberPeople} max={5} sizeClass="size-9" />
-					<p class="type-sm text-muted-foreground">
-						{memberPeople.length}
-						{memberPeople.length === 1 ? 'member' : 'members'}
-					</p>
-				</div>
-			{/if}
-		</div>
+		<ProjectMembersSection members={memberSummaries} isLoading={membersResponse.isLoading} />
 
 		<!-- Updates feed -->
 		<div class="flex flex-col gap-4">

@@ -4,7 +4,12 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { PageHeaderActions, PageHeaderBackButton, PageHeaderSearch } from '$lib/components/app';
+	import {
+		AutoFitCardGrid,
+		PageHeaderActions,
+		PageHeaderBackButton,
+		PageHeaderSearch
+	} from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -144,7 +149,7 @@
 		<AlertDescription>Set an active club before creating projects.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="flex w-full max-w-2xl self-center flex-col gap-4">
+	<div class="flex w-full self-center flex-col gap-4">
 		{#if errorMessage}
 			<Alert variant="destructive">
 				<AlertTitle>Action failed</AlertTitle>
@@ -164,7 +169,7 @@
 		{:else if visibleProjects.length === 0}
 			<p class="type-sm text-muted-foreground">{emptyLabel}</p>
 		{:else}
-			<div class="flex flex-col gap-3">
+			<AutoFitCardGrid minColumnWidth="17rem" maxColumns={3}>
 				{#each visibleProjects as project (project._id)}
 					<ClubProjectCard
 						{project}
@@ -173,7 +178,7 @@
 						class={status === 'completed' ? 'border-border/70' : undefined}
 					/>
 				{/each}
-			</div>
+			</AutoFitCardGrid>
 		{/if}
 	</div>
 

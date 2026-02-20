@@ -32,15 +32,15 @@
 				data-sveltekit-preload-code="hover"
 				data-sveltekit-preload-data="hover"
 			>
-				<p class="type-h5-bold text-foreground">{item.title}</p>
-				<p class="line-clamp-2 type-lead text-slate-500">
+				<p class="type-body-bold text-foreground">{item.title}</p>
+				<p class="line-clamp-1 type-sm text-slate-500">
 					{item.description ?? fallbackDescription}
 				</p>
 			</a>
 		{:else}
 			<div class={cardItemClass}>
-				<p class="type-h5-bold text-foreground">{item.title}</p>
-				<p class="line-clamp-2 type-lead text-slate-500">
+				<p class="type-body-bold text-foreground">{item.title}</p>
+				<p class="line-clamp-1 type-sm text-slate-500">
 					{item.description ?? fallbackDescription}
 				</p>
 			</div>

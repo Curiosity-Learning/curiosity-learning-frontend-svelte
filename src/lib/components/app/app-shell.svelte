@@ -5,6 +5,7 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import logoIconAndText from '$lib/assets/Icon and Text.svg';
+	import type { Attachment } from 'svelte/attachments';
 	import type { HeaderBackConfig, HeaderSearchConfig, HeaderSearchMode } from '$lib/app/page-header';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -44,6 +45,7 @@
 	// Auto mode chooses the most stable layout for current header width.
 	const SEARCH_INLINE_MIN_WIDTH = 920;
 	const SEARCH_COLLAPSIBLE_MIN_WIDTH = 680;
+	const HISTORY_INDEX_KEY = 'sveltekit:history';
 
 	let clubOpen = $state(false);
 	let clubNavOpen = $derived(activeNav === 'club' ? true : clubOpen);
@@ -51,6 +53,7 @@
 	let searchInputRef = $state<HTMLInputElement | null>(null);
 	let collapsibleSearchContainerRef = $state<HTMLDivElement | null>(null);
 	let searchFieldOpen = $state(false);
+	let initialHistoryIndex = $state<number | null>(null);
 	let headerSearchValue = $derived(headerSearch?.value ?? '');
 	let headerSearchPlaceholder = $derived(headerSearch?.placeholder ?? 'Search');
 	let headerSearchAriaLabel = $derived(headerSearch?.ariaLabel ?? 'Search');
@@ -70,18 +73,26 @@
 		resolvedSearchMode === 'overlay' && (searchFieldOpen || searchHasValue)
 	);
 
+	const getHistoryIndex = () => {
+		if (!browser) return null;
+		const value = window.history.state?.[HISTORY_INDEX_KEY];
+		return typeof value === 'number' ? value : null;
+	};
+
+	if (browser) {
+		initialHistoryIndex = getHistoryIndex();
+	}
+
 	const isActivePath = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
 
 	const canUseHistoryBack = () => {
 		if (!browser) return false;
 		if (window.history.length <= 1) return false;
-		if (!document.referrer) return false;
-		try {
-			const referrer = new URL(document.referrer);
-			return referrer.origin === window.location.origin;
-		} catch {
-			return false;
+		const currentHistoryIndex = getHistoryIndex();
+		if (initialHistoryIndex !== null && currentHistoryIndex !== null) {
+			return currentHistoryIndex > initialHistoryIndex;
 		}
+		return true;
 	};
 
 	const handleBack = async () => {
@@ -144,6 +155,15 @@
 		if (!headerSearchValue.trim()) {
 			searchFieldOpen = false;
 		}
+	};
+
+	const setCollapsibleSearchContainerRef: Attachment<HTMLDivElement> = (node) => {
+		collapsibleSearchContainerRef = node;
+		return () => {
+			if (collapsibleSearchContainerRef === node) {
+				collapsibleSearchContainerRef = null;
+			}
+		};
 	};
 
 </script>
@@ -298,7 +318,7 @@
 										</div>
 									{:else if resolvedSearchMode === 'collapsible'}
 										<div
-											bind:this={collapsibleSearchContainerRef}
+											{@attach setCollapsibleSearchContainerRef}
 											class="flex min-w-0 items-center gap-1"
 											onfocusout={handleCollapsibleSearchFocusOut}
 										>

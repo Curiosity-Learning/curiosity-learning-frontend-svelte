@@ -383,6 +383,28 @@
 
 - `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+### UI Refactor: Shared Upcoming Session Card + Activity Preview Parity
+
+- Removed the dashboard-specific `src/lib/components/app/home/upcoming-session-card.svelte` and switched club home to reuse `src/lib/components/app/sessions/club-session-card.svelte`, matching `/club/[clubId]/sessions`.
+- Added view-config props to `ClubSessionCard` so both routes share one component while varying behavior:
+  - `showAttendeesSection` (hidden on dashboard),
+  - `showActions` (hidden on dashboard),
+  - optional permission props (`canReadMembers`, `canDelete`).
+- Updated activity preview content mapping in `ClubSessionCard` so preview descriptions come from each activity record, with `No activity notes yet.` fallback instead of session-level description text.
+- Added overflow indicator chip below preview cards for truncated activity lists (`+N more`) while keeping dashboard preview limited to the first 3 activities.
+- Updated shared record-card typography and truncation to align with requested hierarchy:
+  - date/title: `Body/Default/Bold`,
+  - section labels (`Activities`, `Attendees`): `Body/Small/Bold`,
+  - activity title: `Body/Default/Bold`,
+  - activity description: `Body/Small/Regular`, clipped to one line.
+- Tweaked shared header/icon presentation for optical alignment:
+  - centered leading-slot wrapper in `data-record-header.svelte`,
+  - calendar icon now renders icon-only (no container) with heavier stroke in shared session card.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
 ### UI Tweak: Session Card Typography Hierarchy + Activity Truncation
 
 - Updated session card date/title typography to Body/Default/Bold in:
@@ -416,3 +438,41 @@
 ### Run: Type Check
 
 - `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### Bug Fix: Header Back Button Uses In-App Navigation History
+
+- Updated `src/lib/components/app/app-shell.svelte` back-button guard logic to use SvelteKit history index state (`sveltekit:history`) instead of relying on `document.referrer`.
+- This restores expected behavior for client-side flows like `Club Dashboard -> All Projects -> Project -> Back`, where back now returns to the previous in-app page rather than falling through to a fallback route (for example, `/feed`).
+- Kept fallback behavior in place when no in-app history entry exists.
+- Replaced one local `bind:this` reference in the same file with an attachment to satisfy Svelte autofixer guidance.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Booklet Add-to-Session History Semantics
+
+- Updated session-origin activity booklet navigation so selecting a booklet activity detail replaces the current booklet list history entry.
+- Updated both booklet add actions to return to `/session/[sessionId]/activities` via `goto(..., { replaceState: true })`:
+  - `src/routes/(app)/activity-booklet/+page.svelte`
+  - `src/routes/(app)/activity-booklet/[activityId]/+page.svelte`
+- Added `replaceState` support to the shared clickable card primitive and used it in booklet cards during session-origin flows:
+  - `src/lib/components/ui/card/card.svelte`
+  - `src/lib/components/app/sessions/booklet-activity-card.svelte`
+- Result: after `Add to session`, both header-back and browser-back no longer step back into booklet pages for this flow.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Session->Booklet Launch Uses Replace State in Add Flow
+
+- Updated both session detail CTA entry points to activity booklet to navigate with `replaceState: true`:
+  - empty-state `Choose from booklet`
+  - sticky footer `From booklet`
+- File updated: `src/lib/components/app/sessions/session-detail-view.svelte`.
+- This removes the original session history entry before booklet flow begins, preventing duplicate `/session/[sessionId]/activities` entries after returning with `Add to session`.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)

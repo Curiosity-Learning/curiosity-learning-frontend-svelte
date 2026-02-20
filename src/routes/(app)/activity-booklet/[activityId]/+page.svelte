@@ -32,7 +32,7 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 
-	let fallbackHref = $derived(() => {
+	let fallbackHref = $derived.by(() => {
 		const base = routes.activityBooklet;
 		return sessionId ? `${base}?session=${sessionId}` : base;
 	});
@@ -46,7 +46,7 @@
 				bookletActivityId: activityIdTyped,
 				sessionId
 			});
-			await goto(routes.sessionDetail(sessionId) + '/activities');
+			await goto(routes.sessionDetail(sessionId) + '/activities', { replaceState: true });
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to add activity.';
 		} finally {
@@ -55,7 +55,7 @@
 	};
 </script>
 
-<PageHeaderBackButton fallbackHref={fallbackHref()} />
+<PageHeaderBackButton fallbackHref={fallbackHref} />
 <PageHeaderTitle title={activity?.name ?? 'Activity'} />
 {#if !activityIdTyped}
 	<Alert variant="destructive">

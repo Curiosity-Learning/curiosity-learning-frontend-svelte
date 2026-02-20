@@ -20,6 +20,7 @@
 
 	type Props = WithElementRef<HTMLAttributes<HTMLDivElement>, HTMLDivElement> & {
 		href?: string;
+		replaceState?: boolean;
 		disabled?: boolean;
 	};
 
@@ -27,6 +28,7 @@
 		ref = $bindable(null),
 		class: className,
 		href,
+		replaceState = false,
 		disabled = false,
 		onclick,
 		onkeydown,
@@ -59,7 +61,7 @@
 			window.location.assign(url.toString());
 			return;
 		}
-		void goto(`${url.pathname}${url.search}${url.hash}`);
+		void goto(`${url.pathname}${url.search}${url.hash}`, { replaceState });
 	};
 
 	const handleClick: NonNullable<HTMLAttributes<HTMLDivElement>['onclick']> = (event) => {
