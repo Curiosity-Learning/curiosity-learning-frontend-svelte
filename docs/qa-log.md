@@ -165,6 +165,17 @@
 
 - `npm run check` ✅ (0 errors, same existing toggle-group warnings)
 
+### Bug Fix: Inline Multi-Select First-Option Focus + Query Reset
+
+- Updated `src/lib/components/ui/multi-select/inline-multi-select.svelte` so typing now activates the first filtered option.
+- Option selection now clears the typed query text and keeps input focus to support fast repeated selection.
+- Keyboard (`Enter`/`Space`) and click paths now share one selection helper so behavior is consistent across interaction modes.
+- Replaced optimistic-selection cleanup `$effect` with a derived guard to avoid state assignment inside effects while preserving blur-save behavior.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
 ### Finalization: In-Chip Remove UX + Documentation Cleanup
 
 - Finalized selected-tag removal in inline multi-select with a simple in-chip `x` control (`TagChip` removable mode).
@@ -270,6 +281,19 @@
 
 - `npm run check` ✅ (0 errors, same existing toggle-group warnings)
 
+## 2026-02-19
+
+### UI: Reusable Auto-Fit Project Card Grid
+
+- Added reusable `AutoFitCardGrid` at `src/lib/components/app/auto-fit-card-grid.svelte` to encapsulate `repeat(auto-fit, minmax(...))` behavior with a `minColumnWidth` prop.
+- Exported the component from `src/lib/components/app/index.ts` for reuse in other app surfaces.
+- Updated `src/lib/components/app/projects/club-projects-view.svelte` to render project cards in the reusable auto-fit grid.
+- Current and completed project tabs now collapse fluidly from multiple columns down to one based on available width, without route-level media queries.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
 ## 2026-02-20
 
 ### Bug Fix: Club Session Route Canonicalization
@@ -288,3 +312,49 @@
 ### Run: Type Check
 
 - `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### Bug Fix: Club Home Session Planning Permission + Dialog Intent
+
+- Updated club home upcoming-session empty states so the `Plan a session` CTA only appears for users with `session:create`.
+- Hid the helper copy `Plan your next meeting to keep your club moving.` when the viewer lacks `session:create`.
+- Wired the empty-state CTA to `/club/[clubId]/sessions?openCreateSession=1` so clicking it opens the create-session dialog on the sessions page.
+- Updated `HomeEmptyCard` to support optional descriptions and optional actions, so empty states can render informative-only variants without a button.
+- Updated the sessions page create dialog to initialize from the `openCreateSession` query flag and added a create-permission guard on the submit action/button.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### UI Fix: Minutes Input Consistency on Session Detail
+
+- Updated `src/lib/components/app/sessions/session-activity-card.svelte` so minutes now render through one consistent inline number input surface in both editable and non-editable states.
+- Removed the non-editable `TagChip` fallback for minutes and now disable the same input when editing is unavailable.
+- This keeps the `/session/[sessionId]/activities` card layout and visual treatment consistent across permission/connectivity states.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### UX Update: Plan Session Opens In-Place on Club Home
+
+- Changed the club-home upcoming-session empty-state action to open the create-session dialog directly on `/club/[clubId]` instead of navigating to `/club/[clubId]/sessions`.
+- Users with `session:create` now get an in-place `Plan a session` button and can create a session without leaving club home.
+- Users without `session:create` still see `No upcoming sessions` but do not see the planning helper copy or CTA.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+### UX Tweak: Minutes Suffix Rendering
+
+- Updated `src/lib/components/app/sessions/session-activity-card.svelte` to show `mins` as an inline suffix inside the minutes input only when the field has a value.
+- Removed placeholder text from the minutes input so the suffix disappears completely when the field is empty.
+
+### UI Tweak: Minutes Input Suffix Spacing + Spinner Removal
+
+- Tightened spacing between minutes value and `mins` suffix in `src/lib/components/app/sessions/session-activity-card.svelte`.
+- Removed native number stepper controls (`up/down`) from the minutes input for cleaner in-field suffix rendering.
+
+### UI Tweak: Always-Visible Minutes Unit
+
+- Updated `src/lib/components/app/sessions/session-activity-card.svelte` so the `mins` unit suffix is always visible in the minutes input (not conditional on value/focus).

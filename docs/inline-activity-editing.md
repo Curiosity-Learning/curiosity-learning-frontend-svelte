@@ -33,14 +33,20 @@ session simultaneously and see each other's changes appear as they edit.
 |---------|----------|
 | **Initial content** | The description `<p contenteditable>` renders `{activity.content ?? ''}` inline — NOT populated on mount by `$effect`. See drag-and-drop notes below. |
 | **Title line control** | The title uses an inline `<input type="text">` so it stays single-line and avoids contenteditable caret quirks. |
-| **Minutes input** | Minutes are edited with an inline `<input type="number">` and only persisted on blur. Empty clears the field. |
+| **Minutes input** | Minutes use one consistent inline `<input type="number">` surface. It persists on blur when editable; when editing is unavailable, the same control stays visible but disabled for layout consistency. Empty clears the field. |
 | **Building blocks** | A reusable searchable multi-select shows removable in-chip tags (`TagChip` + `x`), supports typing to filter options, and persists selection on focus leave. To reduce visual clutter, the text input collapses out-of-flow when closed and expands to a full row with a minimum width when focused/open. |
 | **Connectivity policy** | For now, inline editing is online-only. Session views use the shared connectivity module to disable editing while offline or when the backend is unreachable. Inputs remain visible in-place (for layout consistency) but are disabled until reconnect. |
 | **Optimistic guard** | Last-saved guards prevent stale Convex values from briefly overwriting local blur saves. |
 | **Conflict avoidance** | Remote sync is skipped while the user is actively editing each field. Last-write-wins on blur/close. |
 | **Error handling** | If the mutation rejects (e.g. offline), `lastSaved` clears so the element reverts, and a "Save failed" message appears. Focusing again clears the error for retry. |
 | **Placeholder** | CSS `empty:before` pseudo-element with `data-placeholder` attribute. No JS needed. |
-| **Permissions** | Inline editors render only when update callbacks are present and user has `session_activity:update`. |
+| **Permissions** | Inline editors render only when update callbacks are present and user has `session_activity:update`. Minutes use the same input in both states, with the control disabled when editing is unavailable. |
+
+### Building-block multi-select behavior
+
+- When the user types in the inline multi-select, the first filtered option becomes the active option.
+- Selecting an option (keyboard `Enter`/`Space` or mouse click) clears the current query text.
+- Focus is retained in the input after selection so users can continue multi-picking without re-focusing.
 
 ### Data storage
 
@@ -59,7 +65,7 @@ Inline updates mutate the existing `sessionActivities` row through
 | `src/lib/components/app/sessions/session-activity-card.svelte` | Card component with inline editors, blur-save handlers, optimistic guards, and remote sync |
 | `src/lib/components/ui/multi-select/inline-multi-select.svelte` | Reusable shadcn-based searchable multi-select used for inline building block edits and other future multi-select surfaces |
 | `src/lib/components/ui/badge/tag-chip.svelte` | Reusable token chip wrapper around `Badge` for accent/muted tag styles, optional icons, and removable chip actions |
-| `src/lib/components/app/sessions/session-detail-view.svelte` | Parent view — passes `onContentSave` callback that calls `upsertActivity` mutation |
+| `src/lib/components/app/sessions/session-detail-view.svelte` | Parent view — passes inline-save callbacks for card fields and handles create/edit dialog save wiring |
 | `src/convex/sessions.ts` | `upsertActivity` mutation — persists activity fields (`name`, `content`, `minutes`, building block links) |
 
 ## Interaction with drag-and-drop
