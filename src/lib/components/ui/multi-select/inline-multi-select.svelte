@@ -66,7 +66,11 @@
 	let listboxId = $derived(`multi-select-listbox-${safeId}`);
 	let canSave = $derived(editable && Boolean(onSave));
 	let canInteract = $derived(canSave && !disabled);
-	let committedSelectedIds = $derived(normalizeIds(optimisticSelectedIds ?? selectedIds));
+	let effectiveOptimisticSelectedIds = $derived.by(() => {
+		if (optimisticSelectedIds === null) return null;
+		return idsMatch(selectedIds, optimisticSelectedIds) ? null : optimisticSelectedIds;
+	});
+	let committedSelectedIds = $derived(normalizeIds(effectiveOptimisticSelectedIds ?? selectedIds));
 	let displaySelectedIds = $derived(open ? normalizeIds(draftSelectedIds) : committedSelectedIds);
 	let selectedOptions = $derived(
 		displaySelectedIds
@@ -120,7 +124,7 @@
 	const persistSelection = async (nextIds: string[]) => {
 		if (!onSave) return;
 		const normalizedNextIds = normalizeIds(nextIds);
-		const currentIds = normalizeIds(optimisticSelectedIds ?? selectedIds);
+		const currentIds = normalizeIds(effectiveOptimisticSelectedIds ?? selectedIds);
 		if (idsMatch(normalizedNextIds, currentIds)) return;
 		// Keep selected chips stable immediately after blur while backend state catches up.
 		optimisticSelectedIds = normalizedNextIds;
@@ -157,6 +161,12 @@
 			draftSelectedIds = normalizeIds([...draftSelectedIds, selectedId]);
 		}
 		activeIndex = -1;
+	};
+
+	const selectOption = (optionId: string) => {
+		toggleSelectedId(optionId);
+		query = '';
+		focusInputAtEnd();
 	};
 
 	const handleRootFocusOut = (event: FocusEvent) => {
@@ -203,8 +213,7 @@
 			if (!open) return;
 			event.preventDefault();
 			if (normalizedActiveIndex >= 0 && normalizedActiveIndex < filteredOptions.length) {
-				toggleSelectedId(filteredOptions[normalizedActiveIndex].id);
-				focusInputAtEnd();
+				selectOption(filteredOptions[normalizedActiveIndex].id);
 			}
 			return;
 		}
@@ -212,8 +221,7 @@
 			if (!open) return;
 			if (normalizedActiveIndex < 0 || normalizedActiveIndex >= filteredOptions.length) return;
 			event.preventDefault();
-			toggleSelectedId(filteredOptions[normalizedActiveIndex].id);
-			focusInputAtEnd();
+			selectOption(filteredOptions[normalizedActiveIndex].id);
 			return;
 		}
 		if (event.key === 'Escape') {
@@ -237,13 +245,6 @@
 		}
 		await persistSelection(committedSelectedIds.filter((id) => id !== selectedId));
 	};
-
-	$effect(() => {
-		if (optimisticSelectedIds === null) return;
-		if (idsMatch(selectedIds, optimisticSelectedIds)) {
-			optimisticSelectedIds = null;
-		}
-	});
 
 </script>
 
@@ -301,8 +302,9 @@
 					openPicker();
 				}}
 				oninput={(event) => {
-					query = (event.currentTarget as HTMLInputElement).value;
-					activeIndex = -1;
+					const nextQuery = (event.currentTarget as HTMLInputElement).value;
+					query = nextQuery;
+					activeIndex = nextQuery.trim().length > 0 ? 0 : -1;
 				}}
 				onkeydown={handleInputKeydown}
 			/>
@@ -340,8 +342,7 @@
 								activeIndex = index;
 							}}
 							onclick={() => {
-								toggleSelectedId(option.id);
-								focusInputAtEnd();
+								selectOption(option.id);
 							}}
 						>
 							{option.label}
