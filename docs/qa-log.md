@@ -165,6 +165,20 @@
 
 - `npm run check` ✅ (0 errors, same existing toggle-group warnings)
 
+### Bug Fix: Session Card Activity Preview Content Mismatch
+
+- Updated `src/lib/components/app/sessions/club-session-card.svelte` so activity preview items no longer fall back to `session.description` when an activity has no notes.
+- Activity cards now use an activity-specific fallback label (`No activity notes yet.`), matching the state shown in session detail activity rows.
+
+### Refactor: Club Home Uses Shared Session Card Component
+
+- Replaced the dedicated upcoming-session card usage on club home with the same `ClubSessionCard` component used on `/club/[clubId]/sessions`.
+- Added configuration props to `src/lib/components/app/sessions/club-session-card.svelte` so views can vary behavior while sharing the same component:
+  - `showAttendeesSection` (dashboard hides attendees),
+  - `showActions` (dashboard hides action menu),
+  - optional `canReadMembers` and `canDelete`.
+- Removed `src/lib/components/app/home/upcoming-session-card.svelte` so the dashboard now renders the shared card implementation directly.
+
 ### Bug Fix: Inline Multi-Select First-Option Focus + Query Reset
 
 - Updated `src/lib/components/ui/multi-select/inline-multi-select.svelte` so typing now activates the first filtered option.
@@ -368,3 +382,37 @@
 ### Run: Type Check
 
 - `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UI Tweak: Session Card Typography Hierarchy + Activity Truncation
+
+- Updated session card date/title typography to Body/Default/Bold in:
+  - `src/lib/components/app/record-card/data-record-header.svelte`
+  - `src/lib/components/app/home/upcoming-session-card.svelte`
+- Updated section labels (`Activities`, `Attendees`) to Body/Small/Bold in `src/lib/components/app/record-card/relation-section.svelte`.
+- Updated activity item typography in `src/lib/components/app/record-card/relation-list-cards.svelte`:
+  - title: Body/Default/Bold (`type-body-bold`)
+  - description: Body/Small/Regular (`type-sm`)
+  - description truncation: `line-clamp-1`
+
+### UI Update: Upcoming Session Card Shows Activities
+
+- Updated `src/lib/components/app/home/upcoming-session-card.svelte` to remove the attendees section and render up to 3 activities instead.
+- Reused the same activity-card renderer from club sessions list by wiring in `RelationListCards`.
+- Updated dashboard usage in `src/routes/(app)/club/[clubId]/+page.svelte` to match the new upcoming card props.
+- Reduced activity title hierarchy in the shared renderer (`src/lib/components/app/record-card/relation-list-cards.svelte`) from `type-h5-bold` to `type-sm-bold` so titles read as secondary content.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UX Fix: Attendee Toggle Cursor + Per-Row Pending State
+
+- Updated attendee cards in `src/lib/components/app/sessions/session-detail-view.svelte` to keep `cursor: pointer` on actionable rows and `cursor-not-allowed` only on locked rows.
+- Replaced global attendance mutation `pending` usage with per-user pending tracking so toggling one attendee no longer briefly disables every other attendee checkbox.
+- Added optimistic attendance state per user so the checkbox updates immediately, then reconciles with server data (pattern aligned with inline multi-select optimistic behavior).
+- Removed temporary per-row read-only behavior during save; rapid repeated taps now remain interactive and serialize as latest-intent writes per attendee.
+- Kept accessibility behavior intact with full-card label toggling plus explicit checkbox `aria-label` text.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)

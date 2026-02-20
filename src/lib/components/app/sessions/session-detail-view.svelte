@@ -161,10 +161,40 @@
 		}
 	};
 
-	let attendanceSet = $derived(new Set((attendanceResponse.data ?? []).map((entry) => entry.userId)));
+	let serverAttendanceSet = $derived(new Set((attendanceResponse.data ?? []).map((entry) => entry.userId)));
+	let optimisticAttendanceByUser = $state<Record<string, boolean>>({});
+	let attendancePendingUserIds = $state<Set<string>>(new Set());
 	let buildingBlockOptions = $derived(
 		(blocksResponse.data ?? []).map((block) => ({ id: String(block._id), name: block.name }))
 	);
+
+	const isUserAttending = (userId: string) => {
+		const optimisticValue = optimisticAttendanceByUser[userId];
+		return optimisticValue === undefined ? serverAttendanceSet.has(userId) : optimisticValue;
+	};
+
+	const isAttendancePending = (userId: string) => attendancePendingUserIds.has(userId);
+
+	const clearOptimisticAttendance = (userId: string) => {
+		const nextOptimistic = { ...optimisticAttendanceByUser };
+		delete nextOptimistic[userId];
+		optimisticAttendanceByUser = nextOptimistic;
+	};
+
+	$effect(() => {
+		const nextOptimistic: Record<string, boolean> = {};
+		let removedMatchedEntries = false;
+		for (const [userId, optimisticValue] of Object.entries(optimisticAttendanceByUser)) {
+			if (serverAttendanceSet.has(userId) === optimisticValue) {
+				removedMatchedEntries = true;
+				continue;
+			}
+			nextOptimistic[userId] = optimisticValue;
+		}
+		if (removedMatchedEntries) {
+			optimisticAttendanceByUser = nextOptimistic;
+		}
+	});
 
 	const saveInlineActivity = async (
 		activity: {
@@ -347,24 +377,46 @@
 		}
 	};
 
-	const setAttendance = async (userId: string, attending: boolean) => {
+	const flushAttendanceUpdate = async (userId: string) => {
 		if (!sessionIdTyped) return;
-		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
-		pending = true;
-		errorMessage = '';
+		if (isAttendancePending(userId)) return;
+		const requestedAttending = optimisticAttendanceByUser[userId];
+		if (requestedAttending === undefined) return;
+
+		const nextPendingUsers = new Set(attendancePendingUserIds);
+		nextPendingUsers.add(userId);
+		attendancePendingUserIds = nextPendingUsers;
 		try {
 			await convexClient.mutation(api.sessions.setAttendance, {
 				sessionId: sessionIdTyped,
 				userId,
-				attending
+				attending: requestedAttending
 			});
 			reportMutationSuccess();
 		} catch (error) {
 			reportMutationFailure(error);
+			if (optimisticAttendanceByUser[userId] === requestedAttending) {
+				clearOptimisticAttendance(userId);
+			}
 			errorMessage = error instanceof Error ? error.message : 'Failed to update attendance.';
 		} finally {
-			pending = false;
+			const remainingPendingUsers = new Set(attendancePendingUserIds);
+			remainingPendingUsers.delete(userId);
+			attendancePendingUserIds = remainingPendingUsers;
+
+			const latestAttending = optimisticAttendanceByUser[userId];
+			if (latestAttending !== undefined && latestAttending !== requestedAttending) {
+				void flushAttendanceUpdate(userId);
+			}
 		}
+	};
+
+	const setAttendance = (userId: string, attending: boolean) => {
+		if (!sessionIdTyped) return;
+		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
+		errorMessage = '';
+		optimisticAttendanceByUser = { ...optimisticAttendanceByUser, [userId]: attending };
+		void flushAttendanceUpdate(userId);
 	};
 
 	let sessionActionItems = $derived([
@@ -565,7 +617,28 @@
 					<p class="type-sm text-muted-foreground">No members found.</p>
 				{:else}
 					{#each membersResponse.data ?? [] as member (member.clubMemberId)}
-						<div class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
+						<div
+							class={`relative flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 ${
+								canManageAttendanceOnline
+									? 'cursor-pointer transition-colors hover:bg-accent/40'
+									: 'cursor-not-allowed'
+							}`}
+						>
+							<label
+								class={`absolute inset-0 rounded-xl ${
+									canManageAttendanceOnline
+										? 'cursor-pointer'
+										: 'cursor-not-allowed'
+								}`}
+								for={`attendance-${member.clubMemberId}`}
+							>
+								<span class="sr-only">
+									Toggle attendance for {[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+										member.username ||
+										member.email ||
+										'Member'}
+								</span>
+							</label>
 							<div class="flex flex-col gap-1">
 								<p class="type-body-medium">
 									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() || member.username || member.email || 'Member'}
@@ -574,12 +647,18 @@
 									<p class="type-sm text-muted-foreground">{member.email}</p>
 								{/if}
 							</div>
-							<div class="flex items-center gap-2">
-								<Label for={`attendance-${member.clubMemberId}`}>Attending</Label>
+							<div class="relative z-10 flex items-center">
 								<Checkbox
 									id={`attendance-${member.clubMemberId}`}
-									checked={attendanceSet.has(member.userId)}
-									disabled={!canManageAttendanceOnline || pending}
+									class="size-6 rounded-md [&>[data-slot=checkbox-indicator]>svg]:size-4"
+									checked={isUserAttending(member.userId)}
+									aria-label={`Mark ${
+										[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+										member.username ||
+										member.email ||
+										'Member'
+									} as attending`}
+									disabled={!canManageAttendanceOnline}
 									onCheckedChange={(checked) => {
 										if (!canManageAttendanceOnline) return;
 										void setAttendance(member.userId, checked === true);
@@ -635,26 +714,24 @@
 						<Label for="activityContent">Description</Label>
 						<Textarea id="activityContent" bind:value={activityContent} rows={4} />
 					</div>
-					<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-						<div class="flex flex-col gap-2">
-							<Label for="activityMinutes">Minutes</Label>
-							<Input id="activityMinutes" bind:value={activityMinutes} type="number" min={1} />
-						</div>
-						<div class="flex flex-col gap-2">
-							<Label>Building blocks</Label>
-							<ToggleGroup.Root
-								type="multiple"
-								bind:value={activityBlockIds}
-								variant="outline"
-								size="sm"
-							>
-								{#each blocksResponse.data ?? [] as block (block._id)}
-									<ToggleGroup.Item value={block._id}>
-										{block.name}
-									</ToggleGroup.Item>
-								{/each}
-							</ToggleGroup.Root>
-						</div>
+					<div class="flex flex-col gap-2">
+						<Label for="activityMinutes">Minutes</Label>
+						<Input id="activityMinutes" bind:value={activityMinutes} type="number" min={1} />
+					</div>
+					<div class="flex flex-col gap-2">
+						<Label>Building blocks</Label>
+						<ToggleGroup.Root
+							type="multiple"
+							bind:value={activityBlockIds}
+							variant="outline"
+							size="sm"
+						>
+							{#each blocksResponse.data ?? [] as block (block._id)}
+								<ToggleGroup.Item value={block._id}>
+									{block.name}
+								</ToggleGroup.Item>
+							{/each}
+						</ToggleGroup.Root>
 					</div>
 				</div>
 				<Dialog.Footer>
