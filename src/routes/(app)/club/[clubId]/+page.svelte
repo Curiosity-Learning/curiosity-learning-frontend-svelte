@@ -3,9 +3,10 @@
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
 	import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban';
 	import UsersIcon from '@lucide/svelte/icons/users';
+	import { goto } from '$app/navigation';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { useQuery } from 'convex-svelte';
+	import { useConvexClient, useQuery } from 'convex-svelte';
 
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
@@ -15,9 +16,15 @@
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
 	import { routes } from '$lib/routes';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
+	import { Button } from '$lib/components/ui/button';
 	import { Card, CardContent } from '$lib/components/ui/card';
+	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import { FieldLabel } from '$lib/components/ui/field';
+	import { Textarea } from '$lib/components/ui/textarea';
 	import { page } from '$app/state';
 
+	const convexClient = useConvexClient();
 	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
@@ -28,6 +35,7 @@
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
+	let canCreateSession = $derived(clubPermissions.includes('session:create'));
 
 	let clubIdTyped = $derived((clubId ? (clubId as Id<'clubs'>) : null));
 
@@ -42,8 +50,61 @@
 	);
 
 	let nextSession = $derived((upcomingSessionsResponse.data ?? [])[0] ?? null);
+	let noUpcomingSessionDescription = $derived(
+		canCreateSession ? 'Plan your next meeting to keep your club moving.' : ''
+	);
 
 	let visibleProjects = $derived(projectsPreviewResponse.data ?? []);
+	let createSessionDialogOpen = $state(false);
+	let createSessionPending = $state(false);
+	let createSessionForm = $state({
+		startTime: null as number | null,
+		endTime: null as number | null,
+		description: ''
+	});
+
+	const buildDefaultSessionForm = () => {
+		const now = Date.now();
+		return {
+			startTime: now + 3_600_000,
+			endTime: now + 7_200_000,
+			description: ''
+		};
+	};
+
+	const openCreateSessionDialog = () => {
+		createSessionForm = buildDefaultSessionForm();
+		createSessionDialogOpen = true;
+	};
+
+	const createSession = async () => {
+		if (
+			!canCreateSession ||
+			!clubIdTyped ||
+			createSessionForm.startTime === null ||
+			createSessionForm.endTime === null
+		) {
+			return;
+		}
+
+		createSessionPending = true;
+		try {
+			const desc = createSessionForm.description.trim();
+			const session = await convexClient.mutation(api.sessions.create, {
+				clubId: clubIdTyped,
+				startTime: createSessionForm.startTime,
+				endTime: createSessionForm.endTime,
+				...(desc ? { description: desc } : {})
+			});
+			createSessionDialogOpen = false;
+			if (session?._id) {
+				await goto(routes.sessionDetail(session._id) + '/activities');
+			}
+		} catch {
+		} finally {
+			createSessionPending = false;
+		}
+	};
 
 	const initialsFor = (name: string) => {
 		const cleaned = name.trim();
@@ -63,13 +124,23 @@
 		</HomeSectionHeader>
 
 		{#if !clubId}
-			<HomeEmptyCard
-				title="No upcoming sessions"
-				description="Plan your next meeting to keep your club moving."
-				actionLabel="Plan a session"
-				href={`${clubPath}/sessions`}
-				Icon={CalendarIcon}
-			/>
+			{#if canCreateSession}
+				<HomeEmptyCard
+					title="No upcoming sessions"
+					description={noUpcomingSessionDescription}
+					Icon={CalendarIcon}
+				>
+					{#snippet action()}
+						<Button variant="outline" onclick={openCreateSessionDialog}>Plan a session</Button>
+					{/snippet}
+				</HomeEmptyCard>
+			{:else}
+				<HomeEmptyCard
+					title="No upcoming sessions"
+					description={noUpcomingSessionDescription}
+					Icon={CalendarIcon}
+				/>
+			{/if}
 		{:else if upcomingSessionsResponse.isLoading}
 			<HomeEmptyCard
 				title="Loading upcoming sessions"
@@ -79,19 +150,65 @@
 				Icon={CalendarIcon}
 			/>
 		{:else if !nextSession}
-			<HomeEmptyCard
-				title="No upcoming sessions"
-				description="Plan your next meeting to keep your club moving."
-				actionLabel="Plan a session"
-				href={`${clubPath}/sessions`}
-				Icon={CalendarIcon}
-			/>
+			{#if canCreateSession}
+				<HomeEmptyCard
+					title="No upcoming sessions"
+					description={noUpcomingSessionDescription}
+					Icon={CalendarIcon}
+				>
+					{#snippet action()}
+						<Button variant="outline" onclick={openCreateSessionDialog}>Plan a session</Button>
+					{/snippet}
+				</HomeEmptyCard>
+			{:else}
+				<HomeEmptyCard
+					title="No upcoming sessions"
+					description={noUpcomingSessionDescription}
+					Icon={CalendarIcon}
+				/>
+			{/if}
 		{:else}
 			<UpcomingSessionCard
 				session={nextSession}
 				{canReadMembers}
 				href={routes.sessionDetail(nextSession._id)}
 			/>
+		{/if}
+
+		{#if canCreateSession}
+			<Dialog.Root bind:open={createSessionDialogOpen}>
+				<Dialog.Content>
+					<Dialog.Header>
+						<Dialog.Title>Create session</Dialog.Title>
+						<Dialog.Description
+							>Use local date and time values for this club session.</Dialog.Description
+						>
+					</Dialog.Header>
+					<div class="flex flex-col gap-3">
+						<SessionDateTimeForm
+							bind:startTime={createSessionForm.startTime}
+							bind:endTime={createSessionForm.endTime}
+						/>
+						<div class="flex flex-col gap-2">
+							<FieldLabel for="sessionDescription">Description</FieldLabel>
+							<Textarea
+								id="sessionDescription"
+								bind:value={createSessionForm.description}
+								rows={3}
+							/>
+						</div>
+					</div>
+					<Dialog.Footer>
+						<Button variant="outline" onclick={() => (createSessionDialogOpen = false)}>Cancel</Button>
+						<Button
+							disabled={createSessionPending || !canCreateSession}
+							onclick={() => void createSession()}
+						>
+							{createSessionPending ? 'Creating...' : 'Open'}
+						</Button>
+					</Dialog.Footer>
+				</Dialog.Content>
+			</Dialog.Root>
 		{/if}
 	</section>
 

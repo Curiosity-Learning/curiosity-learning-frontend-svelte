@@ -338,7 +338,7 @@
 ### UX Update: Plan Session Opens In-Place on Club Home
 
 - Changed the club-home upcoming-session empty-state action to open the create-session dialog directly on `/club/[clubId]` instead of navigating to `/club/[clubId]/sessions`.
-- Users with `session:create` now get an in-place `Plan a session` button and can create a session without leaving club home.
+- The dialog submit action now matches the sessions page (`Open`) and navigates to the created session at `/session/[sessionId]/activities`.
 - Users without `session:create` still see `No upcoming sessions` but do not see the planning helper copy or CTA.
 
 ### Run: Type Check

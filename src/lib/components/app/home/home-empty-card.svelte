@@ -6,8 +6,8 @@
 
 	type Props = {
 		title: string;
-		description: string;
-		actionLabel: string;
+		description?: string;
+		actionLabel?: string;
 		href?: string;
 		Icon?: Component;
 		minHeightClass?: string;
@@ -17,7 +17,7 @@
 
 	let {
 		title,
-		description,
+		description = '',
 		actionLabel,
 		href,
 		Icon,
@@ -37,14 +37,16 @@
 
 		<div class="flex flex-col gap-1">
 			<CardTitle>{title}</CardTitle>
-			<CardDescription>{description}</CardDescription>
+			{#if description}
+				<CardDescription>{description}</CardDescription>
+			{/if}
 		</div>
 
 		{#if action}
 			<div class="flex items-center gap-2">
 				{@render action()}
 			</div>
-		{:else}
+		{:else if actionLabel}
 			<Button
 				href={href}
 				variant="outline"

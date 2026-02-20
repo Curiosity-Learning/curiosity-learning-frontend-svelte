@@ -37,12 +37,17 @@
 		clubIdTyped ? { clubId: clubIdTyped, upcomingOnly: false } : 'skip'
 	);
 
-	let createDialogOpen = $state(false);
-	let sessionForm = $state({
-		startTime: null as number | null,
-		endTime: null as number | null,
-		description: ''
-	});
+	const buildDefaultSessionForm = () => {
+		const now = Date.now();
+		return {
+			startTime: now + 3_600_000,
+			endTime: now + 7_200_000,
+			description: ''
+		};
+	};
+
+	let createDialogOpen = $state(page.url.searchParams.get('openCreateSession') === '1');
+	let sessionForm = $state(buildDefaultSessionForm());
 
 	let searchText = $state('');
 	let pending = $state(false);
@@ -66,17 +71,14 @@
 	);
 
 	const openCreateSession = () => {
-		const now = Date.now();
-		sessionForm = {
-			startTime: now + 3_600_000,
-			endTime: now + 7_200_000,
-			description: ''
-		};
+		sessionForm = buildDefaultSessionForm();
 		createDialogOpen = true;
 	};
 
 	const createSession = async () => {
-		if (!clubIdTyped || sessionForm.startTime === null || sessionForm.endTime === null) return;
+		if (!canCreate || !clubIdTyped || sessionForm.startTime === null || sessionForm.endTime === null) {
+			return;
+		}
 
 		pending = true;
 		errorMessage = '';
@@ -190,7 +192,7 @@
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
 				<Button
-					disabled={pending}
+					disabled={pending || !canCreate}
 					onclick={() => void createSession()}>{pending ? 'Creating...' : 'Open'}</Button
 				>
 			</Dialog.Footer>
