@@ -15,6 +15,7 @@
 - `/auth/*`: sign in/up/reset
 - `/onboarding/*`: get started, join club, start club
 - `/app/*`: authenticated app area
+- Club-scoped routes are canonical under `/club/[clubId]/*` and should be built via `$lib/routes` helpers (`routes.clubHome`, `routes.clubSessions`, etc.) rather than ad-hoc string paths.
 
 ### Layout Groups
 

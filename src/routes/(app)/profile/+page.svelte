@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { authClient } from '$lib/auth-client';
+	import { routes } from '$lib/routes';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import {
@@ -33,7 +34,9 @@
 		(profileResponse.data?.username ?? profileResponse.data?.firstName ?? 'Me').slice(0, 2)
 	);
 	const clubHomeHref = $derived(
-		activeContext.data?.activeClubId ? `/${activeContext.data.activeClubId}` : '/onboarding/get-started'
+		activeContext.data?.activeClubId
+			? routes.clubHome(activeContext.data.activeClubId)
+			: routes.onboardingGetStarted
 	);
 
 	const signOut = async () => {

@@ -13,6 +13,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { authClient } from '$lib/auth-client';
+	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 
@@ -43,7 +44,7 @@
 				meetingDay: meetingDay.trim() || undefined,
 				meetingTime: meetingTime.trim() || undefined
 			});
-			await goto(result?.clubId ? `/${result.clubId}` : '/');
+			await goto(result?.clubId ? routes.clubHome(result.clubId) : '/');
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to create club.';
 		} finally {

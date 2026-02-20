@@ -221,7 +221,7 @@
 
 	let headerTitle = $derived(session ? formatHeaderLine(session.startTime) : 'Session');
 	let fallbackHref = $derived(
-		session ? `/${session.clubId}/sessions` : '/onboarding/get-started'
+		session ? routes.clubSessions(session.clubId) : routes.onboardingGetStarted
 	);
 
 	const openSessionEditor = () => {
@@ -267,7 +267,7 @@
 		try {
 			await convexClient.mutation(api.sessions.remove, { sessionId: session._id });
 			reportMutationSuccess();
-			await goto(`/${session.clubId}/sessions`);
+			await goto(routes.clubSessions(session.clubId));
 		} catch (error) {
 			reportMutationFailure(error);
 			errorMessage = error instanceof Error ? error.message : 'Failed to delete session.';

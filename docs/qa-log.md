@@ -269,3 +269,22 @@
 ### Run: Type Check
 
 - `npm run check` ✅ (0 errors, same existing toggle-group warnings)
+
+## 2026-02-20
+
+### Bug Fix: Club Session Route Canonicalization
+
+- Fixed session detail back/fallback navigation to use canonical club session routes, avoiding intermittent 404s on paths like `/:clubId/sessions`.
+- Updated `src/lib/components/app/sessions/session-detail-view.svelte` to use `routes.clubSessions(session.clubId)` for:
+  - header back fallback target,
+  - post-delete redirect target.
+- Fixed onboarding success redirects that were also building non-canonical club URLs:
+  - `src/routes/onboarding/start-club/+page.svelte`
+  - `src/routes/onboarding/join-club/[code]/+page.svelte`
+  - both now use `routes.clubHome(result.clubId)`.
+- Fixed profile “Club home” shortcut to use canonical club routing:
+  - `src/routes/(app)/profile/+page.svelte` now builds the shortcut via `routes.clubHome(activeContext.data.activeClubId)` with `routes.onboardingGetStarted` fallback.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, same existing toggle-group warnings)

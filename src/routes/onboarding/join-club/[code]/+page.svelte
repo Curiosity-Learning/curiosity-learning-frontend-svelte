@@ -14,6 +14,7 @@
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
 	import { authClient } from '$lib/auth-client';
+	import { routes } from '$lib/routes';
 
 	let { data }: PageProps = $props();
 
@@ -34,7 +35,7 @@
 		errorMessage = '';
 		try {
 			const result = await convexClient.mutation(api.clubs.joinClubWithCode, { code: data.code });
-			await goto(result?.clubId ? `/${result.clubId}` : '/');
+			await goto(result?.clubId ? routes.clubHome(result.clubId) : '/');
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Unable to join this club.';
 		} finally {
