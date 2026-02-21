@@ -4,11 +4,13 @@
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { createSvelteAuthClient } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { authClient } from '$lib/auth-client';
+	import type { LayoutData } from './$types';
 
-	let { children } = $props();
+	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
 
 	createSvelteAuthClient({
-		authClient
+		authClient,
+		getServerState: () => data.authState
 	});
 </script>
 

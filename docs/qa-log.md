@@ -671,3 +671,40 @@
 ### Run: Type Check
 
 - `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-02-21
+
+### Bug Fix: Global Convex Auth Readiness Gate (Feed + App Layout)
+
+- Added root auth-state hydration for the Convex Better Auth adapter:
+  - `src/routes/+layout.server.ts` now returns `authState` via `getAuthState(createAuth, cookies)`.
+  - `src/routes/+layout.svelte` now passes `getServerState` into `createSvelteAuthClient`.
+- Added global protected-query gating at app layout level:
+  - `src/routes/(app)/+layout.svelte` now uses `useAuth()` and skips protected Convex queries until `!auth.isLoading && auth.isAuthenticated`.
+  - App children are now rendered only after auth readiness, preventing early protected child query execution.
+- Removed redundant feed-local auth bootstrap patch:
+  - `src/routes/(app)/feed/(tabbed)/my-clubs/+page.svelte` no longer calls `api.auth.getCurrentUser` as a preflight gate before `api.updates.listForViewer`.
+- Root redirect page now follows the same global auth readiness source:
+  - `src/routes/+page.svelte` switched from `authClient.useSession()` gate to `useAuth()`.
+- Decision documented in [ADR-009](adr/009-global-convex-auth-readiness-gate.md).
+
+### Run: Validation
+
+- `npm run check` ✅
+- `npm run test:quick` ✅
+- `npm run lint` ⚠️ blocked by existing repo-wide formatting drift (`prettier --check`) unrelated to this fix.
+- `npm run lint:fast` ⚠️ blocked by existing unrelated ESLint errors in other files (for example `src/convex/chat.ts`, `src/convex/sessions.ts`, `src/lib/components/app/sessions/session-detail-view.svelte`).
+- `npm run test:e2e` ⚠️ blocked by existing preview build/runtime dependency mismatch:
+  - `SyntaxError: The requested module '@better-auth/core/utils' does not provide an export named 'filterOutputFields'`
+- `E2E_BASE_URL=http://127.0.0.1:4173 npm run test:e2e:local` ⚠️ one existing test assumption mismatch (`/app/home` URL expectation) unrelated to feed auth readiness.
+
+### Manual QA
+
+- Unauthenticated navigation to `/feed/my-clubs` redirects to `/auth/sign-in?next=%2Ffeed%2Fmy-clubs`.
+- During this unauthenticated flow, Convex logs show auth endpoint traffic but no `updates:listForViewer` unauthenticated exception from the feed path.
+
+### Bug Fix: Feed Update Card Null Author Crash
+
+- Fixed a runtime crash in `src/lib/components/app/feed/update-card.svelte` where `authorName` could be null/undefined for legacy update rows, causing `.split()` to throw.
+- `UpdateCard` now accepts `authorName?: string | null` and derives a safe fallback display name (`Unknown`) for avatar initials/name rendering.
+- Verified with manual login flow to `/feed/my-clubs` that the page now exits the `Loading updates...` state and renders cards instead of crashing.

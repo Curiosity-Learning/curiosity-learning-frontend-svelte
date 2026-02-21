@@ -2,13 +2,14 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
-	import { authClient } from '$lib/auth-client';
+	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { useQuery } from 'convex-svelte';
 
-	const session = authClient.useSession();
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($session.data ? {} : 'skip'));
+	const auth = useAuth();
+	let isAuthReady = $derived(!auth.isLoading && auth.isAuthenticated);
+	const clubsResponse = useQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
 	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, () =>
-		$session.data ? {} : 'skip'
+		isAuthReady ? {} : 'skip'
 	);
 
 	const pickClubId = () => {
@@ -34,11 +35,11 @@
 	$effect(() => {
 		if (redirected) return;
 
-		// Wait for Better Auth to settle before deciding where to go.
-		if ($session.isPending) return;
+		// Wait for auth state to settle before deciding where to go.
+		if (auth.isLoading) return;
 
 		// Not signed in: send to onboarding (fast, no server work).
-		if (!$session.data) {
+		if (!auth.isAuthenticated) {
 			redirected = true;
 			void goto('/onboarding/get-started');
 			return;

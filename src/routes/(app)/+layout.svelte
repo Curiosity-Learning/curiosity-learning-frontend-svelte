@@ -7,6 +7,7 @@
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import {
 		PAGE_HEADER_CTX,
 		type HeaderActionsOverride,
@@ -19,13 +20,19 @@
 
 	let { children } = $props();
 
+	const auth = useAuth();
+	let isAuthReady = $derived(!auth.isLoading && auth.isAuthenticated);
+
 	const convexClient = useConvexClient();
-	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
-	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, {});
+	const clubsResponse = useQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
+	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, () =>
+		isAuthReady ? {} : 'skip'
+	);
 	let clubs = $derived(clubsResponse.data ?? []);
 
 	$effect(() => {
 		if (!browser) return;
+		if (!isAuthReady) return;
 		if (clubsResponse.isLoading) return;
 		// Run seeding in the background; it is idempotent but can be slow.
 		const key = 'cl_bootstrapped_v1';
@@ -138,19 +145,30 @@
 	headerSearch={searchOverride ?? undefined}
 	banner={bannerOverride ?? undefined}
 >
-	{#if clubsResponse.error || activeContextResponse.error}
-		<Alert variant="destructive">
-			<AlertTitle>Unable to load account context</AlertTitle>
-			<AlertDescription>Please refresh the page. If this keeps happening, sign out and sign in again.</AlertDescription>
-		</Alert>
-	{/if}
-	{#if activeNav === 'club' && !clubIdForNav && !clubsResponse.isLoading}
+	{#if auth.isLoading}
+		<div class="px-4 py-6 text-sm text-muted-foreground">Loading account...</div>
+	{:else if !auth.isAuthenticated}
 		<Alert>
-			<AlertTitle>No active club</AlertTitle>
-			<AlertDescription
-				>Create a new club or join one with an invite code to unlock sessions, projects, and members.</AlertDescription
-			>
+			<AlertTitle>Session expired</AlertTitle>
+			<AlertDescription>Sign in again to continue.</AlertDescription>
 		</Alert>
+	{:else}
+		{#if clubsResponse.error || activeContextResponse.error}
+			<Alert variant="destructive">
+				<AlertTitle>Unable to load account context</AlertTitle>
+				<AlertDescription
+					>Please refresh the page. If this keeps happening, sign out and sign in again.</AlertDescription
+				>
+			</Alert>
+		{/if}
+		{#if activeNav === 'club' && !clubIdForNav && !clubsResponse.isLoading}
+			<Alert>
+				<AlertTitle>No active club</AlertTitle>
+				<AlertDescription
+					>Create a new club or join one with an invite code to unlock sessions, projects, and members.</AlertDescription
+				>
+			</Alert>
+		{/if}
+		{@render children()}
 	{/if}
-	{@render children()}
 </AppShell>

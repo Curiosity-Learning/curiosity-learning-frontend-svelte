@@ -5,6 +5,49 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { hasPermission, requireIdentity } from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
+type AuthorSummary = {
+	name: string;
+	imageUrl: string | null;
+};
+
+const resolveAuthorSummary = async (
+	ctx: QueryCtx,
+	userId: string,
+	cache: Map<string, AuthorSummary>
+) => {
+	if (!userId) {
+		return {
+			name: 'Unknown',
+			imageUrl: null
+		};
+	}
+
+	const cached = cache.get(userId);
+	if (cached) return cached;
+
+	let profile = null;
+	try {
+		profile = await ctx.db
+			.query('profiles')
+			.withIndex('by_user_id', (q) => q.eq('userId', userId))
+			.first();
+	} catch {
+		// Preserve feed rendering even if legacy profile data is malformed.
+		profile = null;
+	}
+	const name =
+		[profile?.firstName ?? '', profile?.lastName ?? ''].join(' ').trim() ||
+		profile?.username ||
+		profile?.email ||
+		userId;
+	const summary = {
+		name,
+		imageUrl: profile?.coverPhotoUrl ?? null
+	};
+
+	cache.set(userId, summary);
+	return summary;
+};
 
 const canManageProject = async (ctx: Ctx, projectId: Id<'projects'>, userId: string) => {
 	const links = await ctx.db
@@ -117,6 +160,7 @@ export const listForViewer = query({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const limit = args.limit ?? 50;
+		const authorCache = new Map<string, AuthorSummary>();
 
 		const memberships = await ctx.db
 			.query('clubMembers')
@@ -162,6 +206,10 @@ export const listForViewer = query({
 			clubName: string | null;
 			projectId: Id<'projects'> | null;
 			projectName: string | null;
+			questionId: Id<'questions'> | null;
+			questionContent: string | null;
+			authorName: string;
+			authorImageUrl: string | null;
 			content: string;
 			createdAt: number;
 			createdByUserId: string;
@@ -177,14 +225,37 @@ export const listForViewer = query({
 
 			const club = await ctx.db.get(row.clubId);
 			const projectId = row.projectId ?? update.projectId ?? null;
-			const project = projectId ? await ctx.db.get(projectId) : null;
+			let projectName: string | null = null;
+			if (projectId) {
+				try {
+					const project = await ctx.db.get(projectId);
+					projectName = project?.name ?? null;
+				} catch {
+					projectName = null;
+				}
+			}
+			const questionId = update.questionId ?? null;
+			let questionContent: string | null = null;
+			if (questionId) {
+				try {
+					const question = await ctx.db.get(questionId);
+					questionContent = question?.content ?? null;
+				} catch {
+					questionContent = null;
+				}
+			}
+			const author = await resolveAuthorSummary(ctx, update.createdByUserId, authorCache);
 
 			items.push({
 				updateId: update._id,
 				clubId: row.clubId,
 				clubName: club?.name ?? null,
 				projectId,
-				projectName: project?.name ?? null,
+				projectName,
+				questionId,
+				questionContent,
+				authorName: author.name,
+				authorImageUrl: author.imageUrl,
 				content: update.content,
 				createdAt: update.createdAt,
 				createdByUserId: update.createdByUserId

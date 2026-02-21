@@ -61,6 +61,7 @@ feed/
 - `src/convex/*.ts` modules expose queries/mutations/actions.
 - Client uses generated `api` with `convex-svelte` and authenticated token from hooks.
 - Auth in `hooks.server.ts` + Better Auth cookie/token integration.
+- Global auth readiness gate: root layout hydrates adapter server auth state and app layout gates protected queries/children via `useAuth()` readiness. See [ADR-009](adr/009-global-convex-auth-readiness-gate.md).
 - Sensitive values only from server env.
 
 ## Forms
