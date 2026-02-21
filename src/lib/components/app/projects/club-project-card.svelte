@@ -93,12 +93,12 @@
 
 {#if href}
 	<a {href} class="block h-full" data-sveltekit-preload-code="hover">
-		<Card class={cn('h-full w-full gap-0 py-0 shadow-none', className)}>
+		<Card class={cn('h-full w-full gap-0 py-0', className)}>
 			{@render cardContent()}
 		</Card>
 	</a>
 {:else}
-	<Card class={cn('h-full w-full gap-0 py-0 shadow-none', className)}>
+	<Card class={cn('h-full w-full gap-0 py-0', className)}>
 		{@render cardContent()}
 	</Card>
 {/if}

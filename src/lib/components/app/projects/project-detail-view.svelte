@@ -312,7 +312,7 @@
 				{:else}
 					<div class="flex flex-col gap-3">
 						{#each [...(updatesResponse.data ?? [])].reverse() as update (update._id)}
-							<Card class="gap-0 py-0 shadow-none">
+							<Card class="gap-0 py-0">
 								<CardContent class="flex flex-col gap-2 p-4">
 									<p class="type-body whitespace-pre-wrap">{update.content}</p>
 									<p class="type-sm text-muted-foreground">

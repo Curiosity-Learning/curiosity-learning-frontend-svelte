@@ -754,3 +754,16 @@
 ### Run: Type Check
 
 - `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UI Consistency: Card Shadow Baseline
+
+- Removed default `shadow-sm` from shared card primitive:
+  - `src/lib/components/ui/card/card.svelte`
+- Removed redundant per-component `shadow-none` overrides now that the baseline is flat:
+  - `src/lib/components/app/projects/club-project-card.svelte`
+  - `src/lib/components/app/projects/project-detail-view.svelte`
+- Result: all cards now share a no-shadow default unless a surface explicitly opts into elevation.
+
+### Run: Validation
+
+- Not run (style-only class changes; no runtime/type logic changes).
