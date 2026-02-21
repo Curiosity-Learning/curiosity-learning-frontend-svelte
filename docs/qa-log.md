@@ -721,3 +721,36 @@
 
 - Updated `README.md` with an auth runtime note clarifying that Better Auth in this project is a library integration (no separate Better Auth account required).
 - Added explicit guidance that `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` should also be set in Convex deployment env (matching local `.env.local` values) to keep SvelteKit and Convex auth runtime configuration aligned.
+
+### Route Boundaries: Server-side Redirect/Gating
+
+- Replaced root client-only redirect shell with server-side route resolution:
+  - removed `src/routes/+page.svelte`
+  - added `src/routes/+page.server.ts` to redirect `/` to `/onboarding/get-started` or `/club/[clubId]` based on server-side auth + club context.
+- Kept auth/onboarding submit flows as SPA/client mutations per established architecture decision:
+  - ADR-002 explicitly standardizes `SPA: true` with Convex-backed form handling rather than SvelteKit form actions.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Rollback: Club Layout Server Guard
+
+- Reverted the club membership guard from server load back to client layout gating after observing perceptible route/back latency from repeated `__data.json` fetches on club navigations.
+- Removed `src/routes/(app)/club/[clubId]/+layout.server.ts`.
+- Restored client query-based guard in `src/routes/(app)/club/[clubId]/+layout.svelte`.
+- Kept root server-side redirect (`src/routes/+page.server.ts`) in place.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Rollback: Root Server Redirect
+
+- Reverted root routing from server-side redirect back to the prior client-side redirect page to restore immediate in-app navigation responsiveness and `localStorage` remembered-club behavior.
+- Removed `src/routes/+page.server.ts`.
+- Restored `src/routes/+page.svelte`.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing toggle-group warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
