@@ -10,6 +10,13 @@ Production migration target for `/Users/ronberlinski/Documents/Curosity-Learning
 - Better Auth (`@convex-dev/better-auth`, `@mmailaender/convex-better-auth-svelte`)
 - Vitest + Playwright
 
+## Auth Runtime Notes
+
+- No Better Auth vendor account is required for this project.
+- Better Auth runs as a library in this codebase (SvelteKit + Convex).
+- User/session data is stored via the Convex Better Auth adapter.
+- Resend is the external provider used for verification/reset email delivery.
+
 ## App Areas
 
 - `/auth/*`: sign in, sign up, reset password
@@ -25,14 +32,28 @@ Production migration target for `/Users/ronberlinski/Documents/Curosity-Learning
 npm install
 ```
 
-2. Ensure env values are set:
+2. Set local app env values (copy `.env.example` to `.env.local`):
 
+- `CONVEX_DEPLOYMENT` (for local Convex dev/codegen)
 - `PUBLIC_CONVEX_URL`
 - `PUBLIC_CONVEX_SITE_URL`
 - `BETTER_AUTH_SECRET` (non-default, high entropy)
-- `CONVEX_DEPLOYMENT` (for local Convex dev/codegen)
+- `BETTER_AUTH_URL` (typically `http://localhost:5173`)
 
-3. Start backend + frontend:
+3. Set Convex deployment env values (server-side runtime):
+
+- `BETTER_AUTH_SECRET` (match local value)
+- `BETTER_AUTH_URL` (match local value)
+- `RESEND_API_KEY`
+- `RESEND_FROM` (optional override; default exists in code)
+
+```sh
+npx convex env set BETTER_AUTH_SECRET <same-secret-as-env-local>
+npx convex env set BETTER_AUTH_URL http://localhost:5173
+npx convex env set RESEND_API_KEY <key>
+npx convex env set RESEND_FROM "Curiosity Learning <your-verified-from@domain.com>"
+```
+4. Start backend + frontend:
 
 ```sh
 npm run dev:backend

@@ -708,3 +708,16 @@
 - Fixed a runtime crash in `src/lib/components/app/feed/update-card.svelte` where `authorName` could be null/undefined for legacy update rows, causing `.split()` to throw.
 - `UpdateCard` now accepts `authorName?: string | null` and derives a safe fallback display name (`Unknown`) for avatar initials/name rendering.
 - Verified with manual login flow to `/feed/my-clubs` that the page now exits the `Loading updates...` state and renders cards instead of crashing.
+
+### Docs: Local Env vs Convex Env Split
+
+- Clarified environment-variable ownership to prevent confusion between local `.env` files and Convex deployment env.
+- Updated `.env.example` so it now documents only local app/CLI values plus explicit notes that `RESEND_API_KEY` and `RESEND_FROM` should be set with `npx convex env set ...`.
+- Updated `README.md` local setup to separate:
+  - local `.env.local` values (`CONVEX_DEPLOYMENT`, Convex public URLs, Better Auth local values),
+  - Convex deployment values (`RESEND_API_KEY`, `RESEND_FROM`).
+
+### Docs: Better Auth Ownership Clarification
+
+- Updated `README.md` with an auth runtime note clarifying that Better Auth in this project is a library integration (no separate Better Auth account required).
+- Added explicit guidance that `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` should also be set in Convex deployment env (matching local `.env.local` values) to keep SvelteKit and Convex auth runtime configuration aligned.
