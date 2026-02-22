@@ -61,6 +61,7 @@ feed/
 - `src/convex/*.ts` modules expose queries/mutations/actions.
 - Client uses generated `api` with `convex-svelte` and authenticated token from hooks.
 - Client query convention: import `useStableQuery` from `src/lib/convex/use-stable-query.svelte.ts` instead of `useQuery` directly. Default mode is stale-first (`keepPreviousData: true`) for content continuity during route and param transitions. Pass `{ mode: 'gate' }` for auth/permission gates that should not reuse stale results. Remount cache is opt-in per query via `{ cache: 'memory' }` (default is `'off'`) so only non-sensitive content queries keep last successful data across remounts.
+- Club projects tabs (`/club/[clubId]/projects/current` and `/club/[clubId]/projects/completed`) opt into remount caching on `api.projects.listByClub` in `src/lib/components/app/projects/club-projects-view.svelte` to keep list content visible on back-navigation while live data refreshes.
 - Auth in `hooks.server.ts` + Better Auth cookie/token integration.
 - Global auth readiness gate: root layout hydrates adapter server auth state and app layout gates protected queries/children via `useAuth()` readiness. See [ADR-009](adr/009-global-convex-auth-readiness-gate.md).
 - Sensitive values only from server env.

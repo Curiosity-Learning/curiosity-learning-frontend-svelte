@@ -40,7 +40,8 @@
 	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 
 	const projectsResponse = useStableQuery(api.projects.listByClub, () =>
-		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
+		clubIdTyped ? { clubId: clubIdTyped } : 'skip',
+		{ cache: 'memory' }
 	);
 
 	let errorMessage = $state('');
