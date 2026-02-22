@@ -15,11 +15,11 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { api } from '$convex/_generated/api';
-	import { useQuery } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
-	const profileResponse = useQuery(api.profiles.getMe, {});
-	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
-	const activeContext = useQuery(api.clubs.getActiveClubContext, {});
+	const profileResponse = useStableQuery(api.profiles.getMe, {});
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
+	const activeContext = useStableQuery(api.clubs.getActiveClubContext, {});
 
 	let activeClubItem = $derived(
 		(clubsResponse.data ?? []).find((club) => club.clubId === activeContext.data?.activeClubId) ??
@@ -27,9 +27,14 @@
 	);
 
 	const fullName = $derived(
-		[profileResponse.data?.firstName, profileResponse.data?.lastName].filter(Boolean).join(' ').trim()
+		[profileResponse.data?.firstName, profileResponse.data?.lastName]
+			.filter(Boolean)
+			.join(' ')
+			.trim()
 	);
-	const handle = $derived(profileResponse.data?.username ? `@${profileResponse.data.username}` : '');
+	const handle = $derived(
+		profileResponse.data?.username ? `@${profileResponse.data.username}` : ''
+	);
 	const fallback = $derived(
 		(profileResponse.data?.username ?? profileResponse.data?.firstName ?? 'Me').slice(0, 2)
 	);
@@ -52,29 +57,29 @@
 			<CardDescription>Manage your account and club context.</CardDescription>
 		</CardHeader>
 		<CardContent class="flex flex-col gap-4">
-				<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-					<div class="flex items-center gap-4">
-						<Avatar class="size-14">
-							<AvatarImage src={profileResponse.data?.coverPhotoUrl ?? undefined} alt="Profile" />
-							<AvatarFallback>{fallback.toUpperCase()}</AvatarFallback>
-						</Avatar>
-						<div class="flex flex-col gap-1">
-							<p class="text-lg font-semibold">{fullName || 'Your account'}</p>
-							<div class="flex flex-wrap items-center gap-2">
-								{#if handle}
-									<Badge variant="outline">{handle}</Badge>
-								{/if}
-								{#if profileResponse.data?.email}
-									<Badge variant="secondary">{profileResponse.data.email}</Badge>
-								{/if}
-								{#if profileResponse.data?.isVerified}
-									<Badge>Verified</Badge>
-								{:else}
-									<Badge variant="destructive">Not verified</Badge>
-								{/if}
-							</div>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="flex items-center gap-4">
+					<Avatar class="size-14">
+						<AvatarImage src={profileResponse.data?.coverPhotoUrl ?? undefined} alt="Profile" />
+						<AvatarFallback>{fallback.toUpperCase()}</AvatarFallback>
+					</Avatar>
+					<div class="flex flex-col gap-1">
+						<p class="text-lg font-semibold">{fullName || 'Your account'}</p>
+						<div class="flex flex-wrap items-center gap-2">
+							{#if handle}
+								<Badge variant="outline">{handle}</Badge>
+							{/if}
+							{#if profileResponse.data?.email}
+								<Badge variant="secondary">{profileResponse.data.email}</Badge>
+							{/if}
+							{#if profileResponse.data?.isVerified}
+								<Badge>Verified</Badge>
+							{:else}
+								<Badge variant="destructive">Not verified</Badge>
+							{/if}
 						</div>
 					</div>
+				</div>
 
 				<div class="flex flex-wrap gap-2">
 					<Button href="/settings" variant="outline">Settings</Button>

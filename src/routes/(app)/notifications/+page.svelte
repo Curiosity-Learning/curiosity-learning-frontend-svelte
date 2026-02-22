@@ -13,11 +13,12 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { formatDateTime } from '$lib/domain/date';
 	import { authClient } from '$lib/auth-client';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	const convexClient = useConvexClient();
 	const session = authClient.useSession();
-	const notifications = useQuery(api.notifications.list, () => ($session.data ? {} : 'skip'));
+	const notifications = useStableQuery(api.notifications.list, () => ($session.data ? {} : 'skip'));
 
 	let pending = $state(false);
 	let errorMessage = $state('');

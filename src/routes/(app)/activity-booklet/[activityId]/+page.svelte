@@ -10,7 +10,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import PlusIcon from '@lucide/svelte/icons/plus';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	const convexClient = useConvexClient();
 
@@ -20,11 +21,9 @@
 	let activityIdTyped = $derived(
 		activityIdParam ? (activityIdParam as Id<'bookletActivities'>) : null
 	);
-	let sessionId = $derived(
-		(page.url.searchParams.get('session') as Id<'sessions'> | null) ?? null
-	);
+	let sessionId = $derived((page.url.searchParams.get('session') as Id<'sessions'> | null) ?? null);
 
-	const activityResponse = useQuery(api.booklet.getActivity, () =>
+	const activityResponse = useStableQuery(api.booklet.getActivity, () =>
 		activityIdTyped ? { activityId: activityIdTyped } : 'skip'
 	);
 	let activity = $derived(activityResponse.data ?? null);
@@ -55,7 +54,7 @@
 	};
 </script>
 
-<PageHeaderBackButton fallbackHref={fallbackHref} />
+<PageHeaderBackButton {fallbackHref} />
 <PageHeaderTitle title={activity?.name ?? 'Activity'} />
 {#if !activityIdTyped}
 	<Alert variant="destructive">
@@ -79,7 +78,7 @@
 		{/if}
 
 		{#if activity.content}
-			<p class="type-lead text-muted-foreground whitespace-pre-wrap">{activity.content}</p>
+			<p class="type-lead whitespace-pre-wrap text-muted-foreground">{activity.content}</p>
 		{:else}
 			<p class="text-sm text-muted-foreground">No description available.</p>
 		{/if}

@@ -31,7 +31,8 @@
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
 	import { fromStore } from 'svelte/store';
 
@@ -43,17 +44,21 @@
 
 	const convexClient = useConvexClient();
 
-	let sessionIdParam = $derived((page.params as Record<string, string | undefined>).sessionId ?? null);
+	let sessionIdParam = $derived(
+		(page.params as Record<string, string | undefined>).sessionId ?? null
+	);
 	let sessionIdTyped = $derived(sessionIdParam ? (sessionIdParam as Id<'sessions'>) : null);
 
-	const sessionResponse = useQuery(api.sessions.getById, () =>
+	const sessionResponse = useStableQuery(api.sessions.getById, () =>
 		sessionIdTyped ? { sessionId: sessionIdTyped } : 'skip'
 	);
 	let session = $derived(sessionResponse.data ?? null);
 
-	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 	let clubItem = $derived(
-		session ? (clubsResponse.data ?? []).find((club) => club.clubId === session.clubId) ?? null : null
+		session
+			? ((clubsResponse.data ?? []).find((club) => club.clubId === session.clubId) ?? null)
+			: null
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canUpdateSession = $derived(clubPermissions.includes('session:update'));
@@ -77,22 +82,22 @@
 	let canDeleteActivityOnline = $derived(canDeleteActivity && canMutateOnline);
 	let canManageAttendanceOnline = $derived(canManageAttendance && canMutateOnline);
 
-	const activitiesResponse = useQuery(api.sessions.listActivities, () =>
+	const activitiesResponse = useStableQuery(api.sessions.listActivities, () =>
 		sessionIdTyped && view === 'activities' ? { sessionId: sessionIdTyped } : 'skip'
 	);
-	const blocksResponse = useQuery(api.sessions.listBuildingBlocks, () =>
+	const blocksResponse = useStableQuery(api.sessions.listBuildingBlocks, () =>
 		view === 'activities' ? {} : 'skip'
 	);
-	const attendanceResponse = useQuery(api.sessions.listAttendance, () =>
+	const attendanceResponse = useStableQuery(api.sessions.listAttendance, () =>
 		sessionIdTyped && canReadAttendance && view === 'attendees'
 			? { sessionId: sessionIdTyped }
 			: 'skip'
 	);
-	const membersResponse = useQuery(api.clubs.getMembers, () =>
+	const membersResponse = useStableQuery(api.clubs.getMembers, () =>
 		session && canReadMembers && view === 'attendees' ? { clubId: session.clubId } : 'skip'
 	);
 
-	const sessionCardDataResponse = useQuery(api.sessions.getSessionCardData, () =>
+	const sessionCardDataResponse = useStableQuery(api.sessions.getSessionCardData, () =>
 		sessionIdTyped ? { sessionId: sessionIdTyped } : 'skip'
 	);
 
@@ -161,7 +166,9 @@
 		}
 	};
 
-	let serverAttendanceSet = $derived(new Set((attendanceResponse.data ?? []).map((entry) => entry.userId)));
+	let serverAttendanceSet = $derived(
+		new Set((attendanceResponse.data ?? []).map((entry) => entry.userId))
+	);
 	let optimisticAttendanceByUser = $state<Record<string, boolean>>({});
 	let attendancePendingUserIds = $state<Set<string>>(new Set());
 	let buildingBlockOptions = $derived(
@@ -437,10 +444,9 @@
 			onSelect: () => void removeSession()
 		}
 	]);
-
 </script>
 
-<PageHeaderBackButton fallbackHref={fallbackHref} />
+<PageHeaderBackButton {fallbackHref} />
 <PageHeaderTitle title={headerTitle} />
 <PageHeaderActions>
 	<ActionMenu items={sessionActionItems} ariaLabel="Open session actions" />
@@ -477,142 +483,152 @@
 			{#if session.description}
 				<p class="type-lead text-muted-foreground">{session.description}</p>
 			{/if}
-				{#if (activitiesResponse.data?.length ?? 0) === 0}
-					<div class="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 text-center">
-						<p class="type-lead text-muted-foreground">No activities yet.</p>
-						<p class="text-sm text-muted-foreground">Start building your session plan.</p>
-						{#if canCreateActivity}
-							<div class="flex flex-wrap justify-center gap-3">
-								<Button variant="outline" onclick={openCreateActivity} disabled={!canCreateActivityOnline}>
-									<PlusIcon class="size-4" />
-									New activity
-								</Button>
-								<Button
-									onclick={() =>
-										void goto(routes.activityBooklet + '?session=' + sessionIdParam, {
-											replaceState: true
-										})}
-									disabled={!canCreateActivityOnline}
-								>
-									<BookOpenIcon class="size-4" />
-									Choose from booklet
-								</Button>
-							</div>
-						{/if}
-					</div>
-				{:else}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						use:dragHandleZone={{
-						items: dndItems,
-						flipDurationMs: 200,
-						dropTargetStyle: {},
-						transformDraggedElement: (el?: HTMLElement) => {
-							if (!el) return;
-							el.style.outline = 'none';
-							el.style.boxShadow = '0 10px 25px -5px rgba(0,0,0,0.2), 0 4px 10px -5px rgba(0,0,0,0.1)';
-						}
-					}}
-						onconsider={handleDndConsider}
-						onfinalize={handleDndFinalize}
-						class="flex flex-col gap-4"
-					>
-						{#each dndItems as activity (activity.id)}
-							<SessionActivityCard
-								activity={{
-									id: activity.id,
-									name: activity.name,
-									content: activity.content,
-									minutes: activity.minutes,
-									buildingBlocks: activity.buildingBlocks.map((blockId) => String(blockId))
-								}}
-								isDndShadowItem={activity[SHADOW_ITEM_MARKER_PROPERTY_NAME] === true}
-								{buildingBlockOptions}
-								canInlineEdit={canUpdateActivity}
-								canEdit={canUpdateActivityOnline}
-								canDelete={canDeleteActivityOnline}
-								editingDisabled={canUpdateActivity && !canMutateOnline}
-								showDragHandle={canUpdateActivityOnline}
-								onEdit={() => openEditActivity({ ...activity, id: activity.id as Id<'sessionActivities'> })}
-								onDelete={() => void deleteActivity(activity.id as Id<'sessionActivities'>)}
-								onNameSave={(name) =>
-									saveInlineActivity(
-										{
-											id: activity.id,
-											name: activity.name,
-											content: activity.content,
-											minutes: activity.minutes,
-											buildingBlocks: activity.buildingBlocks
-										},
-										{ name }
-									)}
-								onContentSave={(content) =>
-									saveInlineActivity(
-										{
-											id: activity.id,
-											name: activity.name,
-											content: activity.content,
-											minutes: activity.minutes,
-											buildingBlocks: activity.buildingBlocks
-										},
-										{ content }
-									)}
-								onMinutesSave={(minutes) =>
-									saveInlineActivity(
-										{
-											id: activity.id,
-											name: activity.name,
-											content: activity.content,
-											minutes: activity.minutes,
-											buildingBlocks: activity.buildingBlocks
-										},
-										{ minutes }
-									)}
-								onBuildingBlocksSave={(buildingBlockIds) =>
-									saveInlineActivity(
-										{
-											id: activity.id,
-											name: activity.name,
-											content: activity.content,
-											minutes: activity.minutes,
-											buildingBlocks: activity.buildingBlocks
-										},
-										{
-											buildingBlockIds: buildingBlockIds as Array<Id<'buildingBlocks'>>
-										}
-									)}
-							/>
-						{/each}
-					</div>
-				{/if}
-
-				{#if canCreateActivity && (activitiesResponse.data?.length ?? 0) > 0}
-					<!-- Sticky offset derives from --bottom-nav-h (set in app-shell) to clear the mobile nav -->
-					<div class="pointer-events-none sticky bottom-[calc(var(--bottom-nav-h,0rem)+1rem)] flex justify-center lg:bottom-8">
-						<div class="pointer-events-auto flex gap-2">
+			{#if (activitiesResponse.data?.length ?? 0) === 0}
+				<div
+					class="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 text-center"
+				>
+					<p class="type-lead text-muted-foreground">No activities yet.</p>
+					<p class="text-sm text-muted-foreground">Start building your session plan.</p>
+					{#if canCreateActivity}
+						<div class="flex flex-wrap justify-center gap-3">
 							<Button
 								variant="outline"
-								class="rounded-full px-6 py-3 shadow-md"
 								onclick={openCreateActivity}
 								disabled={!canCreateActivityOnline}
 							>
-								<PlusIcon class="size-5" />
+								<PlusIcon class="size-4" />
 								New activity
 							</Button>
 							<Button
-								class="rounded-full px-6 py-3 type-h6-bold shadow-md"
 								onclick={() =>
 									void goto(routes.activityBooklet + '?session=' + sessionIdParam, {
 										replaceState: true
 									})}
 								disabled={!canCreateActivityOnline}
 							>
-								<BookOpenIcon class="size-5" />
-								From booklet
+								<BookOpenIcon class="size-4" />
+								Choose from booklet
 							</Button>
 						</div>
+					{/if}
+				</div>
+			{:else}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					use:dragHandleZone={{
+						items: dndItems,
+						flipDurationMs: 200,
+						dropTargetStyle: {},
+						transformDraggedElement: (el?: HTMLElement) => {
+							if (!el) return;
+							el.style.outline = 'none';
+							el.style.boxShadow =
+								'0 10px 25px -5px rgba(0,0,0,0.2), 0 4px 10px -5px rgba(0,0,0,0.1)';
+						}
+					}}
+					onconsider={handleDndConsider}
+					onfinalize={handleDndFinalize}
+					class="flex flex-col gap-4"
+				>
+					{#each dndItems as activity (activity.id)}
+						<SessionActivityCard
+							activity={{
+								id: activity.id,
+								name: activity.name,
+								content: activity.content,
+								minutes: activity.minutes,
+								buildingBlocks: activity.buildingBlocks.map((blockId) => String(blockId))
+							}}
+							isDndShadowItem={activity[SHADOW_ITEM_MARKER_PROPERTY_NAME] === true}
+							{buildingBlockOptions}
+							canInlineEdit={canUpdateActivity}
+							canEdit={canUpdateActivityOnline}
+							canDelete={canDeleteActivityOnline}
+							editingDisabled={canUpdateActivity && !canMutateOnline}
+							showDragHandle={canUpdateActivityOnline}
+							onEdit={() =>
+								openEditActivity({ ...activity, id: activity.id as Id<'sessionActivities'> })}
+							onDelete={() => void deleteActivity(activity.id as Id<'sessionActivities'>)}
+							onNameSave={(name) =>
+								saveInlineActivity(
+									{
+										id: activity.id,
+										name: activity.name,
+										content: activity.content,
+										minutes: activity.minutes,
+										buildingBlocks: activity.buildingBlocks
+									},
+									{ name }
+								)}
+							onContentSave={(content) =>
+								saveInlineActivity(
+									{
+										id: activity.id,
+										name: activity.name,
+										content: activity.content,
+										minutes: activity.minutes,
+										buildingBlocks: activity.buildingBlocks
+									},
+									{ content }
+								)}
+							onMinutesSave={(minutes) =>
+								saveInlineActivity(
+									{
+										id: activity.id,
+										name: activity.name,
+										content: activity.content,
+										minutes: activity.minutes,
+										buildingBlocks: activity.buildingBlocks
+									},
+									{ minutes }
+								)}
+							onBuildingBlocksSave={(buildingBlockIds) =>
+								saveInlineActivity(
+									{
+										id: activity.id,
+										name: activity.name,
+										content: activity.content,
+										minutes: activity.minutes,
+										buildingBlocks: activity.buildingBlocks
+									},
+									{
+										buildingBlockIds: buildingBlockIds as Array<Id<'buildingBlocks'>>
+									}
+								)}
+						/>
+					{/each}
+				</div>
+			{/if}
+
+			{#if canCreateActivity && (activitiesResponse.data?.length ?? 0) > 0}
+				<!-- Sticky offset derives from --bottom-nav-h (set in app-shell) to clear the mobile nav -->
+				<div
+					class="pointer-events-none sticky bottom-[calc(var(--bottom-nav-h,0rem)+1rem)] flex justify-center lg:bottom-8"
+				>
+					<div class="pointer-events-auto flex gap-2">
+						<Button
+							variant="outline"
+							class="rounded-full px-6 py-3 shadow-md"
+							onclick={openCreateActivity}
+							disabled={!canCreateActivityOnline}
+						>
+							<PlusIcon class="size-5" />
+							New activity
+						</Button>
+						<Button
+							class="type-h6-bold rounded-full px-6 py-3 shadow-md"
+							onclick={() =>
+								void goto(routes.activityBooklet + '?session=' + sessionIdParam, {
+									replaceState: true
+								})}
+							disabled={!canCreateActivityOnline}
+						>
+							<BookOpenIcon class="size-5" />
+							From booklet
+						</Button>
 					</div>
-				{/if}
+				</div>
+			{/if}
 		{:else}
 			<div class="flex flex-col gap-3">
 				{#if !canReadMembers}
@@ -632,14 +648,14 @@
 						>
 							<label
 								class={`absolute inset-0 rounded-xl ${
-									canManageAttendanceOnline
-										? 'cursor-pointer'
-										: 'cursor-not-allowed'
+									canManageAttendanceOnline ? 'cursor-pointer' : 'cursor-not-allowed'
 								}`}
 								for={`attendance-${member.clubMemberId}`}
 							>
 								<span class="sr-only">
-									Toggle attendance for {[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+									Toggle attendance for {[member.firstName ?? '', member.lastName ?? '']
+										.join(' ')
+										.trim() ||
 										member.username ||
 										member.email ||
 										'Member'}
@@ -647,7 +663,10 @@
 							</label>
 							<div class="flex flex-col gap-1">
 								<p class="type-body-medium">
-									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() || member.username || member.email || 'Member'}
+									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+										member.username ||
+										member.email ||
+										'Member'}
 								</p>
 								{#if member.email}
 									<p class="type-sm text-muted-foreground">{member.email}</p>
@@ -695,11 +714,10 @@
 				</div>
 			</div>
 			<Dialog.Footer>
-					<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
-					<Button
-						disabled={pending || !canUpdateSessionOnline}
-						onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
-					>
+				<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
+				<Button disabled={pending || !canUpdateSessionOnline} onclick={() => void saveSession()}
+					>{pending ? 'Saving...' : 'Save session'}</Button
+				>
 			</Dialog.Footer>
 		</Dialog.Content>
 	</Dialog.Root>
@@ -714,7 +732,12 @@
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-2">
 						<FieldLabel for="activityName" required>Name</FieldLabel>
-						<Input id="activityName" bind:value={activityName} placeholder="The Envelope Please" required />
+						<Input
+							id="activityName"
+							bind:value={activityName}
+							placeholder="The Envelope Please"
+							required
+						/>
 					</div>
 					<div class="flex flex-col gap-2">
 						<Label for="activityContent">Description</Label>
@@ -743,13 +766,11 @@
 				<Dialog.Footer>
 					<Button variant="outline" onclick={() => (activityDialogOpen = false)}>Cancel</Button>
 					<Button
-							disabled={
-								pending ||
-								!activityName.trim() ||
-								!(activityEditId ? canUpdateActivityOnline : canCreateActivityOnline)
-							}
-							onclick={() => void saveActivity()}
-						>
+						disabled={pending ||
+							!activityName.trim() ||
+							!(activityEditId ? canUpdateActivityOnline : canCreateActivityOnline)}
+						onclick={() => void saveActivity()}
+					>
 						{pending ? 'Saving...' : activityEditId ? 'Update activity' : 'Add activity'}
 					</Button>
 				</Dialog.Footer>

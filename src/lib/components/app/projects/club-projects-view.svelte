@@ -18,7 +18,8 @@
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { routes } from '$lib/routes';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import ClubProjectCard from './club-project-card.svelte';
 
 	type Props = {
@@ -28,17 +29,17 @@
 	let { status }: Props = $props();
 
 	const convexClient = useConvexClient();
-	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
 	let clubItem = $derived(
-		clubId ? (clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null : null
+		clubId ? ((clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null) : null
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canCreate = $derived(clubPermissions.includes('project:create'));
-	let clubIdTyped = $derived((clubId ? (clubId as Id<'clubs'>) : null));
+	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 
-	const projectsResponse = useQuery(api.projects.listByClub, () =>
+	const projectsResponse = useStableQuery(api.projects.listByClub, () =>
 		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
 	);
 
@@ -149,7 +150,7 @@
 		<AlertDescription>Set an active club before creating projects.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="flex w-full self-center flex-col gap-4">
+	<div class="flex w-full flex-col gap-4 self-center">
 		{#if errorMessage}
 			<Alert variant="destructive">
 				<AlertTitle>Action failed</AlertTitle>
@@ -191,7 +192,12 @@
 			<div class="flex flex-col gap-3">
 				<div class="flex flex-col gap-2">
 					<FieldLabel for="projectName" required>Name</FieldLabel>
-					<Input id="projectName" bind:value={createName} placeholder="Enter project name" required />
+					<Input
+						id="projectName"
+						bind:value={createName}
+						placeholder="Enter project name"
+						required
+					/>
 				</div>
 				<div class="flex flex-col gap-2">
 					<FieldLabel for="projectDueDate" required>Due date</FieldLabel>
@@ -203,7 +209,10 @@
 			{/if}
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
-				<Button disabled={createPending || !createName.trim() || createDueDate === null} onclick={() => void createProject()}>
+				<Button
+					disabled={createPending || !createName.trim() || createDueDate === null}
+					onclick={() => void createProject()}
+				>
 					{createPending ? 'Creating...' : 'Open'}
 				</Button>
 			</Dialog.Footer>

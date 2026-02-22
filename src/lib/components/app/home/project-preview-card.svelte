@@ -2,7 +2,7 @@
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
-	import { useQuery } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import AvatarStack from './avatar-stack.svelte';
 
@@ -16,7 +16,7 @@
 
 	let { project, memberPreview, href }: Props = $props();
 
-	const membersResponse = useQuery(api.projects.listMembers, () =>
+	const membersResponse = useStableQuery(api.projects.listMembers, () =>
 		memberPreview ? 'skip' : { projectId: project._id }
 	);
 
@@ -46,17 +46,19 @@
 		<div class="flex flex-col gap-2">
 			<p class="type-h6-bold">{project.name}</p>
 			{#if project.description}
-				<p class="line-clamp-3 type-sm text-muted-foreground">{project.description}</p>
+				<p class="type-sm line-clamp-3 text-muted-foreground">{project.description}</p>
 			{:else}
 				<p class="type-sm text-muted-foreground">No description yet.</p>
 			{/if}
 		</div>
 
 		<div class="flex flex-col gap-3">
-			<AvatarStack people={people} max={3} sizeClass="size-8" />
-			<div class="flex items-center gap-2 type-label text-muted-foreground">
+			<AvatarStack {people} max={3} sizeClass="size-8" />
+			<div class="type-label flex items-center gap-2 text-muted-foreground">
 				<CalendarIcon class="size-4 text-primary" />
-				<p class="line-clamp-1">{project.dueDate ? formatDueDate(project.dueDate) : 'No due date'}</p>
+				<p class="line-clamp-1">
+					{project.dueDate ? formatDueDate(project.dueDate) : 'No due date'}
+				</p>
 			</div>
 		</div>
 	</CardContent>

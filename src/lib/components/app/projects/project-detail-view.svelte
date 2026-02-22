@@ -25,9 +25,18 @@
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '$lib/components/ui/item';
+	import {
+		Item,
+		ItemActions,
+		ItemContent,
+		ItemDescription,
+		ItemGroup,
+		ItemMedia,
+		ItemTitle
+	} from '$lib/components/ui/item';
 	import { routes } from '$lib/routes';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	type Props = {
 		view: 'overview' | 'members';
@@ -42,21 +51,21 @@
 	);
 	let projectIdTyped = $derived(projectIdParam ? (projectIdParam as Id<'projects'>) : null);
 
-	const projectResponse = useQuery(api.projects.getById, () =>
+	const projectResponse = useStableQuery(api.projects.getById, () =>
 		projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
 	let project = $derived(projectResponse.data ?? null);
 
-	const canManageResponse = useQuery(api.projects.canManageProject, () =>
+	const canManageResponse = useStableQuery(api.projects.canManageProject, () =>
 		projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
 	let canManage = $derived(canManageResponse.data ?? false);
 
-	const membersResponse = useQuery(api.projects.listMembers, () =>
+	const membersResponse = useStableQuery(api.projects.listMembers, () =>
 		projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
 
-	const updatesResponse = useQuery(api.updates.listByProject, () =>
+	const updatesResponse = useStableQuery(api.updates.listByProject, () =>
 		view === 'overview' && projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
 
@@ -110,9 +119,7 @@
 		const cleaned = name.trim();
 		if (!cleaned) return '?';
 		const parts = cleaned.split(/\s+/g).filter(Boolean);
-		const letters = [parts[0]?.[0] ?? '', parts.at(-1)?.[0] ?? '']
-			.join('')
-			.toUpperCase();
+		const letters = [parts[0]?.[0] ?? '', parts.at(-1)?.[0] ?? ''].join('').toUpperCase();
 		return letters || cleaned.slice(0, 2).toUpperCase();
 	};
 
@@ -270,7 +277,7 @@
 				<p class="type-lead text-muted-foreground">No description yet.</p>
 			{/if}
 
-			<div class="flex items-center gap-2 type-lead text-muted-foreground">
+			<div class="type-lead flex items-center gap-2 text-muted-foreground">
 				{#if isCompleted}
 					<CheckIcon class="size-5 text-chart-2" />
 				{:else}
@@ -339,13 +346,17 @@
 										{#if member.imageUrl}
 											<AvatarImage src={member.imageUrl} alt={member.name} />
 										{/if}
-										<AvatarFallback class="type-caption-bold">{initialsFor(member.name)}</AvatarFallback>
+										<AvatarFallback class="type-caption-bold"
+											>{initialsFor(member.name)}</AvatarFallback
+										>
 									</Avatar>
 								</ItemMedia>
 								<ItemContent>
 									<ItemTitle class="w-full truncate">{member.name}</ItemTitle>
 									{#if memberSubtitleFor(member)}
-										<ItemDescription class="line-clamp-1 w-full">{memberSubtitleFor(member)}</ItemDescription>
+										<ItemDescription class="line-clamp-1 w-full"
+											>{memberSubtitleFor(member)}</ItemDescription
+										>
 									{/if}
 								</ItemContent>
 								{#if member.roleName}
@@ -370,7 +381,12 @@
 			<div class="flex flex-col gap-3">
 				<div class="flex flex-col gap-2">
 					<FieldLabel for="editProjectName" required>Name</FieldLabel>
-					<Input id="editProjectName" bind:value={editForm.name} placeholder="Project name" required />
+					<Input
+						id="editProjectName"
+						bind:value={editForm.name}
+						placeholder="Project name"
+						required
+					/>
 				</div>
 				<div class="flex flex-col gap-2">
 					<Label for="editProjectDescription">Description</Label>

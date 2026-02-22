@@ -3,24 +3,20 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import {
-		PageHeaderBackButton,
-		PageHeaderTitle
-	} from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import BookletActivityCard from '$lib/components/app/sessions/booklet-activity-card.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	const convexClient = useConvexClient();
 
-	let sessionId = $derived(
-		(page.url.searchParams.get('session') as Id<'sessions'> | null) ?? null
-	);
+	let sessionId = $derived((page.url.searchParams.get('session') as Id<'sessions'> | null) ?? null);
 
-	const activitiesResponse = useQuery(api.booklet.listActivities, {});
-	const blocksResponse = useQuery(api.sessions.listBuildingBlocks, {});
+	const activitiesResponse = useStableQuery(api.booklet.listActivities, {});
+	const blocksResponse = useStableQuery(api.sessions.listBuildingBlocks, {});
 
 	let selectedBlockNames = $state<string[]>([]);
 	let pending = $state(false);
@@ -61,7 +57,7 @@
 	};
 </script>
 
-<PageHeaderBackButton fallbackHref={fallbackHref} />
+<PageHeaderBackButton {fallbackHref} />
 <PageHeaderTitle title="Activity Booklet" />
 
 <div class="flex flex-col gap-4 pb-2 lg:pb-6">

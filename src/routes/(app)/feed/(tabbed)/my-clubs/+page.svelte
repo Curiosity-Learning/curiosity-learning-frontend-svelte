@@ -2,11 +2,17 @@
 	import { api } from '$convex/_generated/api';
 	import { UpdateCard } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
+	import {
+		Card,
+		CardContent,
+		CardDescription,
+		CardHeader,
+		CardTitle
+	} from '$lib/components/ui/card';
 	import { routes } from '$lib/routes';
-	import { useQuery } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
-	const updates = useQuery(api.updates.listForViewer, { limit: 50 });
+	const updates = useStableQuery(api.updates.listForViewer, { limit: 50 });
 </script>
 
 <Card>

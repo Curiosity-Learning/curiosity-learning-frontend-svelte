@@ -3,7 +3,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
-	import { useQuery } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { cn } from '$lib/utils.js';
 	import AvatarStack from '$lib/components/app/home/avatar-stack.svelte';
@@ -23,7 +23,7 @@
 
 	let { project, status, memberPreview, href, class: className }: Props = $props();
 
-	const membersResponse = useQuery(api.projects.listMembers, () =>
+	const membersResponse = useStableQuery(api.projects.listMembers, () =>
 		memberPreview ? 'skip' : { projectId: project._id }
 	);
 
@@ -71,15 +71,15 @@
 		<div class="flex flex-col gap-2">
 			<p class="type-h5-bold">{project.name}</p>
 			{#if project.description}
-				<p class="line-clamp-3 type-lead text-muted-foreground">{project.description}</p>
+				<p class="type-lead line-clamp-3 text-muted-foreground">{project.description}</p>
 			{:else}
 				<p class="type-lead text-muted-foreground">No description yet.</p>
 			{/if}
 		</div>
 
 		<div class="mt-auto flex flex-col gap-4">
-			<AvatarStack people={people} max={3} sizeClass="size-9" />
-			<div class="flex items-center gap-2 type-lead text-muted-foreground">
+			<AvatarStack {people} max={3} sizeClass="size-9" />
+			<div class="type-lead flex items-center gap-2 text-muted-foreground">
 				{#if isCompleted}
 					<CheckIcon class="size-5 text-chart-2" />
 				{:else}

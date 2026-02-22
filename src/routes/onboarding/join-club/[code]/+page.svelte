@@ -10,7 +10,8 @@
 		CardHeader,
 		CardTitle
 	} from '$lib/components/ui/card';
-	import { useQuery, useConvexClient } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
 	import { authClient } from '$lib/auth-client';
@@ -20,7 +21,7 @@
 
 	const session = authClient.useSession();
 	const convexClient = useConvexClient();
-	const preview = useQuery(api.clubs.getClubPreviewByCode, () => ({ code: data.code }));
+	const preview = useStableQuery(api.clubs.getClubPreviewByCode, () => ({ code: data.code }));
 
 	let pending = $state(false);
 	let errorMessage = $state('');

@@ -13,23 +13,24 @@
 	import { Label } from '$lib/components/ui/label';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/auth-client';
 
 	const convexClient = useConvexClient();
 	const session = authClient.useSession();
 
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => ($session.data ? {} : 'skip'));
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => ($session.data ? {} : 'skip'));
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
 	let clubItem = $derived(
-		clubId ? (clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null : null
+		clubId ? ((clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null) : null
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canKick = $derived(clubPermissions.includes('club_member:kick'));
-	let clubIdTyped = $derived((clubId ? (clubId as Id<'clubs'>) : null));
+	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 
-	const membersResponse = useQuery(api.clubs.getMembers, () =>
+	const membersResponse = useStableQuery(api.clubs.getMembers, () =>
 		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
 	);
 

@@ -3,12 +3,12 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
-	import { useQuery } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	const auth = useAuth();
 	let isAuthReady = $derived(!auth.isLoading && auth.isAuthenticated);
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
-	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, () =>
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
+	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
 		isAuthReady ? {} : 'skip'
 	);
 

@@ -18,18 +18,19 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { authClient } from '$lib/auth-client';
 
 	const session = authClient.useSession();
 	const convexClient = useConvexClient();
-	const profileResponse = useQuery(api.profiles.getMe, {});
-	const preferencesResponse = useQuery(api.preferences.get, {});
-	const privacyPolicyResponse = useQuery(api.privacyPolicy.getActive, () =>
+	const profileResponse = useStableQuery(api.profiles.getMe, {});
+	const preferencesResponse = useStableQuery(api.preferences.get, {});
+	const privacyPolicyResponse = useStableQuery(api.privacyPolicy.getActive, () =>
 		$session.data ? {} : 'skip'
 	);
-	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
-	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, {});
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
+	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, {});
 
 	let profileInitialized = $state(false);
 	let preferencesInitialized = $state(false);
@@ -325,7 +326,9 @@
 				{#each clubsResponse.data ?? [] as club (club.clubId)}
 					<Button
 						size="sm"
-						variant={club.clubId === activeContextResponse.data?.activeClubId ? 'default' : 'outline'}
+						variant={club.clubId === activeContextResponse.data?.activeClubId
+							? 'default'
+							: 'outline'}
 						disabled={pending || club.clubId === activeContextResponse.data?.activeClubId}
 						onpointerenter={() => void preloadCode(`/club/${club.clubId}`)}
 						onclick={() => void switchActiveClub(club.clubId)}
