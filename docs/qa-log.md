@@ -814,6 +814,17 @@
 - `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
 - `npx eslint src/lib/convex/use-stable-query.svelte.ts src/routes/(app)/+layout.svelte src/routes/(app)/+layout.server.ts` ✅
 
+### Bug Fix: Club Projects Avatar Pop-in
+
+- Updated `/club/[clubId]/projects` to use `api.projects.listPreviewsByClub` (batched project + member preview payload) instead of `api.projects.listByClub`.
+- `ClubProjectsView` now passes `memberPreview` into each `ClubProjectCard`, so card-level `listMembers` queries are skipped and avatars render with initial card content.
+- Updated `listPreviewsByClub` in `src/convex/projects.ts` so omitting `limit` returns all projects (home still passes `limit: 6`).
+
+### Run: Validation
+
+- `mcp__svelte__svelte-autofixer` ✅ (`src/lib/components/app/projects/club-projects-view.svelte`)
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
+
 ### Refactor: Remove Remaining Custom Session Optimistic State
 
 - Removed `lastSaved*` optimistic guard state from `src/lib/components/app/sessions/session-activity-card.svelte`; inline name/content/minutes now rely on Convex mutation-level optimistic query updates plus normal remote sync.

@@ -78,7 +78,8 @@ export const listPreviewsByClub = query({
 		);
 
 		projects.sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
-		const limited = projects.slice(0, args.limit ?? 6);
+		const limit = args.limit ?? projects.length;
+		const limited = projects.slice(0, Math.max(0, limit));
 
 		const result: Array<{
 			project: (typeof limited)[number];

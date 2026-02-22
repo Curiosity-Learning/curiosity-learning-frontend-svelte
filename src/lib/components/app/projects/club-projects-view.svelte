@@ -16,7 +16,6 @@
 	import { DatePicker } from '$lib/components/ui/date-picker';
 	import { Input } from '$lib/components/ui/input';
 	import { FieldLabel } from '$lib/components/ui/field';
-	import { Label } from '$lib/components/ui/label';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -39,7 +38,7 @@
 	let canCreate = $derived(clubPermissions.includes('project:create'));
 	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 
-	const projectsResponse = useStableQuery(api.projects.listByClub, () =>
+	const projectCardsResponse = useStableQuery(api.projects.listPreviewsByClub, () =>
 		clubIdTyped ? { clubId: clubIdTyped } : 'skip',
 		{ cache: 'memory' }
 	);
@@ -81,31 +80,34 @@
 		}
 	};
 
-	let sortedProjects = $derived.by(() => {
-		const projects = [...(projectsResponse.data ?? [])];
+	let sortedProjectCards = $derived.by(() => {
+		const projectCards = [...(projectCardsResponse.data ?? [])];
 		if (status === 'completed') {
-			return projects.sort(
+			return projectCards.sort(
 				(left, right) =>
-					(right.doneDate ?? right.updatedAt ?? right.createdAt) -
-					(left.doneDate ?? left.updatedAt ?? left.createdAt)
+					(right.project.doneDate ?? right.project.updatedAt ?? right.project.createdAt) -
+					(left.project.doneDate ?? left.project.updatedAt ?? left.project.createdAt)
 			);
 		}
 
-		return projects.sort((left, right) => {
-			if (left.dueDate !== right.dueDate) return (left.dueDate ?? 0) - (right.dueDate ?? 0);
-			return left.createdAt - right.createdAt;
+		return projectCards.sort((left, right) => {
+			if (left.project.dueDate !== right.project.dueDate) {
+				return (left.project.dueDate ?? 0) - (right.project.dueDate ?? 0);
+			}
+			return left.project.createdAt - right.project.createdAt;
 		});
 	});
 
-	let visibleProjects = $derived.by(() => {
+	let visibleProjectCards = $derived.by(() => {
 		const query = searchText.trim().toLowerCase();
-		const scopedByTab = sortedProjects.filter((project) =>
-			status === 'completed' ? Boolean(project.doneDate) : !project.doneDate
+		const scopedByTab = sortedProjectCards.filter((entry) =>
+			status === 'completed' ? Boolean(entry.project.doneDate) : !entry.project.doneDate
 		);
 
 		if (!query) return scopedByTab;
 
-		return scopedByTab.filter((project) => {
+		return scopedByTab.filter((entry) => {
+			const project = entry.project;
 			const dueText = project.dueDate ? new Date(project.dueDate).toLocaleDateString() : '';
 			const doneText = project.doneDate ? new Date(project.doneDate).toLocaleDateString() : '';
 			return [project.name, project.description ?? '', dueText, doneText]
@@ -159,24 +161,25 @@
 			</Alert>
 		{/if}
 
-		{#if projectsResponse.error}
+		{#if projectCardsResponse.error}
 			<Alert variant="destructive">
 				<AlertTitle>Unable to load projects</AlertTitle>
 				<AlertDescription>
-					{projectsResponse.error.message ?? 'Please refresh and try again.'}
+					{projectCardsResponse.error.message ?? 'Please refresh and try again.'}
 				</AlertDescription>
 			</Alert>
-		{:else if projectsResponse.isLoading}
+		{:else if projectCardsResponse.isLoading}
 			<p class="type-sm text-muted-foreground">Loading projects...</p>
-		{:else if visibleProjects.length === 0}
+		{:else if visibleProjectCards.length === 0}
 			<p class="type-sm text-muted-foreground">{emptyLabel}</p>
 		{:else}
 			<AutoFitCardGrid minColumnWidth="17rem" maxColumns={3}>
-				{#each visibleProjects as project (project._id)}
+				{#each visibleProjectCards as entry (entry.project._id)}
 					<ClubProjectCard
-						{project}
+						project={entry.project}
 						{status}
-						href={routes.projectDetail(project._id)}
+						memberPreview={entry.members}
+						href={routes.projectDetail(entry.project._id)}
 						class={status === 'completed' ? 'border-border/70' : undefined}
 					/>
 				{/each}
