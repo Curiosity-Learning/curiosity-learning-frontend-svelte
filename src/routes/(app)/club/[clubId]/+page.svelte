@@ -159,6 +159,7 @@
 	const mountProjectRail = (node: HTMLDivElement) => {
 		projectRailNode = node;
 		restoreProjectRailScroll(node);
+		// Persist only when navigation starts from this rail (not from unrelated route changes).
 		node.addEventListener('click', handleProjectRailClick);
 		return {
 			destroy() {
