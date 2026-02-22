@@ -276,8 +276,9 @@
 				value={query}
 				disabled={disabled || pendingSave}
 				placeholder={selectedOptions.length === 0 ? placeholder : ''}
+				style="font-size: var(--text-type-body-small-size); line-height: var(--text-type-body-small-line); font-weight: 400;"
 				class={cn(
-					'cursor-text border-0 bg-transparent px-0 py-0 text-base leading-6 font-medium shadow-none focus-visible:ring-0',
+					'cursor-text border-0 bg-transparent px-0 py-0 type-sm shadow-none focus-visible:ring-0',
 					showInlineInput
 						? 'relative h-7 min-w-36 basis-full flex-1 opacity-100'
 						: 'pointer-events-none absolute left-0 top-0 h-0 w-0 basis-0 min-w-0 overflow-hidden opacity-0'
@@ -313,16 +314,17 @@
 				class="max-h-60 overflow-y-auto"
 			>
 				{#if filteredOptions.length === 0}
-					<p class="px-2 py-2 type-body-medium text-muted-foreground">{noResultsLabel}</p>
+					<p class="px-2 py-2 type-sm text-muted-foreground">{noResultsLabel}</p>
 				{:else}
 					{#each filteredOptions as option, index (option.id)}
+						<!-- Keep option rows slightly taller than text-only chips so mobile taps are less error-prone. -->
 						<button
 							type="button"
 							role="option"
 							id={`${listboxId}-option-${index}`}
 							aria-selected={false}
 							class={cn(
-								'flex w-full cursor-pointer items-center rounded-sm px-2 py-1 text-left text-base leading-6',
+								'flex w-full min-h-7 cursor-pointer items-center rounded-sm px-3 py-1 text-left type-sm',
 								index === normalizedActiveIndex
 									? 'bg-accent text-accent-foreground'
 									: 'hover:bg-accent/60'
