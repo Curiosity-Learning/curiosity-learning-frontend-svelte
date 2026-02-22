@@ -4,11 +4,7 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import {
-		PageHeaderActions,
-		PageHeaderBackButton,
-		PageHeaderSearch
-	} from '$lib/components/app';
+	import { PageHeaderActions, PageHeaderBackButton, PageHeaderSearch } from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -17,24 +13,30 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	const convexClient = useConvexClient();
 
-	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
-	let clubIdTyped = $derived((clubId ? (clubId as Id<'clubs'>) : null));
+	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 	let clubItem = $derived(
-		clubId ? (clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null : null
+		clubId ? ((clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null) : null
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canCreate = $derived(clubPermissions.includes('session:create'));
 	let canDelete = $derived(clubPermissions.includes('session:delete'));
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 
-	const sessionsResponse = useQuery(api.sessions.listByClub, () =>
-		clubIdTyped ? { clubId: clubIdTyped, upcomingOnly: false } : 'skip'
+	const sessionCardsResponse = useStableQuery(
+		api.sessions.listCardPreviewsByClub,
+		() =>
+			clubIdTyped
+				? { clubId: clubIdTyped, upcomingOnly: false, includeAttendees: canReadMembers }
+				: 'skip',
+		{ cache: 'memory' }
 	);
 
 	const buildDefaultSessionForm = () => {
@@ -53,12 +55,15 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 
-	let sortedSessions = $derived(
-		[...(sessionsResponse.data ?? [])].sort((left, right) => left.startTime - right.startTime)
+	let sortedSessionCards = $derived(
+		[...(sessionCardsResponse.data ?? [])].sort(
+			(left, right) => left.session.startTime - right.session.startTime
+		)
 	);
 
-	let visibleSessions = $derived(
-		sortedSessions.filter((session) => {
+	let visibleSessionCards = $derived(
+		sortedSessionCards.filter((entry) => {
+			const session = entry.session;
 			const query = searchText.trim().toLowerCase();
 			if (!query) return true;
 			const dateLabel = new Date(session.startTime).toLocaleDateString(undefined, {
@@ -76,7 +81,12 @@
 	};
 
 	const createSession = async () => {
-		if (!canCreate || !clubIdTyped || sessionForm.startTime === null || sessionForm.endTime === null) {
+		if (
+			!canCreate ||
+			!clubIdTyped ||
+			sessionForm.startTime === null ||
+			sessionForm.endTime === null
+		) {
 			return;
 		}
 
@@ -150,21 +160,22 @@
 			</Alert>
 		{/if}
 
-		{#if sessionsResponse.isLoading}
+		{#if sessionCardsResponse.isLoading}
 			<p class="text-sm text-muted-foreground">Loading sessions...</p>
-		{:else if visibleSessions.length === 0}
+		{:else if visibleSessionCards.length === 0}
 			<p class="text-sm text-muted-foreground">
 				{searchText ? 'No sessions match your search.' : 'No sessions yet.'}
 			</p>
 		{:else}
 			<div class="flex flex-col gap-4">
-				{#each visibleSessions as session (session._id)}
+				{#each visibleSessionCards as entry (entry.session._id)}
 					<ClubSessionCard
-						{session}
-						sessionHref={routes.sessionDetail(session._id)}
+						session={entry.session}
+						sessionHref={routes.sessionDetail(entry.session._id)}
+						prefetchedCardData={entry}
 						{canReadMembers}
 						{canDelete}
-						onDelete={() => void removeSession(session._id)}
+						onDelete={() => void removeSession(entry.session._id)}
 					/>
 				{/each}
 			</div>
@@ -191,9 +202,8 @@
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
-				<Button
-					disabled={pending || !canCreate}
-					onclick={() => void createSession()}>{pending ? 'Creating...' : 'Open'}</Button
+				<Button disabled={pending || !canCreate} onclick={() => void createSession()}
+					>{pending ? 'Creating...' : 'Open'}</Button
 				>
 			</Dialog.Footer>
 		</Dialog.Content>

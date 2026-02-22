@@ -214,10 +214,6 @@ export const getSessionCardData = query({
 
 		// Tags come from activities/building blocks.
 		await requirePermission(ctx, session.clubId, identity.subject, 'session_activity:read');
-		const activities = await ctx.db
-			.query('sessionActivities')
-			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
-			.collect();
 
 		const buildingBlockIds = new Set<Id<'buildingBlocks'>>();
 		const sessionLinks = await ctx.db
@@ -236,7 +232,7 @@ export const getSessionCardData = query({
 			.filter((name): name is string => Boolean(name))
 			.slice(0, 3);
 
-		let attendees: Array<{ name: string; imageUrl: string | null }> = [];
+		const attendees: Array<{ name: string; imageUrl: string | null }> = [];
 		if (args.includeAttendees) {
 			const canReadAttendance = await hasPermission(
 				ctx,
@@ -269,6 +265,118 @@ export const getSessionCardData = query({
 		}
 
 		return { tagNames, attendees };
+	}
+});
+
+export const listCardPreviewsByClub = query({
+	args: {
+		clubId: v.id('clubs'),
+		upcomingOnly: v.optional(v.boolean()),
+		limit: v.optional(v.number()),
+		includeAttendees: v.optional(v.boolean())
+	},
+	handler: async (ctx, args) => {
+		// Single payload for session cards so list/dashboard routes avoid nested per-card queries.
+		const identity = await requireIdentity(ctx);
+		await requirePermission(ctx, args.clubId, identity.subject, 'session:read');
+		await requirePermission(ctx, args.clubId, identity.subject, 'session_activity:read');
+
+		const now = Date.now();
+		const queryBuilder = ctx.db.query('sessions').withIndex('by_club_and_start', (q) => {
+			const base = q.eq('clubId', args.clubId);
+			return args.upcomingOnly ? base.gte('startTime', now) : base;
+		});
+		const sessions = args.limit
+			? await queryBuilder.take(args.limit)
+			: await queryBuilder.collect();
+
+		if (sessions.length === 0) return [];
+
+		const blocks = await ctx.db.query('buildingBlocks').collect();
+		const blockById = new Map(blocks.map((block) => [block._id, block.name] as const));
+
+		const includeAttendees = Boolean(args.includeAttendees);
+		let canReadAttendance = false;
+		let canReadMembers = false;
+		if (includeAttendees) {
+			canReadAttendance = await hasPermission(
+				ctx,
+				args.clubId,
+				identity.subject,
+				'attendance:read'
+			);
+			canReadMembers = await hasPermission(
+				ctx,
+				args.clubId,
+				identity.subject,
+				'club_member:read_active'
+			);
+		}
+
+		const entries: Array<{
+			session: (typeof sessions)[number];
+			tagNames: string[];
+			attendees: Array<{ name: string; imageUrl: string | null }>;
+			activityItems: Array<{ id: string; title: string; description: string | null }>;
+			hiddenActivitiesCount: number;
+		}> = [];
+
+		for (const session of sessions) {
+			const rawActivities = await ctx.db
+				.query('sessionActivities')
+				.withIndex('by_session', (q) => q.eq('sessionId', session._id))
+				.collect();
+			const activities = rawActivities.sort(
+				(a, b) => (a.order ?? a._creationTime) - (b.order ?? b._creationTime)
+			);
+
+			const activityItems = activities.slice(0, 3).map((activity) => ({
+				id: String(activity._id),
+				title: activity.name,
+				description: activity.content ?? null
+			}));
+
+			const links = await ctx.db
+				.query('sessionActivityBuildingBlocks')
+				.withIndex('by_session', (q) => q.eq('sessionId', session._id))
+				.collect();
+			const buildingBlockIds = new Set<Id<'buildingBlocks'>>();
+			for (const link of links) {
+				buildingBlockIds.add(link.buildingBlockId);
+			}
+			const tagNames = Array.from(buildingBlockIds)
+				.map((id) => blockById.get(id))
+				.filter((name): name is string => Boolean(name))
+				.slice(0, 3);
+
+			const attendees: Array<{ name: string; imageUrl: string | null }> = [];
+			if (includeAttendees && canReadAttendance && canReadMembers) {
+				const attendanceRows = await ctx.db
+					.query('attendances')
+					.withIndex('by_session', (q) => q.eq('sessionId', session._id))
+					.collect();
+				const userIds = attendanceRows.map((row) => row.userId).slice(0, 6);
+				for (const userId of userIds) {
+					const profile = await ctx.db
+						.query('profiles')
+						.withIndex('by_user_id', (q) => q.eq('userId', userId))
+						.first();
+					const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+					const name = fullName || profile?.username || profile?.email || userId;
+					attendees.push({ name, imageUrl: profile?.coverPhotoUrl ?? null });
+				}
+			}
+
+			entries.push({
+				session,
+				tagNames,
+				attendees,
+				activityItems,
+				hiddenActivitiesCount: Math.max(activities.length - activityItems.length, 0)
+			});
+		}
+
+		return entries;
 	}
 });
 
@@ -311,33 +419,33 @@ export const upsertActivity = mutation({
 			});
 		}
 
-			if (args.buildingBlockIds) {
-				const links = await ctx.db
-					.query('sessionActivityBuildingBlocks')
-					.withIndex('by_session_activity', (q) => q.eq('sessionActivityId', activityId))
-					.collect();
-				for (const link of links) {
-					await ctx.db.delete(link._id);
-				}
-				for (const buildingBlockId of args.buildingBlockIds) {
-					await ctx.db.insert('sessionActivityBuildingBlocks', {
-						sessionActivityId: activityId,
-						sessionId: args.sessionId,
-						buildingBlockId,
-						createdAt: now
-					});
-				}
-			} else {
-				// Opportunistic backfill: if this activity already has link records without sessionId, patch them.
-				const links = await ctx.db
-					.query('sessionActivityBuildingBlocks')
-					.withIndex('by_session_activity', (q) => q.eq('sessionActivityId', activityId))
-					.collect();
-				for (const link of links) {
-					if (link.sessionId) continue;
-					await ctx.db.patch(link._id, { sessionId: args.sessionId });
-				}
+		if (args.buildingBlockIds) {
+			const links = await ctx.db
+				.query('sessionActivityBuildingBlocks')
+				.withIndex('by_session_activity', (q) => q.eq('sessionActivityId', activityId))
+				.collect();
+			for (const link of links) {
+				await ctx.db.delete(link._id);
 			}
+			for (const buildingBlockId of args.buildingBlockIds) {
+				await ctx.db.insert('sessionActivityBuildingBlocks', {
+					sessionActivityId: activityId,
+					sessionId: args.sessionId,
+					buildingBlockId,
+					createdAt: now
+				});
+			}
+		} else {
+			// Opportunistic backfill: if this activity already has link records without sessionId, patch them.
+			const links = await ctx.db
+				.query('sessionActivityBuildingBlocks')
+				.withIndex('by_session_activity', (q) => q.eq('sessionActivityId', activityId))
+				.collect();
+			for (const link of links) {
+				if (link.sessionId) continue;
+				await ctx.db.patch(link._id, { sessionId: args.sessionId });
+			}
+		}
 
 		return await ctx.db.get(activityId);
 	}

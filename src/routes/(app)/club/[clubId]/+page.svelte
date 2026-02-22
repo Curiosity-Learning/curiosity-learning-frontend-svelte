@@ -6,7 +6,8 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
@@ -25,32 +26,42 @@
 	import { page } from '$app/state';
 
 	const convexClient = useConvexClient();
-	const clubsResponse = useQuery(api.clubs.getMyClubs, {});
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
 	let clubPath = $derived(clubId ? `/club/${clubId}` : '/onboarding/get-started');
 
 	let clubItem = $derived(
-		clubId ? (clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null : null
+		clubId ? ((clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null) : null
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 	let canCreateSession = $derived(clubPermissions.includes('session:create'));
 	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
 
-	let clubIdTyped = $derived((clubId ? (clubId as Id<'clubs'>) : null));
+	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 
-	const upcomingSessionsResponse = useQuery(api.sessions.listByClub, () =>
-		clubIdTyped ? { clubId: clubIdTyped, upcomingOnly: true, limit: 1 } : 'skip'
+	const upcomingSessionCardsResponse = useStableQuery(
+		api.sessions.listCardPreviewsByClub,
+		() => (clubIdTyped ? { clubId: clubIdTyped, upcomingOnly: true, limit: 1 } : 'skip'),
+		{ cache: 'memory' }
 	);
-	const projectsPreviewResponse = useQuery(api.projects.listPreviewsByClub, () =>
-		clubIdTyped ? { clubId: clubIdTyped, limit: 6 } : 'skip'
+	const projectsPreviewResponse = useStableQuery(
+		api.projects.listPreviewsByClub,
+		() => (clubIdTyped ? { clubId: clubIdTyped, limit: 6 } : 'skip'),
+		{ cache: 'memory' }
 	);
-	const learnersResponse = useQuery(api.clubs.getMembers, () =>
-		clubIdTyped && canReadMembers ? { clubId: clubIdTyped, roleName: 'Learner' as const } : 'skip'
+	const learnersResponse = useStableQuery(
+		api.clubs.getMembers,
+		() =>
+			clubIdTyped && canReadMembers
+				? { clubId: clubIdTyped, roleName: 'Learner' as const }
+				: 'skip',
+		{ cache: 'memory' }
 	);
 
-	let nextSession = $derived((upcomingSessionsResponse.data ?? [])[0] ?? null);
+	let nextSessionCard = $derived((upcomingSessionCardsResponse.data ?? [])[0] ?? null);
+	let nextSession = $derived(nextSessionCard?.session ?? null);
 	let noUpcomingSessionDescription = $derived(
 		canCreateSession ? 'Plan your next meeting to keep your club moving.' : ''
 	);
@@ -102,6 +113,7 @@
 				await goto(routes.sessionDetail(session._id) + '/activities');
 			}
 		} catch {
+			// Ignore; creation errors are handled in follow-up UX work.
 		} finally {
 			createSessionPending = false;
 		}
@@ -142,7 +154,7 @@
 					Icon={CalendarIcon}
 				/>
 			{/if}
-		{:else if upcomingSessionsResponse.isLoading}
+		{:else if upcomingSessionCardsResponse.isLoading}
 			<HomeEmptyCard
 				title="Loading upcoming sessions"
 				description="Checking the schedule for this club."
@@ -172,6 +184,7 @@
 			<ClubSessionCard
 				session={nextSession}
 				sessionHref={routes.sessionDetail(nextSession._id)}
+				prefetchedCardData={nextSessionCard}
 				{canReadMembers}
 				canDelete={canDeleteSession}
 				showAttendeesSection={false}
@@ -203,7 +216,9 @@
 						</div>
 					</div>
 					<Dialog.Footer>
-						<Button variant="outline" onclick={() => (createSessionDialogOpen = false)}>Cancel</Button>
+						<Button variant="outline" onclick={() => (createSessionDialogOpen = false)}
+							>Cancel</Button
+						>
 						<Button
 							disabled={createSessionPending || !canCreateSession}
 							onclick={() => void createSession()}
@@ -290,7 +305,8 @@
 							</Avatar>
 							<div class="flex flex-1 flex-col gap-1">
 								<p class="type-h6-bold">
-									{[learner.firstName ?? '', learner.lastName ?? ''].join(' ').trim() || learner.email}
+									{[learner.firstName ?? '', learner.lastName ?? ''].join(' ').trim() ||
+										learner.email}
 								</p>
 								<p class="type-sm text-muted-foreground">{learner.email ?? learner.userId}</p>
 							</div>

@@ -3,22 +3,28 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
-	import { useQuery } from 'convex-svelte';
-import {
-	ActionMenu,
-	DataRecordCard,
-	DataRecordHeader,
-	RelationAvatarStack,
-	RelationChipSet,
-	RelationListCards,
-	RelationSection
-} from '$lib/components/app';
-import { TagChip } from '$lib/components/ui/badge';
-import { Separator } from '$lib/components/ui/separator';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import {
+		ActionMenu,
+		DataRecordCard,
+		DataRecordHeader,
+		RelationAvatarStack,
+		RelationChipSet,
+		RelationListCards,
+		RelationSection
+	} from '$lib/components/app';
+	import { TagChip } from '$lib/components/ui/badge';
+	import { Separator } from '$lib/components/ui/separator';
 
 	type Props = {
 		session: Doc<'sessions'>;
 		sessionHref: string;
+		prefetchedCardData?: {
+			tagNames: string[];
+			attendees: Array<{ name: string; imageUrl: string | null }>;
+			activityItems: Array<{ id: string; title: string; description: string | null }>;
+			hiddenActivitiesCount: number;
+		} | null;
 		canReadMembers?: boolean;
 		canDelete?: boolean;
 		showAttendeesSection?: boolean;
@@ -29,6 +35,7 @@ import { Separator } from '$lib/components/ui/separator';
 	let {
 		session,
 		sessionHref,
+		prefetchedCardData = null,
 		canReadMembers = false,
 		canDelete = false,
 		showAttendeesSection = true,
@@ -36,12 +43,19 @@ import { Separator } from '$lib/components/ui/separator';
 		onDelete
 	}: Props = $props();
 
-	const cardData = useQuery(api.sessions.getSessionCardData, () => ({
-		sessionId: session._id,
-		includeAttendees: showAttendeesSection && canReadMembers
-	}));
+	// When parent routes provide full card payload, skip nested reads to avoid UI pop-in.
+	const cardData = useStableQuery(api.sessions.getSessionCardData, () =>
+		prefetchedCardData
+			? 'skip'
+			: {
+					sessionId: session._id,
+					includeAttendees: showAttendeesSection && canReadMembers
+				}
+	);
 
-	const activitiesResponse = useQuery(api.sessions.listActivities, () => ({ sessionId: session._id }));
+	const activitiesResponse = useStableQuery(api.sessions.listActivities, () =>
+		prefetchedCardData ? 'skip' : { sessionId: session._id }
+	);
 
 	const formatSessionLine = (timestamp: number) => {
 		const date = new Date(timestamp);
@@ -54,18 +68,28 @@ import { Separator } from '$lib/components/ui/separator';
 		return `${weekday}, ${monthDay}, ${time}`;
 	};
 
-	let tagNames = $derived(cardData.data?.tagNames ?? []);
-	let attendees = $derived(cardData.data?.attendees ?? []);
+	let tagNames = $derived(prefetchedCardData?.tagNames ?? cardData.data?.tagNames ?? []);
+	let attendees = $derived(prefetchedCardData?.attendees ?? cardData.data?.attendees ?? []);
 	let visibleActivityLimit = 3;
-	let totalActivitiesCount = $derived(activitiesResponse.data?.length ?? 0);
+	let totalActivitiesCount = $derived(
+		prefetchedCardData
+			? prefetchedCardData.activityItems.length + prefetchedCardData.hiddenActivitiesCount
+			: (activitiesResponse.data?.length ?? 0)
+	);
 	let activities = $derived((activitiesResponse.data ?? []).slice(0, visibleActivityLimit));
-	let hiddenActivitiesCount = $derived(Math.max(totalActivitiesCount - activities.length, 0));
 	let activityItems = $derived(
-		activities.map((activity) => ({
-			id: String(activity.id),
-			title: activity.name,
-			description: activity.content
-		}))
+		prefetchedCardData
+			? prefetchedCardData.activityItems
+			: activities.map((activity) => ({
+					id: String(activity.id),
+					title: activity.name,
+					description: activity.content
+				}))
+	);
+	let hiddenActivitiesCount = $derived(
+		prefetchedCardData
+			? prefetchedCardData.hiddenActivitiesCount
+			: Math.max(totalActivitiesCount - activities.length, 0)
 	);
 	let actionItems = $derived([
 		{
@@ -115,7 +139,7 @@ import { Separator } from '$lib/components/ui/separator';
 	<Separator class="opacity-70" />
 
 	<RelationSection title="Activities">
-		{#if activitiesResponse.isLoading}
+		{#if !prefetchedCardData && activitiesResponse.isLoading}
 			<p class="type-lead text-slate-500">Loading activities...</p>
 		{:else if activityItems.length === 0}
 			<p class="type-lead text-slate-500">No activities yet.</p>
@@ -139,7 +163,7 @@ import { Separator } from '$lib/components/ui/separator';
 		<RelationSection title="Attendees">
 			{#if !canReadMembers}
 				<p class="type-lead text-slate-500">You do not have access to attendees.</p>
-			{:else if cardData.isLoading}
+			{:else if !prefetchedCardData && cardData.isLoading}
 				<p class="type-lead text-slate-500">Loading attendees...</p>
 			{:else}
 				<RelationAvatarStack people={attendees} max={6} sizeClass="size-11" />

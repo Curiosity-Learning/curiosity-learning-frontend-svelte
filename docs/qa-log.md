@@ -767,3 +767,79 @@
 ### Run: Validation
 
 - Not run (style-only class changes; no runtime/type logic changes).
+
+## 2026-02-22
+
+### Refactor: Global Convex Query Wrapper Migration
+
+- Added `src/lib/convex/use-stable-query.svelte.ts` with `useStableQuery(...)` as the project-level query hook.
+- `useStableQuery` wraps `convex-svelte` `useQuery` and defaults to stale-first behavior (`keepPreviousData: true`) for content continuity during route transitions.
+- Migrated app route/component callsites from direct `useQuery` imports to `useStableQuery` across:
+  - `src/routes/(app)/**`
+  - `src/routes/+page.svelte`
+  - `src/routes/onboarding/join-club/[code]/+page.svelte`
+  - `src/lib/components/app/**`
+- Added ESLint guard in `eslint.config.js` to disallow importing `useQuery` from `convex-svelte` in `src/**` (wrapper file is explicitly exempt).
+
+### Documentation
+
+- Updated `docs/architecture.md` with the new query convention and when to use `{ mode: 'gate' }`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
+- `npm run lint:fast` ⚠️ blocked by existing unrelated ESLint issues already present in the repo
+
+### Bug Fix: Back-Navigation Loading Flash + Slow App Route Transitions
+
+- Updated `src/lib/convex/use-stable-query.svelte.ts` to add module-level in-memory result caching keyed by query + args.
+- `useStableQuery` now seeds cached values into `initialData` for `mode: 'content'`, so remounted routes can render previous data immediately while refetching.
+- Added `clearStableQueryCache()` and wired auth-boundary invalidation in `src/routes/(app)/+layout.svelte` (cache clears when auth state changes).
+- Moved `api.auth.ensureProfile` from blocking server layout load into non-blocking client bootstrap effect in `src/routes/(app)/+layout.svelte`.
+- Simplified `src/routes/(app)/+layout.server.ts` to token redirect gating only (removed per-navigation Convex mutation call).
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
+- `npx eslint src/lib/convex/use-stable-query.svelte.ts src/routes/(app)/+layout.svelte src/routes/(app)/+layout.server.ts` ✅
+
+### Bug Fix: Session Card Tag/Activity Pop-in on Remount
+
+- Added `api.sessions.listCardPreviewsByClub` in `src/convex/sessions.ts` to return session + card preview payload in one query (tags, activity preview, hidden count, optional attendees).
+- Updated `src/lib/components/app/sessions/club-session-card.svelte` with `prefetchedCardData` support and nested-query skip behavior when prefetched data is present.
+- Migrated both routes to the shared prefetched-card path:
+  - `src/routes/(app)/club/[clubId]/+page.svelte`
+  - `src/routes/(app)/club/[clubId]/sessions/+page.svelte`
+- Result: cards render immediately from prefetched payload when navigating back, without tag/activity delayed hydration from nested card queries.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
+- `npx eslint src/convex/sessions.ts src/lib/components/app/sessions/club-session-card.svelte src/routes/(app)/club/[clubId]/+page.svelte src/routes/(app)/club/[clubId]/sessions/+page.svelte` ✅
+
+### Refinement: Per-Query Opt-in Remount Cache
+
+- Added a per-query cache policy to `useStableQuery` in `src/lib/convex/use-stable-query.svelte.ts`:
+  - `cache: 'off' | 'memory'` (default `'off'`).
+- Remount cache behavior is now explicit and local to each query instead of globally applied.
+- Enabled opt-in memory cache for club-home section content queries in `src/routes/(app)/club/[clubId]/+page.svelte`:
+  - `api.sessions.listByClub` (upcoming session preview),
+  - `api.projects.listPreviewsByClub`,
+  - `api.clubs.getMembers` (learner preview list).
+- Goal: keep section content visible on back-navigation for this page while avoiding broad/global cache side effects.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
+- `mcp__svelte__svelte-autofixer` ✅ (`use-stable-query.svelte.ts`, `+page.svelte`)
+
+### Historical Note: Earlier Rollback of First Cache Attempt
+
+- Reverted the module-level cache seeding from `src/lib/convex/use-stable-query.svelte.ts` after a runtime UI regression in navigation/header behavior.
+- Reverted auth-boundary cache-clearing hooks from `src/routes/(app)/+layout.svelte`.
+- Kept non-blocking profile initialization in app layout and removed per-navigation server `ensureProfile` call from `src/routes/(app)/+layout.server.ts` to preserve faster route transitions without the cache-side regression.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
+- `npx eslint src/lib/convex/use-stable-query.svelte.ts src/routes/(app)/+layout.svelte src/routes/(app)/+layout.server.ts` ✅

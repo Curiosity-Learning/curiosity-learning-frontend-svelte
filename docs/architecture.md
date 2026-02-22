@@ -60,13 +60,14 @@ feed/
 - `src/convex/schema.ts` defines data model and indexes.
 - `src/convex/*.ts` modules expose queries/mutations/actions.
 - Client uses generated `api` with `convex-svelte` and authenticated token from hooks.
+- Client query convention: import `useStableQuery` from `src/lib/convex/use-stable-query.svelte.ts` instead of `useQuery` directly. Default mode is stale-first (`keepPreviousData: true`) for content continuity during route and param transitions. Pass `{ mode: 'gate' }` for auth/permission gates that should not reuse stale results. Remount cache is opt-in per query via `{ cache: 'memory' }` (default is `'off'`) so only non-sensitive content queries keep last successful data across remounts.
 - Auth in `hooks.server.ts` + Better Auth cookie/token integration.
 - Global auth readiness gate: root layout hydrates adapter server auth state and app layout gates protected queries/children via `useAuth()` readiness. See [ADR-009](adr/009-global-convex-auth-readiness-gate.md).
 - Sensitive values only from server env.
 
 ## Forms
 
-Forms use **shadcn-svelte Field.* components + Superforms + Zod v4** — no Formsnap. See [ADR-002](adr/002-form-architecture.md).
+Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no Formsnap. See [ADR-002](adr/002-form-architecture.md).
 
 - Schema in a co-located `schema.ts` with Zod v4.
 - `defaults(zod4(schema))` for initial form state (server adapter).
@@ -80,6 +81,7 @@ Forms use **shadcn-svelte Field.* components + Superforms + Zod v4** — no Form
 - **Project detail tabs**: Project detail uses route-backed tabs (`Overview` and `Members`) with `/project/[projectId]` redirecting to `overview`. See [ADR-008](adr/008-project-detail-tabs.md).
 - **Club home session planning**: The `No upcoming sessions` empty state on `/club/[clubId]` opens the same create-session dialog flow used on `/club/[clubId]/sessions` (submit label `Open`), and then routes to `/session/[sessionId]/activities`. The CTA and helper copy are shown only when the viewer has `session:create`.
 - **Shared session card surface**: `/club/[clubId]` and `/club/[clubId]/sessions` both render `src/lib/components/app/sessions/club-session-card.svelte` for upcoming/list cards. View-specific differences (for example, hiding attendees or action menu on dashboard) are controlled via component props instead of separate card implementations.
+- **Session card data prefetching**: Routes that render session cards should prefer `api.sessions.listCardPreviewsByClub` and pass the entry through `prefetchedCardData` to `ClubSessionCard`. This keeps tags/activity preview/attendee preview in a single query and avoids nested per-card loading flashes.
 - **Feed update card surface**: `/feed/my-clubs` renders updates through `src/lib/components/app/feed/update-card.svelte`, which supports conditional related-question and related-project rows. Media attachments are intentionally deferred to a follow-up iteration.
 - **Card elevation baseline**: Shared `Card` (`src/lib/components/ui/card/card.svelte`) is intentionally flat by default (no drop shadow). Feature surfaces that need elevation should opt in explicitly with shadow utilities.
 - **Page headers** use `PageHeaderBackButton`, `PageHeaderTitle`, `PageHeaderActions` — these communicate with AppShell via Svelte context.
