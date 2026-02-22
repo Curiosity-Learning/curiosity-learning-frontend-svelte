@@ -2,7 +2,7 @@
 	import { type VariantProps, tv } from 'tailwind-variants';
 
 	export const badgeVariants = tv({
-		base: 'focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border px-2.5 py-1 type-label whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] [&>svg]:pointer-events-none [&>svg]:size-3.5',
+		base: 'focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] [&>svg]:pointer-events-none [&>svg]:size-3.5',
 		variants: {
 			variant: {
 				default: 'bg-primary text-primary-foreground [a&]:hover:bg-primary/90 border-transparent',
@@ -11,14 +11,20 @@
 				destructive:
 					'bg-destructive [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/70 border-transparent text-white',
 				outline: 'text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground'
+			},
+			size: {
+				default: 'px-2.5 py-1 type-label',
+				sm: 'px-2 py-0.5 type-sm'
 			}
 		},
 		defaultVariants: {
-			variant: 'default'
+			variant: 'default',
+			size: 'default'
 		}
 	});
 
 	export type BadgeVariant = VariantProps<typeof badgeVariants>['variant'];
+	export type BadgeSize = VariantProps<typeof badgeVariants>['size'];
 </script>
 
 <script lang="ts">
@@ -30,10 +36,12 @@
 		href,
 		class: className,
 		variant = 'default',
+		size = 'default',
 		children,
 		...restProps
 	}: WithElementRef<HTMLAnchorAttributes> & {
 		variant?: BadgeVariant;
+		size?: BadgeSize;
 	} = $props();
 </script>
 
@@ -42,7 +50,7 @@
 	bind:this={ref}
 	data-slot="badge"
 	{href}
-	class={cn(badgeVariants({ variant }), className)}
+	class={cn(badgeVariants({ variant, size }), className)}
 	{...restProps}
 >
 	{@render children?.()}

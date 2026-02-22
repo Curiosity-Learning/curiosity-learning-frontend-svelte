@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
 	import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -24,6 +26,7 @@
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { page } from '$app/state';
+	import { formatSessionHeaderLine } from '$lib/domain/session';
 
 	const convexClient = useConvexClient();
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
@@ -74,6 +77,9 @@
 		endTime: null as number | null,
 		description: ''
 	});
+	let projectRailNode = $state<HTMLDivElement | null>(null);
+
+	const PROJECT_RAIL_SCROLL_KEY_PREFIX = 'club-dashboard-projects-rail-scroll';
 
 	const buildDefaultSessionForm = () => {
 		const now = Date.now();
@@ -110,7 +116,12 @@
 			});
 			createSessionDialogOpen = false;
 			if (session?._id) {
-				await goto(routes.sessionDetail(session._id) + '/activities');
+				await goto(resolve(`/session/${session._id}/activities`), {
+					state: {
+						headerTitleHint: formatSessionHeaderLine(createSessionForm.startTime),
+						headerTitleHintPath: `/session/${session._id}`
+					}
+				});
 			}
 		} catch {
 			// Ignore; creation errors are handled in follow-up UX work.
@@ -125,6 +136,55 @@
 		const parts = cleaned.split(/\s+/g).filter(Boolean);
 		const letters = [parts[0]?.[0] ?? '', parts.at(-1)?.[0] ?? ''].join('').toUpperCase();
 		return letters || cleaned.slice(0, 2).toUpperCase();
+	};
+
+	const getProjectRailScrollKey = () => (clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null);
+
+	const restoreProjectRailScroll = (node: HTMLDivElement) => {
+		if (!browser) return;
+		const key = getProjectRailScrollKey();
+		if (!key) return;
+		const savedScrollLeft = Number(sessionStorage.getItem(key));
+		if (!Number.isFinite(savedScrollLeft) || savedScrollLeft <= 0) {
+			sessionStorage.removeItem(key);
+			return;
+		}
+		requestAnimationFrame(() => {
+			node.scrollLeft = savedScrollLeft;
+			// One-time restore so this is only used for immediate back-and-forth.
+			sessionStorage.removeItem(key);
+		});
+	};
+
+	const mountProjectRail = (node: HTMLDivElement) => {
+		projectRailNode = node;
+		restoreProjectRailScroll(node);
+		node.addEventListener('click', handleProjectRailClick);
+		return {
+			destroy() {
+				node.removeEventListener('click', handleProjectRailClick);
+				if (projectRailNode === node) {
+					projectRailNode = null;
+				}
+			}
+		};
+	};
+
+	const handleProjectRailClick = (event: MouseEvent) => {
+		if (!browser || !projectRailNode) return;
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		const projectLink = target.closest('a[href]');
+		if (!projectLink || !projectRailNode.contains(projectLink)) return;
+		const key = getProjectRailScrollKey();
+		if (!key) return;
+		const scrollLeft = projectRailNode.scrollLeft;
+		if (scrollLeft > 0) {
+			sessionStorage.setItem(key, String(Math.round(scrollLeft)));
+			return;
+		}
+		sessionStorage.removeItem(key);
 	};
 </script>
 
@@ -264,13 +324,17 @@
 			/>
 		{:else}
 			<div class="flex flex-col gap-3">
-				<div class="flex gap-4 overflow-x-auto pb-2">
+				<div class="flex gap-4 overflow-x-auto pb-2" use:mountProjectRail>
 					{#each visibleProjects as entry (entry.project._id)}
 						<ClubProjectCard
 							project={entry.project}
 							memberPreview={entry.members}
 							status="current"
 							href={routes.projectDetail(entry.project._id)}
+							navigationState={{
+								headerTitleHint: entry.project.name,
+								headerTitleHintPath: `/project/${entry.project._id}`
+							}}
 							class="w-[18.5rem] shrink-0 sm:w-[20rem]"
 						/>
 					{/each}

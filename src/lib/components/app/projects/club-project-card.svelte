@@ -1,6 +1,8 @@
 <script lang="ts">
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -18,10 +20,11 @@
 		status?: 'current' | 'completed';
 		memberPreview?: MemberPreview[];
 		href?: string;
+		navigationState?: App.PageState;
 		class?: string;
 	};
 
-	let { project, status, memberPreview, href, class: className }: Props = $props();
+	let { project, status, memberPreview, href, navigationState, class: className }: Props = $props();
 
 	const membersResponse = useStableQuery(api.projects.listMembers, () =>
 		memberPreview ? 'skip' : { projectId: project._id }
@@ -64,6 +67,13 @@
 		}
 		return project.dueDate ? `Due by ${formatDateLabel(project.dueDate)}` : 'No due date';
 	});
+
+	const handleLinkClick = (event: MouseEvent) => {
+		if (!href || !navigationState || event.defaultPrevented) return;
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		event.preventDefault();
+		void goto(resolve(href as any), { state: navigationState });
+	};
 </script>
 
 {#snippet cardContent()}
@@ -92,7 +102,12 @@
 {/snippet}
 
 {#if href}
-	<a {href} class="block h-full" data-sveltekit-preload-code="hover">
+	<a
+		href={resolve(href as any)}
+		class="block h-full"
+		data-sveltekit-preload-code="hover"
+		onclick={handleLinkClick}
+	>
 		<Card class={cn('h-full w-full gap-0 py-0', className)}>
 			{@render cardContent()}
 		</Card>

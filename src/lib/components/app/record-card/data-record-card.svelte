@@ -6,15 +6,17 @@
 	type Props = {
 		class?: string;
 		href?: string;
+		navigationState?: App.PageState;
 		disabled?: boolean;
 		header: Snippet;
 		children: Snippet;
 	};
 
-	let { class: className, href, disabled = false, header, children }: Props = $props();
+	let { class: className, href, navigationState, disabled = false, header, children }: Props =
+		$props();
 </script>
 
-<Card class={cn('gap-0 py-0', className)} {href} {disabled}>
+<Card class={cn('gap-0 py-0', className)} {href} {navigationState} {disabled}>
 	<CardHeader class="flex flex-col items-stretch gap-2 p-5 pb-4">
 		{@render header()}
 	</CardHeader>

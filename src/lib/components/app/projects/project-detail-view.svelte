@@ -55,6 +55,9 @@
 		projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
 	let project = $derived(projectResponse.data ?? null);
+	let headerTitle = $derived(
+		project?.name ?? (projectResponse.isLoading || projectResponse.data === undefined ? null : 'Project')
+	);
 
 	const canManageResponse = useStableQuery(api.projects.canManageProject, () =>
 		projectIdTyped ? { projectId: projectIdTyped } : 'skip'
@@ -244,7 +247,9 @@
 </script>
 
 <PageHeaderBackButton fallbackHref={routes.feed} />
-<PageHeaderTitle title={project?.name ?? 'Project'} />
+{#if headerTitle}
+	<PageHeaderTitle title={headerTitle} />
+{/if}
 <PageHeaderActions>
 	<ActionMenu items={projectActionItems} ariaLabel="Open project actions" />
 </PageHeaderActions>

@@ -9,7 +9,10 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			headerTitleHint?: string;
+			headerTitleHintPath?: string;
+		}
 		// interface Platform {}
 	}
 }

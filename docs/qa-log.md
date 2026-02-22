@@ -898,3 +898,109 @@
 
 - `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
 - `npx eslint src/lib/convex/use-stable-query.svelte.ts src/routes/(app)/+layout.svelte src/routes/(app)/+layout.server.ts` ✅
+
+## 2026-02-22
+
+### Bug Fix: Project Header Title Flash on Open
+
+- Updated `src/lib/components/app/projects/project-detail-view.svelte` so the header title override is only mounted once a real project title is available.
+- Added derived `headerTitle` state that stays `null` during the initial project query load and only falls back to `"Project"` after loading has settled without a name.
+- This removes the brief `"Project"` flash when opening a project before the fetched name is applied.
+
+### Run: Validation
+
+- `mcp__svelte__svelte-autofixer` ✅ (`project-detail-view.svelte`)
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Refinement: Seed Project Header Title From Navigation State
+
+- Added typed generic `App.PageState` fields in `src/app.d.ts` for shell-level title hinting (`headerTitleHint`, `headerTitleHintPath`).
+- Updated `src/routes/(app)/+layout.svelte` to apply `headerTitleHint` when the current path matches `headerTitleHintPath`, with priority order:
+  - explicit page title override (`PageHeaderTitle`),
+  - shell hint from `page.state`,
+  - normal nav-derived title.
+- Project-open navigation now passes title hints into route state from:
+  - project cards in `src/lib/components/app/projects/club-projects-view.svelte`,
+  - project cards on club home in `src/routes/(app)/club/[clubId]/+page.svelte`,
+  - feed update project links in `src/routes/(app)/feed/(tabbed)/my-clubs/+page.svelte`,
+  - create-project “Open” flow in `src/lib/components/app/projects/club-projects-view.svelte`.
+- `src/lib/components/app/projects/project-detail-view.svelte` now relies on shell-level hinting and only sets explicit header title after the project query resolves, so fetched canonical project name still wins.
+- Updated `src/lib/routes.ts` so `routes.projectDetail(projectId)` now points directly to `/project/{id}/overview` (bypassing the redirect hop).
+
+### Run: Validation
+
+- `npx @sveltejs/mcp svelte-autofixer` ✅
+  - `src/lib/components/app/projects/project-detail-view.svelte`
+  - `src/lib/components/app/projects/club-project-card.svelte`
+  - `src/lib/components/app/projects/club-projects-view.svelte`
+  - `src/routes/(app)/club/[clubId]/+page.svelte`
+  - `src/lib/components/app/feed/update-card.svelte`
+  - `src/routes/(app)/feed/(tabbed)/my-clubs/+page.svelte`
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UI Refinement: Feed Update Card Project/Prompt Hierarchy
+
+- Updated `src/lib/components/app/feed/update-card.svelte` to match the requested hierarchy:
+  - author name now uses `type-body-bold`,
+  - timestamp now uses `type-body`,
+  - related project now renders as a small default `Badge`,
+  - related prompt/question now renders as orange `type-sm-bold` text.
+- Added `size` variants (`default`, `sm`) to shared `Badge` in `src/lib/components/ui/badge/badge.svelte` and exported `BadgeSize` in `src/lib/components/ui/badge/index.ts`.
+- Updated architecture docs with the feed card convention in `docs/architecture.md`.
+
+### Run: Validation
+
+- `mcp__svelte__svelte-autofixer` ✅
+  - `src/lib/components/app/feed/update-card.svelte`
+  - `src/lib/components/ui/badge/badge.svelte`
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### UI Refinement: My Clubs Feed Uses Flat List (No Outer Card)
+
+- Updated `src/routes/(app)/feed/(tabbed)/my-clubs/+page.svelte` to remove the outer page `Card` wrapper (`CardHeader`, `CardTitle`, `CardDescription`, `CardContent`).
+- The tab now renders loading/error/empty states and `UpdateCard` items directly in a simple vertical list container, avoiding the nested “My clubs inside My clubs” presentation.
+
+### Run: Validation
+
+- `mcp__svelte__svelte-autofixer` ✅ (`src/routes/(app)/feed/(tabbed)/my-clubs/+page.svelte`)
+
+### Refinement: Reusable Header Title Hinting Extended to Sessions
+
+- Extended the shell-level title hint pattern (route-state driven `headerTitleHint`/`headerTitleHintPath`) to session-open flows so session detail headers avoid default-title flash before query hydration.
+- Added shared session title formatter `formatSessionHeaderLine` in `src/lib/domain/session.ts` and reused it in both:
+  - `src/lib/components/app/sessions/club-session-card.svelte`
+  - `src/lib/components/app/sessions/session-detail-view.svelte`
+- Added generic navigation-state plumbing to shared clickable cards:
+  - `src/lib/components/ui/card/card.svelte` now supports `navigationState` and forwards it to `goto(..., { state })`
+  - `src/lib/components/app/record-card/data-record-card.svelte` passes `navigationState` through to `Card`
+- Session open coverage now includes:
+  - session cards opened from `/club/[clubId]` and `/club/[clubId]/sessions` (via `ClubSessionCard` default navigation state),
+  - create-session “Open” navigation from both routes (`src/routes/(app)/club/[clubId]/+page.svelte`, `src/routes/(app)/club/[clubId]/sessions/+page.svelte`).
+- Updated architecture guidance in `docs/architecture.md` to document shell-level header hinting and card-driven stateful navigation as the standard reusable pattern.
+
+### Follow-up Fix: Session Title Hint Was Being Overridden During Initial Load
+
+- Updated `src/lib/components/app/sessions/session-detail-view.svelte` to only mount `PageHeaderTitle` once a concrete title is available, matching the project-detail pattern.
+- `headerTitle` now resolves to:
+  - formatted session timestamp when session data exists,
+  - `null` while initial session query is still loading (`isLoading` / `data === undefined`),
+  - `"Session"` only after loading completes without a session title source.
+- Updated `src/lib/routes.ts` so `routes.sessionDetail(sessionId)` points directly to `/session/{id}/activities` to avoid the `/session/{id}` redirect hop when navigating from cards/links.
+- Updated booklet return/open flows to use the canonical helper directly:
+  - `src/routes/(app)/activity-booklet/+page.svelte`
+  - `src/routes/(app)/activity-booklet/[activityId]/+page.svelte`
+
+### Run: Validation
+
+- `mcp__svelte__svelte-autofixer` ✅ (`session-detail-view.svelte`, `src/routes/(app)/activity-booklet/+page.svelte`, `src/routes/(app)/activity-booklet/[activityId]/+page.svelte`)
+- `npm run check` ✅ (0 errors; existing warnings in `toggle-group.svelte` and existing a11y warnings in `src/routes/(app)/club/[clubId]/+page.svelte`)
+
+### Bug Fix: Club Dashboard Project Rail Back-Navigation Scroll Restore
+
+- Updated `src/routes/(app)/club/[clubId]/+page.svelte` to preserve the horizontal scroll position of the “Current projects” rail only when opening a project card from that rail.
+- Scroll position is persisted only when `scrollLeft > 0`, matching the requested behavior.
+- Restore is one-time on rail mount (value is cleared immediately after applying), so it only supports immediate back-and-forth navigation to project detail pages.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)

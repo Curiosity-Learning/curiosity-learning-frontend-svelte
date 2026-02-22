@@ -45,7 +45,7 @@
 				bookletActivityId: activityIdTyped,
 				sessionId
 			});
-			await goto(routes.sessionDetail(sessionId) + '/activities', { replaceState: true });
+			await goto(routes.sessionDetail(sessionId), { replaceState: true });
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to add activity.';
 		} finally {

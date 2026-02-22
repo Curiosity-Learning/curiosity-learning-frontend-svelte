@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import type { ClassValue } from 'svelte/elements';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Card, CardContent } from '$lib/components/ui/card';
@@ -8,6 +10,7 @@
 	type RelatedEntity = {
 		label: string;
 		href?: string;
+		navigationState?: App.PageState;
 	};
 
 	type Props = {
@@ -63,6 +66,13 @@
 
 	let cardClass = $derived(cn('gap-0 rounded-3xl border border-border/90 bg-card py-0', className));
 	let timestampLabel = $derived(formatRelativeTime(createdAt));
+
+	const handleLinkClick = (event: MouseEvent, href?: string, navigationState?: App.PageState) => {
+		if (!href || !navigationState || event.defaultPrevented) return;
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		event.preventDefault();
+		void goto(resolve(href as any), { state: navigationState });
+	};
 </script>
 
 <Card class={cardClass}>
@@ -85,10 +95,12 @@
 			<div class="flex">
 				{#if relatedQuestion.href}
 					<a
-						href={relatedQuestion.href}
+						href={resolve(relatedQuestion.href as any)}
 						class="inline-flex"
 						data-sveltekit-preload-code="hover"
 						data-sveltekit-preload-data="hover"
+						onclick={(event) =>
+							handleLinkClick(event, relatedQuestion.href, relatedQuestion.navigationState)}
 					>
 						<TagChip tone="muted" label={relatedQuestion.label} />
 					</a>
@@ -101,10 +113,12 @@
 		{#if relatedProject}
 			{#if relatedProject.href}
 				<a
-					href={relatedProject.href}
+					href={resolve(relatedProject.href as any)}
 					class="type-h4-bold text-primary"
 					data-sveltekit-preload-code="hover"
 					data-sveltekit-preload-data="hover"
+					onclick={(event) =>
+						handleLinkClick(event, relatedProject.href, relatedProject.navigationState)}
 				>
 					{relatedProject.label}
 				</a>

@@ -17,6 +17,7 @@
 	} from '$lib/app/connectivity';
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
 	import { routes } from '$lib/routes';
+	import { formatSessionHeaderLine } from '$lib/domain/session';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -249,18 +250,13 @@
 		}
 	};
 
-	const formatHeaderLine = (timestamp: number) => {
-		const date = new Date(timestamp);
-		const weekday = date.toLocaleDateString(undefined, { weekday: 'short' });
-		const monthDay = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-		const time = date
-			.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-			.replace('AM', 'am')
-			.replace('PM', 'pm');
-		return `${weekday}, ${monthDay}, ${time}`;
-	};
-
-	let headerTitle = $derived(session ? formatHeaderLine(session.startTime) : 'Session');
+	let headerTitle = $derived(
+		session
+			? formatSessionHeaderLine(session.startTime)
+			: sessionResponse.isLoading || sessionResponse.data === undefined
+				? null
+				: 'Session'
+	);
 	let fallbackHref = $derived(
 		session ? routes.clubSessions(session.clubId) : routes.onboardingGetStarted
 	);
@@ -456,7 +452,9 @@
 </script>
 
 <PageHeaderBackButton {fallbackHref} />
-<PageHeaderTitle title={headerTitle} />
+{#if headerTitle}
+	<PageHeaderTitle title={headerTitle} />
+{/if}
 <PageHeaderActions>
 	<ActionMenu items={sessionActionItems} ariaLabel="Open session actions" />
 </PageHeaderActions>

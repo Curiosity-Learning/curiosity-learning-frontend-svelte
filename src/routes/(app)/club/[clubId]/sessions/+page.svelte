@@ -1,11 +1,13 @@
 <script lang="ts">
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { PageHeaderActions, PageHeaderBackButton, PageHeaderSearch } from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
+	import { formatSessionHeaderLine } from '$lib/domain/session';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
@@ -102,7 +104,12 @@
 			});
 			createDialogOpen = false;
 			if (session?._id) {
-				await goto(routes.sessionDetail(session._id) + '/activities');
+				await goto(resolve(`/session/${session._id}/activities`), {
+					state: {
+						headerTitleHint: formatSessionHeaderLine(sessionForm.startTime),
+						headerTitleHintPath: `/session/${session._id}`
+					}
+				});
 			}
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to create session.';

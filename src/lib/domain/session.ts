@@ -39,3 +39,14 @@ export const groupSessionsByBucket = (sessions: Array<Doc<'sessions'>>) => {
 
 	return grouped;
 };
+
+export const formatSessionHeaderLine = (timestamp: number) => {
+	const date = new Date(timestamp);
+	const weekday = date.toLocaleDateString(undefined, { weekday: 'short' });
+	const monthDay = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+	const time = date
+		.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+		.replace('AM', 'am')
+		.replace('PM', 'pm');
+	return `${weekday}, ${monthDay}, ${time}`;
+};

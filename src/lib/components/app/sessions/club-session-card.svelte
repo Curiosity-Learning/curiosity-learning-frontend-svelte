@@ -4,6 +4,7 @@
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { formatSessionHeaderLine } from '$lib/domain/session';
 	import {
 		ActionMenu,
 		DataRecordCard,
@@ -29,6 +30,7 @@
 		canDelete?: boolean;
 		showAttendeesSection?: boolean;
 		showActions?: boolean;
+		navigationState?: App.PageState;
 		onDelete?: () => void;
 	};
 
@@ -40,6 +42,7 @@
 		canDelete = false,
 		showAttendeesSection = true,
 		showActions = true,
+		navigationState,
 		onDelete
 	}: Props = $props();
 
@@ -57,16 +60,12 @@
 		prefetchedCardData ? 'skip' : { sessionId: session._id }
 	);
 
-	const formatSessionLine = (timestamp: number) => {
-		const date = new Date(timestamp);
-		const weekday = date.toLocaleDateString(undefined, { weekday: 'short' });
-		const monthDay = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-		const time = date
-			.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-			.replace('AM', 'am')
-			.replace('PM', 'pm');
-		return `${weekday}, ${monthDay}, ${time}`;
-	};
+	let navigationStateResolved = $derived(
+		navigationState ?? {
+			headerTitleHint: formatSessionHeaderLine(session.startTime),
+			headerTitleHintPath: `/session/${session._id}`
+		}
+	);
 
 	let tagNames = $derived(prefetchedCardData?.tagNames ?? cardData.data?.tagNames ?? []);
 	let attendees = $derived(prefetchedCardData?.attendees ?? cardData.data?.attendees ?? []);
@@ -103,10 +102,10 @@
 	]);
 </script>
 
-<DataRecordCard href={sessionHref}>
+<DataRecordCard href={sessionHref} navigationState={navigationStateResolved}>
 	{#snippet header()}
 		{#if tagNames.length > 0}
-			<DataRecordHeader title={formatSessionLine(session.startTime)}>
+			<DataRecordHeader title={formatSessionHeaderLine(session.startTime)}>
 				{#snippet leading()}
 					<CalendarIcon class="size-5 shrink-0 text-primary" strokeWidth={2.75} />
 				{/snippet}
@@ -122,7 +121,7 @@
 				{/snippet}
 			</DataRecordHeader>
 		{:else}
-			<DataRecordHeader title={formatSessionLine(session.startTime)}>
+			<DataRecordHeader title={formatSessionHeaderLine(session.startTime)}>
 				{#snippet leading()}
 					<CalendarIcon class="size-5 shrink-0 text-primary" strokeWidth={2.75} />
 				{/snippet}

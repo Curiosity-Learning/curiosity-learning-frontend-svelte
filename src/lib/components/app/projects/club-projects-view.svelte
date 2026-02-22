@@ -1,6 +1,7 @@
 <script lang="ts">
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -71,7 +72,12 @@
 			});
 			createDialogOpen = false;
 			if (project?._id) {
-				await goto(routes.projectDetail(project._id));
+				await goto(resolve(`/project/${project._id}/overview`), {
+					state: {
+						headerTitleHint: createName.trim(),
+						headerTitleHintPath: `/project/${project._id}`
+					}
+				});
 			}
 		} catch (error) {
 			createError = error instanceof Error ? error.message : 'Failed to create project.';
@@ -180,6 +186,10 @@
 						{status}
 						memberPreview={entry.members}
 						href={routes.projectDetail(entry.project._id)}
+						navigationState={{
+							headerTitleHint: entry.project.name,
+							headerTitleHintPath: `/project/${entry.project._id}`
+						}}
 						class={status === 'completed' ? 'border-border/70' : undefined}
 					/>
 				{/each}

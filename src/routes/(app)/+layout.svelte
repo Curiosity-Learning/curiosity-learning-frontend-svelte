@@ -110,6 +110,12 @@
 			? (activeClubItem?.clubName ?? 'Club')
 			: navState.title
 	);
+	let hintedTitle = $derived.by(() => {
+		const hint = page.state.headerTitleHint?.trim();
+		const hintPath = page.state.headerTitleHintPath;
+		if (!hint || !hintPath) return null;
+		return isActivePath(activePath, hintPath) ? hint : null;
+	});
 
 	let actionsOverride: HeaderActionsOverride = $state(null);
 	let searchOverride: HeaderSearchOverride = $state(null);
@@ -151,11 +157,11 @@
 	} satisfies PageHeaderController);
 </script>
 
-<AppShell
-	title={titleOverride ?? title}
-	{activeNav}
-	{activePath}
-	{navigation}
+	<AppShell
+		title={titleOverride ?? hintedTitle ?? title}
+		{activeNav}
+		{activePath}
+		{navigation}
 	headerBack={backConfigOverride ?? undefined}
 	headerActions={actionsOverride === null || actionsOverride === false
 		? undefined
