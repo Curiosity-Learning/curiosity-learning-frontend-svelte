@@ -3,10 +3,15 @@
 	import { browser } from '$app/environment';
 	import { setContext } from 'svelte';
 	import AppShell from '$lib/components/app/app-shell.svelte';
-	import { buildAppNavigation, type AppNavKey, type AppNavItem } from '$lib/components/app/navigation';
+	import {
+		buildAppNavigation,
+		type AppNavKey,
+		type AppNavItem
+	} from '$lib/components/app/navigation';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
-	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import {
 		PAGE_HEADER_CTX,
@@ -22,13 +27,28 @@
 
 	const auth = useAuth();
 	let isAuthReady = $derived(!auth.isLoading && auth.isAuthenticated);
+	let ensuredProfileForSession = $state(false);
 
 	const convexClient = useConvexClient();
-	const clubsResponse = useQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
-	const activeContextResponse = useQuery(api.clubs.getActiveClubContext, () =>
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
+	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
 		isAuthReady ? {} : 'skip'
 	);
 	let clubs = $derived(clubsResponse.data ?? []);
+
+	$effect(() => {
+		if (!browser) return;
+		if (!isAuthReady) {
+			ensuredProfileForSession = false;
+			return;
+		}
+		if (ensuredProfileForSession) return;
+		ensuredProfileForSession = true;
+		// Keep this non-blocking so navigation does not wait on account initialization.
+		void convexClient.mutation(api.auth.ensureProfile, {}).catch(() => {
+			// Ignore; profile will be ensured by subsequent authenticated mutations/queries.
+		});
+	});
 
 	$effect(() => {
 		if (!browser) return;
@@ -47,7 +67,8 @@
 		})();
 	});
 
-	const isActivePath = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);
+	const isActivePath = (pathname: string, href: string) =>
+		pathname === href || pathname.startsWith(`${href}/`);
 
 	const deriveNavState = (items: AppNavItem[], pathname: string) => {
 		for (const item of items) {
@@ -78,11 +99,9 @@
 		}
 	});
 
-	let activeClubItem = $derived(
-		clubs.find((club) => club.clubId === activeClubId) ?? null
-	);
+	let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
 
-	let clubIdForNav = $derived(activeClubId ?? (clubs[0]?.clubId ?? null));
+	let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
 	let navigation = $derived(buildAppNavigation(clubIdForNav));
 	let navState = $derived(deriveNavState(navigation, activePath));
 	let activeNav = $derived(navState.activeNav);
@@ -98,50 +117,49 @@
 	let backConfigOverride: HeaderBackConfig = $state(null);
 	let titleOverride: HeaderTitleOverride = $state(null);
 
-	setContext(
-		PAGE_HEADER_CTX,
-		{
-			setActions: (value) => {
-				actionsOverride = value;
-			},
-			clearActions: () => {
-				actionsOverride = null;
-			},
-			setSearch: (value) => {
-				searchOverride = value;
-			},
-			clearSearch: () => {
-				searchOverride = null;
-			},
-			setBanner: (value) => {
-				bannerOverride = value;
-			},
-			clearBanner: () => {
-				bannerOverride = null;
-			},
-			setBackConfig: (value) => {
-				backConfigOverride = value;
-			},
-			clearBackConfig: () => {
-				backConfigOverride = null;
-			},
-			setTitle: (value) => {
-				titleOverride = value;
-			},
-			clearTitle: () => {
-				titleOverride = null;
-			}
-		} satisfies PageHeaderController
-	);
+	setContext(PAGE_HEADER_CTX, {
+		setActions: (value) => {
+			actionsOverride = value;
+		},
+		clearActions: () => {
+			actionsOverride = null;
+		},
+		setSearch: (value) => {
+			searchOverride = value;
+		},
+		clearSearch: () => {
+			searchOverride = null;
+		},
+		setBanner: (value) => {
+			bannerOverride = value;
+		},
+		clearBanner: () => {
+			bannerOverride = null;
+		},
+		setBackConfig: (value) => {
+			backConfigOverride = value;
+		},
+		clearBackConfig: () => {
+			backConfigOverride = null;
+		},
+		setTitle: (value) => {
+			titleOverride = value;
+		},
+		clearTitle: () => {
+			titleOverride = null;
+		}
+	} satisfies PageHeaderController);
 </script>
 
 <AppShell
 	title={titleOverride ?? title}
-	activeNav={activeNav}
-	activePath={activePath}
-	navigation={navigation}
+	{activeNav}
+	{activePath}
+	{navigation}
 	headerBack={backConfigOverride ?? undefined}
-	headerActions={actionsOverride === null || actionsOverride === false ? undefined : actionsOverride}
+	headerActions={actionsOverride === null || actionsOverride === false
+		? undefined
+		: actionsOverride}
 	headerSearch={searchOverride ?? undefined}
 	banner={bannerOverride ?? undefined}
 >
@@ -165,7 +183,8 @@
 			<Alert>
 				<AlertTitle>No active club</AlertTitle>
 				<AlertDescription
-					>Create a new club or join one with an invite code to unlock sessions, projects, and members.</AlertDescription
+					>Create a new club or join one with an invite code to unlock sessions, projects, and
+					members.</AlertDescription
 				>
 			</Alert>
 		{/if}
