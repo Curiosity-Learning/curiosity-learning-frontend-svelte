@@ -359,16 +359,16 @@
 							onkeydown={handleNameKeydown}
 							onblur={() => void handleNameBlur()}
 							placeholder="Activity name"
-							class="type-h5-medium h-auto border-0 bg-transparent px-0 py-0 shadow-none focus-visible:border-transparent focus-visible:ring-0"
+							class="type-body-bold text-foreground h-auto border-0 bg-transparent px-0 py-0 shadow-none focus-visible:border-transparent focus-visible:ring-0"
 						/>
 					{:else}
-						<h3 class="type-h5-medium">{activity.name}</h3>
+						<h3 class="type-body-bold text-foreground">{activity.name}</h3>
 					{/if}
 					{#if inlineEditingEnabled && onContentSave}
 						{#if editingDisabled}
 							<p
 								data-placeholder="No activity notes yet. Tap to add details."
-								class="text-muted-foreground whitespace-pre-wrap rounded-md px-2 py-1 -mx-2 -my-1 cursor-not-allowed opacity-70 empty:before:content-[attr(data-placeholder)] empty:before:italic empty:before:opacity-60"
+								class="type-sm text-slate-500 whitespace-pre-wrap rounded-md px-2 py-1 -mx-2 -my-1 cursor-not-allowed opacity-70 empty:before:content-[attr(data-placeholder)] empty:before:italic empty:before:opacity-60"
 							>
 								{contentValue}
 							</p>
@@ -386,11 +386,11 @@
 								data-placeholder="No activity notes yet. Tap to add details."
 								onblur={handleBlur}
 								onfocus={handleFocus}
-								class="text-muted-foreground whitespace-pre-wrap rounded-md px-2 py-1 -mx-2 -my-1 transition-colors outline-none focus:bg-muted/50 hover:bg-muted/30 cursor-text empty:before:content-[attr(data-placeholder)] empty:before:italic empty:before:opacity-60"
+								class="type-sm text-slate-500 whitespace-pre-wrap rounded-md px-2 py-1 -mx-2 -my-1 transition-colors outline-none focus:bg-muted/50 hover:bg-muted/30 cursor-text empty:before:content-[attr(data-placeholder)] empty:before:italic empty:before:opacity-60"
 							>{activity.content ?? ''}</p>
 						{/if}
 					{:else}
-						<p class="text-muted-foreground whitespace-pre-wrap">
+						<p class="type-sm text-slate-500 whitespace-pre-wrap">
 							{activity.content ??
 								'No activity notes yet. Add details to include prep steps, prompts, or handouts.'}
 						</p>
