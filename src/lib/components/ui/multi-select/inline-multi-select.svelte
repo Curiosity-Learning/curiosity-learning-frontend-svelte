@@ -44,7 +44,6 @@
 	let activeIndex = $state(-1);
 	let pendingSave = $state(false);
 	let saveError = $state(false);
-	let optimisticSelectedIds: string[] | null = $state(null);
 	let inputEl: HTMLInputElement | null = $state(null);
 
 	const normalizeIds = (ids: string[]) => Array.from(new Set(ids));
@@ -66,11 +65,7 @@
 	let listboxId = $derived(`multi-select-listbox-${safeId}`);
 	let canSave = $derived(editable && Boolean(onSave));
 	let canInteract = $derived(canSave && !disabled);
-	let effectiveOptimisticSelectedIds = $derived.by(() => {
-		if (optimisticSelectedIds === null) return null;
-		return idsMatch(selectedIds, optimisticSelectedIds) ? null : optimisticSelectedIds;
-	});
-	let committedSelectedIds = $derived(normalizeIds(effectiveOptimisticSelectedIds ?? selectedIds));
+	let committedSelectedIds = $derived(normalizeIds(selectedIds));
 	let displaySelectedIds = $derived(open ? normalizeIds(draftSelectedIds) : committedSelectedIds);
 	let selectedOptions = $derived(
 		displaySelectedIds
@@ -124,17 +119,14 @@
 	const persistSelection = async (nextIds: string[]) => {
 		if (!onSave) return;
 		const normalizedNextIds = normalizeIds(nextIds);
-		const currentIds = normalizeIds(effectiveOptimisticSelectedIds ?? selectedIds);
+		const currentIds = normalizeIds(selectedIds);
 		if (idsMatch(normalizedNextIds, currentIds)) return;
-		// Keep selected chips stable immediately after blur while backend state catches up.
-		optimisticSelectedIds = normalizedNextIds;
 		pendingSave = true;
 		saveError = false;
 		try {
 			await onSave(normalizedNextIds);
 		} catch {
 			saveError = true;
-			optimisticSelectedIds = null;
 		} finally {
 			pendingSave = false;
 		}

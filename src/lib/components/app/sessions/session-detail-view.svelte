@@ -229,14 +229,36 @@
 		const nextContent = updates.content !== undefined ? updates.content : (activity.content ?? '');
 		const nextMinutes = updates.minutes !== undefined ? updates.minutes : activity.minutes;
 		const nextBuildingBlockIds = updates.buildingBlockIds ?? activity.buildingBlocks;
+		const mutationArgs = {
+			sessionId: sessionIdTyped,
+			activityId: activity.id as Id<'sessionActivities'>,
+			name: nextName,
+			content: nextContent.trim() || undefined,
+			minutes: nextMinutes ?? undefined,
+			buildingBlockIds: nextBuildingBlockIds
+		};
 		try {
-			await convexClient.mutation(api.sessions.upsertActivity, {
-				sessionId: sessionIdTyped,
-				activityId: activity.id as Id<'sessionActivities'>,
-				name: nextName,
-				content: nextContent.trim() || undefined,
-				minutes: nextMinutes ?? undefined,
-				buildingBlockIds: nextBuildingBlockIds
+			await convexClient.mutation(api.sessions.upsertActivity, mutationArgs, {
+				optimisticUpdate: (localStore) => {
+					const queryArgs = { sessionId: mutationArgs.sessionId };
+					const currentActivities = localStore.getQuery(api.sessions.listActivities, queryArgs);
+					if (!currentActivities) return;
+
+					let didPatch = false;
+					const nextActivities = currentActivities.map((entry) => {
+						if (String(entry.id) !== String(mutationArgs.activityId)) return entry;
+						didPatch = true;
+						return {
+							...entry,
+							name: mutationArgs.name,
+							content: mutationArgs.content ?? null,
+							minutes: mutationArgs.minutes ?? null,
+							buildingBlocks: mutationArgs.buildingBlockIds
+						};
+					});
+					if (!didPatch) return;
+					localStore.setQuery(api.sessions.listActivities, queryArgs, nextActivities);
+				}
 			});
 			reportMutationSuccess();
 		} catch (error) {

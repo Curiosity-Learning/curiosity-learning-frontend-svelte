@@ -24,4 +24,4 @@ File: `src/lib/components/ui/multi-select/inline-multi-select.svelte`
 
 ## Additional Cleanup
 
-To keep Svelte rune usage clean in this component, optimistic-selection cleanup moved from a state-writing `$effect` to a derived value (`effectiveOptimisticSelectedIds`) with the same behavior.
+The earlier component-local optimistic selected-id mirror approach was later removed in favor of Convex mutation-level `optimisticUpdate` in the session save flow, so this component now stays controlled by upstream `selectedIds`.

@@ -803,6 +803,29 @@
 - `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
 - `npx eslint src/lib/convex/use-stable-query.svelte.ts src/routes/(app)/+layout.svelte src/routes/(app)/+layout.server.ts` ✅
 
+### Refinement: Club Projects Tab Remount Cache
+
+- Enabled opt-in memory cache for club projects list query in `src/lib/components/app/projects/club-projects-view.svelte`:
+  - `api.projects.listByClub` now uses `useStableQuery(..., { cache: 'memory' })`.
+- Scope: affects both `/club/[clubId]/projects/current` and `/club/[clubId]/projects/completed` because both tabs share `ClubProjectsView`.
+- Goal: keep project list results visible immediately on remount/back-navigation while the live query refreshes.
+
+### Run: Validation
+
+- `mcp__svelte__svelte-autofixer` ✅ (`club-projects-view.svelte`)
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Refactor: Inline Multi-Select Optimistic Flow Uses Convex
+
+- Removed component-local optimistic selected-id mirror state from `src/lib/components/ui/multi-select/inline-multi-select.svelte`.
+- Added Convex mutation-level optimistic update for inline activity saves in `src/lib/components/app/sessions/session-detail-view.svelte` via `convexClient.mutation(..., { optimisticUpdate })`.
+- Optimistic patch now updates the subscribed `api.sessions.listActivities` query cache for the edited activity (`name`, `content`, `minutes`, `buildingBlocks`) while the mutation is in flight.
+- Updated `docs/inline-activity-editing.md` to document that building-block immediate UI updates come from Convex `optimisticUpdate`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
+
 ### Bug Fix: Session Card Tag/Activity Pop-in on Remount
 
 - Added `api.sessions.listCardPreviewsByClub` in `src/convex/sessions.ts` to return session + card preview payload in one query (tags, activity preview, hidden count, optional attendees).
