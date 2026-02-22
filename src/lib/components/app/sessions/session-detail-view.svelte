@@ -169,39 +169,11 @@
 	let serverAttendanceSet = $derived(
 		new Set((attendanceResponse.data ?? []).map((entry) => entry.userId))
 	);
-	let optimisticAttendanceByUser = $state<Record<string, boolean>>({});
-	let attendancePendingUserIds = $state<Set<string>>(new Set());
 	let buildingBlockOptions = $derived(
 		(blocksResponse.data ?? []).map((block) => ({ id: String(block._id), name: block.name }))
 	);
 
-	const isUserAttending = (userId: string) => {
-		const optimisticValue = optimisticAttendanceByUser[userId];
-		return optimisticValue === undefined ? serverAttendanceSet.has(userId) : optimisticValue;
-	};
-
-	const isAttendancePending = (userId: string) => attendancePendingUserIds.has(userId);
-
-	const clearOptimisticAttendance = (userId: string) => {
-		const nextOptimistic = { ...optimisticAttendanceByUser };
-		delete nextOptimistic[userId];
-		optimisticAttendanceByUser = nextOptimistic;
-	};
-
-	$effect(() => {
-		const nextOptimistic: Record<string, boolean> = {};
-		let removedMatchedEntries = false;
-		for (const [userId, optimisticValue] of Object.entries(optimisticAttendanceByUser)) {
-			if (serverAttendanceSet.has(userId) === optimisticValue) {
-				removedMatchedEntries = true;
-				continue;
-			}
-			nextOptimistic[userId] = optimisticValue;
-		}
-		if (removedMatchedEntries) {
-			optimisticAttendanceByUser = nextOptimistic;
-		}
-	});
+	const isUserAttending = (userId: string) => serverAttendanceSet.has(userId);
 
 	const saveInlineActivity = async (
 		activity: {
@@ -228,7 +200,9 @@
 		}
 		const nextContent = updates.content !== undefined ? updates.content : (activity.content ?? '');
 		const nextMinutes = updates.minutes !== undefined ? updates.minutes : activity.minutes;
-		const nextBuildingBlockIds = updates.buildingBlockIds ?? activity.buildingBlocks;
+		const nextBuildingBlockIds = (updates.buildingBlockIds ?? activity.buildingBlocks ?? []).filter(
+			(blockId): blockId is Id<'buildingBlocks'> => typeof blockId === 'string' && blockId.length > 0
+		);
 		const mutationArgs = {
 			sessionId: sessionIdTyped,
 			activityId: activity.id as Id<'sessionActivities'>,
@@ -240,29 +214,37 @@
 		try {
 			await convexClient.mutation(api.sessions.upsertActivity, mutationArgs, {
 				optimisticUpdate: (localStore) => {
-					const queryArgs = { sessionId: mutationArgs.sessionId };
-					const currentActivities = localStore.getQuery(api.sessions.listActivities, queryArgs);
-					if (!currentActivities) return;
+					try {
+						const queryArgs = { sessionId: mutationArgs.sessionId };
+						const currentActivities = localStore.getQuery(api.sessions.listActivities, queryArgs);
+						if (!Array.isArray(currentActivities)) return;
 
-					let didPatch = false;
-					const nextActivities = currentActivities.map((entry) => {
-						if (String(entry.id) !== String(mutationArgs.activityId)) return entry;
-						didPatch = true;
-						return {
-							...entry,
-							name: mutationArgs.name,
-							content: mutationArgs.content ?? null,
-							minutes: mutationArgs.minutes ?? null,
-							buildingBlocks: mutationArgs.buildingBlockIds
-						};
-					});
-					if (!didPatch) return;
-					localStore.setQuery(api.sessions.listActivities, queryArgs, nextActivities);
+						let didPatch = false;
+						const nextActivities = currentActivities.map((entry) => {
+							if (!entry || typeof entry !== 'object') return entry;
+							if (!('id' in entry) || String(entry.id) !== String(mutationArgs.activityId)) {
+								return entry;
+							}
+							didPatch = true;
+							return {
+								...entry,
+								name: mutationArgs.name,
+								content: mutationArgs.content ?? null,
+								minutes: mutationArgs.minutes ?? null,
+								buildingBlocks: mutationArgs.buildingBlockIds
+							};
+						});
+						if (!didPatch) return;
+						localStore.setQuery(api.sessions.listActivities, queryArgs, nextActivities);
+					} catch (error) {
+						console.error('Inline activity optimistic update failed:', error);
+					}
 				}
 			});
 			reportMutationSuccess();
 		} catch (error) {
 			reportMutationFailure(error);
+			activityError = error instanceof Error ? error.message : 'Failed to save activity.';
 			throw error;
 		}
 	};
@@ -406,46 +388,51 @@
 		}
 	};
 
-	const flushAttendanceUpdate = async (userId: string) => {
+	const setAttendance = async (userId: string, attending: boolean) => {
 		if (!sessionIdTyped) return;
-		if (isAttendancePending(userId)) return;
-		const requestedAttending = optimisticAttendanceByUser[userId];
-		if (requestedAttending === undefined) return;
-
-		const nextPendingUsers = new Set(attendancePendingUserIds);
-		nextPendingUsers.add(userId);
-		attendancePendingUserIds = nextPendingUsers;
+		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
+		errorMessage = '';
+		const mutationArgs = { sessionId: sessionIdTyped, userId, attending };
 		try {
-			await convexClient.mutation(api.sessions.setAttendance, {
-				sessionId: sessionIdTyped,
-				userId,
-				attending: requestedAttending
+			await convexClient.mutation(api.sessions.setAttendance, mutationArgs, {
+				optimisticUpdate: (localStore) => {
+					const queryArgs = { sessionId: mutationArgs.sessionId };
+					const currentAttendance = localStore.getQuery(api.sessions.listAttendance, queryArgs);
+					if (!currentAttendance) return;
+
+					const existing = currentAttendance.find(
+						(entry) => entry.userId === mutationArgs.userId
+					);
+					if (mutationArgs.attending) {
+						if (existing) return;
+						const now = Date.now();
+						const optimisticId = `optimistic-attendance-${mutationArgs.sessionId}-${mutationArgs.userId}` as Id<'attendances'>;
+						localStore.setQuery(api.sessions.listAttendance, queryArgs, [
+							...currentAttendance,
+							{
+								_id: optimisticId,
+								_creationTime: now,
+								sessionId: mutationArgs.sessionId,
+								userId: mutationArgs.userId,
+								createdByUserId: mutationArgs.userId,
+								createdAt: now
+							}
+						]);
+						return;
+					}
+					if (!existing) return;
+					localStore.setQuery(
+						api.sessions.listAttendance,
+						queryArgs,
+						currentAttendance.filter((entry) => entry.userId !== mutationArgs.userId)
+					);
+				}
 			});
 			reportMutationSuccess();
 		} catch (error) {
 			reportMutationFailure(error);
-			if (optimisticAttendanceByUser[userId] === requestedAttending) {
-				clearOptimisticAttendance(userId);
-			}
 			errorMessage = error instanceof Error ? error.message : 'Failed to update attendance.';
-		} finally {
-			const remainingPendingUsers = new Set(attendancePendingUserIds);
-			remainingPendingUsers.delete(userId);
-			attendancePendingUserIds = remainingPendingUsers;
-
-			const latestAttending = optimisticAttendanceByUser[userId];
-			if (latestAttending !== undefined && latestAttending !== requestedAttending) {
-				void flushAttendanceUpdate(userId);
-			}
 		}
-	};
-
-	const setAttendance = (userId: string, attending: boolean) => {
-		if (!sessionIdTyped) return;
-		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
-		errorMessage = '';
-		optimisticAttendanceByUser = { ...optimisticAttendanceByUser, [userId]: attending };
-		void flushAttendanceUpdate(userId);
 	};
 
 	let sessionActionItems = $derived([

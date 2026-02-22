@@ -21,21 +21,15 @@
 	 * height, causing a visible shrink-then-grow flash. The $effect still
 	 * handles subsequent remote updates from Convex.
 	 *
-	 * ### Optimistic guard (`lastSaved`)
-	 * On blur the local text is saved optimistically — `lastSaved` prevents the
-	 * sync effect from overwriting it with the stale Convex value while the
-	 * mutation is in flight. Once Convex pushes the confirmed value matching
-	 * `lastSaved`, the guard clears and normal sync resumes.
-	 *
 	 * ### Line breaks
 	 * `innerText` (not `textContent`) is used to read/write the element so that
 	 * Enter-key line breaks are preserved as `\n` characters. The element and
 	 * the read-only fallback both use `whitespace-pre-wrap` to render them.
 	 *
 	 * ### Error handling
-	 * If `onContentSave` rejects, `lastSaved` is cleared (letting the element
-	 * revert to the last known Convex state) and a small "Save failed" message
-	 * is shown. Focusing the field again clears the error for retry.
+	 * If `onContentSave` rejects, the local edit surface re-syncs to the last
+	 * known Convex value and a small "Save failed" message is shown. Focusing
+	 * the field again clears the error for retry.
 	 *
 	 * The title (`activity.name`) uses an inline text input with blur-save so
 	 * typing remains stable while still looking like inline text.
@@ -121,17 +115,13 @@
 
 	let draftName = $state('');
 	let isEditingName = $state(false);
-	let lastSavedName: string | null = $state(null);
 	let nameSaveError = $state(false);
 
 	let contentValue = $state('');
 	let isEditing = $state(false);
-	/** Optimistic guard — holds the value we just saved until Convex confirms it. */
-	let lastSaved: string | null = $state(null);
 	let saveError = $state(false);
 	let minutesValue = $state('');
 	let isEditingMinutes = $state(false);
-	let lastSavedMinutes: string | null = $state(null);
 	let minutesSaveError = $state(false);
 
 	const normalizeSingleLine = (value: string) =>
@@ -163,11 +153,9 @@
 		}
 		if (newName !== oldName) {
 			draftName = newName;
-			lastSavedName = newName;
 			try {
 				await onNameSave(newName);
 			} catch {
-				lastSavedName = null;
 				nameSaveError = true;
 			}
 		}
@@ -191,7 +179,7 @@
 		}
 	};
 
-	/** On blur: persist changed content via onContentSave, with optimistic guard. */
+	/** On blur: persist changed content via onContentSave. */
 	const handleBlur = async () => {
 		if (!onContentSave || editingDisabled) return;
 		isEditing = false;
@@ -199,13 +187,9 @@
 		const newContent = contentValue.trim();
 		const oldContent = activity.content?.trim() ?? '';
 		if (newContent !== oldContent) {
-			lastSaved = newContent;
 			try {
 				await onContentSave(newContent);
 			} catch {
-				// Save failed — clear optimistic guard so the element reverts
-				// to the last known Convex state on the next sync.
-				lastSaved = null;
 				saveError = true;
 			}
 		}
@@ -237,11 +221,9 @@
 		if (!trimmed) {
 			minutesValue = '';
 			if (oldMinutes !== null) {
-				lastSavedMinutes = '';
 				try {
 					await onMinutesSave(null);
 				} catch {
-					lastSavedMinutes = null;
 					minutesSaveError = true;
 					minutesValue = oldValue;
 				}
@@ -254,11 +236,9 @@
 			return;
 		}
 		if (parsed !== oldMinutes) {
-			lastSavedMinutes = String(parsed);
 			try {
 				await onMinutesSave(parsed);
 			} catch {
-				lastSavedMinutes = null;
 				minutesSaveError = true;
 				minutesValue = oldValue;
 			}
@@ -275,28 +255,16 @@
 	$effect(() => {
 		const remoteName = normalizeSingleLine(activity.name);
 		if (isEditingName) return;
-		if (lastSavedName !== null && remoteName === lastSavedName) {
-			lastSavedName = null;
-		}
-		if (lastSavedName !== null) return;
 		if (draftName !== remoteName) {
 			draftName = remoteName;
 		}
 	});
 
-	// Sync remote Convex changes into the contentEditable element — but only
-	// when the user is NOT actively editing (prevents clobbering local input).
-	// Also skip if the remote value hasn't caught up with our last save yet
-	// (optimistic guard) to avoid a flash of stale content after blur.
+	// Sync remote Convex changes into the contentEditable value when not actively editing.
 	$effect(() => {
 		const remoteContent = activity.content;
 		if (isEditing) return;
 		const display = remoteContent ?? '';
-		// Clear optimistic guard once Convex confirms our save
-		if (lastSaved !== null && display === lastSaved) {
-			lastSaved = null;
-		}
-		if (lastSaved !== null) return;
 		if (contentValue !== display) {
 			contentValue = display;
 		}
@@ -305,10 +273,6 @@
 	$effect(() => {
 		const remoteMinutes = activity.minutes === null ? '' : String(activity.minutes);
 		if (isEditingMinutes) return;
-		if (lastSavedMinutes !== null && remoteMinutes === lastSavedMinutes) {
-			lastSavedMinutes = null;
-		}
-		if (lastSavedMinutes !== null) return;
 		if (minutesValue !== remoteMinutes) {
 			minutesValue = remoteMinutes;
 		}

@@ -788,6 +788,17 @@
 ### Run: Validation
 
 - `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
+
+### Bug Fix: Inline Activity Save Failures After Optimistic Refactor
+
+- Hardened `upsertActivity` optimistic patching in `src/lib/components/app/sessions/session-detail-view.svelte` so optimistic callback exceptions do not fail the mutation path.
+- Added defensive guards for query cache shape (`Array.isArray`, object/id checks) before patching `api.sessions.listActivities`.
+- Normalized `buildingBlockIds` in mutation args to avoid invalid payload values.
+- Surfaced inline activity save errors into `activityError` so top-level alert shows the real failure message for easier debugging.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
 - `npm run lint:fast` ⚠️ blocked by existing unrelated ESLint issues already present in the repo
 
 ### Bug Fix: Back-Navigation Loading Flash + Slow App Route Transitions
@@ -802,6 +813,16 @@
 
 - `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
 - `npx eslint src/lib/convex/use-stable-query.svelte.ts src/routes/(app)/+layout.svelte src/routes/(app)/+layout.server.ts` ✅
+
+### Refactor: Remove Remaining Custom Session Optimistic State
+
+- Removed `lastSaved*` optimistic guard state from `src/lib/components/app/sessions/session-activity-card.svelte`; inline name/content/minutes now rely on Convex mutation-level optimistic query updates plus normal remote sync.
+- Replaced manual attendance optimistic map/queue in `src/lib/components/app/sessions/session-detail-view.svelte` with `convexClient.mutation(..., { optimisticUpdate })` against `api.sessions.listAttendance`.
+- Updated `docs/inline-activity-editing.md` to reflect Convex `optimisticUpdate` as the active pattern for inline activity saves and attendance toggles.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing toggle-group warnings unchanged)
 
 ### Refinement: Club Projects Tab Remount Cache
 

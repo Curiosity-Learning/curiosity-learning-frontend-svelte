@@ -36,9 +36,9 @@ session simultaneously and see each other's changes appear as they edit.
 | **Minutes input** | Minutes use one consistent inline `<input type="number">` surface. It persists on blur when editable; when editing is unavailable, the same control stays visible but disabled for layout consistency. Empty clears the field. |
 | **Building blocks** | A reusable searchable multi-select shows removable in-chip tags (`TagChip` + `x`), supports typing to filter options, and persists selection on focus leave. To reduce visual clutter, the text input collapses out-of-flow when closed and expands to a full row with a minimum width when focused/open. Immediate UI updates are handled through Convex mutation `optimisticUpdate` on `upsertActivity` instead of component-local optimistic mirrors. |
 | **Connectivity policy** | For now, inline editing is online-only. Session views use the shared connectivity module to disable editing while offline or when the backend is unreachable. Inputs remain visible in-place (for layout consistency) but are disabled until reconnect. |
-| **Optimistic guard** | Last-saved guards prevent stale Convex values from briefly overwriting local blur saves. |
+| **Optimistic updates** | Inline activity saves and attendance toggles use Convex mutation-level `optimisticUpdate`, so subscribed queries update immediately and roll back automatically if a mutation fails. |
 | **Conflict avoidance** | Remote sync is skipped while the user is actively editing each field. Last-write-wins on blur/close. |
-| **Error handling** | If the mutation rejects (e.g. offline), `lastSaved` clears so the element reverts, and a "Save failed" message appears. Focusing again clears the error for retry. |
+| **Error handling** | If a mutation rejects (e.g. offline), Convex rolls back optimistic cache changes and the inline surface re-syncs to server state; the field also shows "Save failed" and clears on refocus for retry. |
 | **Placeholder** | CSS `empty:before` pseudo-element with `data-placeholder` attribute. No JS needed. |
 | **Permissions** | Inline editors render only when update callbacks are present and user has `session_activity:update`. Minutes use the same input in both states, with the control disabled when editing is unavailable. |
 
@@ -62,7 +62,7 @@ Inline updates mutate the existing `sessionActivities` row through
 
 | File | Role |
 |------|------|
-| `src/lib/components/app/sessions/session-activity-card.svelte` | Card component with inline editors, blur-save handlers, optimistic guards, and remote sync |
+| `src/lib/components/app/sessions/session-activity-card.svelte` | Card component with inline editors, blur-save handlers, and remote sync |
 | `src/lib/components/ui/multi-select/inline-multi-select.svelte` | Reusable shadcn-based searchable multi-select used for inline building block edits and other future multi-select surfaces |
 | `src/lib/components/ui/badge/tag-chip.svelte` | Reusable token chip wrapper around `Badge` for accent/muted tag styles, optional icons, and removable chip actions |
 | `src/lib/components/app/sessions/session-detail-view.svelte` | Parent view — passes inline-save callbacks for card fields and handles create/edit dialog save wiring |
@@ -121,7 +121,7 @@ sees that `contentEl.innerText` already matches and is a no-op.
 - **Rich text (Tiptap):** If bold, lists, or links are needed in activity
   descriptions, the `contentEditable` can be replaced with a Tiptap editor.
   The `content` field would store HTML strings (still `v.string()`). The
-  save-on-blur and optimistic guard patterns remain the same.
+  save-on-blur and optimistic-update patterns remain the same.
 - **Collaborative cursors:** For true multi-cursor editing, a CRDT layer
   (e.g. Yjs with `convex-yjs`) would be needed. The current approach is
   last-write-wins per field, which is appropriate for short-form notes.
