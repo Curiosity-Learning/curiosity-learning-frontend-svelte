@@ -27,6 +27,23 @@ export default defineConfig(
 		}
 	},
 	{
+		files: ['src/**/*.{js,ts,svelte,svelte.js,svelte.ts}'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					paths: [
+						{
+							name: 'convex-svelte',
+							importNames: ['useQuery'],
+							message: 'Use useStableQuery from $lib/convex/use-stable-query.svelte.'
+						}
+					]
+				}
+			]
+		}
+	},
+	{
 		files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
 		languageOptions: {
 			parserOptions: {
@@ -42,5 +59,11 @@ export default defineConfig(
 	},
 	{
 		files: ['src/lib/components/ui/button/button.svelte']
+	},
+	{
+		files: ['src/lib/convex/use-stable-query.svelte.ts'],
+		rules: {
+			'no-restricted-imports': 'off'
+		}
 	}
 );
