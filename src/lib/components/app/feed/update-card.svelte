@@ -3,8 +3,8 @@
 	import { resolve } from '$app/paths';
 	import type { ClassValue } from 'svelte/elements';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Card, CardContent } from '$lib/components/ui/card';
-	import { TagChip } from '$lib/components/ui/badge';
 	import { cn } from '$lib/utils';
 
 	type RelatedEntity = {
@@ -86,47 +86,53 @@
 			</Avatar>
 
 			<div class="flex min-w-0 items-center gap-3">
-				<p class="truncate type-h6-bold text-foreground">{displayAuthorName}</p>
-				<p class="shrink-0 type-lead text-muted-foreground">{timestampLabel}</p>
+				<p class="truncate type-body-bold text-foreground">{displayAuthorName}</p>
+				<p class="shrink-0 type-body text-muted-foreground">{timestampLabel}</p>
 			</div>
 		</div>
 
+		{#if relatedProject}
+			<div class="flex min-w-0">
+				{#if relatedProject.href}
+					<a
+						href={resolve(relatedProject.href as any)}
+						class="inline-flex min-w-0"
+						data-sveltekit-preload-code="hover"
+						data-sveltekit-preload-data="hover"
+						onclick={(event) =>
+							handleLinkClick(event, relatedProject.href, relatedProject.navigationState)}
+					>
+						<Badge variant="default" size="sm" class="max-w-full truncate">
+							{relatedProject.label}
+						</Badge>
+					</a>
+				{:else}
+					<Badge variant="default" size="sm" class="max-w-full truncate">
+						{relatedProject.label}
+					</Badge>
+				{/if}
+			</div>
+		{/if}
+
 		{#if relatedQuestion}
-			<div class="flex">
+			<div class="flex min-w-0">
 				{#if relatedQuestion.href}
 					<a
 						href={resolve(relatedQuestion.href as any)}
-						class="inline-flex"
+						class="type-sm-bold truncate text-orange-500"
 						data-sveltekit-preload-code="hover"
 						data-sveltekit-preload-data="hover"
 						onclick={(event) =>
 							handleLinkClick(event, relatedQuestion.href, relatedQuestion.navigationState)}
 					>
-						<TagChip tone="muted" label={relatedQuestion.label} />
+						{relatedQuestion.label}
 					</a>
 				{:else}
-					<TagChip tone="muted" label={relatedQuestion.label} />
+					<p class="type-sm-bold truncate text-orange-500">{relatedQuestion.label}</p>
 				{/if}
 			</div>
 		{/if}
 
-		{#if relatedProject}
-			{#if relatedProject.href}
-				<a
-					href={resolve(relatedProject.href as any)}
-					class="type-h4-bold text-primary"
-					data-sveltekit-preload-code="hover"
-					data-sveltekit-preload-data="hover"
-					onclick={(event) =>
-						handleLinkClick(event, relatedProject.href, relatedProject.navigationState)}
-				>
-					{relatedProject.label}
-				</a>
-			{:else}
-				<p class="type-h4-bold text-primary">{relatedProject.label}</p>
-			{/if}
-		{/if}
-
-		<p class="type-h5 text-foreground">{content}</p>
+		<p class="type-sm text-foreground">{content}</p>
 	</CardContent>
 </Card>
