@@ -171,7 +171,7 @@
 <!-- --bottom-nav-h: height of the fixed mobile bottom nav. Used here for content
      clearance (pb) and by child components for sticky element offsets. On desktop
      (lg:) the sidebar replaces the bottom nav so the padding is removed. -->
-<div class="relative flex min-h-screen flex-col pb-[var(--bottom-nav-h)] lg:pb-0" style="--bottom-nav-h: 4.5rem;">
+<div class="relative flex min-h-screen flex-col bg-purple-50 pb-[var(--bottom-nav-h)] lg:pb-0" style="--bottom-nav-h: 4.5rem;">
 	<ConnectivityOverlay />
 	<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
 		<aside
