@@ -1053,3 +1053,87 @@
 
 - `mcp__svelte__svelte-autofixer` ✅ (`src/routes/(app)/club/[clubId]/+page.svelte`, `src/routes/(app)/club/[clubId]/sessions/+page.svelte`)
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Follow-up Hardening: Create-Session Errors Are Surfaced In-Form
+
+- Updated `src/routes/(app)/club/[clubId]/+page.svelte` to remove silent create-session failures.
+- Added dialog-scoped `createSessionError` state and a destructive alert inside the create-session dialog so failures are visible at the point of action.
+- Create flow now:
+  - clears dialog errors on open and before submit,
+  - closes dialog only after successful navigation/open,
+  - surfaces mutation/navigation failures with explicit messaging instead of swallowing them.
+
+### Debug Instrumentation: End-to-End Create-Session Trace IDs
+
+- Added optional `clientRequestId` to `api.sessions.create` in `src/convex/sessions.ts`.
+- Added Convex-side structured logs for create lifecycle:
+  - `sessions:create:start`
+  - `sessions:create:inserted`
+  - `sessions:create:return`
+- Updated both create-session UI flows to generate and pass `clientRequestId`:
+  - `src/routes/(app)/club/[clubId]/+page.svelte`
+  - `src/routes/(app)/club/[clubId]/sessions/+page.svelte`
+- User-facing create/open error messages now include `Ref: <clientRequestId>` for direct correlation with Convex logs.
+- Added bounded timeouts for both mutation and navigation steps in create-session flows to prevent indefinite `Creating...` state when responses/navigation hang:
+  - create mutation timeout: 12s
+  - open navigation timeout: 5s (with stateful then plain-route fallback)
+- This enables deterministic debugging for “session created but UI stuck” reports by mapping one button click to backend completion and frontend follow-up behavior.
+
+### Follow-up Fix: Create Session Honors Connectivity Guard (No Queued Hang)
+
+- Correlated a reported timeout ref (`83545e75-b1f0-4178-ae05-5355e5e88c35`) and confirmed no matching `sessions:create` execution reached Convex for that click.
+- Updated both create-session flows to use the existing connectivity guard pattern (already used in session detail):
+  - `src/routes/(app)/club/[clubId]/+page.svelte`
+  - `src/routes/(app)/club/[clubId]/sessions/+page.svelte`
+- Added `canMutateOnline` / `connectivityMessage` wiring and fast-fail behavior before mutation calls.
+- Create/open buttons are now disabled when mutation connectivity is unhealthy, preventing queued indefinite mutation waits.
+- Mutation success/failure now reports through `reportMutationSuccess` / `reportMutationFailure` to keep connectivity state accurate.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Review Adjustment: Keep Create Actions Testable While Still Bounded
+
+- Removed create-button disabling tied to `canMutateOnline` from both create-session flows so offline/error-path behavior can still be exercised interactively.
+- Removed early-return gating on `canMutateOnline` before attempting `sessions.create`; create now always attempts and uses timeout + explicit error handling.
+- Kept bounded create/open timeouts and request-id references to avoid indefinite `Creating...` and preserve deterministic tracing.
+- Reduced session create timeout from 12s to 6s for faster failure feedback in degraded connectivity scenarios.
+
+### Simplification: Remove Debug-Only Overhead, Keep Core Reliability
+
+- Removed debug-only request tracing from create-session flow:
+  - dropped `clientRequestId` from `api.sessions.create` arguments in `src/convex/sessions.ts`
+  - removed temporary Convex create lifecycle logs (`sessions:create:start|inserted|return`)
+  - removed `Ref:` suffixes from user-facing errors
+- Kept only the essential safeguards:
+  - stable snapshot of form values before async create/navigation
+  - in-form error UI on club dashboard create dialog
+  - bounded create timeout (6s) to avoid indefinite `Creating...`
+  - simple navigation fallback (`goto` with state, then plain `goto`)
+- This returns the implementation to a minimal, maintainable baseline while preserving the fixes for the original bug and spinner hang.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Follow-up: Session Planning Respects Global Offline Gating
+
+- Aligned create-session entry points with the documented connectivity policy (`canMutateOnline`) for mutation-capable UI.
+- Updated `src/routes/(app)/club/[clubId]/sessions/+page.svelte`:
+  - disabled the header create (`+`) action while offline/unhealthy,
+  - disabled dialog `Open` while offline/unhealthy,
+  - added a create-path guard in `createSession` for `!canMutateOnline`.
+- Updated `src/routes/(app)/club/[clubId]/+page.svelte` create flow to report mutation outcomes through:
+  - `reportMutationSuccess(...)` on successful create mutation,
+  - `reportMutationFailure(...)` on errors.
+- Result: both dashboard and sessions-list create flows now follow the same centralized online-mutation behavior used elsewhere (for example session detail), without extra per-route offline logic.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)

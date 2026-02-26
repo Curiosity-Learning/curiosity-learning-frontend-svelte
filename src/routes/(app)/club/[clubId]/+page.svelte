@@ -8,8 +8,14 @@
 	import { resolve } from '$app/paths';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
+	import {
+		canMutateOnline as canMutateOnlineStore,
+		reportMutationFailure,
+		reportMutationSuccess
+	} from '$lib/app/connectivity';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { fromStore } from 'svelte/store';
 
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
@@ -19,6 +25,7 @@
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
 	import { routes } from '$lib/routes';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
+	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
@@ -30,6 +37,7 @@
 
 	const convexClient = useConvexClient();
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
+	const canMutateOnlineState = fromStore(canMutateOnlineStore);
 
 	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
 	let clubPath = $derived(clubId ? `/club/${clubId}` : '/onboarding/get-started');
@@ -68,10 +76,12 @@
 	let noUpcomingSessionDescription = $derived(
 		canCreateSession ? 'Plan your next meeting to keep your club moving.' : ''
 	);
+	let canMutateOnline = $derived(canMutateOnlineState.current);
 
 	let visibleProjects = $derived(projectsPreviewResponse.data ?? []);
 	let createSessionDialogOpen = $state(false);
 	let createSessionPending = $state(false);
+	let createSessionError = $state('');
 	let createSessionForm = $state({
 		startTime: null as number | null,
 		endTime: null as number | null,
@@ -80,6 +90,20 @@
 	let projectRailNode = $state<HTMLDivElement | null>(null);
 
 	const PROJECT_RAIL_SCROLL_KEY_PREFIX = 'club-dashboard-projects-rail-scroll';
+	const SESSION_CREATE_TIMEOUT_MS = 6_000;
+
+	async function withTimeout<T>(
+		promise: Promise<T>,
+		timeoutMs: number,
+		timeoutMessage: string
+	): Promise<T> {
+		return await Promise.race([
+			promise,
+			new Promise<never>((_, reject) => {
+				setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+			})
+		]);
+	}
 
 	const buildDefaultSessionForm = () => {
 		const now = Date.now();
@@ -92,39 +116,59 @@
 
 	const openCreateSessionDialog = () => {
 		createSessionForm = buildDefaultSessionForm();
+		createSessionError = '';
 		createSessionDialogOpen = true;
 	};
 
 	const createSession = async () => {
+		const startTime = createSessionForm.startTime;
+		const endTime = createSessionForm.endTime;
 		if (
 			!canCreateSession ||
 			!clubIdTyped ||
-			createSessionForm.startTime === null ||
-			createSessionForm.endTime === null
+			startTime === null ||
+			endTime === null
 		) {
 			return;
 		}
 
 		createSessionPending = true;
+		createSessionError = '';
 		try {
 			const desc = createSessionForm.description.trim();
-			const session = await convexClient.mutation(api.sessions.create, {
-				clubId: clubIdTyped,
-				startTime: createSessionForm.startTime,
-				endTime: createSessionForm.endTime,
-				...(desc ? { description: desc } : {})
-			});
-			createSessionDialogOpen = false;
+			const session = await withTimeout(
+				convexClient.mutation(api.sessions.create, {
+					clubId: clubIdTyped,
+					startTime,
+					endTime,
+					...(desc ? { description: desc } : {})
+				}),
+				SESSION_CREATE_TIMEOUT_MS,
+				'Request timed out. Check your connection and try again.'
+			);
+			reportMutationSuccess();
 			if (session?._id) {
-				await goto(resolve(`/session/${session._id}/activities`), {
-					state: {
-						headerTitleHint: formatSessionHeaderLine(createSessionForm.startTime),
-						headerTitleHintPath: `/session/${session._id}`
-					}
-				});
+				const target = resolve(`/session/${session._id}/activities`);
+				const headerTitleHint = Number.isFinite(startTime)
+					? formatSessionHeaderLine(startTime)
+					: undefined;
+				try {
+					await goto(target, {
+						state: {
+							...(headerTitleHint ? { headerTitleHint } : {}),
+							headerTitleHintPath: `/session/${session._id}`
+						}
+					});
+				} catch {
+					await goto(target);
+				}
+				createSessionDialogOpen = false;
+				return;
 			}
-		} catch {
-			// Ignore; creation errors are handled in follow-up UX work.
+			createSessionError = 'Session was created, but could not be opened automatically.';
+		} catch (error) {
+			reportMutationFailure(error);
+			createSessionError = error instanceof Error ? error.message : 'Failed to create session.';
 		} finally {
 			createSessionPending = false;
 		}
@@ -205,7 +249,9 @@
 					Icon={CalendarIcon}
 				>
 					{#snippet action()}
-						<Button variant="outline" onclick={openCreateSessionDialog}>Plan a session</Button>
+						<Button variant="outline" disabled={!canMutateOnline} onclick={openCreateSessionDialog}
+							>Plan a session</Button
+						>
 					{/snippet}
 				</HomeEmptyCard>
 			{:else}
@@ -231,7 +277,9 @@
 					Icon={CalendarIcon}
 				>
 					{#snippet action()}
-						<Button variant="outline" onclick={openCreateSessionDialog}>Plan a session</Button>
+						<Button variant="outline" disabled={!canMutateOnline} onclick={openCreateSessionDialog}
+							>Plan a session</Button
+						>
 					{/snippet}
 				</HomeEmptyCard>
 			{:else}
@@ -262,6 +310,12 @@
 							>Use local date and time values for this club session.</Dialog.Description
 						>
 					</Dialog.Header>
+					{#if createSessionError}
+						<Alert variant="destructive">
+							<AlertTitle>Unable to open session</AlertTitle>
+							<AlertDescription>{createSessionError}</AlertDescription>
+						</Alert>
+					{/if}
 					<div class="flex flex-col gap-3">
 						<SessionDateTimeForm
 							bind:startTime={createSessionForm.startTime}
@@ -281,7 +335,7 @@
 							>Cancel</Button
 						>
 						<Button
-							disabled={createSessionPending || !canCreateSession}
+							disabled={createSessionPending || !canCreateSession || !canMutateOnline}
 							onclick={() => void createSession()}
 						>
 							{createSessionPending ? 'Creating...' : 'Open'}
