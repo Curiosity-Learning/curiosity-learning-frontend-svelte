@@ -24,6 +24,9 @@
 	--radius: 0.625rem;
 	--font-family-sans: 'DM Sans', sans-serif;
 	--font-family-heading: 'DM Sans', sans-serif;
+	--icon-stroke-default: 2.75;
+	--icon-stroke-subtle: 2.25;
+	--icon-stroke-strong: 3;
 
 	/* ── Neutral ── */
 	--neutral-black: #191919;
@@ -359,6 +362,19 @@
 		/* Thin, subtle scrollbars globally (Firefox + WebKit) */
 		scrollbar-width: thin;
 		scrollbar-color: var(--border) transparent;
+	}
+
+	/* Lucide icon stroke weights are token-driven for global consistency. */
+	.lucide-icon {
+		stroke-width: var(--icon-stroke, var(--icon-stroke-default));
+	}
+
+	.lucide-icon.icon-stroke-subtle {
+		--icon-stroke: var(--icon-stroke-subtle);
+	}
+
+	.lucide-icon.icon-stroke-strong {
+		--icon-stroke: var(--icon-stroke-strong);
 	}
 
 	*::-webkit-scrollbar {

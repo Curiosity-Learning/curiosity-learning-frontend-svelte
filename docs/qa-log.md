@@ -1004,3 +1004,52 @@
 ### Run: Validation
 
 - `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-02-26
+
+### UI Standardization: Lucide Icon Stroke Weight Tokens
+
+- Audited icon usage across the app and confirmed Lucide is the icon system in active use:
+  - 66 Lucide icon imports across 36 source files.
+  - Only one feature-level stroke-weight override existed (`strokeWidth={2.75}` in `club-session-card.svelte`).
+- Added global icon stroke tokens and policy wiring in `src/routes/layout.css`:
+  - `--icon-stroke-default`
+  - `--icon-stroke-subtle`
+  - `--icon-stroke-strong`
+- Added global Lucide rule so icon stroke is token-driven (`.lucide-icon`) with semantic exception classes:
+  - `icon-stroke-subtle`
+  - `icon-stroke-strong`
+- Replaced the hard-coded session-card calendar override with `icon-stroke-strong` in `src/lib/components/app/sessions/club-session-card.svelte`.
+- Added ADR-010 (`docs/adr/010-icon-stroke-weight-policy.md`) and updated `docs/architecture.md` with the policy.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Follow-up: Promote Strong Stroke to Global Default
+
+- Updated icon stroke tokens in `src/routes/layout.css` so old "strong" visual weight is now the baseline:
+  - `--icon-stroke-default: 2.75` (was `2`)
+  - `--icon-stroke-subtle: 2.25` (was `1.75`)
+  - `--icon-stroke-strong: 3` (was `2.75`)
+- Removed the remaining `icon-stroke-strong` class usages in `src/lib/components/app/sessions/club-session-card.svelte` so those icons now inherit the new global default.
+- Result: all current icon instances render at default weight unless a future feature explicitly opts into `icon-stroke-subtle`/`icon-stroke-strong`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Club Dashboard Create-Session “Open” Could Stay on Dashboard
+
+- Hardened create-session navigation on both club dashboard and sessions list routes:
+  - `src/routes/(app)/club/[clubId]/+page.svelte`
+  - `src/routes/(app)/club/[clubId]/sessions/+page.svelte`
+- `createSession` now snapshots `startTime`/`endTime` before async mutation work, so navigation state is built from stable values.
+- Header hint formatting is now guarded (`Number.isFinite`) before `formatSessionHeaderLine(...)`, preventing a formatting/runtime edge case from skipping navigation after successful create.
+- Session open now retries with plain `goto(target)` if the stateful navigation attempt throws, ensuring the new session still opens.
+- Dashboard flow now closes the create dialog after navigation attempt rather than before, reducing chances of state churn affecting post-create routing.
+
+### Run: Validation
+
+- `mcp__svelte__svelte-autofixer` ✅ (`src/routes/(app)/club/[clubId]/+page.svelte`, `src/routes/(app)/club/[clubId]/sessions/+page.svelte`)
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
