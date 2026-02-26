@@ -18,7 +18,7 @@
 	variant="ghost"
 	size="sm"
 	class={cn(
-		'type-sm-bold hover:bg-transparent',
+		'type-btn hover:bg-transparent',
 		tone === 'primary' ? 'text-primary hover:text-primary/80' : 'text-muted-foreground',
 		Icon ? 'gap-2' : ''
 	)}
