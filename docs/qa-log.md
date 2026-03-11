@@ -1005,7 +1005,49 @@
 
 - `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+## 2026-03-12
+
+### UI Polish: Standardized Orange CTA Hover/Pressed States
+
+- Refined shared button interaction styles in `src/lib/components/ui/button/button.svelte`:
+  - `brand`: hover darken + pressed darken (`active`) for consistent contained-button feedback.
+  - `brand-outline`: hover tint + stronger border + pressed tint for standard outlined-button behavior.
+  - added `brand-ghost` for text-CTA style with matching orange hover/pressed feedback.
+- Switched Get Started “I have an account” CTA to shared `variant="brand-ghost"` in `src/routes/onboarding/get-started/+page.svelte`.
+
+### UI Refactor: Shared Orange CTA Button Variants
+
+- Added shared button variants in `src/lib/components/ui/button/button.svelte`:
+  - `brand` (filled orange CTA),
+  - `brand-outline` (orange outline CTA).
+- Added shared button size `xl` (`h-12`) for onboarding-style primary actions.
+- Updated `src/routes/onboarding/get-started/+page.svelte` to use common variants instead of per-button inline styling:
+  - `Join a club` now uses `variant="brand" size="xl"`,
+  - `Start a club` now uses `variant="brand-outline" size="xl"`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
 ## 2026-03-11
+
+### UI + Typography: Get Started Screen Parity Refresh (Flutter Reference)
+
+- Added `@fontsource/bevan` and updated global font tokens in `src/routes/layout.css`:
+  - headings now use `Bevan`,
+  - body/controls remain `DM Sans`.
+- Rebuilt `src/routes/onboarding/get-started/+page.svelte` to mirror the provided Flutter/UI reference:
+  - responsive desktop split layout (illustration + CTA column),
+  - mobile stacked layout,
+  - logo/header/subtitle/button hierarchy aligned with reference content,
+  - primary, outline, and text-only CTA styling aligned with orange theme.
+- Wired get-started assets to Flutter-equivalent names:
+  - logo: `src/lib/assets/images/login_image.svg`,
+  - main illustration: `src/lib/assets/images/image.svg`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
 ### Bug Fix: Splash Screen Shows Only Animated App Icon
 

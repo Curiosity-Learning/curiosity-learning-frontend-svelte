@@ -4,10 +4,16 @@
 	import { type VariantProps, tv } from "tailwind-variants";
 
 	export const buttonVariants = tv({
-		base: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+		base: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors duration-200 outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 		variants: {
 			variant: {
 				default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs",
+				brand:
+					"bg-orange-500 text-base font-bold text-white shadow-none hover:bg-orange-600 active:bg-orange-700 focus-visible:ring-orange-300",
+				"brand-outline":
+					"border border-orange-300 bg-white text-base font-bold text-orange-600 shadow-none hover:border-orange-400 hover:bg-orange-50 hover:text-orange-700 active:border-orange-500 active:bg-orange-100 focus-visible:ring-orange-200",
+				"brand-ghost":
+					"bg-transparent text-base font-bold text-orange-600 shadow-none hover:bg-orange-50 hover:text-orange-700 active:bg-orange-100 focus-visible:ring-orange-200",
 				destructive:
 					"bg-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60 text-white shadow-xs",
 				outline:
@@ -20,6 +26,7 @@
 				default: "h-9 px-4 py-2 has-[>svg]:px-3",
 				sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
 				lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+				xl: "h-12 rounded-md px-6 has-[>svg]:px-5",
 				icon: "size-9",
 				"icon-sm": "size-8",
 				"icon-lg": "size-10",

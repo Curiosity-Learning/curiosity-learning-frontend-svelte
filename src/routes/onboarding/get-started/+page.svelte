@@ -1,38 +1,88 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from '$lib/components/ui/card';
+	import loginLogo from '$lib/assets/images/login_image.svg';
+	import onboardingIllustration from '$lib/assets/images/image.svg';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 </script>
 
-<div class="flex flex-1 flex-col items-center justify-center gap-6">
-	<Card class="w-full max-w-3xl">
-		<CardHeader class="flex flex-col gap-2">
-			<CardTitle class="text-3xl">Welcome to Curiosity Learning</CardTitle>
-			<CardDescription
-				>Join an existing club or create your own to plan sessions, projects, and learner progress.</CardDescription
+<div class="flex flex-1 items-center justify-center py-6 sm:py-8">
+	<div
+		class="grid w-full max-w-6xl items-center gap-10 px-5 py-8 sm:px-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-14 lg:px-12 lg:py-12"
+	>
+		<div class="hidden justify-center lg:flex">
+			<img
+				src={onboardingIllustration}
+				alt="Curiosity Learning illustration"
+				class="h-auto w-full max-w-[32rem] object-contain"
+			/>
+		</div>
+
+		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center text-center">
+			<img src={loginLogo} alt="Curiosity Learning" class="h-10 w-auto sm:h-12" />
+			<img
+				src={onboardingIllustration}
+				alt="Curiosity Learning illustration"
+				class="mt-8 h-auto w-full max-w-[16rem] object-contain lg:hidden"
+			/>
+
+			<h1
+				class="mt-8 text-[1.75rem] leading-[1.2] text-neutral-black sm:text-[1.9rem]"
+				style="font-family: var(--font-family-heading);"
 			>
-		</CardHeader>
-		<CardContent class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-			{#if data.isAuthenticated}
-				<Button href="/onboarding/join-club">Join a club</Button>
-				<Button href="/onboarding/start-club" variant="outline">Start a club</Button>
-			{:else}
-				<Button href="/auth/sign-up?next=/onboarding/join-club">Join a club</Button>
-				<Button href="/auth/sign-up?next=/onboarding/start-club" variant="outline"
-					>Start a club</Button
+				Welcome to Curiosity Learning!
+			</h1>
+			<p class="mt-3 text-base leading-6 text-gray-600">
+				Nurture your love for learning.
+			</p>
+
+			<div class="mt-8 flex w-full flex-col gap-3">
+				{#if data.isAuthenticated}
+					<Button
+						href="/onboarding/join-club"
+						variant="brand"
+						size="xl"
+						class="w-full"
+					>
+						Join a club
+					</Button>
+					<Button
+						href="/onboarding/start-club"
+						variant="brand-outline"
+						size="xl"
+						class="w-full"
+					>
+						Start a club
+					</Button>
+				{:else}
+					<Button
+						href="/auth/sign-up?next=/onboarding/join-club"
+						variant="brand"
+						size="xl"
+						class="w-full"
+					>
+						Join a club
+					</Button>
+					<Button
+						href="/auth/sign-up?next=/onboarding/start-club"
+						variant="brand-outline"
+						size="xl"
+						class="w-full"
+					>
+						Start a club
+					</Button>
+				{/if}
+
+				<Button
+					href="/auth/sign-in?next=/"
+					variant="brand-ghost"
+					size="lg"
+					class="mt-2 w-full"
 				>
-			{/if}
-			<Button href="/auth/sign-in?next=/" variant="ghost" class="sm:col-span-2"
-				>I already have an account</Button
-			>
-		</CardContent>
-	</Card>
+					I have an account
+				</Button>
+			</div>
+		</div>
+	</div>
 </div>
