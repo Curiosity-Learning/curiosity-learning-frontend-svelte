@@ -1004,3 +1004,16 @@
 ### Run: Validation
 
 - `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-03-11
+
+### Bug Fix: Splash Screen Shows Only Animated App Icon
+
+- Updated `src/lib/components/app/LauncherScreen.svelte` to render only the app icon with no text/content.
+- Switched splash icon source to imported `src/lib/assets/favicon.svg` so it uses the same logo as the app favicon and resolves correctly in all builds.
+- Added opacity pulse animation and `prefers-reduced-motion` fallback for accessible motion behavior.
+- Updated `src/routes/+layout.svelte` launcher timer to run in `onMount` with cleanup, keeping splash timing client-only and predictable.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
