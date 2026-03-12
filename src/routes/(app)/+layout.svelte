@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
 	import { setContext } from 'svelte';
@@ -9,6 +10,7 @@
 		type AppNavItem
 	} from '$lib/components/app/navigation';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
+	import { toast } from 'svelte-sonner';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -111,8 +113,10 @@
 			: navState.title
 	);
 	let hintedTitle = $derived.by(() => {
-		const hint = page.state.headerTitleHint?.trim();
-		const hintPath = page.state.headerTitleHintPath;
+		const state = page.state ?? {};
+		const hintRaw = (state as App.PageState).headerTitleHint;
+		const hintPath = (state as App.PageState).headerTitleHintPath;
+		const hint = typeof hintRaw === 'string' ? hintRaw.trim() : null;
 		if (!hint || !hintPath) return null;
 		return isActivePath(activePath, hintPath) ? hint : null;
 	});
@@ -122,6 +126,30 @@
 	let bannerOverride: HeaderBannerOverride = $state(null);
 	let backConfigOverride: HeaderBackConfig = $state(null);
 	let titleOverride: HeaderTitleOverride = $state(null);
+	let lastOfflineNavigationToastAt = $state(0);
+
+	const showOfflineNavigationToast = () => {
+		const now = Date.now();
+		if (now - lastOfflineNavigationToastAt < 1_500) return;
+		lastOfflineNavigationToastAt = now;
+		toast.error('You are offline. Reconnect to open that page.');
+	};
+
+	if (browser) {
+		beforeNavigate((navigation) => {
+			if (navigator.onLine) return;
+			if (!navigation.to || !navigation.from) return;
+
+			const fromUrl = navigation.from.url;
+			const toUrl = navigation.to.url;
+			const samePathAndSearch =
+				fromUrl.pathname === toUrl.pathname && fromUrl.search === toUrl.search;
+			if (samePathAndSearch) return;
+
+			navigation.cancel();
+			showOfflineNavigationToast();
+		});
+	}
 
 	setContext(PAGE_HEADER_CTX, {
 		setActions: (value) => {

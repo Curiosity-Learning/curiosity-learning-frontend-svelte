@@ -43,9 +43,10 @@
 	const topNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'top'));
 	const bottomNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'bottom'));
 	// Auto mode chooses the most stable layout for current header width.
-	const SEARCH_INLINE_MIN_WIDTH = 920;
-	const SEARCH_COLLAPSIBLE_MIN_WIDTH = 680;
-	const HISTORY_INDEX_KEY = 'sveltekit:history';
+		const SEARCH_INLINE_MIN_WIDTH = 920;
+		const SEARCH_COLLAPSIBLE_MIN_WIDTH = 680;
+		const HISTORY_INDEX_KEY = 'sveltekit:history';
+	const shellTextureClasses = "bg-[url('/paper-texture.avif')] bg-repeat bg-[length:200px_auto]";
 
 	let clubOpen = $state(false);
 	let clubNavOpen = $derived(activeNav === 'club' ? true : clubOpen);
@@ -102,7 +103,13 @@
 			return;
 		}
 		if (headerBack.fallbackHref) {
-			await goto(headerBack.fallbackHref);
+			try {
+				await goto(headerBack.fallbackHref);
+			} catch (error) {
+				// Navigation can be cancelled by global offline guard; avoid unhandled rejection noise.
+				if (!navigator.onLine) return;
+				console.error('Back navigation fallback failed:', error);
+			}
 		}
 	};
 
@@ -171,12 +178,17 @@
 <!-- --bottom-nav-h: height of the fixed mobile bottom nav. Used here for content
      clearance (pb) and by child components for sticky element offsets. On desktop
      (lg:) the sidebar replaces the bottom nav so the padding is removed. -->
-<div class="relative flex min-h-screen flex-col bg-purple-50 pb-[var(--bottom-nav-h)] lg:pb-0" style="--bottom-nav-h: 4.5rem;">
+<div
+	class="relative flex min-h-screen flex-col bg-purple-50 bg-[url('/paper-texture.avif')] bg-repeat bg-[length:200px_auto] pb-[var(--bottom-nav-h)] [--bottom-nav-h:4.5rem] lg:pb-0"
+>
 	<ConnectivityOverlay />
-	<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
-		<aside
-			class="hidden w-72 flex-col border-r border-border/70 bg-background/70 backdrop-blur lg:flex lg:sticky lg:top-0 lg:h-screen lg:self-start"
-		>
+		<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
+			<aside
+				class={cn(
+					'hidden w-72 flex-col border-r border-border/70 bg-background/70 backdrop-blur lg:flex lg:sticky lg:top-0 lg:h-screen lg:self-start',
+					shellTextureClasses
+				)}
+			>
 			<div class="px-5 py-5">
 				<img src={logoIconAndText} alt="Curiosity Learning" class="h-8 w-auto" />
 			</div>
@@ -252,10 +264,13 @@
 				</div>
 		</aside>
 
-		<div class="flex min-h-screen min-w-0 flex-1 flex-col">
-			<header
-				class="sticky top-0 z-20 flex justify-center border-b border-border/70 bg-background/80 backdrop-blur"
-			>
+			<div class="flex min-h-screen min-w-0 flex-1 flex-col">
+				<header
+					class={cn(
+						'sticky top-0 z-20 flex justify-center border-b border-border/70 bg-background/80 backdrop-blur',
+						shellTextureClasses
+					)}
+				>
 				<div
 					class={cn(
 						'flex w-full max-w-6xl flex-col gap-3 px-4 sm:px-6 lg:px-8',
@@ -381,9 +396,12 @@
 				</div>
 			</main>
 
-			<footer
-				class="fixed inset-x-0 bottom-0 z-10 flex justify-center border-t border-border bg-background/95 backdrop-blur lg:hidden"
-			>
+				<footer
+					class={cn(
+						'fixed inset-x-0 bottom-0 z-10 flex justify-center border-t border-border bg-background/95 backdrop-blur lg:hidden',
+						shellTextureClasses
+					)}
+				>
 				<div class="flex w-full max-w-6xl flex-col gap-2 px-2 py-2 sm:px-6 lg:px-8">
 					<nav class="grid w-full grid-cols-4 gap-1">
 						{#each topNavItems.concat(bottomNavItems) as nav (nav.key)}

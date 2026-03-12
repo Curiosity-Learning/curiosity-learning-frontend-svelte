@@ -1026,6 +1026,28 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+### Follow-up: Guard Imperative `goto(...)` Rejections After Offline-Cancelled Navigation
+
+- Updated shared components that call `goto(...)` directly to catch cancelled/rejected navigation promises:
+  - `src/lib/components/app/header-tabs.svelte`
+  - `src/lib/components/ui/card/card.svelte`
+  - `src/lib/components/app/app-shell.svelte` (back fallback)
+- This prevents unhandled promise rejections after offline-cancelled navigation attempts from cascading into subsequent route errors.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Session Tabs + Offline Navigation Guard
+
+- Fixed session tab active-state mismatch by making header-tab aliases exact-match only in `src/lib/components/app/header-tabs.svelte` (instead of prefix matching).
+- Added a global app-route offline guard in `src/routes/(app)/+layout.svelte` with `beforeNavigate(...)` so cross-route navigation is cancelled while offline (with toast feedback) regardless of where navigation originates.
+- This keeps navigation policy centralized and prevents offline route-load crashes without per-link setup.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
 ### Follow-up: Promote Strong Stroke to Global Default
 
 - Updated icon stroke tokens in `src/routes/layout.css` so old "strong" visual weight is now the baseline:

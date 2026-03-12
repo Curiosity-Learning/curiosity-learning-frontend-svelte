@@ -63,7 +63,14 @@
 			window.location.assign(url.toString());
 			return;
 		}
-		void goto(`${url.pathname}${url.search}${url.hash}`, { replaceState, state: navigationState });
+		void goto(`${url.pathname}${url.search}${url.hash}`, {
+			replaceState,
+			state: navigationState
+		}).catch((error) => {
+			// Navigation can be cancelled by global offline guard; avoid unhandled rejection noise.
+			if (!navigator.onLine) return;
+			console.error('Card navigation failed:', error);
+		});
 	};
 
 	const handleClick: NonNullable<HTMLAttributes<HTMLDivElement>['onclick']> = (event) => {
