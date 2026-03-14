@@ -6,7 +6,6 @@
 	import { Card, CardContent } from '$lib/components/ui/card';
 
 	type Activity = {
-		_id: string;
 		name: string;
 		content: string | null;
 		minutes: number | null;

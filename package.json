@@ -12,6 +12,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --check . && eslint .",
+		"lint:ci": "eslint .",
 		"lint:fast": "eslint . --cache --cache-location node_modules/.cache/eslint",
 		"lint:typography": "./scripts/lint-typography.sh",
 		"format": "prettier --write .",
@@ -20,7 +21,8 @@
 		"test": "npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright test",
 		"test:e2e:local": "playwright test --config playwright.local.config.ts",
-		"convex:codegen": "convex codegen"
+		"convex:codegen": "convex codegen",
+		"ci": "npm run check && npm run lint:ci && npm run build"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^2.0.2",

@@ -10,11 +10,7 @@
 -->
 <script lang="ts">
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
-	import {
-		CalendarDate,
-		type DateValue,
-		getLocalTimeZone
-	} from '@internationalized/date';
+	import { CalendarDate, type DateValue } from '@internationalized/date';
 	import { cn } from '$lib/utils.js';
 	import { Button } from '$lib/components/ui/button';
 	import { Calendar } from '$lib/components/ui/calendar';
@@ -70,8 +66,15 @@
 		const input = event.target as HTMLInputElement;
 		const [hours, minutes] = input.value.split(':').map(Number);
 		const current = value !== null ? new Date(value) : new Date();
-		current.setHours(hours ?? 0, minutes ?? 0, 0, 0);
-		value = current.getTime();
+		value = new Date(
+			current.getFullYear(),
+			current.getMonth(),
+			current.getDate(),
+			hours ?? 0,
+			minutes ?? 0,
+			0,
+			0
+		).getTime();
 	};
 </script>
 

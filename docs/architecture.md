@@ -21,6 +21,12 @@
   - a separate production deployment for live traffic.
 - Environment variable names stay constant across environments; only values change.
 
+## Delivery Gate
+
+- GitHub Actions runs the baseline PR gate on `pull_request` plus direct pushes to `main` and `development`.
+- The fast gate is intentionally limited to `npm ci`, `npm run check`, `npm run lint:ci`, and `npm run build` so obvious breakage is caught before deploy without turning every PR into a full test run.
+- Full lint (`npm run lint`) and test suites remain milestone gates rather than default-on-every-PR checks.
+
 ## Route Layout
 
 - `/auth/*`: sign in/up/reset

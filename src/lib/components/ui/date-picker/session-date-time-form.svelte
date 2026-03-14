@@ -93,8 +93,11 @@
 
 		// Overnight: end time wraps past midnight → advance end by 1 day
 		if (newEnd <= newStart) {
-			const nextDay = new Date(baseDate);
-			nextDay.setDate(nextDay.getDate() + 1);
+			const nextDay = new Date(
+				baseDate.getFullYear(),
+				baseDate.getMonth(),
+				baseDate.getDate() + 1
+			);
 			newEnd = buildTimestamp(nextDay, eStr);
 		}
 

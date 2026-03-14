@@ -98,10 +98,6 @@
 		session && canReadMembers && view === 'attendees' ? { clubId: session.clubId } : 'skip'
 	);
 
-	const sessionCardDataResponse = useStableQuery(api.sessions.getSessionCardData, () =>
-		sessionIdTyped ? { sessionId: sessionIdTyped } : 'skip'
-	);
-
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let activityError = $state('');
@@ -520,7 +516,6 @@
 					{/if}
 				</div>
 			{:else}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					use:dragHandleZone={{
 						items: dndItems,
