@@ -53,17 +53,17 @@
 			participantDisplayNames: string[];
 		}>
 	): ContactSuggestion[] => {
-		const map = new Map<string, string>();
+		const labelsByUserId: Record<string, string> = {};
 		for (const room of rooms) {
 			for (let i = 0; i < room.participantUserIds.length; i++) {
 				const userId = room.participantUserIds[i];
 				const label = room.participantDisplayNames[i] ?? userId;
-				if (!map.has(userId)) {
-					map.set(userId, label);
+				if (!(userId in labelsByUserId)) {
+					labelsByUserId[userId] = label;
 				}
 			}
 		}
-		return [...map.entries()]
+		return Object.entries(labelsByUserId)
 			.map(([userId, label]) => ({ userId, label }))
 			.sort((a, b) => a.label.localeCompare(b.label));
 	};

@@ -1026,6 +1026,24 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+## 2026-03-14
+
+### DevOps: Baseline PR Gate
+
+- Added GitHub Actions workflow `.github/workflows/pr-gate.yml`.
+- The gate runs on every `pull_request` and on direct pushes to `main` and `development`.
+- It intentionally stays small and fast:
+  - `npm ci`
+  - `npm run check`
+  - `npm run lint:ci`
+  - `npm run build`
+- Added `lint:ci` and `ci` package scripts so the PR gate can stay focused on breakage detection without turning every change into a full prettier-plus-test run.
+
+### Run: Validation
+
+- `npm run ci` ✅
+- `npm run check` reports 0 errors and the same existing 3 Svelte warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`.
+
 ### Follow-up: Guard Imperative `goto(...)` Rejections After Offline-Cancelled Navigation
 
 - Updated shared components that call `goto(...)` directly to catch cancelled/rejected navigation promises:

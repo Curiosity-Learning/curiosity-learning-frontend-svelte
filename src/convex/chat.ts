@@ -1,12 +1,10 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
-import type { MutationCtx, QueryCtx } from './_generated/server';
 import { requireIdentity, requireProfile } from './permissions';
 
 const sortUsers = (userIds: string[]) => [...new Set(userIds)].sort();
 const directKeyFor = (userA: string, userB: string) => sortUsers([userA, userB]).join('|');
-type Ctx = QueryCtx | MutationCtx;
 
 export const listRooms = query({
 	args: {},
