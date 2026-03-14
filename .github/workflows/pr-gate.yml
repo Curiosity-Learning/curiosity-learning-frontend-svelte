@@ -20,6 +20,11 @@ jobs:
     name: Install, typecheck, lint, and build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      PUBLIC_CONVEX_URL: https://example.invalid
+      PUBLIC_CONVEX_SITE_URL: https://example.invalid
+      BETTER_AUTH_URL: http://localhost:5173
+      BETTER_AUTH_SECRET: ci-placeholder-secret-not-for-production
 
     steps:
       - name: Check out code
