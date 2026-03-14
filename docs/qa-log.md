@@ -1026,6 +1026,23 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+## 2026-03-14
+
+### Infra: Render Node Runtime
+
+- Replaced `@sveltejs/adapter-auto` with `@sveltejs/adapter-node` so production deploys target a long-lived Node server explicitly.
+- Updated `svelte.config.js` to use the Node adapter.
+- Documented the Render production contract:
+  - build command `npm install && npm run build`
+  - start command `node build/index.js`
+  - required Render and Convex production environment variables
+- Added ADR-011 covering the Node runtime decision and environment ownership split.
+
+### Run: Validation
+
+- `npm run check` ✅
+- `npm run build` ✅
+
 ### Follow-up: Promote Strong Stroke to Global Default
 
 - Updated icon stroke tokens in `src/routes/layout.css` so old "strong" visual weight is now the baseline:
