@@ -2,7 +2,6 @@
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -72,7 +71,7 @@
 		if (!href || !navigationState || event.defaultPrevented) return;
 		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 		event.preventDefault();
-		void goto(resolve(href as any), { state: navigationState });
+		void goto(href, { state: navigationState });
 	};
 </script>
 
@@ -103,7 +102,7 @@
 
 {#if href}
 	<a
-		href={resolve(href as any)}
+		href={href}
 		class="block h-full"
 		data-sveltekit-preload-code="hover"
 		onclick={handleLinkClick}

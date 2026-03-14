@@ -87,6 +87,17 @@ Convex production deployment env values:
 
 ## Quality Gates
 
+Baseline PR gate via GitHub Actions (`pull_request` plus pushes to `main` and `development`):
+
+```sh
+npm ci
+npm run check
+npm run lint:ci
+npm run build
+```
+
+Hard gate before bigger milestones:
+
 ```sh
 npm run lint
 npm run check

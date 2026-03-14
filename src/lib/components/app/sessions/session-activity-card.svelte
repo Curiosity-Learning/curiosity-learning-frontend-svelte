@@ -50,7 +50,6 @@
 	import { InlineMultiSelect } from '$lib/components/ui/multi-select';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
-	import { cn } from '$lib/utils.js';
 	import { dragHandle } from 'svelte-dnd-action';
 
 	type Activity = {
@@ -301,7 +300,6 @@
 <Card class={cardClass}>
 	<div class="flex">
 		{#if showDragHandle}
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				use:dragHandle
 				aria-label="Drag to reorder"

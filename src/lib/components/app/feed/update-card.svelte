@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import type { ClassValue } from 'svelte/elements';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
@@ -71,7 +70,7 @@
 		if (!href || !navigationState || event.defaultPrevented) return;
 		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 		event.preventDefault();
-		void goto(resolve(href as any), { state: navigationState });
+		void goto(href, { state: navigationState });
 	};
 </script>
 
@@ -95,7 +94,7 @@
 			<div class="flex min-w-0">
 				{#if relatedProject.href}
 					<a
-						href={resolve(relatedProject.href as any)}
+						href={relatedProject.href}
 						class="inline-flex min-w-0"
 						data-sveltekit-preload-code="hover"
 						data-sveltekit-preload-data="hover"
@@ -118,7 +117,7 @@
 			<div class="flex min-w-0">
 				{#if relatedQuestion.href}
 					<a
-						href={resolve(relatedQuestion.href as any)}
+						href={relatedQuestion.href}
 						class="type-sm-bold truncate text-orange-500"
 						data-sveltekit-preload-code="hover"
 						data-sveltekit-preload-data="hover"
