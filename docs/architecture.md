@@ -6,6 +6,7 @@
 
 - SvelteKit (Svelte 5, TypeScript)
 - Tailwind v4 + shadcn-svelte
+- svelte-i18n (`src/lib/i18n/index.ts`, locale dictionaries in `src/lib/i18n/messages/*`)
 - Convex backend
 - Better Auth (`@convex-dev/better-auth`)
 - Vitest + Playwright
@@ -15,7 +16,9 @@
 - `/auth/*`: sign in/up/reset
 - `/onboarding/*`: get started, join club, start club
 - `/app/*`: authenticated app area
+- `/privacy`, `/terms`, `/cookies`: public legal document pages
 - Club-scoped routes are canonical under `/club/[clubId]/*` and should be built via `$lib/routes` helpers (`routes.clubHome`, `routes.clubSessions`, etc.) rather than ad-hoc string paths.
+- Signup verification is OTP-based: `/auth/sign-up` includes step `5/5` for email OTP verification (`authClient.emailOtp.verifyEmail`) after account creation.
 
 ### Layout Groups
 
@@ -53,6 +56,7 @@ feed/
 - Sessions/Activities/Attendance
 - Projects/Updates
 - Preferences/Notifications
+- Legal Documents (Privacy Policy, Terms and Conditions, Cookie Policy)
 - Chat (optional slice after core parity)
 
 ## Backend
@@ -60,6 +64,7 @@ feed/
 - `src/convex/schema.ts` defines data model and indexes.
 - `src/convex/*.ts` modules expose queries/mutations/actions.
 - Client uses generated `api` with `convex-svelte` and authenticated token from hooks.
+- Media uploads use Convex Storage upload URLs (`media.generateUploadUrl`) and persist storage IDs on domain rows (`profiles.profileImageStorageId`, `clubs.videoStorageId`).
 - Client query convention: import `useStableQuery` from `src/lib/convex/use-stable-query.svelte.ts` instead of `useQuery` directly. Default mode is stale-first (`keepPreviousData: true`) for content continuity during route and param transitions. Pass `{ mode: 'gate' }` for auth/permission gates that should not reuse stale results. Remount cache is opt-in per query via `{ cache: 'memory' }` (default is `'off'`) so only non-sensitive content queries keep last successful data across remounts.
 - Club projects tabs (`/club/[clubId]/projects/current` and `/club/[clubId]/projects/completed`) opt into remount caching on `api.projects.listPreviewsByClub` in `src/lib/components/app/projects/club-projects-view.svelte` so project cards (including avatar preview data) stay visible on back-navigation while live data refreshes.
 - Auth in `hooks.server.ts` + Better Auth cookie/token integration.
@@ -75,6 +80,7 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - `validators: zod4Client(schema)` for client-side validation (client adapter).
 - `SPA: true` because the backend is Convex, not SvelteKit form actions.
 - `Field.Label` supports a `required` prop for red asterisk indicators.
+- Non-Superforms onboarding/auth screens should reuse shared app-level form primitives in `src/lib/components/app/form/` (`InputField`, `TextareaField`, `SelectField`, `DateSelectField`) for consistent field spacing, label styles, and control states.
 
 ## UI Patterns
 
@@ -104,3 +110,4 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - **Mobile pressed behavior**: Interactive primitives should express visual interaction with `hover:*` utilities at the component level. In `src/routes/layout.css`, the global `hover` variant is configured so on coarse-pointer mobile devices those same styles are applied on `:active`, keeping touch pressed feedback aligned with desktop hover without per-instance overrides.
 - **Inline activity editing**: Session activity cards support inline blur-save editing for title, description, minutes, and building blocks. Building block edits use a reusable searchable inline multi-select (combobox + listbox) at `src/lib/components/ui/multi-select/inline-multi-select.svelte`, composed from shadcn primitives (`Input`) plus reusable token chips (`TagChip`) and accessible listbox roles. Immediate inline-save feedback is driven by Convex mutation `optimisticUpdate` in `session-detail-view`.
 - **Connectivity gating (global)**: Mutation-capable surfaces consume `$lib/app/connectivity.ts` (`canMutateOnline`, `connectivityMessage`, `reportMutationSuccess`, `reportMutationFailure`) so editing can be disabled consistently during offline/network-loss states. AppShell renders a persistent reconnect overlay with spinner while disconnected. This is intentionally centralized so a future offline queue/replay mode can be introduced without rewriting each screen.
+- **Accessibility baseline (global)**: Root layout provides a keyboard skip link (`#main-content`), semantic `<main>` landmark, and localized document language (`<html lang>` driven by active i18n locale). Global CSS defines visible `:focus-visible` rings and a `prefers-reduced-motion` fallback that minimizes animation and transition effects.

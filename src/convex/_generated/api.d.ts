@@ -14,6 +14,8 @@ import type * as bootstrap from "../bootstrap.js";
 import type * as chat from "../chat.js";
 import type * as clubs from "../clubs.js";
 import type * as http from "../http.js";
+import type * as legalDocuments from "../legalDocuments.js";
+import type * as media from "../media.js";
 import type * as notifications from "../notifications.js";
 import type * as permissions from "../permissions.js";
 import type * as preferences from "../preferences.js";
@@ -36,6 +38,8 @@ declare const fullApi: ApiFromModules<{
   chat: typeof chat;
   clubs: typeof clubs;
   http: typeof http;
+  legalDocuments: typeof legalDocuments;
+  media: typeof media;
   notifications: typeof notifications;
   permissions: typeof permissions;
   preferences: typeof preferences;

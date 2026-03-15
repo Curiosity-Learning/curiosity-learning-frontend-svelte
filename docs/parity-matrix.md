@@ -15,7 +15,7 @@
 - [x] Switch active club
 - [x] Profile/settings/preferences
 - [x] Notifications list + read state
-- [x] Terms/privacy pages
+- [x] Terms/privacy/cookie pages
 - [x] Chat/messages baseline (direct room + room/messages UI)
 
 ## Data Contracts
@@ -24,7 +24,7 @@
 - [x] Clubs
 - [x] Club roles
 - [x] Club members
-- [x] Club codes
+- [x] Club invite codes (via `clubs.clubCode`)
 - [x] Sessions
 - [x] Session activities
 - [x] Session activity building blocks
@@ -36,5 +36,5 @@
 - [x] Updates
 - [x] Notifications
 - [x] User preferences
-- [x] Privacy policy
+- [x] Legal documents (privacy/terms/cookie)
 - [x] Rooms/participants/messages

@@ -4,8 +4,7 @@
 	import { page } from '$app/state';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
+	import { InputField } from '$lib/components/app/form';
 	import { authClient } from '$lib/auth-client';
 
 	let token = $derived(page.url.searchParams.get('token') ?? '');
@@ -56,29 +55,31 @@
 
 <div class="flex flex-col gap-4">
 	{#if token}
-		<div class="flex flex-col gap-2">
-			<Label for="newPassword">New password</Label>
-			<Input
-				id="newPassword"
-				type="password"
-				bind:value={newPassword}
-				autocomplete="new-password"
-			/>
-		</div>
-		<div class="flex flex-col gap-2">
-			<Label for="confirmNewPassword">Confirm password</Label>
-			<Input
-				id="confirmNewPassword"
-				type="password"
-				bind:value={confirmPassword}
-				autocomplete="new-password"
-			/>
-		</div>
+		<InputField
+			id="newPassword"
+			label="New password"
+			type="password"
+			bind:value={newPassword}
+			autocomplete="new-password"
+			inputClass="h-9 px-3 py-1 type-control"
+		/>
+		<InputField
+			id="confirmNewPassword"
+			label="Confirm password"
+			type="password"
+			bind:value={confirmPassword}
+			autocomplete="new-password"
+			inputClass="h-9 px-3 py-1 type-control"
+		/>
 	{:else}
-		<div class="flex flex-col gap-2">
-			<Label for="resetEmail">Email</Label>
-			<Input id="resetEmail" type="email" bind:value={email} autocomplete="email" />
-		</div>
+		<InputField
+			id="resetEmail"
+			label="Email"
+			type="email"
+			bind:value={email}
+			autocomplete="email"
+			inputClass="h-9 px-3 py-1 type-control"
+		/>
 	{/if}
 
 	{#if errorMessage}

@@ -6,7 +6,16 @@ export const getMe = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		return requireProfile(ctx, identity.subject);
+		const profile = await requireProfile(ctx, identity.subject);
+		if (!profile.profileImageStorageId) {
+			return profile;
+		}
+
+		const profileImageUrl = await ctx.storage.getUrl(profile.profileImageStorageId);
+		return {
+			...profile,
+			coverPhotoUrl: profileImageUrl ?? profile.coverPhotoUrl
+		};
 	}
 });
 
@@ -16,6 +25,7 @@ export const updateMe = mutation({
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
+		profileImageStorageId: v.optional(v.id('_storage')),
 		dateOfBirth: v.optional(v.string()),
 		about: v.optional(v.string()),
 		howDidYouFindUs: v.optional(v.string()),
@@ -41,8 +51,14 @@ export const updateMe = mutation({
 			}
 		}
 
+		let nextCoverPhotoUrl = args.coverPhotoUrl;
+		if (args.profileImageStorageId) {
+			nextCoverPhotoUrl = await ctx.storage.getUrl(args.profileImageStorageId) ?? undefined;
+		}
+
 		await ctx.db.patch(profile._id, {
 			...args,
+			coverPhotoUrl: nextCoverPhotoUrl,
 			updatedAt: Date.now()
 		});
 
@@ -50,6 +66,10 @@ export const updateMe = mutation({
 		if (!updated) {
 			throw new ConvexError('Profile not found');
 		}
+
+		const resolvedCoverPhotoUrl = updated.profileImageStorageId
+			? (await ctx.storage.getUrl(updated.profileImageStorageId)) ?? updated.coverPhotoUrl
+			: updated.coverPhotoUrl;
 
 		const displayName =
 			updated.username ||
@@ -69,7 +89,7 @@ export const updateMe = mutation({
 				lastName: updated.lastName,
 				username: updated.username,
 				email: updated.email,
-				coverPhotoUrl: updated.coverPhotoUrl
+				coverPhotoUrl: resolvedCoverPhotoUrl
 			});
 		}
 
@@ -84,7 +104,7 @@ export const updateMe = mutation({
 				lastName: updated.lastName,
 				username: updated.username,
 				email: updated.email,
-				coverPhotoUrl: updated.coverPhotoUrl
+				coverPhotoUrl: resolvedCoverPhotoUrl
 			});
 		}
 
@@ -95,11 +115,14 @@ export const updateMe = mutation({
 		for (const participant of participantRows) {
 			await ctx.db.patch(participant._id, {
 				displayName,
-				coverPhotoUrl: updated.coverPhotoUrl
+				coverPhotoUrl: resolvedCoverPhotoUrl
 			});
 		}
 
-		return updated;
+		return {
+			...updated,
+			coverPhotoUrl: resolvedCoverPhotoUrl
+		};
 	}
 });
 

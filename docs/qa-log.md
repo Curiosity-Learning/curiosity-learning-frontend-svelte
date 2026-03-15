@@ -1005,6 +1005,32 @@
 
 - `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+### Media Uploads: Club Videos + Profile Images (Convex Storage)
+
+- Added Convex storage upload mutation:
+  - `src/convex/media.ts` → `media.generateUploadUrl` (auth-gated).
+- Extended schema for storage-backed media IDs:
+  - `profiles.profileImageStorageId?: Id<'_storage'>`
+  - `clubs.videoStorageId?: Id<'_storage'>`
+- Updated `src/convex/profiles.ts`:
+  - `updateMe` accepts `profileImageStorageId`.
+  - resolves storage URL via `ctx.storage.getUrl` and keeps profile/denormalized member avatar fields in sync.
+  - `getMe` now resolves profile image URL from `profileImageStorageId` when present.
+- Updated `src/convex/clubs.ts`:
+  - `createClub` accepts optional `videoUrl` or `videoStorageId`.
+  - invite-preview and club responses resolve storage-backed video URL.
+- Updated onboarding start-club UI:
+  - actual file upload to Convex Storage from `src/routes/onboarding/start-club/+page.svelte`.
+  - uploaded `videoStorageId` is submitted with club creation.
+- Updated join-club preview UI:
+  - `src/routes/onboarding/join-club/[code]/+page.svelte` now renders `<video controls>` when club video is available.
+- Updated settings profile UI:
+  - `src/routes/(app)/settings/+page.svelte` now supports profile image upload to Convex Storage and saves via `profiles.updateMe`.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
 ## 2026-03-12
 
 ### UI Polish: Standardized Orange CTA Hover/Pressed States
@@ -1059,3 +1085,534 @@
 ### Run: Validation
 
 - `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-03-12
+
+### UI: Onboarding Flow Redesign (Join/Start/Signup/Terms)
+
+- Added shared onboarding flow scaffold at `src/lib/components/app/onboarding/flow-shell.svelte` with responsive step counter, progress bar, logo lane (desktop), and account link lane.
+- Rebuilt `src/routes/onboarding/join-club/+page.svelte` to match the reference flow:
+  - 6-cell invite code entry UX with focus management, paste handling, and disabled/enabled continue state.
+  - Mobile-only secondary CTA for `Scan a QR code`.
+- Rebuilt `src/routes/onboarding/join-club/[code]/+page.svelte` as the club preview/detail step with media panel, learner/guide sections, and join/apply CTAs while preserving existing Convex join mutation.
+- Rebuilt `src/routes/onboarding/start-club/+page.svelte` into responsive 2-step application UI (`Add application details`, `Add video`) with auth-gated final submit and Convex create-club integration for authenticated users.
+- Rebuilt `src/routes/auth/sign-up/+page.svelte` into onboarding-style multi-step signup UI (step `3/5` personal info and `4/5` account details), preserving Better Auth email signup and verification resend flow.
+- Updated `src/routes/auth/+layout.svelte` so `/auth/sign-up` renders full-page onboarding layout while keeping card layout for other auth routes.
+- Updated `src/routes/onboarding/+layout.svelte` to full-bleed white onboarding container.
+- Restyled `src/routes/terms/+page.svelte` to the simple mobile/web reference layout with back action and content-first typography.
+
+### Run: Type Check
+
+- `npm run check` ✅
+- Residual pre-existing warnings remain in `src/lib/components/ui/toggle-group/toggle-group.svelte` (`state_referenced_locally`), unchanged by this work.
+
+### UX Fix: QR Scan CTA Availability
+
+- Updated `src/routes/onboarding/join-club/+page.svelte` so `Scan a QR code` is shown only when the client appears mobile-like **and** has camera API support (`mediaDevices/getUserMedia`).
+- This removes scan CTA on normal desktop/laptop web by default while keeping it available on mobile web devices that can scan.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Refactor: Shared Onboarding/Auth Form Components
+
+- Added reusable form primitives in `src/lib/components/app/form/`:
+  - `FieldShell`
+  - `InputField`
+  - `TextareaField`
+  - `SelectField`
+  - `DateSelectField`
+- Refactored onboarding/auth screens to reuse shared form components instead of ad-hoc label/input/select markup:
+  - `src/routes/onboarding/start-club/+page.svelte`
+  - `src/routes/auth/sign-up/+page.svelte`
+  - `src/routes/auth/sign-in/+page.svelte`
+  - `src/routes/auth/reset-password/+page.svelte`
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### UI Consistency: Step Header Typography
+
+- Added shared `.type-step-title` typography token in `src/routes/layout.css` with:
+  - `font-family: DM Sans`
+  - `font-weight: 700`
+  - `font-size: 20px`
+  - `line-height: 24px`
+  - `letter-spacing: 0`
+- Applied this class to step headers in:
+  - `src/routes/onboarding/join-club/+page.svelte`
+  - `src/routes/onboarding/join-club/[code]/+page.svelte`
+  - `src/routes/onboarding/start-club/+page.svelte`
+  - `src/routes/auth/sign-up/+page.svelte`
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### UI Consistency: Text Field Label Typography
+
+- Added shared `.type-field-label` typography token in `src/routes/layout.css` with:
+  - `font-family: DM Sans`
+  - `font-weight: 700`
+  - `font-size: 16px`
+  - `line-height: 24px`
+  - `letter-spacing: 0`
+- Updated shared form label wrapper (`src/lib/components/app/form/field-shell.svelte`) to use `.type-field-label` by default.
+- Removed custom larger label override from `src/routes/onboarding/start-club/+page.svelte` so it inherits the common field-label typography.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Theme Alignment: Primary Orange Button/Link Color
+
+- Updated shared button variants in `src/lib/components/ui/button/button.svelte` so onboarding-focused button styles use primary orange (`#F5791D` / `orange-500`) as the default accent color:
+  - `brand-outline` now defaults to orange-500 for border/text.
+  - `brand-ghost` now defaults to orange-500 text.
+- Updated onboarding/account accent links to primary orange-500 for consistency:
+  - `src/lib/components/app/onboarding/flow-shell.svelte` (`I have an account` link)
+  - `src/routes/onboarding/join-club/+page.svelte` (`View public clubs near you.`)
+  - `src/routes/auth/sign-up/+page.svelte` (`Terms and conditions` link)
+  - `src/routes/onboarding/join-club/[code]/+page.svelte` location/time badges.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Join Club: Code Validation via getClubPreviewByCode
+
+- Updated `src/routes/onboarding/join-club/+page.svelte` to call `api.clubs.getClubPreviewByCode` before navigating to the preview step.
+- `Continue` now validates the 6-character club code against existing clubs and shows inline error messaging for invalid/unresolvable codes.
+- Added loading state (`Checking...`) while validation is in progress.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Signup: OTP Email Verification Flow
+
+- Switched signup email verification from link-based to OTP-based verification using Better Auth `emailOTP` plugin.
+- Added email OTP server plugin setup in `src/convex/auth.ts` with Resend delivery for:
+  - `email-verification`
+  - `sign-in`
+  - `forget-password`
+- Enabled OTP auto-send on signup via Better Auth `emailVerification.sendOnSignUp` with default email-verification override (`overrideDefaultEmailVerification`).
+- Added `emailOTPClient()` to `src/lib/auth-client.ts`.
+- Completed signup flow UI in `src/routes/auth/sign-up/+page.svelte`:
+  - Added `5/5` email verification step with 6-digit OTP entry.
+  - Added OTP verify action (`authClient.emailOtp.verifyEmail`).
+  - Added OTP resend action (`authClient.emailOtp.sendVerificationOtp`) with 30s cooldown.
+  - Kept onboarding step progression and responsive layout intact.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking `toggle-group` warnings unchanged)
+
+### Onboarding: Start Club Back Navigation Fix
+
+- Fixed incorrect back behavior in `src/routes/onboarding/start-club/+page.svelte` where returning from step 1 could bounce users back to step 2.
+- Step navigation is now URL-driven (`/onboarding/start-club` for step 1 and `/onboarding/start-club?step=2` for step 2).
+- Back from step 2 now replaces URL history to step 1, and back from step 1 always routes to `/onboarding/get-started`.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Clubs Media Storage: Persist `videoStorageId` Only
+
+- Updated `clubs` table schema to stop persisting raw `videoUrl` and store only `videoStorageId` for uploaded videos.
+- Updated `src/convex/clubs.ts`:
+  - removed `videoUrl` write args from `createClub` and `updateClub`
+  - removed raw-url fallback from `resolveClubVideoUrl`
+  - keeps returning resolved `videoUrl` in read responses by calling `ctx.storage.getUrl(videoStorageId)` when present
+- Updated onboarding start-club submit flow (`src/routes/onboarding/start-club/+page.svelte`) to send only `videoStorageId`.
+- Updated start-club step copy/UI to remove external link input and focus on upload-based video submission.
+- Regenerated Convex bindings with `npm run convex:codegen`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+### Video Rendering Guard: Valid Video Only
+
+- Updated onboarding club detail screen (`src/routes/onboarding/join-club/[code]/+page.svelte`) to render the video player only when a valid HTTP(S) video URL is present and media loading succeeds.
+- Removed fallback poster/play overlay from that screen so no video UI appears when no valid club video exists.
+- Updated onboarding start-club step (`src/routes/onboarding/start-club/+page.svelte`) to:
+  - accept only files with `video/*` MIME type,
+  - render preview video only after successful upload (`videoStorageId`) and successful media load.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Internationalization + Accessibility Baseline
+
+- Installed and configured `svelte-i18n` with locale bootstrap in `src/lib/i18n/index.ts`.
+- Added initial dictionaries for English and Hindi:
+  - `src/lib/i18n/messages/en.ts`
+  - `src/lib/i18n/messages/hi.ts`
+- Wired i18n into root layout and primary onboarding/cookie surfaces:
+  - localized `<title>`
+  - launcher accessibility label
+  - get-started copy
+  - cookie consent copy
+  - language switcher in Settings preferences
+- Added global accessibility/disability-support defaults:
+  - keyboard skip link to main content in root layout
+  - semantic `<main id="main-content">` landmark
+  - focus-visible ring styles for keyboard navigation
+  - reduced motion fallback for users with `prefers-reduced-motion`
+  - dynamic `<html lang>` updates from active locale
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+### Convex: Removed Legacy `clubCodes` Table
+
+- Removed `clubCodes` table from `src/convex/schema.ts`.
+- Updated invite-code flows in `src/convex/clubs.ts` to use only `clubs.clubCode`:
+  - invite code generation uniqueness check
+  - join/preview by code resolution
+  - club payloads (`getMyClubs`, `getClubById`)
+  - club creation (no dual-write to legacy table)
+- Updated `src/convex/bootstrap.ts` `seedClubCode84NPWT` to use only `clubs.clubCode`.
+- `clubs.clubCode` is now the single source of truth for club invite codes.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Legal Docs: Unified Table + Cookie Policy Page
+
+- Added a new Convex `legalDocuments` table in `src/convex/schema.ts` to store legal content by full-name document type:
+  - `Privacy Policy`
+  - `Terms and Conditions`
+  - `Cookie Policy`
+- Added `src/convex/legalDocuments.ts` with:
+  - `getActiveByKey`
+  - `listActive`
+  - `upsertActive`
+- Updated bootstrap seeding in `src/convex/bootstrap.ts` to ensure active defaults exist for all three legal documents.
+- Updated public legal routes to read from `legalDocuments`:
+  - `src/routes/privacy/+page.server.ts`
+  - `src/routes/terms/+page.server.ts`
+  - new `src/routes/cookies/+page.server.ts`
+- Added shared Terms-style legal UI component:
+  - `src/lib/components/app/legal/legal-document-screen.svelte`
+- Migrated Privacy and Terms pages to the shared legal-document UI and added a new Cookie Policy page:
+  - `src/routes/privacy/+page.svelte`
+  - `src/routes/terms/+page.svelte`
+  - `src/routes/cookies/+page.svelte`
+- Updated cookie consent banner links to include Cookie Policy and full legal names.
+- Updated settings policy section to show all legal document types and direct links to each page.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Cookies: Delayed Popup on Get Started
+
+- Updated `src/lib/components/app/cookie-consent-banner.svelte` so cookie consent popup appears with a short delay (`1500ms`) after user reaches `/onboarding/get-started`.
+- Popup now stays hidden on other routes by default and still respects previously saved consent.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Cookies: Essential + Functional Only
+
+- Updated `src/lib/components/app/cookie-consent-banner.svelte` to support only two cookie categories:
+  - essential (always on)
+  - functional (user choice)
+- Removed `Accept all` wording and replaced with:
+  - `Essential only`
+  - `Allow functional cookies`
+- Updated consent persistence keys/formats:
+  - localStorage: `cl_cookie_preferences_v1` (JSON)
+  - cookie: `cl_cookie_preferences` (`essential_only` or `essential_functional`)
+- Added backward compatibility mapping for previous values (`accepted` / `declined`).
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Web: Global Cookie Consent Popup
+
+- Added website-style cookie consent popup component at `src/lib/components/app/cookie-consent-banner.svelte`.
+- Popup appears once, allows:
+  - `Accept all`
+  - `Essential only`
+- Consent is persisted in both:
+  - localStorage key: `cl_cookie_consent_v1`
+  - cookie: `cl_cookie_consent`
+- Mounted globally in `src/routes/+layout.svelte` (shown after launcher screen) so it works across all routes.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Convex: clubs.clubCode + Fixed Test Code Seed
+
+- Added `clubCode` column to `clubs` table schema and index:
+  - `clubCode: v.optional(v.string())`
+  - `.index('by_club_code', ['clubCode'])`
+- Updated club backend to persist and read from `clubs.clubCode` while keeping compatibility with legacy `clubCodes` table:
+  - invite code generation now checks both `clubs` and `clubCodes` for uniqueness
+  - `createClub` writes generated invite code into both `clubs.clubCode` and `clubCodes`
+  - code-based preview/join now resolves by `clubs.clubCode` first, then falls back to `clubCodes`
+  - `getMyClubs` and `getClubById` prefer `clubs.clubCode` with legacy fallback
+- Added `seedClubCode84NPWT` mutation in `src/convex/bootstrap.ts` to ensure code `84NPWT` exists and is synced in both tables (idempotent behavior).
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Onboarding: Removed Visible Step Counter Text
+
+- Updated shared onboarding shell `src/lib/components/app/onboarding/flow-shell.svelte` to remove the visible `step/total` text (e.g., `1/5`) from the header.
+- Kept the progress bar behavior unchanged across onboarding and auth step flows.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Auth: Resend Verification + Shared OTP Component
+
+- Confirmed auth email OTP delivery is wired through Resend in `src/convex/auth.ts`:
+  - `sendVerificationOTP` for `email-verification`, `sign-in`, and `forget-password`
+  - password reset email (`sendResetPassword`)
+  - required env: `RESEND_API_KEY` (optional sender override: `RESEND_FROM`)
+- Added shared `InputOtp` UI primitive in `src/lib/components/ui/input-otp/` built on `bits-ui` `PinInput` (shadcn-style component approach).
+- Refactored signup step `5/5` in `src/routes/auth/sign-up/+page.svelte` to use `InputOtp` and removed custom per-cell OTP keyboard/paste handlers.
+- Kept existing resend cooldown and OTP verify flow behavior intact.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Onboarding: Join Club Initial Steps Restored
+
+- Updated `src/routes/onboarding/get-started/+page.svelte` so both `Join a club` and `Start a club` always enter onboarding flows first instead of sending unauthenticated users directly to sign-up.
+- This restores the expected Join Club sequence visibility:
+  - Step 1: enter club code (`/onboarding/join-club`)
+  - Step 2: club details (`/onboarding/join-club/[code]`)
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Convex Seed: Dummy Club Mutation
+
+- Added `seedDummyClub` mutation in `src/convex/bootstrap.ts` to insert a dummy row in `clubs` table (plus matching `clubCodes` row).
+- Defaults:
+  - name: `Demo Curiosity Club`
+  - code: `CLUB01`
+  - location: `Amsterdam`
+  - meeting: `Wednesdays 4:00 pm`
+- Mutation is idempotent by invite code (returns existing club if code already exists).
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Signup DOB: Month + Year Only
+
+- Updated signup DOB flow to remove day selection and capture only month and year.
+- Extended shared `DateSelectField` with `includeDay` prop (default `true`) and used `includeDay={false}` in signup.
+- Updated signup personal-step validation to require only name + birth month + birth year.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Signup: Age-Gated Google Sign Up (Step 4)
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to show a `Sign up with Google` CTA on account-details step only when user age is over 16.
+- Added `signUpWithGoogle` flow using Better Auth social sign-in:
+  - `authClient.signIn.social({ provider: 'google', callbackURL, newUserCallbackURL, requestSignUp: true })`
+- Kept terms acceptance requirement for Google sign-up path for consistency with email sign-up flow.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Onboarding Layout: Desktop Illustration + Mobile-Style Form Column
+
+- Updated shared onboarding shell `src/lib/components/app/onboarding/flow-shell.svelte` with optional `showSideIllustration` support.
+- Enabled desktop left-side illustration (same asset as get-started: `assets/images/image.svg`) for:
+  - `src/routes/onboarding/join-club/+page.svelte`
+  - `src/routes/onboarding/join-club/[code]/+page.svelte`
+  - `src/routes/onboarding/start-club/+page.svelte`
+- Right panel remains the same mobile-style step UI and stays responsive on smaller screens.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Date/Time Helpers: Reusable Weekly Meeting Label Formatter
+
+- Added reusable format helpers in `src/lib/domain/date.ts`:
+  - `formatMeetingTime(value)`
+  - `formatWeeklyMeetingLabel(day, time)`
+- Refactored `src/routes/onboarding/join-club/[code]/+page.svelte` to use `formatWeeklyMeetingLabel` instead of local inline formatting logic.
+- Added unit test coverage in `src/lib/domain/date.spec.ts` for:
+  - 24-hour to am/pm conversion
+  - weekday pluralization + `"at"` separator output
+  - partial input handling.
+
+### Run: Validation
+
+- `npm run test:quick -- src/lib/domain/date.spec.ts` ✅
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Onboarding Club Detail: Removed Member/Project Sections
+
+- Updated `src/routes/onboarding/join-club/[code]/+page.svelte` to remove Learners/Guides display from onboarding club detail UI.
+- The onboarding club detail step now focuses on title, description, location/time, optional video, and CTA actions only.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Onboarding Join CTA: Unauthenticated Path to Signup (DOB Step)
+
+- Fixed onboarding join-club detail CTA in `src/routes/onboarding/join-club/[code]/+page.svelte`.
+- `Join as a learner` now routes unauthenticated users to `/auth/sign-up` (with `next` back to join-club code page) instead of `/auth/sign-in`.
+- This ensures users land on signup step 3 (DOB/personal information) as expected.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup Personal Step: Removed Name Field from DOB Step
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to remove the `Full name` input from step 3 (DOB/personal step).
+- Step 3 continue validation now depends only on month + year selection.
+- Signup request now uses `username` as the initial `name` field for `authClient.signUp.email`.
+- Removed remaining step-4 submit guard dependency on `fullName`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup Step 4 UI Order: Terms Checkbox + Google CTA
+
+- Updated `src/routes/auth/sign-up/+page.svelte` account-details step order to:
+  1. Header
+  2. Terms checkbox line
+  3. Outlined `Continue with Google` button (only when age > 16)
+  4. Remaining account fields and sign-up button
+- Kept existing conditional logic and account creation behavior unchanged.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup/Legal Navigation: Preserve Account Step After Opening Terms
+
+- Fixed signup terms-navigation regression where returning from Terms could reset `/auth/sign-up` to DOB (step 3).
+- Updated `src/routes/auth/sign-up/+page.svelte` to:
+  - initialize signup step from the `step` query param,
+  - sync step transitions into the URL with `history.replaceState` (so browser back preserves step),
+  - generate a step-aware `backTo` URL for Terms (`/terms?backTo=...`).
+- Updated `src/lib/components/app/legal/legal-document-screen.svelte` back action to:
+  - prefer `backTo` query navigation via `goto`,
+  - fall back to `history.back()` when `backTo` is absent.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup UI: Multicolor Google Logo in Social CTA
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to use the multicolor Google “G” icon in the `Continue with Google` button (`logos:google-icon` via Iconify).
+- Added dependency `@iconify/svelte` for brand-accurate icon rendering.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Auth: Google OAuth Provider Registration + Signup UI Guard
+
+- Fixed Google social signup failure (`/api/auth/sign-in/social` provider not found) by registering Google in Better Auth server config when credentials are present.
+- Updated `src/convex/auth.ts` to include `socialProviders.google` using `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+- Added `src/routes/auth/sign-up/+page.server.ts` to expose `googleOAuthEnabled` from server env.
+- Updated `src/routes/auth/sign-up/+page.svelte` to:
+  - render `Continue with Google` only when age > 16 and Google OAuth is configured,
+  - show a clear fallback error if Google OAuth is not configured.
+- Documented required Google OAuth env variables in `.env.example` and `README.md`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup Data Binding: Persist DOB + Signup Source + Onboarding Club Intent
+
+- Added `profiles.signUpWith` schema field (`'email' | 'google'`) in `src/convex/schema.ts`.
+- Added new mutation `api.auth.completeSignupProfile` in `src/convex/auth.ts` to persist signup metadata after authentication:
+  - `signUpWith`
+  - `dateOfBirth` (from month/year as `YYYY-MM`)
+  - username normalization
+  - inferred pending onboarding intent from `nextPath` (`pendingClubCode` + `pendingRole` for join/start club flows)
+- Hardened `api.auth.ensureProfile` to keep profile fields in sync with auth-provider data (first/last name and image fallback).
+- Updated `src/routes/auth/sign-up/+page.svelte` to call profile completion for:
+  - email signup (after instant-token path and after OTP verification)
+  - Google signup callback return path (`postSocial=google`)
+- Updated Google social auth callback to return to signup route first, so profile completion runs before redirecting to onboarding target.
+- Regenerated Convex bindings via `npm run convex:codegen`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup UI: Show Google CTA for Age >16 Regardless of Env Gate
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to render the `Continue with Google` button whenever age is above 16 (removed `googleOAuthEnabled` visibility gate).
+- Kept runtime guard in click handler so users still get a clear error if Google OAuth credentials are not configured.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### i18n Update: Replace Hindi Locale with Dutch
+
+- Updated i18n locale registry in `src/lib/i18n/index.ts`:
+  - removed `hi`
+  - added `nl`
+- Added Dutch message bundle at `src/lib/i18n/messages/nl.ts`.
+- Removed Hindi message bundle `src/lib/i18n/messages/hi.ts`.
+- Updated settings language toggle in `src/routes/(app)/settings/+page.svelte` to show `English` and `Dutch` (`nl`).
+- Updated English dictionary language labels in `src/lib/i18n/messages/en.ts` (`hindi` -> `dutch`).
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)

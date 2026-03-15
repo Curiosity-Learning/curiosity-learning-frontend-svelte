@@ -9,6 +9,7 @@ export default defineSchema({
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
+		profileImageStorageId: v.optional(v.id('_storage')),
 		dateOfBirth: v.optional(v.string()),
 		isVerified: v.boolean(),
 		activeClubId: v.optional(v.id('clubs')),
@@ -20,6 +21,7 @@ export default defineSchema({
 		identity: v.optional(v.string()),
 		locationAddress: v.optional(v.string()),
 		videoUrl: v.optional(v.string()),
+		signUpWith: v.optional(v.union(v.literal('email'), v.literal('google'))),
 		pendingClubCode: v.optional(v.string()),
 		pendingRole: v.optional(v.union(v.literal('Learner'), v.literal('Guide'))),
 		updatedAt: v.number()
@@ -39,24 +41,19 @@ export default defineSchema({
 
 	clubs: defineTable({
 		name: v.string(),
+		clubCode: v.optional(v.string()),
 		location: v.optional(v.string()),
 		description: v.optional(v.string()),
 		time: v.optional(v.number()),
-		videoUrl: v.optional(v.string()),
+		videoStorageId: v.optional(v.id('_storage')),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string()),
 		createdByUserId: v.string(),
 		createdAt: v.number(),
 		updatedAt: v.number()
-	}).index('by_created_by', ['createdByUserId']),
-
-	clubCodes: defineTable({
-		clubId: v.id('clubs'),
-		code: v.string(),
-		createdAt: v.number()
 	})
-		.index('by_code', ['code'])
-		.index('by_club', ['clubId']),
+		.index('by_created_by', ['createdByUserId'])
+		.index('by_club_code', ['clubCode']),
 
 	clubMembers: defineTable({
 		clubId: v.id('clubs'),
@@ -259,6 +256,28 @@ export default defineSchema({
 		createdAt: v.number(),
 		updatedAt: v.number()
 	}).index('by_active', ['isActive']),
+
+	legalDocuments: defineTable({
+		documentKey: v.union(
+			v.literal('privacy_policy'),
+			v.literal('terms_and_conditions'),
+			v.literal('cookie_policy')
+		),
+		fullName: v.union(
+			v.literal('Privacy Policy'),
+			v.literal('Terms and Conditions'),
+			v.literal('Cookie Policy')
+		),
+		title: v.string(),
+		content: v.string(),
+		version: v.string(),
+		isActive: v.boolean(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_document_key', ['documentKey'])
+		.index('by_document_key_and_active', ['documentKey', 'isActive'])
+		.index('by_document_key_and_updated', ['documentKey', 'updatedAt']),
 
 	rooms: defineTable({
 		isGroupChat: v.boolean(),

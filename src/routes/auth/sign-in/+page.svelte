@@ -2,10 +2,9 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
 	import { authClient } from '$lib/auth-client';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
+	import { InputField } from '$lib/components/app/form';
 
 	const session = authClient.useSession();
 
@@ -61,14 +60,22 @@
 </script>
 
 <div class="flex flex-col gap-4">
-	<div class="flex flex-col gap-2">
-		<Label for="email">Email</Label>
-		<Input id="email" type="email" bind:value={email} autocomplete="email" />
-	</div>
-	<div class="flex flex-col gap-2">
-		<Label for="password">Password</Label>
-		<Input id="password" type="password" bind:value={password} autocomplete="current-password" />
-	</div>
+	<InputField
+		id="email"
+		label="Email"
+		type="email"
+		bind:value={email}
+		autocomplete="email"
+		inputClass="h-9 px-3 py-1 type-control"
+	/>
+	<InputField
+		id="password"
+		label="Password"
+		type="password"
+		bind:value={password}
+		autocomplete="current-password"
+		inputClass="h-9 px-3 py-1 type-control"
+	/>
 
 	{#if errorMessage}
 		<Alert variant="destructive">
