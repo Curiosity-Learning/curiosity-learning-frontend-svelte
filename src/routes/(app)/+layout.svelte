@@ -27,23 +27,29 @@
 
 	const auth = useAuth();
 	let isAuthReady = $derived(!auth.isLoading && auth.isAuthenticated);
-	let ensuredProfileForSession = $state(false);
+	const viewerResponse = useStableQuery(api.auth.getCurrentUser, () => (isAuthReady ? {} : 'skip'));
+	let authUserId = $derived(viewerResponse.data?._id ?? null);
+	let isConvexSessionReady = $derived(isAuthReady && Boolean(authUserId));
+	let ensuredProfileForUserId = $state<string | null>(null);
 
 	const convexClient = useConvexClient();
-	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () =>
+		isConvexSessionReady ? {} : 'skip'
+	);
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
-		isAuthReady ? {} : 'skip'
+		isConvexSessionReady ? {} : 'skip'
 	);
 	let clubs = $derived(clubsResponse.data ?? []);
 
 	$effect(() => {
 		if (!browser) return;
 		if (!isAuthReady) {
-			ensuredProfileForSession = false;
+			ensuredProfileForUserId = null;
 			return;
 		}
-		if (ensuredProfileForSession) return;
-		ensuredProfileForSession = true;
+		if (!authUserId) return;
+		if (ensuredProfileForUserId === authUserId) return;
+		ensuredProfileForUserId = authUserId;
 		// Keep this non-blocking so navigation does not wait on account initialization.
 		void convexClient.mutation(api.auth.ensureProfile, {}).catch(() => {
 			// Ignore; profile will be ensured by subsequent authenticated mutations/queries.
@@ -52,7 +58,7 @@
 
 	$effect(() => {
 		if (!browser) return;
-		if (!isAuthReady) return;
+		if (!isConvexSessionReady) return;
 		if (clubsResponse.isLoading) return;
 		// Run seeding in the background; it is idempotent but can be slow.
 		const key = 'cl_bootstrapped_v1';

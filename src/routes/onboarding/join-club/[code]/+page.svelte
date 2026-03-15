@@ -5,18 +5,15 @@
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
-	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
 	import { authClient } from '$lib/auth-client';
 	import { formatWeeklyMeetingLabel } from '$lib/domain/date';
-	import { routes } from '$lib/routes';
 
 	let { data }: PageProps = $props();
 
 	const session = authClient.useSession();
-	const convexClient = useConvexClient();
 	const preview = useStableQuery(api.clubs.getClubPreviewByCode, () => ({ code: data.code }));
 
 	let pending = $state(false);
@@ -42,19 +39,23 @@
 		videoLoadFailed = false;
 	});
 
-	const joinClub = async () => {
-		if (!$session.data) {
-			await goto(`/auth/sign-up?next=${encodeURIComponent(`/onboarding/join-club/${data.code}`)}`);
-			return;
-		}
+	const getSignUpPath = () => {
+		const params = new URLSearchParams();
+		params.set('next', `/onboarding/join-club/${data.code}`);
+		params.set('forceSignup', '1');
+		return `/auth/sign-up?${params.toString()}`;
+	};
 
+	const joinClub = async () => {
 		pending = true;
 		errorMessage = '';
 		try {
-			const result = await convexClient.mutation(api.clubs.joinClubWithCode, { code: data.code });
-			await goto(result?.clubId ? routes.clubHome(result.clubId) : '/');
+			if ($session.data) {
+				await authClient.signOut();
+			}
+			await goto(getSignUpPath());
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to join this club right now.';
+			errorMessage = error instanceof Error ? error.message : 'Unable to continue right now.';
 		} finally {
 			pending = false;
 		}
@@ -142,7 +143,7 @@
 					disabled={pending}
 					onclick={() => void joinClub()}
 				>
-					{pending ? 'Joining...' : 'Join as a learner'}
+					{pending ? 'Continuing...' : 'Join as a learner'}
 				</Button>
 			</div>
 		{/if}

@@ -107,7 +107,7 @@
 		{#if tagNames.length > 0}
 			<DataRecordHeader title={formatSessionHeaderLine(session.startTime)}>
 				{#snippet leading()}
-					<CalendarIcon class="size-5 shrink-0 text-primary" strokeWidth={2.75} />
+					<CalendarIcon class="size-5 shrink-0 text-orange-500" strokeWidth={2.75} />
 				{/snippet}
 
 				{#snippet actions()}
@@ -123,7 +123,7 @@
 		{:else}
 			<DataRecordHeader title={formatSessionHeaderLine(session.startTime)}>
 				{#snippet leading()}
-					<CalendarIcon class="size-5 shrink-0 text-primary" strokeWidth={2.75} />
+					<CalendarIcon class="size-5 shrink-0 text-orange-500" strokeWidth={2.75} />
 				{/snippet}
 
 				{#snippet actions()}

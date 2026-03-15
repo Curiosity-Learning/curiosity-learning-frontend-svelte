@@ -19,7 +19,7 @@
 	size="sm"
 	class={cn(
 		'type-sm-bold hover:bg-transparent',
-		tone === 'primary' ? 'text-primary hover:text-primary/80' : 'text-muted-foreground',
+		tone === 'primary' ? 'text-orange-500 hover:text-orange-600' : 'text-muted-foreground',
 		Icon ? 'gap-2' : ''
 	)}
 	data-sveltekit-preload-code="hover"

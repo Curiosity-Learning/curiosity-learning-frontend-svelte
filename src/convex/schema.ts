@@ -279,6 +279,19 @@ export default defineSchema({
 		.index('by_document_key_and_active', ['documentKey', 'isActive'])
 		.index('by_document_key_and_updated', ['documentKey', 'updatedAt']),
 
+	pledges: defineTable({
+		key: v.string(),
+		title: v.string(),
+		description: v.string(),
+		bullets: v.array(v.string()),
+		order: v.number(),
+		isActive: v.boolean(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_key', ['key'])
+		.index('by_active_and_order', ['isActive', 'order']),
+
 	rooms: defineTable({
 		isGroupChat: v.boolean(),
 		name: v.optional(v.string()),

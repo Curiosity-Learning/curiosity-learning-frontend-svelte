@@ -9,10 +9,12 @@
 	} from '$lib/components/ui/card';
 
 	let { children } = $props();
-	let isOnboardingSignUp = $derived(page.url.pathname === '/auth/sign-up');
+	let isOnboardingStyleRoute = $derived(
+		page.url.pathname === '/auth/sign-up' || page.url.pathname === '/auth/post-signup'
+	);
 </script>
 
-{#if isOnboardingSignUp}
+{#if isOnboardingStyleRoute}
 	<div class="flex min-h-screen flex-col bg-white">
 		{@render children()}
 	</div>

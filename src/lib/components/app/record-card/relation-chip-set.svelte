@@ -3,7 +3,7 @@
 
 	type Props = {
 		chips: string[];
-		tone?: 'accent' | 'muted';
+		tone?: 'primary' | 'primarySoft' | 'accent' | 'muted';
 		emptyLabel?: string;
 	};
 

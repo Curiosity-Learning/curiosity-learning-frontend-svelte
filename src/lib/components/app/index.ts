@@ -15,6 +15,7 @@ import RelationChipSet from './record-card/relation-chip-set.svelte';
 import RelationListCards from './record-card/relation-list-cards.svelte';
 import RelationSection from './record-card/relation-section.svelte';
 import Section from './section.svelte';
+import { showGlobalSnackbar } from './snackbar';
 
 export {
 	HeaderTabs,
@@ -33,5 +34,6 @@ export {
 	RelationChipSet,
 	RelationListCards,
 	RelationSection,
-	Section
+	Section,
+	showGlobalSnackbar
 };

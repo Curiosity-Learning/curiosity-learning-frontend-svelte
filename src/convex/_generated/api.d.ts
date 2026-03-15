@@ -18,6 +18,7 @@ import type * as legalDocuments from "../legalDocuments.js";
 import type * as media from "../media.js";
 import type * as notifications from "../notifications.js";
 import type * as permissions from "../permissions.js";
+import type * as pledges from "../pledges.js";
 import type * as preferences from "../preferences.js";
 import type * as privacyPolicy from "../privacyPolicy.js";
 import type * as profiles from "../profiles.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   media: typeof media;
   notifications: typeof notifications;
   permissions: typeof permissions;
+  pledges: typeof pledges;
   preferences: typeof preferences;
   privacyPolicy: typeof privacyPolicy;
   profiles: typeof profiles;

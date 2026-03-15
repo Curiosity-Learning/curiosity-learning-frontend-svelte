@@ -76,8 +76,18 @@ if (process.env.ALLOW_LAN_TRUSTED_ORIGINS === 'true') {
 	);
 }
 
-const googleClientId = process.env.GOOGLE_CLIENT_ID;
-const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+const readEnv = (...keys: string[]) => {
+	for (const key of keys) {
+		const value = process.env[key]?.trim();
+		if (value) {
+			return value;
+		}
+	}
+	return undefined;
+};
+
+const googleClientId = readEnv('GOOGLE_CLIENT_ID', 'AUTH_GOOGLE_ID');
+const googleClientSecret = readEnv('GOOGLE_CLIENT_SECRET', 'AUTH_GOOGLE_SECRET');
 const socialProviders =
 	googleClientId && googleClientSecret
 		? {
@@ -197,9 +207,12 @@ export const getViewerIdentity = query({
 export const ensureProfile = mutation({
 	args: {},
 	handler: async (ctx) => {
-		const authUser = await authComponent.getAuthUser(
+		const authUser = await authComponent.safeGetAuthUser(
 			ctx as unknown as GenericCtx<GenericDataModel>
 		);
+		if (!authUser) {
+			return null;
+		}
 		const existing = await ctx.db
 			.query('profiles')
 			.withIndex('by_user_id', (q) => q.eq('userId', authUser._id))
