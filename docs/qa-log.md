@@ -1237,6 +1237,124 @@
 
 ## 2026-03-16
 
+### Login Desktop Layout Refinement: Show Login SVG on Laptop + Align with Figma Composition
+
+- Updated `src/routes/auth/sign-in/+page.svelte`:
+  - moved to a centered two-column desktop composition with compact card-like structure
+  - desktop illustration now appears from `md` breakpoint (instead of only `lg`)
+  - left panel wraps `src/lib/assets/svg/login.svg` in a light-orange rounded container
+  - adjusted top logo/link visibility and spacing to better match provided login references
+- Result: login illustration now renders on typical laptop widths and overall screen hierarchy is closer to the design screenshots.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Auth UI Update: New Login + Forgot/Reset Password Screens (Figma-Aligned)
+
+- Updated auth layout routing in `src/routes/auth/+layout.svelte` so:
+  - `/auth/sign-in` and `/auth/reset-password` render in full-screen white layout mode (no legacy auth card wrapper)
+- Rebuilt login screen in `src/routes/auth/sign-in/+page.svelte`:
+  - desktop left-side illustration uses `src/lib/assets/svg/login.svg`
+  - top branding + "I'm new, sign me up" CTA
+  - username/email + password fields
+  - remember-me checkbox
+  - forgot-password link to reset flow
+  - login + sign-up buttons
+  - preserved verification resend behavior for unverified-email sign-in errors
+- Rebuilt reset flow screen in `src/routes/auth/reset-password/+page.svelte` with three states:
+  - request reset link (username/email + reset button)
+  - reset link sent confirmation (uses `src/lib/assets/reset_password.png`)
+  - create new password form (new/confirm password + save changes)
+  - added optional parent-flow messaging support via `?parent=1`
+  - successful password reset shows snackbar and routes back to sign-in
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Unified Dropdown UX in Start Club Step 1
+
+- Added shared form component:
+  - `src/lib/components/app/form/dropdown-field.svelte`
+  - supports input-style dropdown with menu opening below field, loading state, click-outside close, searchable/non-searchable modes
+- Updated form exports:
+  - `src/lib/components/app/form/index.ts` now exports `DropdownField`
+- Updated `src/routes/onboarding/start-club/+page.svelte`:
+  - location field now uses `DropdownField` with Photon suggestions
+  - `I am a...` and `How did you find out about us?` now also use `DropdownField` (non-searchable)
+- Result: all three dropdowns in this step now share consistent styling and behavior.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Start Club Location Field: Photon (Free OSM) Autocomplete Integration
+
+- Updated `src/routes/onboarding/start-club/+page.svelte` to replace plain location input behavior with Photon-backed autocomplete:
+  - debounced client-side search against `https://photon.komoot.io/api/`
+  - dropdown suggestions with click-to-select
+  - loading spinner during lookup
+  - deduplicated label formatting from Photon place properties
+  - graceful fallback to manual typing if lookup fails
+- Added click-outside behavior to close the dropdown and abort/cleanup lookup timers/controllers on state changes and unmount.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Start Club Step 1: Referral Dropdown + Conditional "Other" Field + Desktop No-Scroll Option
+
+- Updated `src/routes/onboarding/start-club/+page.svelte`:
+  - changed "How did you find out about us?" from free-text input to a dropdown with source options
+  - added conditional "Please specify" input that appears only when `Other` is selected
+  - added common social/source options (Instagram, LinkedIn, Facebook, YouTube, X, Friend/family, School/teacher, Event/workshop, Other)
+- Updated shared onboarding shell `src/lib/components/app/onboarding/flow-shell.svelte`:
+  - added `desktopContentScrollable` prop (default `true`)
+  - Start Club flow now sets `desktopContentScrollable={false}` to avoid internal desktop scroll for this step
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Post-Signup Redirect Fix: Prevent Bounce to Get Started After Pledge Acceptance
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to preserve the original `nextPath` when routing into post-signup, instead of hardcoding `next=/`.
+- Updated `src/routes/onboarding/post-signup/+page.svelte` completion logic:
+  - if profile has `pendingClubCode`, it now calls `api.clubs.joinClubWithCode` and routes directly to `/club/{clubId}`
+  - otherwise it keeps existing `firstLoginCompleted` update + `nextPath` redirect
+- Result: users coming from join-club signup flow are taken to club/home after accepting pledges, instead of landing on get-started.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Post-Signup UX: Replaced Inline Alerts with Global Snackbar Feedback
+
+- Updated `src/routes/onboarding/post-signup/+page.svelte`:
+  - removed static inline alert UI blocks
+  - switched success/error/validation feedback to `showGlobalSnackbar(...)`
+  - includes upload success, invalid file type, pledge load errors, username required, and onboarding completion errors
+- Goal: keep the step UI clean and show transient feedback consistently across web/mobile.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
 ### Onboarding UI Cleanup: Removed Header Logo from Step Shell
 
 - Updated `src/lib/components/app/onboarding/flow-shell.svelte` to remove the Curiosity Learning logo from the onboarding step header on web.
@@ -2080,6 +2198,101 @@
   - replaced static `agreementItems` with `api.pledges.listActive` data
   - renders pledge title + description + bullet points in collapsible sections
   - auto-seeds default pledges once when table is empty for authenticated users
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Login Eye Alignment + Onboarding Step Continuity (Join/Start Club)
+
+- Updated shared input trailing-slot alignment to vertically center right-side icons/buttons in password fields:
+  - `src/lib/components/app/form/input-field.svelte`
+- Fixed onboarding sign-up back navigation path mapping so Join Club signup returns to the club-detail step instead of Get Started:
+  - `src/routes/auth/sign-up/+page.svelte`
+  - back path now respects:
+    - `/onboarding/start-club?step=2`
+    - `/onboarding/join-club/:code`
+    - `/onboarding/join-club`
+- Updated Start Club flow shell progress to 5-step continuity so it aligns with the downstream personal-details/account/OTP signup phases:
+  - `src/routes/onboarding/start-club/+page.svelte` (`total={5}`)
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Reset Password Flow Spacing Pass (All States)
+
+- Updated reset-password screen spacing for consistent vertical rhythm across all states:
+  - request reset form
+  - reset link sent
+  - create new password
+- Increased content stack spacing and button-group separation:
+  - content `gap` adjusted from `5` to `6`
+  - footer action groups updated to include `pt-4` and `gap-4`
+- Purpose: add clearer space after `Username/Email` input and after primary reset action, matching onboarding spacing quality.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Splash Behavior After Login: Skip Launcher For Authenticated Sessions
+
+- Updated root layout launcher logic so authenticated users do not see the splash before dashboard redirects.
+  - File: `src/routes/+layout.svelte`
+  - Launcher now derives visibility from:
+    - server auth state (`authState.isAuthenticated`)
+    - local launcher timer completion for signed-out users
+- Result:
+  - Signed-in flows (including post-login) bypass splash.
+  - Signed-out app-open still shows launcher for the configured duration.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Mobile Step Layout: Top Progress + Bottom-Pinned Actions Across Onboarding/Auth Steps
+
+- Updated shared onboarding shell to enforce mobile step structure consistently:
+  - progress/header area remains at top
+  - content takes full mobile viewport height
+  - action sections using `mt-auto` stay at the bottom
+- File updated:
+  - `src/lib/components/app/onboarding/flow-shell.svelte`
+- Implementation details:
+  - mobile-first container now stretches full height (`min-h-[calc(100dvh-2rem)]`)
+  - removed mobile vertical centering behavior from shell wrapper
+  - retained desktop centering behavior (`lg:items-center`) and side illustration layout
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### OTP Verification Finalization Reliability Fix (Email Sign Up)
+
+- Reworked email-OTP post-verification finalize flow to avoid long polling deadlock and session-timeout errors.
+  - File: `src/routes/auth/sign-up/+page.svelte`
+- Key changes:
+  - after OTP verify success, run deterministic finalization immediately (no deferred timer loop)
+  - explicitly ensure authenticated session after OTP via:
+    - `authClient.getSession(disableCookieCache)`
+    - fallback `authClient.signIn.email(...)` with entered credentials
+  - handle `already verified` OTP response by continuing finalize flow instead of failing verification
+  - complete profile mutation with capped retries only for transient `Unauthenticated` sync lag
+  - if session still unavailable, route user to sign-in with pending post-signup continuation preserved
+  - removed auto-finalize trigger that ran on step-5 page load and could cause inconsistent loops
+- Result:
+  - faster post-OTP transition
+  - avoids repeated “Session sync is taking too long” in common verify flow
 
 ### Run: Validation
 

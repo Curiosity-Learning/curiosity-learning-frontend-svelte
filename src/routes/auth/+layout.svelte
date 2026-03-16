@@ -10,7 +10,10 @@
 
 	let { children } = $props();
 	let isOnboardingStyleRoute = $derived(
-		page.url.pathname === '/auth/sign-up' || page.url.pathname === '/auth/post-signup'
+		page.url.pathname === '/auth/sign-up' ||
+			page.url.pathname === '/auth/post-signup' ||
+			page.url.pathname === '/auth/sign-in' ||
+			page.url.pathname === '/auth/reset-password'
 	);
 </script>
 

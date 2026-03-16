@@ -84,7 +84,7 @@
 		/>
 
 		{#if trailing}
-			<div class="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500">
+			<div class="absolute inset-y-0 right-3 flex items-center text-gray-500">
 				{@render trailing()}
 			</div>
 		{/if}

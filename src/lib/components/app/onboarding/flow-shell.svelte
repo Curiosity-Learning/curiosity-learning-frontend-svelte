@@ -10,6 +10,7 @@
 		showAccountLink?: boolean;
 		showProgressBar?: boolean;
 		showSideIllustration?: boolean;
+		desktopContentScrollable?: boolean;
 		children: import('svelte').Snippet;
 	};
 
@@ -21,6 +22,7 @@
 		showAccountLink = true,
 		showProgressBar = true,
 		showSideIllustration = false,
+		desktopContentScrollable = true,
 		children
 	}: Props = $props();
 
@@ -28,17 +30,15 @@
 	let showHeader = $derived(showProgressBar || showAccountLink);
 </script>
 
-<div
-	class={`flex flex-1 justify-center py-6 sm:py-8 ${showSideIllustration ? 'items-start' : 'items-center'}`}
->
+<div class="flex flex-1 justify-center py-4 sm:py-6 lg:items-center lg:py-8">
 	<div class={`w-full max-w-6xl px-4 sm:px-8 ${showSideIllustration ? 'lg:px-12' : ''}`}>
 		<div
 			class={showSideIllustration
-				? 'grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,28.75rem)] lg:gap-14'
-				: 'flex flex-col'}
+				? 'grid items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,28.75rem)] lg:items-center lg:gap-14'
+				: 'flex min-h-[calc(100dvh-2rem)] flex-col lg:min-h-0'}
 		>
 			{#if showSideIllustration}
-				<div class="hidden justify-center lg:sticky lg:top-8 lg:flex lg:h-[calc(100vh-4rem)] lg:items-center lg:self-start">
+				<div class="hidden justify-center lg:flex lg:h-[calc(100vh-4rem)] lg:items-center">
 					<img
 						src={onboardingIllustration}
 						alt="Curiosity Learning illustration"
@@ -47,7 +47,13 @@
 				</div>
 			{/if}
 
-			<div class={showSideIllustration ? 'mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col' : 'mx-auto flex w-full flex-1 flex-col'}>
+			<div
+				class={showSideIllustration
+					? `mx-auto flex w-full max-w-[28.75rem] min-h-[calc(100dvh-2rem)] flex-1 flex-col lg:min-h-0 ${
+							desktopContentScrollable ? 'lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto' : ''
+						}`
+					: 'mx-auto flex w-full min-h-[calc(100dvh-2rem)] flex-1 flex-col lg:min-h-0'}
+			>
 				{#if showHeader}
 					<header
 						class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-3 sm:gap-8"
@@ -75,7 +81,7 @@
 					</header>
 				{/if}
 
-				<div class={`flex flex-1 flex-col ${showHeader ? 'pt-8 sm:pt-14' : 'pt-2 sm:pt-6'}`}>
+				<div class={`flex min-h-0 flex-1 flex-col ${showHeader ? 'pt-8 sm:pt-14' : 'pt-2 sm:pt-6'}`}>
 					{@render children()}
 				</div>
 			</div>

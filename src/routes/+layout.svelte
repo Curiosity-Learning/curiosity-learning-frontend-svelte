@@ -19,7 +19,9 @@
 		getServerState: () => data.authState
 	});
 
-	let showLauncher = $state(true);
+	let isAuthenticatedFromServer = $derived(Boolean(data.authState?.isAuthenticated));
+	let launcherFinished = $state(false);
+	let showLauncher = $derived(!isAuthenticatedFromServer && !launcherFinished);
 	let localeCleanup: (() => void) | null = null;
 
 	onMount(() => {
@@ -29,8 +31,15 @@
 			}
 		});
 
+		if (isAuthenticatedFromServer) {
+			launcherFinished = true;
+			return () => {
+				localeCleanup?.();
+			};
+		}
+
 		const timer = setTimeout(() => {
-			showLauncher = false;
+			launcherFinished = true;
 		}, 1200);
 
 		return () => {

@@ -16,19 +16,17 @@
 	import { DateSelectField, InputField } from '$lib/components/app/form';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
-	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import successImage from '$lib/assets/images/success.png';
 
 	const session = authClient.useSession();
-	const auth = useAuth();
 	const convexClient = useConvexClient();
 
 	const OTP_LENGTH = 6;
 	const OTP_RESEND_COOLDOWN_SECONDS = 30;
 	const EMAIL_POST_VERIFY_RETRY_DELAY_MS = 500;
-	const EMAIL_POST_VERIFY_MAX_ATTEMPTS = 20;
+	const EMAIL_POST_VERIFY_MAX_ATTEMPTS = 12;
 	const SIGNUP_DRAFT_STORAGE_KEY = 'cl_signup_draft_v1';
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
 
@@ -53,10 +51,8 @@
 	let otpCode = $state('');
 	let resendCooldownSeconds = $state(0);
 	let cooldownTimer: ReturnType<typeof setInterval> | null = null;
-	let emailPostVerifyRetryTimer: ReturnType<typeof setTimeout> | null = null;
 	let awaitingEmailPostVerify = $state(false);
 	let completingEmailPostVerify = $state(false);
-	let emailPostVerifyAttempts = $state(0);
 
 	let pending = $state(false);
 	let errorMessage = $state('');
@@ -70,9 +66,12 @@
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
 	let forceSignup = $derived(page.url.searchParams.get('forceSignup') === '1');
-	let backPath = $derived(
-		nextPath.startsWith('/onboarding/start-club') ? '/onboarding/start-club?step=2' : '/onboarding/get-started'
-	);
+	let backPath = $derived.by(() => {
+		if (nextPath.startsWith('/onboarding/start-club')) return '/onboarding/start-club?step=2';
+		if (nextPath.startsWith('/onboarding/join-club/')) return nextPath;
+		if (nextPath.startsWith('/onboarding/join-club')) return '/onboarding/join-club';
+		return '/onboarding/get-started';
+	});
 	let signUpPathForCurrentStep = $derived.by(() => {
 		const params = new URLSearchParams();
 		if (nextPath !== '/') {
@@ -98,6 +97,7 @@
 		}
 		return `/auth/sign-up?${params.toString()}`;
 	});
+	let postSignupPath = $derived(`/onboarding/post-signup?next=${encodeURIComponent(nextPath)}`);
 	let termsHref = $derived(`/terms?backTo=${encodeURIComponent(signUpPathForCurrentStep)}`);
 
 	const monthOptions = [
@@ -163,23 +163,13 @@
 		resendCooldownSeconds = 0;
 	};
 
-	const clearEmailPostVerifyRetryTimer = () => {
-		if (emailPostVerifyRetryTimer) {
-			clearTimeout(emailPostVerifyRetryTimer);
-			emailPostVerifyRetryTimer = null;
-		}
-	};
-
 	const resetEmailPostVerifyState = () => {
 		awaitingEmailPostVerify = false;
 		completingEmailPostVerify = false;
-		emailPostVerifyAttempts = 0;
-		clearEmailPostVerifyRetryTimer();
 	};
 
 	onDestroy(() => {
 		stopResendCooldown();
-		clearEmailPostVerifyRetryTimer();
 	});
 
 	let age = $derived(calculateAge(birthMonth, birthYear));
@@ -188,7 +178,6 @@
 	let canContinuePersonalStep = $derived(birthMonth.length > 0 && birthYear.length > 0);
 	let isOtpComplete = $derived(otpCode.length === OTP_LENGTH);
 	let otpSyncInProgress = $derived(pending || awaitingEmailPostVerify || completingEmailPostVerify);
-	let isConvexAuthReady = $derived(!auth.isLoading && auth.isAuthenticated);
 
 	const formatDateOfBirth = (month: string, year: string) => {
 		if (!month || !year) return undefined;
@@ -341,7 +330,7 @@
 		successContinuePending = true;
 		try {
 			setPostSignupPending();
-			await goto(`/onboarding/post-signup?next=${encodeURIComponent('/')}`, { replaceState: true });
+			await goto(postSignupPath, { replaceState: true });
 		} finally {
 			successContinuePending = false;
 		}
@@ -541,6 +530,13 @@
 		pending = false;
 
 		if (error) {
+			if (isAlreadyVerifiedError(error.message)) {
+				resetEmailPostVerifyState();
+				awaitingEmailPostVerify = true;
+				infoMessage = 'Email already verified. Finalizing your account...';
+				await finalizeEmailPostVerify();
+				return;
+			}
 			errorMessage = error.message ?? 'Invalid verification code.';
 			return;
 		}
@@ -548,36 +544,41 @@
 		resetEmailPostVerifyState();
 		awaitingEmailPostVerify = true;
 		infoMessage = 'Email verified. Finalizing your account...';
-		queueFinalizeEmailPostVerify(0);
+		await finalizeEmailPostVerify();
 	};
 
-	const queueFinalizeEmailPostVerify = (delayMs = EMAIL_POST_VERIFY_RETRY_DELAY_MS) => {
-		if (!awaitingEmailPostVerify || showSuccessScreen || emailPostVerifyRetryTimer) {
-			return;
-		}
-		emailPostVerifyRetryTimer = setTimeout(() => {
-			emailPostVerifyRetryTimer = null;
-			void finalizeEmailPostVerify();
-		}, delayMs);
-	};
+	const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-	const isSessionHydratedForFinalize = async () => {
-		if (!$session.data || !isConvexAuthReady) {
-			try {
-				const response = await authClient.getSession({
-					query: { disableCookieCache: true }
-				});
-				if (!response?.data || !isConvexAuthReady) {
-					return false;
-				}
-			} catch {
-				return false;
+	const ensureSessionAfterOtp = async () => {
+		try {
+			const existingSession = await authClient.getSession({
+				query: { disableCookieCache: true }
+			});
+			if (existingSession?.data) {
+				return true;
 			}
+		} catch {
+			// Continue to explicit sign-in fallback.
+		}
+
+		if (!email.trim() || !password) {
+			return false;
+		}
+
+		const { error } = await authClient.signIn.email({
+			email: email.trim(),
+			password,
+			callbackURL: verificationCallbackPath
+		});
+		if (error) {
+			return false;
 		}
 
 		try {
-			const viewer = await convexClient.query(api.auth.getCurrentUser, {});
-			return Boolean(viewer?._id);
+			const postSignInSession = await authClient.getSession({
+				query: { disableCookieCache: true }
+			});
+			return Boolean(postSignInSession?.data);
 		} catch {
 			return false;
 		}
@@ -585,49 +586,65 @@
 
 	const finalizeEmailPostVerify = async () => {
 		if (!awaitingEmailPostVerify || completingEmailPostVerify || showSuccessScreen) return;
-		const sessionHydrated = await isSessionHydratedForFinalize();
-		if (!sessionHydrated) {
-			emailPostVerifyAttempts += 1;
-			if (emailPostVerifyAttempts >= EMAIL_POST_VERIFY_MAX_ATTEMPTS) {
-				resetEmailPostVerifyState();
-				errorMessage = 'Session sync is taking too long. Please sign in again and continue.';
-				infoMessage = '';
-				return;
-			}
-			queueFinalizeEmailPostVerify();
-			return;
-		}
-
 		completingEmailPostVerify = true;
 		errorMessage = '';
 
 		try {
-			await completeSignupProfile('email');
+			const hasSession = await ensureSessionAfterOtp();
+			if (!hasSession) {
+				resetEmailPostVerifyState();
+				infoMessage = '';
+				setPostSignupPending();
+				showGlobalSnackbar({
+					title: 'Email verified',
+					description: 'Please sign in once to complete your setup.'
+				});
+				await goto(`/auth/sign-in?next=${encodeURIComponent(postSignupPath)}`, {
+					replaceState: true
+				});
+				return;
+			}
+
+			for (let attempt = 0; attempt < EMAIL_POST_VERIFY_MAX_ATTEMPTS; attempt += 1) {
+				try {
+					await completeSignupProfile('email');
+					resetEmailPostVerifyState();
+					infoMessage = '';
+					showSuccessAndContinue();
+					return;
+				} catch (profileError) {
+					const message =
+						profileError instanceof Error
+							? profileError.message
+							: 'Unable to save profile details. Please try again.';
+
+					if (!message.toLowerCase().includes('unauthenticated')) {
+						throw profileError;
+					}
+
+					try {
+						await authClient.getSession({
+							query: { disableCookieCache: true }
+						});
+					} catch {
+						// Keep retrying within capped attempts.
+					}
+					await delay(EMAIL_POST_VERIFY_RETRY_DELAY_MS);
+				}
+			}
+
 			resetEmailPostVerifyState();
+			errorMessage = 'Session sync is taking too long. Please sign in again and continue.';
 			infoMessage = '';
-			showSuccessAndContinue();
 		} catch (profileError) {
 			const message =
 				profileError instanceof Error
 					? profileError.message
 					: 'Unable to save profile details. Please try again.';
 
-			if (message.toLowerCase().includes('unauthenticated')) {
-				// Better Auth and Convex auth can hydrate at slightly different times. Retry with backoff.
-				emailPostVerifyAttempts += 1;
-				if (emailPostVerifyAttempts >= EMAIL_POST_VERIFY_MAX_ATTEMPTS) {
-					resetEmailPostVerifyState();
-					errorMessage = 'Session sync is taking too long. Please sign in again and continue.';
-					infoMessage = '';
-					return;
-				}
-				infoMessage = 'Email verified. Finalizing your account...';
-				queueFinalizeEmailPostVerify();
-				return;
-			}
-
 			resetEmailPostVerifyState();
 			errorMessage = message;
+			infoMessage = '';
 		} finally {
 			completingEmailPostVerify = false;
 		}
@@ -672,7 +689,7 @@
 		if (postSignupRedirecting) return;
 		if (!isPostSignupPending()) return;
 		postSignupRedirecting = true;
-		void goto(`/onboarding/post-signup?next=${encodeURIComponent('/')}`, { replaceState: true }).finally(() => {
+		void goto(postSignupPath, { replaceState: true }).finally(() => {
 			postSignupRedirecting = false;
 		});
 	});
@@ -680,7 +697,7 @@
 	$effect(() => {
 		if ($session.data) {
 			if (isPostSignupPending()) {
-				void goto(`/onboarding/post-signup?next=${encodeURIComponent('/')}`, { replaceState: true });
+				void goto(postSignupPath, { replaceState: true });
 				return;
 			}
 			if (showSuccessScreen) {
@@ -710,23 +727,7 @@
 				return;
 			}
 			if (step === 5 && awaitingEmailPostVerify) {
-				queueFinalizeEmailPostVerify(0);
-				return;
-			}
-			if (step === 5) {
-				if (!email.trim()) {
-					const sessionEmail = $session.data.user.email?.trim();
-					if (sessionEmail) {
-						email = sessionEmail;
-					}
-				}
-				if (!awaitingEmailPostVerify && !completingEmailPostVerify) {
-					awaitingEmailPostVerify = true;
-					if (!infoMessage) {
-						infoMessage = 'Email verified. Finalizing your account...';
-					}
-				}
-				queueFinalizeEmailPostVerify(0);
+				void finalizeEmailPostVerify();
 				return;
 			}
 			if (forceSignup) {

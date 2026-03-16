@@ -7,10 +7,10 @@
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import {
+		DropdownField,
 		InputField,
-		SelectField,
 		TextareaField,
-		type SelectOption
+		type DropdownOption
 	} from '$lib/components/app/form';
 	import { authClient } from '$lib/auth-client';
 	import { routes } from '$lib/routes';
@@ -20,13 +20,33 @@
 
 	const session = authClient.useSession();
 	const convexClient = useConvexClient();
+	const LOCATION_AUTOCOMPLETE_MIN_CHARS = 2;
+	const LOCATION_AUTOCOMPLETE_DEBOUNCE_MS = 280;
+	const LOCATION_AUTOCOMPLETE_LIMIT = 6;
+
+	type PhotonFeature = {
+		properties?: {
+			name?: string;
+			city?: string;
+			district?: string;
+			state?: string;
+			country?: string;
+		};
+	};
+
+	type PhotonResponse = {
+		features?: PhotonFeature[];
+	};
 
 	let step = $derived<1 | 2>(page.url.searchParams.get('step') === '2' ? 2 : 1);
 
 	let location = $state('');
+	let locationSuggestions = $state<DropdownOption[]>([]);
+	let locationLookupPending = $state(false);
 	let userRole = $state('');
 	let about = $state('');
-	let referral = $state('');
+	let referralSource = $state('');
+	let referralOther = $state('');
 	let videoFileName = $state('');
 	let videoStorageId = $state<Id<'_storage'> | null>(null);
 	let videoUploadPending = $state(false);
@@ -35,12 +55,24 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 
-	const roleOptions: SelectOption[] = [
+	const roleOptions: DropdownOption[] = [
 		{ label: 'Teacher', value: 'Teacher' },
 		{ label: 'Parent', value: 'Parent' },
 		{ label: 'Student', value: 'Student' },
 		{ label: 'Community organizer', value: 'Community organizer' },
 		{ label: 'Mentor', value: 'Mentor' },
+		{ label: 'Other', value: 'Other' }
+	];
+
+	const referralOptions: DropdownOption[] = [
+		{ label: 'Instagram', value: 'Instagram' },
+		{ label: 'LinkedIn', value: 'LinkedIn' },
+		{ label: 'Facebook', value: 'Facebook' },
+		{ label: 'YouTube', value: 'YouTube' },
+		{ label: 'X (Twitter)', value: 'X (Twitter)' },
+		{ label: 'Friend or family', value: 'Friend or family' },
+		{ label: 'School or teacher', value: 'School or teacher' },
+		{ label: 'Event or workshop', value: 'Event or workshop' },
 		{ label: 'Other', value: 'Other' }
 	];
 
@@ -78,8 +110,116 @@
 		Boolean(videoStorageId && localVideoPreviewUrl && !previewVideoLoadFailed)
 	);
 
+	let locationLookupTimer: ReturnType<typeof setTimeout> | null = null;
+	let locationLookupAbortController: AbortController | null = null;
+	let locationLookupVersion = 0;
+
+	const normalizeLocationParts = (parts: Array<string | undefined>) => {
+		const cleaned = parts
+			.map((part) => part?.trim())
+			.filter((part): part is string => Boolean(part));
+		return cleaned.filter(
+			(part, index) => cleaned.findIndex((value) => value.toLowerCase() === part.toLowerCase()) === index
+		);
+	};
+
+	const buildLocationSuggestion = (feature: PhotonFeature): DropdownOption | null => {
+		const properties = feature.properties ?? {};
+		const parts = normalizeLocationParts([
+			properties.name ?? properties.city,
+			properties.city,
+			properties.district,
+			properties.state,
+			properties.country
+		]);
+		if (parts.length === 0) return null;
+		const label = parts.join(', ');
+		return { label, value: label };
+	};
+
+	const parsePhotonSuggestions = (payload: PhotonResponse) => {
+		const suggestions: DropdownOption[] = [];
+		const seen = new Set<string>();
+		const features = Array.isArray(payload.features) ? payload.features : [];
+		for (const feature of features) {
+			const suggestion = buildLocationSuggestion(feature);
+			if (!suggestion) continue;
+			const key = suggestion.value.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			suggestions.push(suggestion);
+			if (suggestions.length >= LOCATION_AUTOCOMPLETE_LIMIT) break;
+		}
+		return suggestions;
+	};
+
+	const clearLocationLookupResources = () => {
+		if (locationLookupTimer) {
+			clearTimeout(locationLookupTimer);
+			locationLookupTimer = null;
+		}
+		if (locationLookupAbortController) {
+			locationLookupAbortController.abort();
+			locationLookupAbortController = null;
+		}
+	};
+
 	onDestroy(() => {
 		revokeLocalVideoPreview();
+		clearLocationLookupResources();
+	});
+
+	$effect(() => {
+		if (referralSource === 'Other') return;
+		if (!referralOther) return;
+		referralOther = '';
+	});
+
+	$effect(() => {
+		if (step !== 1) {
+			clearLocationLookupResources();
+			locationSuggestions = [];
+			locationLookupPending = false;
+			return;
+		}
+
+		const query = location.trim();
+		clearLocationLookupResources();
+
+		if (query.length < LOCATION_AUTOCOMPLETE_MIN_CHARS) {
+			locationSuggestions = [];
+			locationLookupPending = false;
+			return;
+		}
+
+		const nextVersion = ++locationLookupVersion;
+		locationLookupPending = true;
+		locationLookupTimer = setTimeout(async () => {
+			const controller = new AbortController();
+			locationLookupAbortController = controller;
+
+			try {
+				const url = new URL('https://photon.komoot.io/api/');
+				url.searchParams.set('q', query);
+				url.searchParams.set('lang', 'en');
+				url.searchParams.set('limit', String(LOCATION_AUTOCOMPLETE_LIMIT));
+				const response = await fetch(url.toString(), { signal: controller.signal });
+				if (!response.ok) {
+					throw new Error('Unable to fetch location suggestions');
+				}
+				const payload = (await response.json()) as PhotonResponse;
+				if (nextVersion !== locationLookupVersion) return;
+				locationSuggestions = parsePhotonSuggestions(payload);
+			} catch (error) {
+				if (nextVersion !== locationLookupVersion) return;
+				if (error instanceof DOMException && error.name === 'AbortError') return;
+				locationSuggestions = [];
+			} finally {
+				if (nextVersion === locationLookupVersion) {
+					locationLookupPending = false;
+				}
+			}
+		}, LOCATION_AUTOCOMPLETE_DEBOUNCE_MS);
 	});
 
 	const handleVideoFile = async (event: Event) => {
@@ -161,7 +301,13 @@
 	};
 </script>
 
-<FlowShell step={step} total={2} showAccountLink={!$session.data} showSideIllustration={true}>
+<FlowShell
+	step={step}
+	total={5}
+	showAccountLink={!$session.data}
+	showSideIllustration={true}
+	desktopContentScrollable={false}
+>
 	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
 		<button
 			type="button"
@@ -176,21 +322,29 @@
 			<div class="flex flex-col gap-5">
 				<h1 class="type-step-title text-gray-900">Add application details</h1>
 
-				<InputField
+				<DropdownField
 					id="location"
 					label="Where do you want to start a Curiosity Club?"
 					required={true}
 					bind:value={location}
+					options={locationSuggestions}
+					loading={locationLookupPending}
 					placeholder="Search for location..."
+					filterOptions={false}
+					emptyMessage={location.trim().length >= LOCATION_AUTOCOMPLETE_MIN_CHARS
+						? 'No locations found.'
+						: 'Type at least 2 characters.'}
 				/>
 
-				<SelectField
+				<DropdownField
 					id="role"
 					label="I am a..."
 					required={true}
 					bind:value={userRole}
 					options={roleOptions}
 					placeholder="Select an option"
+					searchable={false}
+					allowCustomValue={false}
 				/>
 
 				<TextareaField
@@ -203,12 +357,24 @@
 					hint="Why do you want to do this? Why are you a right fit? What do you want to learn? Any related previous experiences? Links to previous experiences?"
 				/>
 
-				<InputField
+				<DropdownField
 					id="referral"
 					label="How did you find out about us?"
-					bind:value={referral}
-					placeholder="LinkedIn or friend.."
+					bind:value={referralSource}
+					options={referralOptions}
+					placeholder="Select an option"
+					searchable={false}
+					allowCustomValue={false}
 				/>
+
+				{#if referralSource === 'Other'}
+					<InputField
+						id="referral-other"
+						label="Please specify"
+						bind:value={referralOther}
+						placeholder="Tell us how you found us"
+					/>
+				{/if}
 			</div>
 
 			{#if errorMessage}

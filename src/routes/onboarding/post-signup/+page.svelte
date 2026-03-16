@@ -7,7 +7,7 @@
 	import UploadIcon from '@lucide/svelte/icons/upload';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
+	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { InputField } from '$lib/components/app/form';
 	import { authClient } from '$lib/auth-client';
@@ -32,12 +32,11 @@
 	let localProfilePreviewUrl = $state<string | null>(null);
 	let profileImageUploading = $state(false);
 	let pending = $state(false);
-	let errorMessage = $state('');
-	let infoMessage = $state('');
 	let usernamePrefilled = $state(false);
 	let completionRedirected = $state(false);
 	let pledgesSeedRequested = $state(false);
 	let pledgesSeeding = $state(false);
+	let profileImageInput = $state<HTMLInputElement | null>(null);
 
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
@@ -125,7 +124,10 @@
 		void convexClient
 			.mutation(api.pledges.seedDefaults, {})
 			.catch((error) => {
-				errorMessage = error instanceof Error ? error.message : 'Unable to load pledge data.';
+				showGlobalSnackbar({
+					title: 'Unable to load pledges',
+					description: error instanceof Error ? error.message : 'Please try again.'
+				});
 			})
 			.finally(() => {
 				pledgesSeeding = false;
@@ -133,13 +135,20 @@
 	});
 
 	const normalizeUsername = (value: string) => value.trim().toLowerCase();
+	const openProfileImagePicker = () => {
+		if (profileImageUploading) return;
+		profileImageInput?.click();
+	};
 
 	const handleProfileImageInput = async (event: Event) => {
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file) return;
 		if (!file.type.startsWith('image/')) {
-			errorMessage = 'Please choose an image file.';
+			showGlobalSnackbar({
+				title: 'Invalid file type',
+				description: 'Please choose an image file.'
+			});
 			input.value = '';
 			return;
 		}
@@ -147,8 +156,6 @@
 		revokeProfilePreview();
 		localProfilePreviewUrl = URL.createObjectURL(file);
 		profileImageUploading = true;
-		errorMessage = '';
-		infoMessage = '';
 
 		try {
 			const uploadUrl = await convexClient.mutation(api.media.generateUploadUrl, {});
@@ -165,10 +172,15 @@
 				throw new Error('Profile image upload failed');
 			}
 			profileImageStorageId = uploadResult.storageId;
-			infoMessage = 'Profile image uploaded.';
+			showGlobalSnackbar({
+				title: 'Profile image uploaded'
+			});
 		} catch (error) {
 			profileImageStorageId = null;
-			errorMessage = error instanceof Error ? error.message : 'Unable to upload profile image.';
+			showGlobalSnackbar({
+				title: 'Unable to upload profile image',
+				description: error instanceof Error ? error.message : 'Please try again.'
+			});
 		} finally {
 			profileImageUploading = false;
 			input.value = '';
@@ -176,11 +188,11 @@
 	};
 
 	const saveProfileAndContinue = async () => {
-		errorMessage = '';
-		infoMessage = '';
 		const normalizedUsername = normalizeUsername(username);
 		if (!normalizedUsername) {
-			errorMessage = 'Username is required.';
+			showGlobalSnackbar({
+				title: 'Username is required'
+			});
 			return;
 		}
 
@@ -193,29 +205,46 @@
 			step = 2;
 			syncStepInUrl(2);
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to save profile details.';
+			showGlobalSnackbar({
+				title: 'Unable to save profile details',
+				description: error instanceof Error ? error.message : 'Please try again.'
+			});
 		} finally {
 			pending = false;
 		}
 	};
 
 	const completeOnboarding = async () => {
-		errorMessage = '';
-		infoMessage = '';
 		if (!agreedAll) {
-			errorMessage = 'Please confirm all points before continuing.';
+			showGlobalSnackbar({
+				title: 'Confirmation required',
+				description: 'Please read and accept all pledges before continuing.'
+			});
 			return;
 		}
 
 		pending = true;
 		try {
+			const pendingClubCode = profileResponse.data?.pendingClubCode?.trim().toUpperCase();
+			if (pendingClubCode) {
+				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
+					code: pendingClubCode
+				});
+				clearPostSignupPending();
+				await goto(`/club/${result.clubId}`, { replaceState: true });
+				return;
+			}
+
 			await convexClient.mutation(api.profiles.updateMe, {
 				firstLoginCompleted: true
 			});
 			clearPostSignupPending();
 			await goto(nextPath, { replaceState: true });
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to finish onboarding.';
+			showGlobalSnackbar({
+				title: 'Unable to finish onboarding',
+				description: error instanceof Error ? error.message : 'Please try again.'
+			});
 		} finally {
 			pending = false;
 		}
@@ -262,23 +291,23 @@
 							{/if}
 						</div>
 						<div class="flex flex-col gap-2">
-							<label for="profile-image-upload">
-								<Button
-									variant="outline"
-									size="sm"
-									class="cursor-pointer"
-									type="button"
-									disabled={profileImageUploading}
-								>
-									<UploadIcon class="size-4" />
-									{profileImageUploading ? 'Uploading...' : 'Upload image'}
-								</Button>
-							</label>
+							<Button
+								variant="outline"
+								size="sm"
+								class="cursor-pointer"
+								type="button"
+								disabled={profileImageUploading}
+								onclick={openProfileImagePicker}
+							>
+								<UploadIcon class="size-4" />
+								{profileImageUploading ? 'Uploading...' : 'Upload image'}
+							</Button>
 							<input
 								id="profile-image-upload"
 								type="file"
 								accept="image/*"
 								class="sr-only"
+								bind:this={profileImageInput}
 								onchange={(event) => void handleProfileImageInput(event)}
 							/>
 							<p class="text-xs text-gray-500">PNG, JPG, or WEBP.</p>
@@ -336,19 +365,6 @@
 					</label>
 				</div>
 			</div>
-		{/if}
-
-		{#if errorMessage}
-			<Alert variant="destructive">
-				<AlertTitle>Unable to continue</AlertTitle>
-				<AlertDescription>{errorMessage}</AlertDescription>
-			</Alert>
-		{/if}
-
-		{#if infoMessage && !errorMessage}
-			<Alert>
-				<AlertDescription>{infoMessage}</AlertDescription>
-			</Alert>
 		{/if}
 
 		<div class="mt-auto pb-2 sm:pb-6">
