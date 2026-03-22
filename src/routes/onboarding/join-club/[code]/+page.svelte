@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { browser } from '$app/environment';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { useConvexClient } from 'convex-svelte';
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
 	import { authClient } from '$lib/auth-client';
@@ -14,6 +16,7 @@
 	let { data }: PageProps = $props();
 
 	const session = authClient.useSession();
+	const convexClient = useConvexClient();
 	const preview = useStableQuery(api.clubs.getClubPreviewByCode, () => ({ code: data.code }));
 
 	let pending = $state(false);
@@ -51,11 +54,29 @@
 		errorMessage = '';
 		try {
 			if ($session.data) {
-				await authClient.signOut();
+				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
+					code: data.code
+				});
+				if (browser) {
+					try {
+						localStorage.setItem('cl_last_club_id', result.clubId);
+					} catch {
+						// Ignore storage errors.
+					}
+				}
+				await goto(`/club/${result.clubId}`);
+				return;
 			}
 			await goto(getSignUpPath());
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to continue right now.';
+			const message = error instanceof Error ? error.message : 'Unable to continue right now.';
+			if (message.toLowerCase().includes('already a member')) {
+				if (club?.id) {
+					await goto(`/club/${club.id}`);
+					return;
+				}
+			}
+			errorMessage = message;
 		} finally {
 			pending = false;
 		}

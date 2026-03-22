@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import UploadIcon from '@lucide/svelte/icons/upload';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -24,6 +25,12 @@
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
 
 	const parseStep = (value: string | null): 1 | 2 => (value === '2' ? 2 : 1);
+	const resolveCompletionNextPath = (path: string) => {
+		if (path.startsWith('/onboarding/join-club/')) {
+			return '/';
+		}
+		return path;
+	};
 
 	let step = $state<1 | 2>(parseStep(page.url.searchParams.get('step')));
 	let username = $state('');
@@ -40,12 +47,13 @@
 
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
+	let completionNextPath = $derived(resolveCompletionNextPath(nextPath));
 	const pledgesResponse = useStableQuery(api.pledges.listActive, () => (auth.isAuthenticated ? {} : 'skip'));
 	const pledgeItems = $derived(pledgesResponse.data ?? []);
 	let selfPath = $derived.by(() => {
 		const params = new URLSearchParams();
-		if (nextPath !== '/') {
-			params.set('next', nextPath);
+		if (completionNextPath !== '/') {
+			params.set('next', completionNextPath);
 		}
 		if (step === 2) {
 			params.set('step', '2');
@@ -84,6 +92,16 @@
 		}
 	};
 
+	const isPostSignupPending = () => {
+		if (!browser) return false;
+		try {
+			return sessionStorage.getItem(POST_SIGNUP_PENDING_KEY) === '1';
+		} catch {
+			return false;
+		}
+	};
+	let awaitingSignupSession = $derived(!auth.isLoading && !auth.isAuthenticated && isPostSignupPending());
+
 	onDestroy(() => {
 		revokeProfilePreview();
 	});
@@ -99,15 +117,17 @@
 
 	$effect(() => {
 		if (completionRedirected) return;
+		if (isPostSignupPending()) return;
 		if (!profileResponse.data?.firstLoginCompleted) return;
 		completionRedirected = true;
 		clearPostSignupPending();
-		void goto(nextPath, { replaceState: true });
+		void goto(completionNextPath, { replaceState: true });
 	});
 
 	$effect(() => {
 		if (auth.isLoading) return;
 		if (auth.isAuthenticated) return;
+		if (isPostSignupPending()) return;
 		const next = encodeURIComponent(selfPath);
 		void goto(`/auth/sign-in?next=${next}`, { replaceState: true });
 	});
@@ -230,6 +250,13 @@
 				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
 					code: pendingClubCode
 				});
+				if (browser) {
+					try {
+						localStorage.setItem('cl_last_club_id', result.clubId);
+					} catch {
+						// Ignore storage errors.
+					}
+				}
 				clearPostSignupPending();
 				await goto(`/club/${result.clubId}`, { replaceState: true });
 				return;
@@ -239,7 +266,7 @@
 				firstLoginCompleted: true
 			});
 			clearPostSignupPending();
-			await goto(nextPath, { replaceState: true });
+			await goto(completionNextPath, { replaceState: true });
 		} catch (error) {
 			showGlobalSnackbar({
 				title: 'Unable to finish onboarding',
@@ -251,15 +278,28 @@
 	};
 </script>
 
-<FlowShell
-	step={step}
-	total={2}
-	showAccountLink={false}
-	showProgressBar={false}
-	showSideIllustration={true}
->
-	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
-		{#if step === 1}
+{#if awaitingSignupSession}
+	<div class="flex min-h-screen items-center justify-center bg-white px-4">
+		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-4 text-center">
+			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+				<LoaderCircleIcon class="size-7 animate-spin" />
+			</div>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">Continuing your signup</h1>
+			<p class="text-base leading-7 text-gray-600">
+				We are restoring your session so you can finish the required username and pledge steps.
+			</p>
+		</div>
+	</div>
+{:else}
+	<FlowShell
+		step={step}
+		total={2}
+		showAccountLink={false}
+		showProgressBar={false}
+		showSideIllustration={true}
+	>
+		<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
+			{#if step === 1}
 			<div class="flex flex-col gap-5">
 				<h1 class="type-step-title text-gray-900">Set up your profile</h1>
 
@@ -365,33 +405,34 @@
 					</label>
 				</div>
 			</div>
-		{/if}
-
-		<div class="mt-auto pb-2 sm:pb-6">
-			{#if step === 1}
-				<Button
-					variant="default"
-					size="xl"
-					class="h-12 w-full"
-					disabled={pending || profileImageUploading || !username.trim()}
-					onclick={() => void saveProfileAndContinue()}
-				>
-					{pending ? 'Saving...' : 'Next'}
-				</Button>
-			{:else}
-				<Button
-					variant="default"
-					size="xl"
-					class="h-12 w-full"
-					disabled={pending || !agreedAll}
-					onclick={() => void completeOnboarding()}
-				>
-					{pending ? 'Finishing...' : 'Next'}
-				</Button>
 			{/if}
+
+			<div class="mt-auto pb-2 sm:pb-6">
+				{#if step === 1}
+					<Button
+						variant="default"
+						size="xl"
+						class="h-12 w-full"
+						disabled={pending || profileImageUploading || !username.trim()}
+						onclick={() => void saveProfileAndContinue()}
+					>
+						{pending ? 'Saving...' : 'Next'}
+					</Button>
+				{:else}
+					<Button
+						variant="default"
+						size="xl"
+						class="h-12 w-full"
+						disabled={pending || !agreedAll}
+						onclick={() => void completeOnboarding()}
+					>
+						{pending ? 'Finishing...' : 'Next'}
+					</Button>
+				{/if}
+			</div>
 		</div>
-	</div>
-</FlowShell>
+	</FlowShell>
+{/if}
 
 <style>
 	details > summary::-webkit-details-marker {

@@ -2360,3 +2360,98 @@
 
 - Removed the `Scan a QR code` action from `/onboarding/join-club`.
 - Also deleted the now-unused mobile camera capability detection and QR icon import tied to that temporary CTA.
+
+## 2026-03-22
+
+### Auth: Join Club Google Signup No Longer Loops Back To Club Preview
+
+- Updated the signup success handoff so join-club invite flows stop carrying the club preview route as the final post-signup `next` destination.
+- The pending club code is still preserved during account creation, but `/onboarding/post-signup` now falls back to `/` after completion instead of reopening `/onboarding/join-club/[code]`.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Signup Header Actions Moved Below Progress Bar On Desktop
+
+- Updated the shared onboarding `FlowShell` to support an optional secondary header row directly below the progress bar.
+- In `/auth/sign-up`, the back button now sits on the left and `I have an account` sits on the right in that row on desktop, instead of rendering the account link in the top-right header lane.
+- The sign-in link also preserves the current signup `next` destination when present.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Onboarding: Existing Session Is Reused For Club Invite Joins
+
+- Updated `/onboarding/join-club/[code]` so signed-in users are no longer signed out when they tap `Join as a learner`.
+- The invite now attempts to join the club with the current account immediately, which keeps the session intact and navigates straight into the club on success.
+- If the current account is already a member of that club, the flow now routes directly to that club instead of failing on an avoidable auth interruption.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Google Signup Shows Loading State And Avoids Callback Screen Flash
+
+- Updated `/auth/sign-up` so `Continue with Google` now shows an inline spinner and loading label while the Google redirect is being started.
+- Added a dedicated post-Google processing screen so the previous signup step no longer briefly flashes before the success screen appears on callback return.
+- Cleared the `postSocial` URL flag after handling the callback so the success/error transition stays stable.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Onboarding: Post-Signup Flow No Longer Auto-Skips Required Username And Pledges
+
+- Updated `/onboarding/post-signup` so an active signup handoff keeps users inside the required onboarding flow even if their profile already has `firstLoginCompleted: true`.
+- This prevents the username screen from auto-redirecting to home before the user finishes the mandatory username step and accepts the pledges.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Login Screen Now Supports Google Sign-In
+
+- Added a `Continue with Google` button to `/auth/sign-in` using the same outline styling as the Google button on signup.
+- The login flow now calls Better Auth social sign-in for Google with the current `next` destination, so users who registered with Google can return with Google from the login screen.
+- Added an inline spinner/loading label while the Google redirect is starting.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Existing Google Accounts No Longer Fall Through Signup As New Users
+
+- Updated Google signup on `/auth/sign-up` to use Better Auth's separate existing-user and new-user callback paths.
+- If the Google account already exists, the flow now lands on `/auth/sign-in` and treats it like login instead of showing the signup success/onboarding path again.
+- Added existing-account messaging on `/auth/sign-in` so the user is told that the Google account already exists and is signed in appropriately.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Fresh Start/Join Club Signup Intents No Longer Get Rerouted To Login
+
+- Updated `/auth/sign-up` so a stale post-signup session flag is cleared when there is no authenticated session, instead of redirecting a fresh signup attempt into post-signup/login.
+- This fixes onboarding entry paths like `/onboarding/start-club?step=2` and `/onboarding/join-club/[code]`, which should open the signup steps for a new user instead of unexpectedly landing on the login screen.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Signup Flow No Longer Auto-Jumps Into Login During Recovery States
+
+- Updated `/auth/sign-up` so existing Google-account handling stays inside the signup flow and continues with the already signed-in account instead of redirecting to `/auth/sign-in` mid-flow.
+- Removed the email-verification fallback that previously kicked the user to login when session sync lagged; the signup flow now stays on the verification step and asks the user to retry there instead.
+- Updated `/onboarding/post-signup` to hold on a signup-session recovery screen while an active signup handoff is being restored, instead of auto-redirecting to login before the mandatory username and pledge steps finish.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: No-Club Login No Longer Loops Back To Get Started
+
+- Updated the root route so authenticated users with no clubs are sent to `/profile` instead of being bounced back to `/onboarding/get-started`.
+- Updated the get-started `I have an account` action to sign in with `next=/profile`, which avoids the `/` → get-started redirect loop for signed-in accounts that have not joined or created a club yet.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Onboarding: Start-Club Signup Now Resumes Instead Of Feeling Like It Jumps Back
+
+- Updated `/onboarding/start-club` to send unauthenticated users into `/auth/sign-up` with `forceSignup=1`, matching the protected join-club flow and preventing premature redirects back to earlier onboarding steps.
+- Added session-storage draft persistence for the start-club fields so location, role, about, and referral answers survive the account-creation handoff and resume when the user returns.
+- Cleared the saved draft after club creation succeeds.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)

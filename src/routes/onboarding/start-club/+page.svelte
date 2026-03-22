@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -23,6 +24,7 @@
 	const LOCATION_AUTOCOMPLETE_MIN_CHARS = 2;
 	const LOCATION_AUTOCOMPLETE_DEBOUNCE_MS = 280;
 	const LOCATION_AUTOCOMPLETE_LIMIT = 6;
+	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
 
 	type PhotonFeature = {
 		properties?: {
@@ -36,6 +38,16 @@
 
 	type PhotonResponse = {
 		features?: PhotonFeature[];
+	};
+
+	type StartClubDraft = {
+		location: string;
+		userRole: string;
+		about: string;
+		referralSource: string;
+		referralOther: string;
+		step: 1 | 2;
+		updatedAt: number;
 	};
 
 	let step = $derived<1 | 2>(page.url.searchParams.get('step') === '2' ? 2 : 1);
@@ -54,6 +66,7 @@
 	let previewVideoLoadFailed = $state(false);
 	let pending = $state(false);
 	let errorMessage = $state('');
+	let hydratedDraft = $state(false);
 
 	const roleOptions: DropdownOption[] = [
 		{ label: 'Teacher', value: 'Teacher' },
@@ -79,6 +92,54 @@
 	let canContinueStepOne = $derived(
 		location.trim().length > 0 && userRole.trim().length > 0 && about.trim().length > 0
 	);
+
+	const readStartClubDraft = (): StartClubDraft | null => {
+		if (!browser) return null;
+		try {
+			const raw = sessionStorage.getItem(START_CLUB_DRAFT_STORAGE_KEY);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw) as Partial<StartClubDraft>;
+			if (!parsed || typeof parsed !== 'object') return null;
+			return {
+				location: typeof parsed.location === 'string' ? parsed.location : '',
+				userRole: typeof parsed.userRole === 'string' ? parsed.userRole : '',
+				about: typeof parsed.about === 'string' ? parsed.about : '',
+				referralSource: typeof parsed.referralSource === 'string' ? parsed.referralSource : '',
+				referralOther: typeof parsed.referralOther === 'string' ? parsed.referralOther : '',
+				step: parsed.step === 2 ? 2 : 1,
+				updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0
+			};
+		} catch {
+			return null;
+		}
+	};
+
+	const writeStartClubDraft = () => {
+		if (!browser) return;
+		const draft: StartClubDraft = {
+			location,
+			userRole,
+			about,
+			referralSource,
+			referralOther,
+			step,
+			updatedAt: Date.now()
+		};
+		try {
+			sessionStorage.setItem(START_CLUB_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+		} catch {
+			// Ignore storage errors.
+		}
+	};
+
+	const clearStartClubDraft = () => {
+		if (!browser) return;
+		try {
+			sessionStorage.removeItem(START_CLUB_DRAFT_STORAGE_KEY);
+		} catch {
+			// Ignore storage errors.
+		}
+	};
 
 	const goBack = async () => {
 		errorMessage = '';
@@ -167,6 +228,32 @@
 	onDestroy(() => {
 		revokeLocalVideoPreview();
 		clearLocationLookupResources();
+	});
+
+	$effect(() => {
+		if (!browser || hydratedDraft) return;
+		hydratedDraft = true;
+		const draft = readStartClubDraft();
+		if (!draft) return;
+		if (!location.trim() && draft.location) {
+			location = draft.location;
+		}
+		if (!userRole.trim() && draft.userRole) {
+			userRole = draft.userRole;
+		}
+		if (!about.trim() && draft.about) {
+			about = draft.about;
+		}
+		if (!referralSource && draft.referralSource) {
+			referralSource = draft.referralSource;
+		}
+		if (!referralOther && draft.referralOther) {
+			referralOther = draft.referralOther;
+		}
+	});
+
+	$effect(() => {
+		writeStartClubDraft();
 	});
 
 	$effect(() => {
@@ -274,7 +361,10 @@
 		errorMessage = '';
 
 		if (!$session.data) {
-			await goto(`/auth/sign-up?next=${encodeURIComponent('/onboarding/start-club?step=2')}`);
+			const params = new URLSearchParams();
+			params.set('next', '/onboarding/start-club?step=2');
+			params.set('forceSignup', '1');
+			await goto(`/auth/sign-up?${params.toString()}`);
 			return;
 		}
 
@@ -292,6 +382,7 @@
 				meetingDay: undefined,
 				meetingTime: undefined
 			});
+			clearStartClubDraft();
 			await goto(result?.clubId ? routes.clubHome(result.clubId) : '/');
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Unable to submit your application.';

@@ -11,6 +11,7 @@
 		showProgressBar?: boolean;
 		showSideIllustration?: boolean;
 		desktopContentScrollable?: boolean;
+		headerSupplement?: import('svelte').Snippet;
 		children: import('svelte').Snippet;
 	};
 
@@ -23,11 +24,20 @@
 		showProgressBar = true,
 		showSideIllustration = false,
 		desktopContentScrollable = true,
+		headerSupplement,
 		children
 	}: Props = $props();
 
 	let progress = $derived(total > 0 ? Math.min(100, Math.max(0, (step / total) * 100)) : 0);
-	let showHeader = $derived(showProgressBar || showAccountLink);
+	let hasHeaderSupplement = $derived(Boolean(headerSupplement));
+	let showHeader = $derived(showProgressBar || showAccountLink || hasHeaderSupplement);
+	let contentTopPadding = $derived(
+		showHeader
+			? hasHeaderSupplement
+				? 'pt-6 sm:pt-8'
+				: 'pt-8 sm:pt-14'
+			: 'pt-2 sm:pt-6'
+	);
 </script>
 
 <div class="flex flex-1 justify-center py-4 sm:py-6 lg:items-center lg:py-8">
@@ -79,9 +89,15 @@
 							</a>
 						{/if}
 					</header>
+
+					{#if headerSupplement}
+						<div class="pt-6 sm:pt-8">
+							{@render headerSupplement()}
+						</div>
+					{/if}
 				{/if}
 
-				<div class={`flex min-h-0 flex-1 flex-col ${showHeader ? 'pt-8 sm:pt-14' : 'pt-2 sm:pt-6'}`}>
+				<div class={`flex min-h-0 flex-1 flex-col ${contentTopPadding}`}>
 					{@render children()}
 				</div>
 			</div>

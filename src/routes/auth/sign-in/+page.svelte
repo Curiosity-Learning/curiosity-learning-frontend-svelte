@@ -1,9 +1,11 @@
 <script lang="ts">
+	import Icon from '@iconify/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -19,14 +21,17 @@
 	let rememberMe = $state(false);
 	let showPassword = $state(false);
 	let pending = $state(false);
+	let googlePending = $state(false);
 	let errorMessage = $state('');
 	let infoMessage = $state('');
+	let existingGoogleAccountHandled = $state(false);
 
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
 	const signUpHref = '/onboarding/get-started';
 	let forgotHref = $derived(`/auth/reset-password?next=${encodeURIComponent(nextPath)}`);
 	let needsVerification = $derived(errorMessage.toLowerCase().includes('not verified'));
+	let existingGoogleAccount = $derived(page.url.searchParams.get('existingGoogleAccount') === '1');
 
 	const isInvalidEmailError = (message?: string) => {
 		const normalized = (message?.trim().toLowerCase() ?? '').replace(/[.!]+$/g, '');
@@ -34,6 +39,25 @@
 	};
 
 	$effect(() => {
+		if (!existingGoogleAccount) return;
+		if ($session.data) return;
+		infoMessage = 'You already have an account with Google. Continue with Google to sign in.';
+	});
+
+	$effect(() => {
+		if (existingGoogleAccountHandled) return;
+		if (!existingGoogleAccount) return;
+		if (!$session.data) return;
+		showGlobalSnackbar({
+			title: 'Account already exists',
+			description: 'You already have an account with Google. We signed you in.'
+		});
+		existingGoogleAccountHandled = true;
+		void goto(nextPath, { replaceState: true });
+	});
+
+	$effect(() => {
+		if (existingGoogleAccount) return;
 		if ($session.data) {
 			void goto(nextPath, { replaceState: true });
 		}
@@ -41,6 +65,31 @@
 
 	const goBack = async () => {
 		await goto('/onboarding/get-started');
+	};
+
+	const signInWithGoogle = async () => {
+		errorMessage = '';
+		infoMessage = '';
+		googlePending = true;
+
+		const { data, error } = await authClient.signIn.social({
+			provider: 'google',
+			callbackURL: nextPath
+		});
+
+		if (error) {
+			googlePending = false;
+			errorMessage = error.message ?? 'Failed to start Google sign in.';
+			return;
+		}
+
+		if (data?.url) {
+			await goto(data.url);
+			return;
+		}
+
+		googlePending = false;
+		errorMessage = 'Failed to start Google sign in.';
 	};
 
 	const signIn = async () => {
@@ -188,22 +237,43 @@
 								variant="outline"
 								size="xl"
 								class="h-12 w-full"
-								disabled={pending || !email.trim()}
+								disabled={pending || googlePending || !email.trim()}
 								onclick={() => void resendVerification()}
 							>
 								Resend verification email
 							</Button>
 						{/if}
 						<Button
+							variant="outline"
+							size="xl"
+							class="h-12 w-full text-black hover:text-black active:text-black"
+							disabled={pending || googlePending}
+							onclick={() => void signInWithGoogle()}
+						>
+							{#if googlePending}
+								<LoaderCircleIcon class="size-4 animate-spin" />
+								Continuing with Google...
+							{:else}
+								<Icon icon="logos:google-icon" width="20" height="20" aria-hidden="true" />
+								Continue with Google
+							{/if}
+						</Button>
+						<Button
 							variant="default"
 							size="xl"
 							class="h-12 w-full"
-							disabled={pending || !email.trim() || !password}
+							disabled={pending || googlePending || !email.trim() || !password}
 							onclick={() => void signIn()}
 						>
 							{pending ? 'Logging in...' : 'Log in'}
 						</Button>
-						<Button variant="outline" size="xl" class="h-12 w-full" href={signUpHref}>
+						<Button
+							variant="outline"
+							size="xl"
+							class="h-12 w-full"
+							disabled={pending || googlePending}
+							href={signUpHref}
+						>
 							I'm new, sign me up
 						</Button>
 					</div>

@@ -10,6 +10,7 @@
 		DropdownMenuTrigger
 	} from '$lib/components/ui/dropdown-menu';
 	import { _, locale, setAppLocale, type SupportedLocale } from '$lib/i18n';
+	import { routes } from '$lib/routes';
 	import loginLogo from '$lib/assets/images/login_image.svg';
 	import onboardingIllustration from '$lib/assets/images/image.svg';
 
@@ -91,7 +92,12 @@
 						{$_('onboarding.getStarted.startClub')}
 					</Button>
 
-					<Button href="/auth/sign-in?next=/" variant="ghost" size="lg" class="mt-2 w-full">
+					<Button
+						href={`/auth/sign-in?next=${encodeURIComponent(routes.profile)}`}
+						variant="ghost"
+						size="lg"
+						class="mt-2 w-full"
+					>
 						{$_('onboarding.getStarted.iHaveAccount')}
 					</Button>
 				</div>

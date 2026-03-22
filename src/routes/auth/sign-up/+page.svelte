@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Icon from '@iconify/svelte';
+	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
@@ -36,6 +37,13 @@
 		return 3;
 	};
 
+	const resolvePostSignupNextPath = (path: string) => {
+		if (path.startsWith('/onboarding/join-club/')) {
+			return '/';
+		}
+		return path;
+	};
+
 	let step = $state<3 | 4 | 5>(parseSignUpStep(page.url.searchParams.get('step')));
 
 	let birthMonth = $state('');
@@ -55,6 +63,8 @@
 	let completingEmailPostVerify = $state(false);
 
 	let pending = $state(false);
+	let googleRedirectPending = $state(false);
+	let googlePostSignUpPending = $state(false);
 	let errorMessage = $state('');
 	let infoMessage = $state('');
 	let showSuccessScreen = $state(false);
@@ -65,6 +75,9 @@
 
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
+	let existingGoogleAccount = $derived(page.url.searchParams.get('existingGoogleAccount') === '1');
+	let isGooglePostSocial = $derived(page.url.searchParams.get('postSocial') === 'google');
+	let postSignupNextPath = $derived(resolvePostSignupNextPath(nextPath));
 	let forceSignup = $derived(page.url.searchParams.get('forceSignup') === '1');
 	let backPath = $derived.by(() => {
 		if (nextPath.startsWith('/onboarding/start-club')) return '/onboarding/start-club?step=2';
@@ -97,7 +110,20 @@
 		}
 		return `/auth/sign-up?${params.toString()}`;
 	});
-	let postSignupPath = $derived(`/onboarding/post-signup?next=${encodeURIComponent(nextPath)}`);
+	let postSignupPath = $derived.by(() => {
+		const params = new URLSearchParams();
+		if (postSignupNextPath !== '/') {
+			params.set('next', postSignupNextPath);
+		}
+		const query = params.toString();
+		return query.length > 0 ? `/onboarding/post-signup?${query}` : '/onboarding/post-signup';
+	});
+	let signInPath = $derived.by(() => {
+		if (nextPath === '/') {
+			return '/auth/sign-in';
+		}
+		return `/auth/sign-in?next=${encodeURIComponent(nextPath)}`;
+	});
 	let termsHref = $derived(`/terms?backTo=${encodeURIComponent(signUpPathForCurrentStep)}`);
 
 	const monthOptions = [
@@ -177,7 +203,14 @@
 	let isOver16 = $derived(age !== null && age > 16);
 	let canContinuePersonalStep = $derived(birthMonth.length > 0 && birthYear.length > 0);
 	let isOtpComplete = $derived(otpCode.length === OTP_LENGTH);
+	let formSubmissionPending = $derived(pending || googleRedirectPending || googlePostSignUpPending);
 	let otpSyncInProgress = $derived(pending || awaitingEmailPostVerify || completingEmailPostVerify);
+	let showExistingGoogleAccountProcessing = $derived(
+		existingGoogleAccount && !showSuccessScreen && !errorMessage && !$session.data
+	);
+	let showGooglePostSignUpProcessing = $derived(
+		isGooglePostSocial && !showSuccessScreen && !errorMessage
+	);
 
 	const formatDateOfBirth = (month: string, year: string) => {
 		if (!month || !year) return undefined;
@@ -280,6 +313,15 @@
 		}
 	};
 
+	const clearPostSignupPending = () => {
+		if (!browser) return;
+		try {
+			sessionStorage.removeItem(POST_SIGNUP_PENDING_KEY);
+		} catch {
+			// Ignore storage errors.
+		}
+	};
+
 	const isPostSignupPending = () => {
 		if (!browser) return false;
 		try {
@@ -315,6 +357,20 @@
 	const sanitizeUrlForHistory = (url: URL) => {
 		const query = url.searchParams.toString();
 		return `${url.pathname}${query ? `?${query}` : ''}${url.hash}`;
+	};
+
+	const clearPostSocialFromUrl = () => {
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		url.searchParams.delete('postSocial');
+		history.replaceState(history.state, '', sanitizeUrlForHistory(url));
+	};
+
+	const clearExistingGoogleAccountFromUrl = () => {
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		url.searchParams.delete('existingGoogleAccount');
+		history.replaceState(history.state, '', sanitizeUrlForHistory(url));
 	};
 
 	const showSuccessAndContinue = () => {
@@ -462,7 +518,15 @@
 			return;
 		}
 
-		pending = true;
+		googleRedirectPending = true;
+		const existingAccountParams = new URLSearchParams();
+		existingAccountParams.set('next', nextPath);
+		existingAccountParams.set('existingGoogleAccount', '1');
+		existingAccountParams.set('step', String(step));
+		if (forceSignup) {
+			existingAccountParams.set('forceSignup', '1');
+		}
+
 		const socialCallbackParams = new URLSearchParams();
 		socialCallbackParams.set('next', nextPath);
 		socialCallbackParams.set('postSocial', 'google');
@@ -470,20 +534,24 @@
 		const socialCallbackUrl = `/auth/sign-up?${socialCallbackParams.toString()}`;
 		const { data, error } = await authClient.signIn.social({
 			provider: 'google',
-			callbackURL: socialCallbackUrl,
+			callbackURL: `/auth/sign-in?${existingAccountParams.toString()}`,
 			newUserCallbackURL: socialCallbackUrl,
 			requestSignUp: true
 		});
-		pending = false;
 
 		if (error) {
+			googleRedirectPending = false;
 			errorMessage = error.message ?? 'Failed to start Google sign up.';
 			return;
 		}
 
 		if (data?.url) {
 			await goto(data.url);
+			return;
 		}
+
+		googleRedirectPending = false;
+		errorMessage = 'Failed to start Google sign up.';
 	};
 
 	const resendVerificationOtp = async () => {
@@ -594,14 +662,11 @@
 			if (!hasSession) {
 				resetEmailPostVerifyState();
 				infoMessage = '';
-				setPostSignupPending();
 				showGlobalSnackbar({
 					title: 'Email verified',
-					description: 'Please sign in once to complete your setup.'
+					description: 'Finishing your account is taking longer than expected. Please tap Verify again.'
 				});
-				await goto(`/auth/sign-in?next=${encodeURIComponent(postSignupPath)}`, {
-					replaceState: true
-				});
+				errorMessage = 'We verified your email, but could not finish setup yet. Please tap Verify again.';
 				return;
 			}
 
@@ -688,6 +753,10 @@
 		if (!browser) return;
 		if (postSignupRedirecting) return;
 		if (!isPostSignupPending()) return;
+		if (!$session.data) {
+			clearPostSignupPending();
+			return;
+		}
 		postSignupRedirecting = true;
 		void goto(postSignupPath, { replaceState: true }).finally(() => {
 			postSignupRedirecting = false;
@@ -696,6 +765,15 @@
 
 	$effect(() => {
 		if ($session.data) {
+			if (existingGoogleAccount) {
+				clearExistingGoogleAccountFromUrl();
+				showGlobalSnackbar({
+					title: 'Account already exists',
+					description: 'You already have an account with Google. We signed you in.'
+				});
+				void goto(nextPath, { replaceState: true });
+				return;
+			}
 			if (isPostSignupPending()) {
 				void goto(postSignupPath, { replaceState: true });
 				return;
@@ -703,25 +781,25 @@
 			if (showSuccessScreen) {
 				return;
 			}
-			if (page.url.searchParams.get('postSocial') === 'google') {
+			if (isGooglePostSocial) {
 				if (handledGooglePostSignUp) {
 					return;
 				}
 				handledGooglePostSignUp = true;
+				googlePostSignUpPending = true;
 				void (async () => {
 					try {
 						await completeSignupProfile('google');
-						if (typeof window !== 'undefined') {
-							const url = new URL(window.location.href);
-							url.searchParams.delete('postSocial');
-							history.replaceState(history.state, '', sanitizeUrlForHistory(url));
-						}
+						clearPostSocialFromUrl();
 						showSuccessAndContinue();
 					} catch (error) {
+						clearPostSocialFromUrl();
 						errorMessage =
 							error instanceof Error
 								? error.message
 								: 'Unable to finish Google sign up. Please retry.';
+					} finally {
+						googlePostSignUpPending = false;
 					}
 				})();
 				return;
@@ -757,18 +835,54 @@
 			</Button>
 		</div>
 	</div>
+{:else if showExistingGoogleAccountProcessing}
+	<div class="flex min-h-screen items-center justify-center bg-white px-4">
+		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-4 text-center">
+			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+				<LoaderCircleIcon class="size-7 animate-spin" />
+			</div>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">Signing you in</h1>
+			<p class="text-base leading-7 text-gray-600">
+				This Google account already exists. We are continuing with your existing account.
+			</p>
+		</div>
+	</div>
+{:else if showGooglePostSignUpProcessing}
+	<div class="flex min-h-screen items-center justify-center bg-white px-4">
+		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-4 text-center">
+			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+				<LoaderCircleIcon class="size-7 animate-spin" />
+			</div>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">Connecting your Google account</h1>
+			<p class="text-base leading-7 text-gray-600">
+				Finalizing your signup. This should only take a moment.
+			</p>
+		</div>
+	</div>
 {:else}
-	<FlowShell step={step} total={5} showSideIllustration={true}>
-		<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
-			<button
-				type="button"
-				onclick={() => void goBack()}
-				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label="Go back"
-			>
-				<ChevronLeftIcon class="size-7" />
-			</button>
+	<FlowShell step={step} total={5} showSideIllustration={true} showAccountLink={false}>
+		{#snippet headerSupplement()}
+			<div class="flex items-center justify-between gap-4">
+				<button
+					type="button"
+					onclick={() => void goBack()}
+					class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
+					aria-label="Go back"
+				>
+					<ChevronLeftIcon class="size-7" />
+				</button>
 
+				<a
+					href={signInPath}
+					class="hidden items-center gap-2 text-base font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600 sm:inline-flex"
+				>
+					<span>I have an account</span>
+					<ArrowRightIcon class="size-5" />
+				</a>
+			</div>
+		{/snippet}
+
+		<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
 			{#if step === 3}
 				<div class="flex flex-col gap-5">
 					<h1 class="type-step-title text-gray-900">Enter your personal information</h1>
@@ -819,11 +933,16 @@
 							variant="outline"
 							size="xl"
 							class="h-12 w-full text-black hover:text-black active:text-black"
-							disabled={pending}
+							disabled={formSubmissionPending}
 							onclick={() => void signUpWithGoogle()}
 						>
-							<Icon icon="logos:google-icon" width="20" height="20" aria-hidden="true" />
-							Continue with Google
+							{#if googleRedirectPending}
+								<LoaderCircleIcon class="size-4 animate-spin" />
+								Continuing with Google...
+							{:else}
+								<Icon icon="logos:google-icon" width="20" height="20" aria-hidden="true" />
+								Continue with Google
+							{/if}
 						</Button>
 					{/if}
 
@@ -914,7 +1033,7 @@
 						variant="default"
 						size="xl"
 						class="h-12 w-full"
-						disabled={pending || !email.trim() || !password || !confirmPassword}
+						disabled={formSubmissionPending || !email.trim() || !password || !confirmPassword}
 						onclick={() => void signUp()}
 					>
 						{pending ? 'Creating account...' : 'Sign up'}
