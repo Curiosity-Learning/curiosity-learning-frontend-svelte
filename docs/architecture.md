@@ -5,11 +5,21 @@
 ## Stack
 
 - SvelteKit (Svelte 5, TypeScript)
+- SvelteKit Node runtime via `@sveltejs/adapter-node`
 - Tailwind v4 + shadcn-svelte
 - Convex backend
 - Better Auth (`@convex-dev/better-auth`)
 - Vitest + Playwright
 
+## Deployment Topology
+
+- The frontend deploy target is a Render `Web Service`, not a static site build.
+- SvelteKit server hooks, `+server.ts` routes, and server loads require a Node runtime in production.
+- Convex environments should be separated into:
+  - developer-specific dev deployments for day-to-day work,
+  - a shared staging deployment for integration/QA,
+  - a separate production deployment for live traffic.
+- Environment variable names stay constant across environments; only values change.
 ## Delivery Gate
 
 - GitHub Actions runs the baseline PR gate on `pull_request` plus direct pushes to `main` and `development`.
