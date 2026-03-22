@@ -2,7 +2,6 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-	import scannerIcon from '$lib/assets/images/scanner.svg';
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { useConvexClient } from 'convex-svelte';
@@ -13,7 +12,6 @@
 
 	let codeChars = $state<string[]>(Array.from({ length: CODE_LENGTH }, () => ''));
 	let inputRefs: Array<HTMLInputElement | null> = Array.from({ length: CODE_LENGTH }, () => null);
-	let canScanQr = $state(false);
 	let validatingCode = $state(false);
 	let codeError = $state('');
 
@@ -109,36 +107,8 @@
 		}
 	};
 
-	const detectMobileCameraSupport = async () => {
-		const userAgent = navigator.userAgent ?? '';
-		const isMobileUa = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-			userAgent
-		);
-		const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
-		const isMobileLike = isMobileUa || isCoarsePointer;
-		if (!isMobileLike) return false;
-
-		const mediaDevices = navigator.mediaDevices;
-		if (!mediaDevices || !mediaDevices.getUserMedia) return false;
-
-		if (!mediaDevices.enumerateDevices) {
-			return true;
-		}
-
-		try {
-			const devices = await mediaDevices.enumerateDevices();
-			const hasVideoInput = devices.some((device) => device.kind === 'videoinput');
-			return hasVideoInput || devices.length === 0;
-		} catch {
-			return true;
-		}
-	};
-
 	onMount(() => {
 		focusInput(0);
-		void detectMobileCameraSupport().then((isSupported) => {
-			canScanQr = isSupported;
-		});
 	});
 
 	$effect(() => {
@@ -148,7 +118,7 @@
 </script>
 
 <FlowShell step={1} total={5} showSideIllustration={true}>
-	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-8">
+	<div class="mx-auto flex w-full min-w-0 max-w-[28.75rem] flex-1 flex-col gap-8 overflow-x-hidden">
 		<section class="flex flex-col gap-6">
 			<a
 				href="/onboarding/get-started"
@@ -163,7 +133,7 @@
 				<p class="text-base leading-7 text-gray-600">Please enter a club code to join:</p>
 			</div>
 
-			<div class="flex gap-2 sm:gap-2.5">
+			<div class="grid w-full grid-cols-6 gap-1.5 sm:gap-2.5">
 				{#each codeChars as char, index}
 					<input
 						bind:this={inputRefs[index]}
@@ -175,14 +145,16 @@
 						oninput={(event) => handleInput(index, event)}
 						onkeydown={(event) => handleKeyDown(index, event)}
 						onpaste={(event) => handlePaste(index, event)}
-						class={`h-14 min-w-0 flex-1 rounded-md border bg-white text-center text-xl font-semibold text-gray-900 outline-none transition-[border-color,box-shadow] duration-200 ${char ? 'border-orange-500' : 'border-gray-300'} focus:border-orange-500 focus:ring-2 focus:ring-orange-200`}
+						class={`h-12 min-w-0 w-full rounded-md border bg-white px-0 text-center text-lg font-semibold text-gray-900 outline-none transition-[border-color,box-shadow] duration-200 sm:h-14 sm:text-xl ${char ? 'border-orange-500' : 'border-gray-300'} focus:border-orange-500 focus:ring-2 focus:ring-orange-200`}
 					/>
 				{/each}
 			</div>
 
-			<p class="text-base leading-7 text-gray-600">
+			<p class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-base leading-7 text-gray-600">
 				<span>Don’t have a code?</span>
-				<button type="button" class="ml-2 font-bold text-orange-500">View public clubs near you.</button>
+				<button type="button" class="min-w-0 text-left font-bold text-orange-500">
+					View public clubs near you.
+				</button>
 			</p>
 		</section>
 
@@ -194,19 +166,12 @@
 			<Button
 				variant="default"
 				size="xl"
-				class="h-14 w-full rounded-md"
+				class="h-14 w-full min-w-0 rounded-md px-4 text-center whitespace-normal"
 				disabled={!canContinue || validatingCode}
 				onclick={() => void continueToPreview()}
 			>
 				{validatingCode ? 'Checking...' : 'Continue'}
 			</Button>
-
-			{#if canScanQr}
-				<Button variant="outline" size="xl" class="h-14 w-full rounded-md">
-					<img src={scannerIcon} alt="" class="size-5" />
-					<span>Scan a QR code</span>
-				</Button>
-			{/if}
 		</div>
 	</div>
 </FlowShell>

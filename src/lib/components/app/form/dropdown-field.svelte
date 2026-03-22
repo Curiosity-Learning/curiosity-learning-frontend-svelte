@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import { Input } from '$lib/components/ui/input';
@@ -57,7 +57,13 @@
 	}: Props = $props();
 
 	let root = $state<HTMLDivElement | null>(null);
+	let menu = $state<HTMLDivElement | null>(null);
 	let isOpen = $state(false);
+	let dropdownSide = $state<'top' | 'bottom'>('bottom');
+	let menuMaxHeightPx = $state<number | null>(null);
+
+	const MENU_GAP_PX = 8;
+	const VIEWPORT_PADDING_PX = 12;
 
 	const normalize = (input: string) => input.trim().toLowerCase();
 
@@ -88,6 +94,8 @@
 
 	const closeDropdown = () => {
 		isOpen = false;
+		dropdownSide = 'bottom';
+		menuMaxHeightPx = null;
 		if (allowCustomValue || searchable) return;
 		if (selectedOption) return;
 		value = '';
@@ -110,6 +118,24 @@
 		}
 	};
 
+	const updateDropdownPosition = () => {
+		if (!browser || !root || !isOpen) return;
+
+		const rect = root.getBoundingClientRect();
+		const availableBelow = Math.max(
+			window.innerHeight - rect.bottom - MENU_GAP_PX - VIEWPORT_PADDING_PX,
+			0
+		);
+		const availableAbove = Math.max(rect.top - MENU_GAP_PX - VIEWPORT_PADDING_PX, 0);
+		const preferredMenuHeight =
+			menu?.scrollHeight ?? menu?.getBoundingClientRect().height ?? 0;
+		const shouldOpenTop =
+			availableBelow < preferredMenuHeight && availableAbove > availableBelow;
+
+		dropdownSide = shouldOpenTop ? 'top' : 'bottom';
+		menuMaxHeightPx = Math.floor(shouldOpenTop ? availableAbove : availableBelow) || null;
+	};
+
 	onDestroy(() => {
 		isOpen = false;
 	});
@@ -125,6 +151,32 @@
 		document.addEventListener('mousedown', handleDocumentPointerDown);
 		return () => {
 			document.removeEventListener('mousedown', handleDocumentPointerDown);
+		};
+	});
+
+	$effect(() => {
+		if (!browser || !isOpen) return;
+
+		renderedOptions.length;
+		loading;
+		value;
+
+		const handleViewportChange = () => {
+			updateDropdownPosition();
+		};
+
+		void tick().then(() => {
+			updateDropdownPosition();
+		});
+
+		window.addEventListener('resize', handleViewportChange);
+		window.addEventListener('scroll', handleViewportChange, true);
+		window.visualViewport?.addEventListener('resize', handleViewportChange);
+
+		return () => {
+			window.removeEventListener('resize', handleViewportChange);
+			window.removeEventListener('scroll', handleViewportChange, true);
+			window.visualViewport?.removeEventListener('resize', handleViewportChange);
 		};
 	});
 </script>
@@ -171,12 +223,21 @@
 
 		{#if isOpen && hasDropdownContent}
 			<div
-				class="absolute top-[calc(100%+0.5rem)] z-30 w-full overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
+				bind:this={menu}
+				class={cn(
+					'absolute z-30 w-full overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg',
+					dropdownSide === 'top'
+						? 'bottom-[calc(100%+0.5rem)]'
+						: 'top-[calc(100%+0.5rem)]'
+				)}
 			>
 				{#if loading}
 					<p class="px-3 py-2 text-sm leading-6 text-gray-500">Loading...</p>
 				{:else if renderedOptions.length > 0}
-					<ul class={cn('overflow-y-auto py-1', maxMenuHeightClass)}>
+					<ul
+						class={cn('overflow-y-auto py-1', maxMenuHeightClass)}
+						style:max-height={menuMaxHeightPx ? `${menuMaxHeightPx}px` : undefined}
+					>
 						{#each renderedOptions as option}
 							<li>
 								<button

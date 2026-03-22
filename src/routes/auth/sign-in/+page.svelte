@@ -8,6 +8,7 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { InputField } from '$lib/components/app/form';
+	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
 	import loginIllustration from '$lib/assets/svg/login.svg';
 
@@ -26,6 +27,11 @@
 	const signUpHref = '/onboarding/get-started';
 	let forgotHref = $derived(`/auth/reset-password?next=${encodeURIComponent(nextPath)}`);
 	let needsVerification = $derived(errorMessage.toLowerCase().includes('not verified'));
+
+	const isInvalidEmailError = (message?: string) => {
+		const normalized = (message?.trim().toLowerCase() ?? '').replace(/[.!]+$/g, '');
+		return normalized === 'invalid email' || normalized === 'invalid email address';
+	};
 
 	$effect(() => {
 		if ($session.data) {
@@ -49,6 +55,13 @@
 		});
 		pending = false;
 		if (error) {
+			if (isInvalidEmailError(error.message)) {
+				showGlobalSnackbar({
+					title: 'Invalid email',
+					description: 'Enter a valid email address and try again.'
+				});
+				return;
+			}
 			errorMessage = error.message ?? 'Failed to sign in.';
 			return;
 		}
@@ -169,19 +182,18 @@
 						</Alert>
 					{/if}
 
-					{#if needsVerification}
-						<Button
-							variant="outline"
-							size="xl"
-							class="mt-5 h-12 w-full"
-							disabled={pending || !email.trim()}
-							onclick={() => void resendVerification()}
-						>
-							Resend verification email
-						</Button>
-					{/if}
-
 					<div class="mt-auto flex flex-col gap-3 pb-2 sm:pb-6">
+						{#if needsVerification}
+							<Button
+								variant="outline"
+								size="xl"
+								class="h-12 w-full"
+								disabled={pending || !email.trim()}
+								onclick={() => void resendVerification()}
+							>
+								Resend verification email
+							</Button>
+						{/if}
 						<Button
 							variant="default"
 							size="xl"

@@ -2297,3 +2297,66 @@
 ### Run: Validation
 
 - `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-22
+
+### Onboarding: Dropdowns Flip Above Inputs When Space Is Tight
+
+- Updated the shared `DropdownField` used on `/onboarding/start-club` so its menu measures viewport space while open.
+- Dropdowns now open above the input when there is not enough room below, instead of clipping off-screen near the bottom of the viewport.
+- Added viewport-aware max-height recalculation during open state so long option lists stay usable on smaller screens and during resize/scroll changes.
+- This fixes the referral-source dropdown for `How did you find out about us?` when it appears close to the bottom of the form.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-22
+
+### Onboarding: Get Started Language Picker
+
+- Added a globe icon button at the top-right of `/onboarding/get-started`.
+- The new dropdown uses the existing app i18n store so users can switch between English and Dutch before entering auth or onboarding flows.
+- The current language is marked inside the menu, and selection persists through the shared `setAppLocale(...)` helper.
+
+## 2026-03-22
+
+### Auth: Sign-In Verification Action Spacing
+
+- Fixed the spacing between `Resend verification email` and `Log in` on `/auth/sign-in`.
+- Moved the resend action into the same bottom button stack so shared vertical gaps are applied consistently whenever the verification CTA is shown.
+
+## 2026-03-22
+
+### Auth: Invalid Email Sign-In Error Uses Snackbar
+
+- Updated `/auth/sign-in` so `Invalid email` failures now surface through the global snackbar instead of the inline destructive alert.
+- Other sign-in errors still use the existing on-screen alert behavior.
+
+## 2026-03-22
+
+### Auth: Wrong Password No Longer Triggers Invalid Email Snackbar
+
+- Tightened the `/auth/sign-in` invalid-email detection so only exact invalid-email messages use the snackbar.
+- Combined credential failures such as wrong-password responses now fall back to the normal inline sign-in error state.
+
+## 2026-03-22
+
+### Onboarding: Join Club Code Inputs Now Fit Mobile Width
+
+- Updated `/onboarding/join-club` so the 6-character club code inputs use a responsive 6-column grid instead of a fixed horizontal row.
+- The code boxes now shrink on smaller screens rather than causing sideways scrolling while entering the club code.
+
+## 2026-03-22
+
+### Onboarding: Join Club Actions No Longer Force Horizontal Overflow On Mobile
+
+- Updated `/onboarding/join-club` to prevent action elements from pushing the page sideways on small screens.
+- The `View public clubs near you` prompt now wraps naturally, and the main CTA buttons override nowrap sizing locally so they stay responsive instead of contributing to horizontal scroll.
+
+## 2026-03-22
+
+### Onboarding: Join Club QR Scan CTA Removed For Now
+
+- Removed the `Scan a QR code` action from `/onboarding/join-club`.
+- Also deleted the now-unused mobile camera capability detection and QR icon import tied to that temporary CTA.
