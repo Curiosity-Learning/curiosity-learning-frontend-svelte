@@ -76,8 +76,6 @@ export const mediaAssetFields = {
 	ownerUserId: v.string(),
 	mediaKind: v.optional(mediaKindValidator),
 	status: mediaUploadStatusValidator,
-	contextType: v.optional(v.string()),
-	contextId: v.optional(v.string()),
 	originalFilename: v.optional(v.string()),
 	clientContentType: v.optional(v.string()),
 	clientSizeBytes: v.optional(v.number()),

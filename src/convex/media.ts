@@ -42,6 +42,9 @@ const toResolvedAsset = async (
 	ctx: ReadCtx,
 	asset: Doc<'mediaAssets'>
 ) => {
+	// Frontend code should treat the upload record as the source of truth and derive
+	// picker hints from this resolved constraints block, rather than re-encoding MIME
+	// and size rules in each feature surface.
 	const constraints = describeUploadConstraints({
 		acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
 		maxBytes: asset.maxBytes,
@@ -56,8 +59,6 @@ const toResolvedAsset = async (
 		ownerUserId: asset.ownerUserId,
 		mediaKind: asset.mediaKind ?? null,
 		status: asset.status,
-		contextType: asset.contextType ?? null,
-		contextId: asset.contextId ?? null,
 		originalFilename: asset.originalFilename ?? null,
 		clientContentType: asset.clientContentType ?? null,
 		clientSizeBytes: asset.clientSizeBytes ?? null,
@@ -117,20 +118,18 @@ export const beginUpload = mutation({
 		constraints: mediaUploadConstraintsValidator,
 		originalFilename: v.optional(v.string()),
 		clientContentType: v.optional(v.string()),
-		clientSizeBytes: v.optional(v.number()),
-		contextType: v.optional(v.string()),
-		contextId: v.optional(v.string())
+		clientSizeBytes: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const now = Date.now();
+		// We persist the validated constraints on the draft upload itself so later media
+		// features can choose their own rules without adding new backend enum values.
 		const constraints = normalizeUploadConstraints(args.constraints);
 		const assetId = await ctx.db.insert('mediaAssets', {
 			ownerUserId: identity.subject,
 			mediaKind: inferSingleAcceptedMediaKind(constraints),
 			status: 'pending_upload',
-			contextType: args.contextType,
-			contextId: args.contextId,
 			originalFilename: args.originalFilename,
 			clientContentType: args.clientContentType,
 			clientSizeBytes: args.clientSizeBytes,
@@ -179,6 +178,9 @@ export const finalizeUpload = mutation({
 		}
 
 		const now = Date.now();
+		// Finalize only records which storage object this draft should process. The heavy
+		// lifting happens in the scheduled internal mutation so the client gets an explicit
+		// processing state instead of waiting on validation/transforms inline.
 		await ctx.db.patch(asset._id, {
 			storageId: args.storageId,
 			status: 'processing',
@@ -337,9 +339,7 @@ export const getUpload = query({
 
 export const listMyUploads = query({
 	args: {
-		status: v.optional(mediaUploadStatusValidator),
-		contextType: v.optional(v.string()),
-		contextId: v.optional(v.string())
+		status: v.optional(mediaUploadStatusValidator)
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -355,10 +355,7 @@ export const listMyUploads = query({
 					.withIndex('by_owner', (q) => q.eq('ownerUserId', identity.subject))
 					.collect();
 
-		const filtered = rows
-			.filter((asset) => !args.contextType || asset.contextType === args.contextType)
-			.filter((asset) => !args.contextId || asset.contextId === args.contextId)
-			.sort((left, right) => right.createdAt - left.createdAt);
+		const filtered = rows.sort((left, right) => right.createdAt - left.createdAt);
 
 		return await Promise.all(filtered.map((asset) => toResolvedAsset(ctx, asset)));
 	}
@@ -374,6 +371,9 @@ export const processUpload = internalMutation({
 			return null;
 		}
 
+		// Use the system table as the authoritative source for uploaded file metadata.
+		// Clients may send hints, but readiness/failure should always be based on what
+		// Convex actually stored.
 		const metadata = (await ctx.db.system.get('_storage', asset.storageId)) as StoredMediaMetadata | null;
 		const result = await runMediaPipeline({
 			asset: {
