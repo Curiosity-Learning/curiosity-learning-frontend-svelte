@@ -1,4 +1,5 @@
 import { defineSchema, defineTable } from 'convex/server';
+import { mediaAssetFields } from './mediaModel';
 import { v } from 'convex/values';
 
 export default defineSchema({
@@ -219,6 +220,12 @@ export default defineSchema({
 		storageId: v.string(),
 		createdAt: v.number()
 	}).index('by_update', ['updateId']),
+
+	mediaAssets: defineTable(mediaAssetFields)
+		.index('by_owner', ['ownerUserId'])
+		.index('by_owner_and_status', ['ownerUserId', 'status'])
+		.index('by_storage_id', ['storageId'])
+		.index('by_purpose_and_status', ['purpose', 'status']),
 
 	notifications: defineTable({
 		userId: v.string(),

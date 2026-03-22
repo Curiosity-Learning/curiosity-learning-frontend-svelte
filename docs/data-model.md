@@ -44,6 +44,12 @@ Schema source: `src/convex/schema.ts`
 | `updates`        | Update posts on projects               | `projectId?`, `questionId?`, `content`, `createdByUserId` | `by_project`, `by_project_and_created` |
 | `updateFiles`    | Files attached to updates              | `updateId`, `storageId`                               | `by_update`                                |
 
+## Media Pipeline
+
+| Table         | Purpose                                   | Key Fields                                                                 | Indexes                                             |
+| ------------- | ----------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
+| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `purpose`, `status`, `storageId?`, `mediaKind?`, `contextType?`, `contextId?`, `contentType?`, `sizeBytes?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_storage_id`, `by_purpose_and_status` |
+
 ## Notifications / Privacy
 
 | Table           | Purpose                      | Key Fields                                           | Indexes                          |
