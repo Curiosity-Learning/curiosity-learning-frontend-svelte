@@ -22,12 +22,12 @@ class FileDropZoneState {
 	uploading = $state(false);
 	dragDepth = $state(0);
 
-	constructor(readonly opts: FileDropZoneStateOptions) {
-		if (this.opts.maxFiles !== undefined && this.opts.fileCount === undefined) {
-			console.warn(
-				'Make sure to provide FileDropZone with `fileCount` when using the `maxFiles` prompt'
-			);
-		}
+		constructor(readonly opts: FileDropZoneStateOptions) {
+			if (this.opts.maxFiles !== undefined && this.opts.fileCount === undefined) {
+				console.warn(
+					'Make sure to provide FileDropZone with `fileCount` when using the `maxFiles` prop'
+				);
+			}
 
 		this.onchange = this.onchange.bind(this);
 		this.ondrop = this.ondrop.bind(this);
@@ -61,8 +61,8 @@ class FileDropZoneState {
 
 		await this.upload(Array.from(selectedFiles));
 
-		// this if a file fails and we upload the same file again we still get feedback
-		(e.target as HTMLInputElement).value = '';
+			// Reset the input so selecting the same file again still triggers change feedback.
+			(e.target as HTMLInputElement).value = '';
 	}
 
 	ondragenter(e: DragEvent) {

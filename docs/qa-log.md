@@ -1033,7 +1033,7 @@
 - Added a settings entry point so the test surface is discoverable from the app.
 - Expanded the same test surface to support multi-file selection, submitting each selected file as its own upload session so batch behavior can be exercised without changing the one-file-per-asset backend contract.
 - Removed temporary `contextType` / `contextId` metadata from `mediaAssets` and the dev page so the upload foundation stays focused on storage, validation, and processing rather than soft ownership hints.
-- Added built-in `FileDropZone` rejection toasts (enabled by default, opt-out via `showErrorToasts={false}`) so feature code can get sane error UX without custom wiring, while still allowing pages like the dev surface to render inline rejection details instead.
+- Added built-in `FileDropZone` rejection toasts (enabled by default, opt-out via `showErrorToasts={false}`) so feature code can get sane error UX without custom wiring, while still allowing temporary tools or future feature pages to render inline rejection details instead.
 - Removed the temporary dev test route after validation so the branch lands with the shared pipeline and reusable drop-zone behavior, but without shipping an internal-only settings surface.
 
 ## 2026-03-14
