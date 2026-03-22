@@ -18,6 +18,7 @@
 - [x] Phase 6: Settings + preferences + notifications
 - [x] Phase 7: Terms/privacy and initial chat slice
 - [x] Phase 8: Hardening, tests, screenshots, lint/check gates
+- [x] Phase 9: Shared media upload foundation
 
 ## Delivered Routes
 
@@ -38,3 +39,4 @@ Playwright screenshots saved in `docs/screenshots/`.
 ## Open Follow-ups
 
 - Authenticated visual captures for full `/app/*` pages require a verified test account/session bootstrap in CI-like runs.
+- Feature-level media surfaces should attach domain records to `mediaAssets` instead of storing raw file URLs or ad-hoc storage IDs.

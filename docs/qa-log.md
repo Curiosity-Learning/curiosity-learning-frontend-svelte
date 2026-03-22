@@ -1026,6 +1026,16 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+### 2026-03-22: Media Upload Dev Test Surface
+
+- Added a temporary authenticated route at `src/routes/(app)/settings/media-upload-dev/+page.svelte` to exercise the shared `mediaAssets` pipeline without using the Convex dashboard.
+- The page lets us configure per-upload constraints, pick a single file through the local `FileDropZone` UI component, run the real begin/upload/finalize flow, and inspect retry/restart/cancel behavior on existing uploads.
+- Added a settings entry point so the test surface is discoverable from the app.
+- Expanded the same test surface to support multi-file selection, submitting each selected file as its own upload session so batch behavior can be exercised without changing the one-file-per-asset backend contract.
+- Removed temporary `contextType` / `contextId` metadata from `mediaAssets` and the dev page so the upload foundation stays focused on storage, validation, and processing rather than soft ownership hints.
+- Added built-in `FileDropZone` rejection toasts (enabled by default, opt-out via `showErrorToasts={false}`) so feature code can get sane error UX without custom wiring, while still allowing temporary tools or future feature pages to render inline rejection details instead.
+- Removed the temporary dev test route after validation so the branch lands with the shared pipeline and reusable drop-zone behavior, but without shipping an internal-only settings surface.
+
 ## 2026-03-14
 
 ### DevOps: Baseline PR Gate
@@ -1079,6 +1089,36 @@
   - `src/routes/(app)/club/[clubId]/sessions/+page.svelte`
 - `createSession` now snapshots `startTime`/`endTime` before async mutation work, so navigation state is built from stable values.
 - Header hint formatting is now guarded (`Number.isFinite`) before `formatSessionHeaderLine(...)`, preventing a formatting/runtime edge case from skipping navigation after successful create.
+
+## 2026-03-22
+
+### Foundation: Shared Media Upload Pipeline
+
+- Added a shared Convex-native upload foundation in:
+  - `src/convex/media.ts`
+  - `src/convex/mediaPipeline.ts`
+  - `src/convex/mediaModel.ts`
+- Added `mediaAssets` to the schema as the canonical upload record for user-facing media.
+- The pipeline now:
+  - creates draft uploads and signed storage URLs,
+  - finalizes uploads against `Id<"_storage">`,
+  - reads authoritative file metadata from the `"_storage"` system table,
+  - validates each file against per-upload constraints (`acceptedContentTypes`, `maxBytes`, processing flags),
+  - tracks explicit states (`pending_upload`, `processing`, `ready`, `failed`, `canceled`),
+  - and exposes restart/cancel/retry hooks for recoverability.
+- Kept file URLs ephemeral by generating them at read time with `ctx.storage.getUrl(...)` instead of persisting them in tables.
+- Refined the initial design away from a backend `purpose` enum and into a constraint-based contract so new upload surfaces can choose their own MIME/size rules without registering a new global upload type.
+- Wired compression and safety screening as shared pipeline steps so future processors can extend the same contract rather than creating feature-specific upload implementations.
+
+### Documentation
+
+- Added ADR-012 for the shared media upload pipeline decision.
+- Updated architecture, data model, parity matrix, and implementation plan docs to reflect the new media foundation.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 - Session open now retries with plain `goto(target)` if the stateful navigation attempt throws, ensuring the new session still opens.
 - Dashboard flow now closes the create dialog after navigation attempt rather than before, reducing chances of state churn affecting post-create routing.
 
