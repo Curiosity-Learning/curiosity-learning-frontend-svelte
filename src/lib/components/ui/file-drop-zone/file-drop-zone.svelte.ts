@@ -2,6 +2,7 @@ import type { ReadableBoxedValues } from 'svelte-toolbelt';
 import type { FileRejectedReason } from './types';
 import { Context } from 'runed';
 import type { HTMLAttributes } from 'svelte/elements';
+import { SvelteMap } from 'svelte/reactivity';
 import { toast } from 'svelte-sonner';
 import { displaySize } from './index';
 
@@ -128,7 +129,7 @@ class FileDropZoneState {
 		// Group by rejection reason so feature code gets one sensible default toast instead
 		// of a burst of per-file errors. Callers that want custom inline handling can opt
 		// out with `showErrorToasts={false}` and rely on `onFileRejected` instead.
-		const byReason = new Map<FileRejectedReason, number>();
+		const byReason = new SvelteMap<FileRejectedReason, number>();
 		for (const rejection of rejections) {
 			byReason.set(rejection.reason, (byReason.get(rejection.reason) ?? 0) + 1);
 		}
