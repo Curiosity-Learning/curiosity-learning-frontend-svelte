@@ -2,14 +2,6 @@ import { v } from 'convex/values';
 
 export const MEDIA_PIPELINE_VERSION = 1;
 
-export const MEDIA_PURPOSES = [
-	'pledge_media',
-	'session_photo',
-	'project_media',
-	'application_video'
-] as const;
-export type MediaPurpose = (typeof MEDIA_PURPOSES)[number];
-
 export const MEDIA_KINDS = ['image', 'video'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
@@ -30,13 +22,6 @@ export type MediaPipelineStage = (typeof MEDIA_PIPELINE_STAGES)[number];
 
 export const MEDIA_PIPELINE_STEP_STATUSES = ['passed', 'failed', 'skipped'] as const;
 export type MediaPipelineStepStatus = (typeof MEDIA_PIPELINE_STEP_STATUSES)[number];
-
-export const mediaPurposeValidator = v.union(
-	v.literal('pledge_media'),
-	v.literal('session_photo'),
-	v.literal('project_media'),
-	v.literal('application_video')
-);
 
 export const mediaKindValidator = v.union(v.literal('image'), v.literal('video'));
 
@@ -80,9 +65,15 @@ export const mediaFailureValidator = v.object({
 	retryable: v.boolean()
 });
 
+export const mediaUploadConstraintsValidator = v.object({
+	acceptedContentTypes: v.array(v.string()),
+	maxBytes: v.number(),
+	enableCompression: v.optional(v.boolean()),
+	enableSafetyScreening: v.optional(v.boolean())
+});
+
 export const mediaAssetFields = {
 	ownerUserId: v.string(),
-	purpose: mediaPurposeValidator,
 	mediaKind: v.optional(mediaKindValidator),
 	status: mediaUploadStatusValidator,
 	contextType: v.optional(v.string()),
@@ -90,6 +81,10 @@ export const mediaAssetFields = {
 	originalFilename: v.optional(v.string()),
 	clientContentType: v.optional(v.string()),
 	clientSizeBytes: v.optional(v.number()),
+	acceptedContentTypes: v.array(v.string()),
+	maxBytes: v.number(),
+	enableCompression: v.boolean(),
+	enableSafetyScreening: v.boolean(),
 	storageId: v.optional(v.id('_storage')),
 	contentType: v.optional(v.string()),
 	sizeBytes: v.optional(v.number()),

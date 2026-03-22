@@ -1108,15 +1108,17 @@
 - Added a shared Convex-native upload foundation in:
   - `src/convex/media.ts`
   - `src/convex/mediaPipeline.ts`
+  - `src/convex/mediaModel.ts`
 - Added `mediaAssets` to the schema as the canonical upload record for user-facing media.
 - The pipeline now:
   - creates draft uploads and signed storage URLs,
   - finalizes uploads against `Id<"_storage">`,
   - reads authoritative file metadata from the `"_storage"` system table,
-  - validates type/size in one shared place,
+  - validates each file against per-upload constraints (`acceptedContentTypes`, `maxBytes`, processing flags),
   - tracks explicit states (`pending_upload`, `processing`, `ready`, `failed`, `canceled`),
   - and exposes restart/cancel/retry hooks for recoverability.
 - Kept file URLs ephemeral by generating them at read time with `ctx.storage.getUrl(...)` instead of persisting them in tables.
+- Refined the initial design away from a backend `purpose` enum and into a constraint-based contract so new upload surfaces can choose their own MIME/size rules without registering a new global upload type.
 - Wired compression and safety screening as shared pipeline steps so future processors can extend the same contract rather than creating feature-specific upload implementations.
 
 ### Documentation
