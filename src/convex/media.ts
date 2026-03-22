@@ -10,13 +10,15 @@ import {
 } from './_generated/server';
 import {
 	MEDIA_PIPELINE_VERSION,
-	mediaPurposeValidator,
+	mediaUploadConstraintsValidator,
 	mediaUploadStatusValidator
 } from './mediaModel';
 import {
+	type SupportedContentType,
 	type StoredMediaMetadata,
-	getMediaPurposeConfig,
-	listUploadPolicies,
+	describeUploadConstraints,
+	inferSingleAcceptedMediaKind,
+	normalizeUploadConstraints,
 	runMediaPipeline
 } from './mediaPipeline';
 import { requireIdentity } from './permissions';
@@ -40,13 +42,18 @@ const toResolvedAsset = async (
 	ctx: ReadCtx,
 	asset: Doc<'mediaAssets'>
 ) => {
-	const policy = getMediaPurposeConfig(asset.purpose);
-	const fileUrl = asset.status === 'ready' && asset.storageId ? await ctx.storage.getUrl(asset.storageId) : null;
+	const constraints = describeUploadConstraints({
+		acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
+		maxBytes: asset.maxBytes,
+		enableCompression: asset.enableCompression,
+		enableSafetyScreening: asset.enableSafetyScreening
+	});
+	const fileUrl =
+		asset.status === 'ready' && asset.storageId ? await ctx.storage.getUrl(asset.storageId) : null;
 
 	return {
 		assetId: asset._id,
 		ownerUserId: asset.ownerUserId,
-		purpose: asset.purpose,
 		mediaKind: asset.mediaKind ?? null,
 		status: asset.status,
 		contextType: asset.contextType ?? null,
@@ -70,13 +77,13 @@ const toResolvedAsset = async (
 		canceledAt: asset.canceledAt ?? null,
 		fileUrl,
 		constraints: {
-			purpose: asset.purpose,
-			label: policy.label,
-			acceptedMediaKinds: [...policy.acceptedMediaKinds],
-			sizeLimitBytesByKind: policy.sizeLimitBytesByKind,
-			acceptedContentTypes: [...policy.acceptedContentTypes],
-			acceptedFileExtensions: [...policy.acceptedFileExtensions],
-			accept: [...policy.acceptedContentTypes, ...policy.acceptedFileExtensions].join(',')
+			acceptedMediaKinds: [...constraints.acceptedMediaKinds],
+			acceptedContentTypes: [...constraints.acceptedContentTypes],
+			acceptedFileExtensions: [...constraints.acceptedFileExtensions],
+			maxBytes: constraints.maxBytes,
+			enableCompression: constraints.enableCompression,
+			enableSafetyScreening: constraints.enableSafetyScreening,
+			accept: constraints.accept
 		},
 		actions: {
 			canFinalize: asset.status === 'pending_upload',
@@ -105,17 +112,9 @@ const deleteStorageObjectIfPresent = async (
 	await ctx.storage.delete(storageId);
 };
 
-export const getUploadPolicies = query({
-	args: {},
-	handler: async (ctx) => {
-		await requireIdentity(ctx);
-		return listUploadPolicies();
-	}
-});
-
 export const beginUpload = mutation({
 	args: {
-		purpose: mediaPurposeValidator,
+		constraints: mediaUploadConstraintsValidator,
 		originalFilename: v.optional(v.string()),
 		clientContentType: v.optional(v.string()),
 		clientSizeBytes: v.optional(v.number()),
@@ -125,17 +124,20 @@ export const beginUpload = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const now = Date.now();
-		const config = getMediaPurposeConfig(args.purpose);
+		const constraints = normalizeUploadConstraints(args.constraints);
 		const assetId = await ctx.db.insert('mediaAssets', {
 			ownerUserId: identity.subject,
-			purpose: args.purpose,
-			mediaKind: config.acceptedMediaKinds.length === 1 ? config.acceptedMediaKinds[0] : undefined,
+			mediaKind: inferSingleAcceptedMediaKind(constraints),
 			status: 'pending_upload',
 			contextType: args.contextType,
 			contextId: args.contextId,
 			originalFilename: args.originalFilename,
 			clientContentType: args.clientContentType,
 			clientSizeBytes: args.clientSizeBytes,
+			acceptedContentTypes: constraints.acceptedContentTypes,
+			maxBytes: constraints.maxBytes,
+			enableCompression: constraints.enableCompression,
+			enableSafetyScreening: constraints.enableSafetyScreening,
 			pipelineVersion: MEDIA_PIPELINE_VERSION,
 			attemptCount: 0,
 			stepResults: [],
@@ -242,7 +244,6 @@ export const restartUpload = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const asset = await assertOwner(ctx, args.assetId, identity.subject);
-		const config = getMediaPurposeConfig(asset.purpose);
 
 		if (!['pending_upload', 'failed', 'canceled'].includes(asset.status)) {
 			throw new ConvexError('Upload cannot be restarted from its current state');
@@ -254,7 +255,12 @@ export const restartUpload = mutation({
 		await ctx.db.patch(asset._id, {
 			status: 'pending_upload',
 			storageId: undefined,
-			mediaKind: config.acceptedMediaKinds.length === 1 ? config.acceptedMediaKinds[0] : undefined,
+			mediaKind: inferSingleAcceptedMediaKind({
+				acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
+				maxBytes: asset.maxBytes,
+				enableCompression: asset.enableCompression,
+				enableSafetyScreening: asset.enableSafetyScreening
+			}),
 			contentType: undefined,
 			sizeBytes: undefined,
 			sha256: undefined,
@@ -331,7 +337,6 @@ export const getUpload = query({
 
 export const listMyUploads = query({
 	args: {
-		purpose: v.optional(mediaPurposeValidator),
 		status: v.optional(mediaUploadStatusValidator),
 		contextType: v.optional(v.string()),
 		contextId: v.optional(v.string())
@@ -351,7 +356,6 @@ export const listMyUploads = query({
 					.collect();
 
 		const filtered = rows
-			.filter((asset) => !args.purpose || asset.purpose === args.purpose)
 			.filter((asset) => !args.contextType || asset.contextType === args.contextType)
 			.filter((asset) => !args.contextId || asset.contextId === args.contextId)
 			.sort((left, right) => right.createdAt - left.createdAt);
@@ -373,7 +377,10 @@ export const processUpload = internalMutation({
 		const metadata = (await ctx.db.system.get('_storage', asset.storageId)) as StoredMediaMetadata | null;
 		const result = await runMediaPipeline({
 			asset: {
-				purpose: asset.purpose,
+				acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
+				maxBytes: asset.maxBytes,
+				enableCompression: asset.enableCompression,
+				enableSafetyScreening: asset.enableSafetyScreening,
 				originalFilename: asset.originalFilename ?? null,
 				clientContentType: asset.clientContentType ?? null
 			},

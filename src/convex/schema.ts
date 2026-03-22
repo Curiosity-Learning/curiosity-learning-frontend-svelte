@@ -224,8 +224,7 @@ export default defineSchema({
 	mediaAssets: defineTable(mediaAssetFields)
 		.index('by_owner', ['ownerUserId'])
 		.index('by_owner_and_status', ['ownerUserId', 'status'])
-		.index('by_storage_id', ['storageId'])
-		.index('by_purpose_and_status', ['purpose', 'status']),
+		.index('by_storage_id', ['storageId']),
 
 	notifications: defineTable({
 		userId: v.string(),

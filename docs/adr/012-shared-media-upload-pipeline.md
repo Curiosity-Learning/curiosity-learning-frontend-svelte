@@ -30,9 +30,9 @@ We will use one shared Convex file-storage pipeline backed by a `mediaAssets` ta
 
 Each `mediaAssets` record stores:
 
-- upload purpose,
 - owner,
 - optional feature context identifiers,
+- per-upload constraints (`acceptedContentTypes`, `maxBytes`, processing flags),
 - the `Id<"_storage">`,
 - derived file metadata (`contentType`, `sizeBytes`, `sha256`),
 - a state machine (`pending_upload`, `processing`, `ready`, `failed`, `canceled`),
@@ -43,7 +43,7 @@ Each `mediaAssets` record stores:
 
 - File metadata is read from the `"_storage"` system table via `ctx.db.system.get("_storage", storageId)`.
 - File URLs are not persisted. They are generated at read time with `ctx.storage.getUrl(...)`.
-- Purpose-specific constraints are configured in one shared registry (`src/convex/mediaPipeline.ts`).
+- Each upload record carries its own validated constraints, so feature code can choose MIME and size rules without adding new backend enum values.
 - Compression and safety screening are modeled as pipeline steps, but remain no-op hooks until those processors are implemented.
 
 ## Rationale
@@ -58,6 +58,7 @@ Each `mediaAssets` record stores:
 ### Positive
 
 - One upload contract for all upcoming media features.
+- The shared uploader stays generic instead of growing a new backend `purpose` enum value for every feature surface.
 - Failure states are explicit and queryable.
 - Users can restart or retry uploads without inventing feature-specific recovery paths.
 - Future compression/safety processors can plug into the same pipeline contract.
@@ -65,5 +66,5 @@ Each `mediaAssets` record stores:
 ### Trade-offs
 
 - Feature tables still need to decide how they reference `mediaAssets` and enforce domain rules.
-- Mixed-purpose media support is centralized, so product-level MIME/size changes should go through the shared policy registry.
+- Feature code must create upload sessions with the intended constraints; attachment count and other product rules remain outside the uploader itself.
 - When a future processor requires external APIs or Node-only libraries, the pipeline will need to hand off that step to an internal action rather than keeping everything inside mutations.
