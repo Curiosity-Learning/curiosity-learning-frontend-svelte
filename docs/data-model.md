@@ -48,7 +48,7 @@ Schema source: `src/convex/schema.ts`
 
 | Table         | Purpose                                   | Key Fields                                                                 | Indexes                                             |
 | ------------- | ----------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
-| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `acceptedContentTypes[]`, `maxBytes`, `enableCompression`, `enableSafetyScreening`, `storageId?`, `mediaKind?`, `contextType?`, `contextId?`, `contentType?`, `sizeBytes?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_storage_id` |
+| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `acceptedContentTypes[]`, `maxBytes`, `enableCompression`, `enableSafetyScreening`, `storageId?`, `mediaKind?`, `contentType?`, `sizeBytes?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_storage_id` |
 
 ## Notifications / Privacy
 

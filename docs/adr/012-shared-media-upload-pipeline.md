@@ -31,7 +31,6 @@ We will use one shared Convex file-storage pipeline backed by a `mediaAssets` ta
 Each `mediaAssets` record stores:
 
 - owner,
-- optional feature context identifiers,
 - per-upload constraints (`acceptedContentTypes`, `maxBytes`, processing flags),
 - the `Id<"_storage">`,
 - derived file metadata (`contentType`, `sizeBytes`, `sha256`),
@@ -62,6 +61,7 @@ Each `mediaAssets` record stores:
 - Failure states are explicit and queryable.
 - Users can restart or retry uploads without inventing feature-specific recovery paths.
 - Future compression/safety processors can plug into the same pipeline contract.
+- Feature ownership remains explicit in domain tables instead of being inferred from optional context metadata on the upload row.
 
 ### Trade-offs
 
