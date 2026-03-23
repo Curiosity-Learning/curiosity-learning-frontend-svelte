@@ -157,9 +157,9 @@
 	$effect(() => {
 		if (!browser || !isOpen) return;
 
-		renderedOptions.length;
-		loading;
-		value;
+		void renderedOptions.length;
+		void loading;
+		void value;
 
 		const handleViewportChange = () => {
 			updateDropdownPosition();
@@ -238,7 +238,7 @@
 						class={cn('overflow-y-auto py-1', maxMenuHeightClass)}
 						style:max-height={menuMaxHeightPx ? `${menuMaxHeightPx}px` : undefined}
 					>
-						{#each renderedOptions as option}
+						{#each renderedOptions as option (option.value)}
 							<li>
 								<button
 									type="button"

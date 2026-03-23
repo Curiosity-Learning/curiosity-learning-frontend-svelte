@@ -73,10 +73,15 @@ const getRoleByName = async (ctx: Ctx, name: 'Guide' | 'Learner') => {
 };
 
 const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
-	if (club.videoStorageId) {
-		return await ctx.storage.getUrl(club.videoStorageId);
+	if (!club.videoStorageId) {
+		return null;
 	}
-	return null;
+
+	try {
+		return await ctx.storage.getUrl(club.videoStorageId);
+	} catch {
+		return null;
+	}
 };
 
 const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'clubMembers'>) => {

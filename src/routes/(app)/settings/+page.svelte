@@ -18,6 +18,7 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -33,6 +34,9 @@
 	);
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, {});
+
+	const PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+	const PROFILE_IMAGE_MAX_BYTES = 10 * 1000 * 1000;
 
 	const legalDocumentOrder = {
 		privacy_policy: 0,
@@ -168,23 +172,20 @@
 		successMessage = '';
 
 		try {
-			const uploadUrl = await convexClient.mutation(api.media.generateUploadUrl, {});
-			const uploadResponse = await fetch(uploadUrl, {
-				method: 'POST',
-				headers: file.type ? { 'Content-Type': file.type } : undefined,
-				body: file
+			const uploadedAsset = await uploadMediaAsset(convexClient, file, {
+				acceptedContentTypes: PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES,
+				maxBytes: PROFILE_IMAGE_MAX_BYTES,
+				enableCompression: true,
+				enableSafetyScreening: true
 			});
-			if (!uploadResponse.ok) {
-				throw new Error('Profile image upload failed');
+			if (!uploadedAsset.storageId) {
+				throw new Error('Profile image upload could not be finalized.');
 			}
-			const uploadResult = (await uploadResponse.json()) as { storageId?: Id<'_storage'> };
-			if (!uploadResult.storageId) {
-				throw new Error('Profile image upload failed');
-			}
-			profileImageStorageId = uploadResult.storageId;
+			profileImageStorageId = uploadedAsset.storageId;
 			successMessage = 'Profile image uploaded. Click Save profile to apply changes.';
 		} catch (error) {
 			profileImageStorageId = null;
+			revokeProfilePreview();
 			errorMessage = error instanceof Error ? error.message : 'Unable to upload profile image.';
 		} finally {
 			profileImageUploading = false;

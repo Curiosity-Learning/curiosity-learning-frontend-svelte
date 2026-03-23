@@ -10,7 +10,7 @@
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { authClient } from '$lib/auth-client';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
-	import resetPasswordImage from '$lib/assets/reset_password.png';
+	import resetPasswordImage from '$lib/assets/svg/reset_password.png';
 
 	let token = $derived(page.url.searchParams.get('token') ?? '');
 	let isTokenFlow = $derived(token.length > 0);

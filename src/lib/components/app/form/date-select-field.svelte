@@ -79,7 +79,7 @@
 				)}
 			>
 				<option value="" disabled>Month</option>
-				{#each months as monthOption}
+				{#each months as monthOption (monthOption)}
 					<option value={monthOption}>{monthOption}</option>
 				{/each}
 			</select>
@@ -100,7 +100,7 @@
 					)}
 				>
 					<option value="" disabled>Day</option>
-					{#each dayOptions as dayOption}
+					{#each dayOptions as dayOption (dayOption)}
 						<option value={dayOption}>{dayOption}</option>
 					{/each}
 				</select>
@@ -121,7 +121,7 @@
 				)}
 			>
 				<option value="" disabled>Year</option>
-				{#each yearOptions as yearOption}
+				{#each yearOptions as yearOption (yearOption)}
 					<option value={yearOption}>{yearOption}</option>
 				{/each}
 			</select>

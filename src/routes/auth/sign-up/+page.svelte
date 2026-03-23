@@ -3,8 +3,8 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import Icon from '@iconify/svelte';
-	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
@@ -90,7 +90,7 @@
 		return '/onboarding/get-started';
 	});
 	let signUpPathForCurrentStep = $derived.by(() => {
-		const params = new URLSearchParams();
+		const params = new SvelteURLSearchParams();
 		if (nextPath !== '/') {
 			params.set('next', nextPath);
 		}
@@ -104,7 +104,7 @@
 		return query.length > 0 ? `/auth/sign-up?${query}` : '/auth/sign-up';
 	});
 	let verificationCallbackPath = $derived.by(() => {
-		const params = new URLSearchParams();
+		const params = new SvelteURLSearchParams();
 		if (nextPath !== '/') {
 			params.set('next', nextPath);
 		}
@@ -115,18 +115,12 @@
 		return `/auth/sign-up?${params.toString()}`;
 	});
 	let postSignupPath = $derived.by(() => {
-		const params = new URLSearchParams();
+		const params = new SvelteURLSearchParams();
 		if (postSignupNextPath !== '/') {
 			params.set('next', postSignupNextPath);
 		}
 		const query = params.toString();
 		return query.length > 0 ? `/onboarding/post-signup?${query}` : '/onboarding/post-signup';
-	});
-	let signInPath = $derived.by(() => {
-		if (nextPath === '/') {
-			return '/auth/sign-in';
-		}
-		return `/auth/sign-in?next=${encodeURIComponent(nextPath)}`;
 	});
 	let termsHref = $derived(`/terms?backTo=${encodeURIComponent(signUpPathForCurrentStep)}`);
 
@@ -207,13 +201,6 @@
 			clearTimeout(emailLookupTimer);
 			emailLookupTimer = null;
 		}
-	};
-
-	const clearExistingEmailLookupState = () => {
-		stopEmailLookup();
-		emailStatusPending = false;
-		existingEmailStatus = null;
-		existingEmailLookupKey = '';
 	};
 
 	onDestroy(() => {
@@ -434,7 +421,7 @@ type ExistingAccountStatus = {
 
 	const getExistingAccountLoginPath = (resumePostSignup: boolean) => {
 		const target = resumePostSignup ? postSignupPath : '/';
-		const params = new URLSearchParams();
+		const params = new SvelteURLSearchParams();
 		params.set('next', target);
 		if (forceSignup) {
 			params.set('forceSignup', '1');
@@ -516,7 +503,7 @@ type ExistingAccountStatus = {
 	};
 
 	const startExistingGoogleAccountFlow = async (resumePostSignup: boolean) => {
-		const existingAccountParams = new URLSearchParams();
+		const existingAccountParams = new SvelteURLSearchParams();
 		existingAccountParams.set('next', resumePostSignup ? postSignupPath : '/');
 		existingAccountParams.set('existingGoogleAccount', '1');
 		existingAccountParams.set('step', String(step));
@@ -779,7 +766,7 @@ const signUpWithGoogle = async () => {
 			return;
 		}
 
-		const existingAccountParams = new URLSearchParams();
+		const existingAccountParams = new SvelteURLSearchParams();
 		existingAccountParams.set('next', nextPath);
 		existingAccountParams.set('existingGoogleAccount', '1');
 		existingAccountParams.set('step', String(step));
@@ -787,7 +774,7 @@ const signUpWithGoogle = async () => {
 			existingAccountParams.set('forceSignup', '1');
 		}
 
-		const socialCallbackParams = new URLSearchParams();
+		const socialCallbackParams = new SvelteURLSearchParams();
 		socialCallbackParams.set('next', nextPath);
 		socialCallbackParams.set('postSocial', 'google');
 		socialCallbackParams.set('step', String(step));

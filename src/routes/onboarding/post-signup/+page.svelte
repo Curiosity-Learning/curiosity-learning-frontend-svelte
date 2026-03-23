@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
@@ -58,7 +59,7 @@
 	const pledgesResponse = useStableQuery(api.pledges.listActive, () => (auth.isAuthenticated ? {} : 'skip'));
 	const pledgeItems = $derived(pledgesResponse.data ?? []);
 	let selfPath = $derived.by(() => {
-		const params = new URLSearchParams();
+		const params = new SvelteURLSearchParams();
 		if (completionNextPath !== '/') {
 			params.set('next', completionNextPath);
 		}
@@ -333,8 +334,7 @@
 							</div>
 							<div class="flex min-w-0 flex-1 flex-col gap-2">
 								<FileDropZone.Trigger class="contents">
-									{#snippet children()}
-										<div
+									<div
 											class="flex min-h-20 items-center justify-between gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-left text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
 										>
 											<div class="flex min-w-0 flex-col gap-1">
@@ -347,7 +347,6 @@
 												{profileImageUploading ? 'Uploading' : 'Browse'}
 											</div>
 										</div>
-									{/snippet}
 								</FileDropZone.Trigger>
 							</div>
 						</div>
@@ -378,7 +377,7 @@
 									<p class="text-sm leading-6 text-gray-600">{item.description}</p>
 									{#if item.bullets.length > 0}
 										<ul class="list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
-											{#each item.bullets as bullet}
+											{#each item.bullets as bullet, bulletIndex (bulletIndex)}
 												<li>{bullet}</li>
 											{/each}
 										</ul>

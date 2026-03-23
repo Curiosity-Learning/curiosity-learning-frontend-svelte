@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
@@ -38,12 +39,12 @@
 	let clubVideoUrl = $derived(isValidVideoUrl(club?.videoUrl ?? null) ? club?.videoUrl ?? null : null);
 
 	$effect(() => {
-		clubVideoUrl;
+		void clubVideoUrl;
 		videoLoadFailed = false;
 	});
 
 	const getSignUpPath = () => {
-		const params = new URLSearchParams();
+		const params = new SvelteURLSearchParams();
 		params.set('next', `/onboarding/join-club/${data.code}`);
 		params.set('forceSignup', '1');
 		return `/auth/sign-up?${params.toString()}`;

@@ -32,7 +32,7 @@
 	{...restProps}
 >
 	{#snippet children({ cells })}
-		{#each cells as cell, index}
+		{#each cells as cell, index (index)}
 			<PinInput.Cell
 				{cell}
 				aria-label={`OTP digit ${index + 1}`}

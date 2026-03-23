@@ -112,7 +112,7 @@
 	});
 
 	$effect(() => {
-		joinedCode;
+		void joinedCode;
 		codeError = '';
 	});
 </script>
@@ -138,7 +138,7 @@
 			</div>
 
 			<div class="grid w-full grid-cols-6 gap-1.5 sm:gap-2.5">
-				{#each codeChars as char, index}
+				{#each codeChars as char, index (index)}
 					<input
 						bind:this={inputRefs[index]}
 						inputmode="text"

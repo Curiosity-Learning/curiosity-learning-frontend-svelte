@@ -1,3 +1,4 @@
+import type { useConvexClient } from 'convex-svelte';
 import { api } from '$convex/_generated/api';
 import type { Id } from '$convex/_generated/dataModel';
 
@@ -15,8 +16,10 @@ type MediaUploadResult = {
 	fileUrl: string | null;
 };
 
+type ConvexClient = ReturnType<typeof useConvexClient>;
+
 export async function uploadMediaAsset(
-	convexClient: { mutation: (...args: any[]) => Promise<any> },
+	convexClient: ConvexClient,
 	file: File,
 	constraints: UploadConstraints
 ): Promise<MediaUploadResult> {

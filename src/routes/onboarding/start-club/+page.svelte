@@ -3,6 +3,7 @@
 	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { SvelteSet, SvelteURLSearchParams } from 'svelte/reactivity';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
@@ -175,8 +176,6 @@
 		localVideoPreviewUrl = null;
 	};
 
-	const isValidVideoFile = (file: File) => file.type.startsWith('video/');
-
 	let hasValidUploadedVideo = $derived(
 		Boolean(videoStorageId && localVideoPreviewUrl && !previewVideoLoadFailed)
 	);
@@ -210,7 +209,7 @@
 
 	const parsePhotonSuggestions = (payload: PhotonResponse) => {
 		const suggestions: DropdownOption[] = [];
-		const seen = new Set<string>();
+		const seen = new SvelteSet<string>();
 		const features = Array.isArray(payload.features) ? payload.features : [];
 		for (const feature of features) {
 			const suggestion = buildLocationSuggestion(feature);
@@ -369,7 +368,7 @@
 		}
 
 		if (!auth.isAuthenticated) {
-			const params = new URLSearchParams();
+			const params = new SvelteURLSearchParams();
 			params.set('next', '/onboarding/start-club?step=2');
 			params.set('forceSignup', '1');
 			await goto(`/auth/sign-up?${params.toString()}`);
@@ -522,8 +521,7 @@
 						onUpload={uploadClubVideo}
 					>
 						<FileDropZone.Trigger class="contents">
-							{#snippet children()}
-								<div
+							<div
 									class="grid min-h-36 place-items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
 								>
 									<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
@@ -542,7 +540,6 @@
 										<p class="text-xs font-semibold text-emerald-600">Video uploaded</p>
 									{/if}
 								</div>
-							{/snippet}
 						</FileDropZone.Trigger>
 					</FileDropZone.Root>
 					{#if hasValidUploadedVideo}

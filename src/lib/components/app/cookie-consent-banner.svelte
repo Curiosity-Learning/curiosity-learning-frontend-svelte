@@ -115,7 +115,7 @@
 	});
 
 	$effect(() => {
-		currentPath;
+		void currentPath;
 		scheduleBanner();
 	});
 </script>
