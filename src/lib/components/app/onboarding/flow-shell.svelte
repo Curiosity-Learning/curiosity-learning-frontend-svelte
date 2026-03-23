@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
-	import onboardingIllustration from '$lib/assets/images/image.svg';
+	import onboardingIllustration from '$lib/assets/images/get_started.svg';
 
 	type Props = {
 		step: number;

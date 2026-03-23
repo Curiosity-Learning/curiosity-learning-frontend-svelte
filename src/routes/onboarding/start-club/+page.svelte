@@ -4,16 +4,16 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-	import PlusIcon from '@lucide/svelte/icons/plus';
+	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
+	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
 	import {
 		DropdownField,
 		InputField,
 		TextareaField,
 		type DropdownOption
 	} from '$lib/components/app/form';
-	import { authClient } from '$lib/auth-client';
 	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -27,6 +27,13 @@
 	const LOCATION_AUTOCOMPLETE_DEBOUNCE_MS = 280;
 	const LOCATION_AUTOCOMPLETE_LIMIT = 6;
 	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
+	const CLUB_VIDEO_ACCEPTED_CONTENT_TYPES = [
+		'video/mp4',
+		'video/quicktime',
+		'video/webm',
+		'video/x-m4v'
+	];
+	const CLUB_VIDEO_MAX_BYTES = 100 * FileDropZone.MEGABYTE;
 
 	type PhotonFeature = {
 		properties?: {
@@ -312,51 +319,44 @@
 		}, LOCATION_AUTOCOMPLETE_DEBOUNCE_MS);
 	});
 
-	const handleVideoFile = async (event: Event) => {
-		const target = event.currentTarget as HTMLInputElement;
-		const file = target.files?.[0];
-		videoFileName = file?.name ?? '';
+	const uploadClubVideo = async (files: File[]) => {
+		const file = files[0];
+		if (!file) return;
+
+		videoFileName = file.name;
 		videoStorageId = null;
 		previewVideoLoadFailed = false;
-		if (!file) return;
-		if (!isValidVideoFile(file)) {
-			errorMessage = 'Please choose a valid video file.';
-			target.value = '';
-			videoFileName = '';
-			return;
-		}
-
 		revokeLocalVideoPreview();
 		localVideoPreviewUrl = URL.createObjectURL(file);
 
 		if (!auth.isAuthenticated) {
 			errorMessage = 'Please sign in first, then upload the club video.';
+			revokeLocalVideoPreview();
+			videoFileName = '';
 			return;
 		}
 
 		videoUploadPending = true;
 		errorMessage = '';
 		try {
-			const uploadUrl = await convexClient.mutation(api.media.generateUploadUrl, {});
-			const uploadResponse = await fetch(uploadUrl, {
-				method: 'POST',
-				headers: file.type ? { 'Content-Type': file.type } : undefined,
-				body: file
+			const uploadedAsset = await uploadMediaAsset(convexClient, file, {
+				acceptedContentTypes: CLUB_VIDEO_ACCEPTED_CONTENT_TYPES,
+				maxBytes: CLUB_VIDEO_MAX_BYTES,
+				enableCompression: true,
+				enableSafetyScreening: true
 			});
-			if (!uploadResponse.ok) {
-				throw new Error('Video upload failed');
+			if (!uploadedAsset.storageId) {
+				throw new Error('Video upload could not be finalized.');
 			}
-			const uploadResult = (await uploadResponse.json()) as { storageId?: Id<'_storage'> };
-			if (!uploadResult.storageId) {
-				throw new Error('Video upload failed');
-			}
-			videoStorageId = uploadResult.storageId;
+
+			videoStorageId = uploadedAsset.storageId;
 		} catch (error) {
 			videoStorageId = null;
+			revokeLocalVideoPreview();
+			videoFileName = '';
 			errorMessage = error instanceof Error ? error.message : 'Unable to upload video right now.';
 		} finally {
 			videoUploadPending = false;
-			target.value = '';
 		}
 	};
 
@@ -513,22 +513,38 @@
 
 				<div class="flex flex-col gap-3">
 					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">Upload a video from your gallery:</p>
-					<label
-						for="videoUpload"
-						class="grid h-36 cursor-pointer place-items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-gray-600"
+					<FileDropZone.Root
+						accept={CLUB_VIDEO_ACCEPTED_CONTENT_TYPES.join(',')}
+						maxFiles={1}
+						fileCount={0}
+						maxFileSize={CLUB_VIDEO_MAX_BYTES}
+						disabled={videoUploadPending || pending || auth.isLoading}
+						onUpload={uploadClubVideo}
 					>
-						<input id="videoUpload" type="file" accept="video/*" class="hidden" onchange={handleVideoFile} />
-						<PlusIcon class="size-8 text-gray-500" />
-						<p class="text-base leading-7 font-medium text-gray-700">Upload your video</p>
-						{#if videoFileName}
-							<p class="text-sm text-gray-500">{videoFileName}</p>
-						{/if}
-						{#if videoUploadPending}
-							<p class="text-xs font-semibold text-orange-500">Uploading video...</p>
-						{:else if videoStorageId}
-							<p class="text-xs font-semibold text-emerald-600">Video uploaded</p>
-						{/if}
-					</label>
+						<FileDropZone.Trigger class="contents">
+							{#snippet children()}
+								<div
+									class="grid min-h-36 place-items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
+								>
+									<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
+										{videoUploadPending ? 'Uploading' : 'Browse'}
+									</div>
+									<p class="text-base leading-7 font-medium text-gray-700">
+										{videoUploadPending ? 'Uploading your video...' : 'Drag and drop or choose a video'}
+									</p>
+									<p class="text-sm text-gray-500">MP4, MOV, WEBM, or M4V up to 100 MB.</p>
+									{#if videoFileName}
+										<p class="max-w-full truncate text-sm text-gray-500">{videoFileName}</p>
+									{/if}
+									{#if videoUploadPending}
+										<p class="text-xs font-semibold text-primary">Uploading video...</p>
+									{:else if videoStorageId}
+										<p class="text-xs font-semibold text-emerald-600">Video uploaded</p>
+									{/if}
+								</div>
+							{/snippet}
+						</FileDropZone.Trigger>
+					</FileDropZone.Root>
 					{#if hasValidUploadedVideo}
 						<!-- svelte-ignore a11y_media_has_caption -->
 						<video

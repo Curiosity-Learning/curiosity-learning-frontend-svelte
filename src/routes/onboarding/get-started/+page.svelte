@@ -4,7 +4,7 @@
 	import { clearOnboardingFlowState } from '$lib/auth/onboarding-state';
 	import { routes } from '$lib/routes';
 	import loginLogo from '$lib/assets/images/login_image.svg';
-	import onboardingIllustration from '$lib/assets/images/image.svg';
+	import onboardingIllustration from '$lib/assets/images/get_started.svg';
 
 	onMount(() => {
 		clearOnboardingFlowState();

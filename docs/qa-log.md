@@ -2692,3 +2692,5 @@
 ### Run: Validation
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+- 2026-03-24: Refactored auth/onboarding media uploads to reuse the shared FileDropZone and media begin/finalize flow in post-signup profile setup and start-club video upload. Kept profile and club domain mutations unchanged by continuing to persist profileImageStorageId and videoStorageId from the finalized media asset.

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import './layout.css';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/svg/favicon.svg';
 	import LauncherScreen from '$lib/components/app/LauncherScreen.svelte';
 	import CookieConsentBanner from '$lib/components/app/cookie-consent-banner.svelte';
 	import { Toaster } from '$lib/components/ui/sonner';

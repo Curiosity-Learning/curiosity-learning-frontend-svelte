@@ -1,5 +1,5 @@
 <script lang="ts">
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/svg/favicon.svg';
 </script>
 
 <div class="launcher-screen" role="status" aria-live="polite" aria-label="Launching Curiosity Learning">

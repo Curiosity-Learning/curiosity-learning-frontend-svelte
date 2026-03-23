@@ -5,12 +5,13 @@
 	import { page } from '$app/state';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import UploadIcon from '@lucide/svelte/icons/upload';
+	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { InputField } from '$lib/components/app/form';
+	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
@@ -21,6 +22,8 @@
 	const convexClient = useConvexClient();
 	const profileResponse = useStableQuery(api.profiles.getMe, () => (auth.isAuthenticated ? {} : 'skip'));
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
+	const PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+	const PROFILE_IMAGE_MAX_BYTES = 10 * FileDropZone.MEGABYTE;
 
 	const parseStep = (value: string | null): 1 | 2 => (value === '2' ? 2 : 1);
 	const resolveCompletionNextPath = (path: string) => {
@@ -48,7 +51,6 @@
 	let completionRedirected = $state(false);
 	let pledgesSeedRequested = $state(false);
 	let pledgesSeeding = $state(false);
-	let profileImageInput = $state<HTMLInputElement | null>(null);
 
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
@@ -160,55 +162,39 @@
 	});
 
 	const normalizeUsername = (value: string) => value.trim().toLowerCase();
-	const openProfileImagePicker = () => {
-		if (profileImageUploading) return;
-		profileImageInput?.click();
-	};
 
-	const handleProfileImageInput = async (event: Event) => {
-		const input = event.currentTarget as HTMLInputElement;
-		const file = input.files?.[0];
+	const uploadProfileImage = async (files: File[]) => {
+		const file = files[0];
 		if (!file) return;
-		if (!file.type.startsWith('image/')) {
-			showGlobalSnackbar({
-				title: 'Invalid file type',
-				description: 'Please choose an image file.'
-			});
-			input.value = '';
-			return;
-		}
 
 		revokeProfilePreview();
 		localProfilePreviewUrl = URL.createObjectURL(file);
 		profileImageUploading = true;
 
 		try {
-			const uploadUrl = await convexClient.mutation(api.media.generateUploadUrl, {});
-			const uploadResponse = await fetch(uploadUrl, {
-				method: 'POST',
-				headers: file.type ? { 'Content-Type': file.type } : undefined,
-				body: file
+			const uploadedAsset = await uploadMediaAsset(convexClient, file, {
+				acceptedContentTypes: PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES,
+				maxBytes: PROFILE_IMAGE_MAX_BYTES,
+				enableCompression: true,
+				enableSafetyScreening: true
 			});
-			if (!uploadResponse.ok) {
-				throw new Error('Profile image upload failed');
+			if (!uploadedAsset.storageId) {
+				throw new Error('Profile image upload could not be finalized.');
 			}
-			const uploadResult = (await uploadResponse.json()) as { storageId?: Id<'_storage'> };
-			if (!uploadResult.storageId) {
-				throw new Error('Profile image upload failed');
-			}
-			profileImageStorageId = uploadResult.storageId;
+
+			profileImageStorageId = uploadedAsset.storageId;
 			showGlobalSnackbar({
 				title: 'Profile image uploaded'
 			});
 		} catch (error) {
 			profileImageStorageId = null;
+			revokeProfilePreview();
 			showGlobalSnackbar({
 				title: 'Unable to upload profile image',
 				description: error instanceof Error ? error.message : 'Please try again.'
 			});
 		} finally {
 			profileImageUploading = false;
-			input.value = '';
 		}
 	};
 
@@ -321,45 +307,51 @@
 
 				<div class="flex flex-col gap-3">
 					<p class="type-field-label text-gray-900">Profile image (optional)</p>
-					<div class="flex items-center gap-3">
-						<div
-							class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gray-100"
-						>
-							{#if localProfilePreviewUrl}
-								<img src={localProfilePreviewUrl} alt="Profile preview" class="size-full object-cover" />
-							{:else if profileResponse.data?.coverPhotoUrl}
-								<img
-									src={profileResponse.data.coverPhotoUrl}
-									alt="Profile preview"
-									class="size-full object-cover"
-								/>
-							{:else}
-								<span class="text-xs font-semibold text-gray-500">No image</span>
-							{/if}
-						</div>
-						<div class="flex flex-col gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								class="cursor-pointer"
-								type="button"
-								disabled={profileImageUploading}
-								onclick={openProfileImagePicker}
+					<FileDropZone.Root
+						accept={PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES.join(',')}
+						maxFiles={1}
+						fileCount={0}
+						maxFileSize={PROFILE_IMAGE_MAX_BYTES}
+						disabled={profileImageUploading || pending}
+						onUpload={uploadProfileImage}
+					>
+						<div class="flex items-center gap-3">
+							<div
+								class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gray-100"
 							>
-								<UploadIcon class="size-4" />
-								{profileImageUploading ? 'Uploading...' : 'Upload image'}
-							</Button>
-							<input
-								id="profile-image-upload"
-								type="file"
-								accept="image/*"
-								class="sr-only"
-								bind:this={profileImageInput}
-								onchange={(event) => void handleProfileImageInput(event)}
-							/>
-							<p class="text-xs text-gray-500">PNG, JPG, or WEBP.</p>
+								{#if localProfilePreviewUrl}
+									<img src={localProfilePreviewUrl} alt="Profile preview" class="size-full object-cover" />
+								{:else if profileResponse.data?.coverPhotoUrl}
+									<img
+										src={profileResponse.data.coverPhotoUrl}
+										alt="Profile preview"
+										class="size-full object-cover"
+									/>
+								{:else}
+									<span class="text-xs font-semibold text-gray-500">No image</span>
+								{/if}
+							</div>
+							<div class="flex min-w-0 flex-1 flex-col gap-2">
+								<FileDropZone.Trigger class="contents">
+									{#snippet children()}
+										<div
+											class="flex min-h-20 items-center justify-between gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-left text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
+										>
+											<div class="flex min-w-0 flex-col gap-1">
+												<p class="text-sm font-semibold text-gray-900">
+													{profileImageUploading ? 'Uploading image...' : 'Drop or choose an image'}
+												</p>
+												<p class="text-xs text-gray-500">PNG, JPG, or WEBP up to 10 MB.</p>
+											</div>
+											<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
+												{profileImageUploading ? 'Uploading' : 'Browse'}
+											</div>
+										</div>
+									{/snippet}
+								</FileDropZone.Trigger>
+							</div>
 						</div>
-					</div>
+					</FileDropZone.Root>
 				</div>
 			</div>
 		{:else}
