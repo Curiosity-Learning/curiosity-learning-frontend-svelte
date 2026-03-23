@@ -18,7 +18,6 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { _, locale, setAppLocale } from '$lib/i18n';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -369,26 +368,6 @@
 			<CardDescription>Theme and notification settings.</CardDescription>
 		</CardHeader>
 		<CardContent class="flex flex-col gap-4">
-			<div class="flex flex-col gap-2">
-				<p class="text-sm font-medium">{$_('settings.language.label')}</p>
-				<div class="flex flex-wrap gap-2">
-					<Button
-						size="sm"
-						variant={$locale === 'en' ? 'default' : 'outline'}
-						onclick={() => setAppLocale('en')}
-					>
-						{$_('settings.language.english')}
-					</Button>
-					<Button
-						size="sm"
-						variant={$locale === 'nl' ? 'default' : 'outline'}
-						onclick={() => setAppLocale('nl')}
-					>
-						{$_('settings.language.dutch')}
-					</Button>
-				</div>
-			</div>
-
 			<div class="flex flex-col gap-2">
 				<p class="text-sm font-medium">Theme</p>
 				<div class="flex flex-wrap gap-2">

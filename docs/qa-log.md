@@ -1554,24 +1554,13 @@
 
 ## 2026-03-15
 
-### Internationalization + Accessibility Baseline
+### Accessibility Baseline
 
-- Installed and configured `svelte-i18n` with locale bootstrap in `src/lib/i18n/index.ts`.
-- Added initial dictionaries for English and Hindi:
-  - `src/lib/i18n/messages/en.ts`
-  - `src/lib/i18n/messages/hi.ts`
-- Wired i18n into root layout and primary onboarding/cookie surfaces:
-  - localized `<title>`
-  - launcher accessibility label
-  - get-started copy
-  - cookie consent copy
-  - language switcher in Settings preferences
 - Added global accessibility/disability-support defaults:
   - keyboard skip link to main content in root layout
   - semantic `<main id="main-content">` landmark
   - focus-visible ring styles for keyboard navigation
   - reduced motion fallback for users with `prefers-reduced-motion`
-  - dynamic `<html lang>` updates from active locale
 
 ### Run: Type Check
 
@@ -2316,8 +2305,8 @@
 ### Onboarding: Get Started Language Picker
 
 - Added a globe icon button at the top-right of `/onboarding/get-started`.
-- The new dropdown uses the existing app i18n store so users can switch between English and Dutch before entering auth or onboarding flows.
-- The current language is marked inside the menu, and selection persists through the shared `setAppLocale(...)` helper.
+- The dropdown allowed users to switch between English and Dutch before entering auth or onboarding flows.
+- The current language was marked inside the menu, and selection persisted across reloads.
 
 ## 2026-03-22
 
@@ -2455,3 +2444,45 @@
 - Added session-storage draft persistence for the start-club fields so location, role, about, and referral answers survive the account-creation handoff and resume when the user returns.
 - Cleared the saved draft after club creation succeeds.
 - `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Onboarding: Club Join Dashboard Loading Is More Session-Stable
+
+- Updated the club route access guard to wait for auth readiness before deciding membership access, instead of immediately querying club membership during auth/session hydration.
+- Successful club joins now also remember the joined club in local storage before navigation, which helps the app shell stabilize faster on the destination club dashboard.
+- This was applied to both the direct join-club path and the post-signup pending-club completion path.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-23
+
+### Branch Cleanup: Remove CL-689 i18n Wiring
+
+- Removed the branch-local i18n subsystem and reverted the app to fixed English copy on this branch.
+- Deleted `src/lib/i18n/*`, removed `svelte-i18n` from the package manifests, and removed the onboarding/settings language switchers.
+- Replaced localized strings in the root layout, launcher, cookie banner, and get-started screen with plain English while keeping auth, launcher, and cookie-consent behavior unchanged.
+
+### Auth Routing: Server-First Redirects And Main-Parity Club Navigation
+
+- Added a server guard for `/auth/*` so authenticated users no longer land on sign-in, sign-up, or reset-password screens in new tabs; they are redirected back into the app immediately.
+- Updated `/onboarding/get-started` to redirect authenticated users to `/`, keeping onboarding entry points bounded to signed-out users.
+- Switched sign-in, sign-up, and post-signup route guards to use the shared auth readiness state instead of cached client session data during hydration.
+- Restored the app-shell club navigation query timing and club layout access handling to match `main`, so the club drawer navigation follows the stable branch behavior.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+### Session Hardening: Fresh Onboarding Starts And Cleaner Logout Boundaries
+
+- Added a shared client-side onboarding state reset helper to clear signup drafts, post-signup handoff flags, and remembered club context when a user signs out.
+- Updated the get-started screen to clear stale onboarding handoff state on mount, so a new onboarding attempt starts cleanly instead of inheriting a previous user's partially completed flow.
+- Replaced the last onboarding `useSession()` gates in join-club and start-club with shared auth readiness checks, so those steps no longer branch on cached client session data mid-flow.
+- Strengthened sign-out by waiting for a fresh `getSession({ disableCookieCache: true })` check before routing to login, reducing same-browser account handoff issues when a new user signs up after logout.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+### OTP Verification: Longer Finalization Window For Slow Session Sync
+
+- Extended the email-OTP post-verification finalize flow so it no longer gives up after a short session sync window.
+- The signup screen now uses the OTP verification response itself to detect auto-sign-in, waits through a staged retry window, and only attempts fallback email sign-in later if the verified session still has not propagated.
+- Finalization failures now keep the user in the verification context with a retry message instead of immediately forcing a sign-in-again outcome when sync is simply slow.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+- 2026-03-23: Added signup preflight account checks for existing email/password and Google accounts. Existing verified-but-incomplete users now resume post-signup after sign-in; existing complete users are redirected to sign-in; unverified existing users are sent to OTP without creating duplicate accounts.

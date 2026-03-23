@@ -18,10 +18,12 @@
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
+	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 
-	const session = authClient.useSession();
+	const auth = useAuth();
 	const convexClient = useConvexClient();
 	const LOCATION_AUTOCOMPLETE_MIN_CHARS = 2;
+	const ABOUT_CHARACTER_LIMIT = 500;
 	const LOCATION_AUTOCOMPLETE_DEBOUNCE_MS = 280;
 	const LOCATION_AUTOCOMPLETE_LIMIT = 6;
 	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
@@ -89,6 +91,7 @@
 		{ label: 'Other', value: 'Other' }
 	];
 
+	let aboutCharacterCount = $derived(about.length);
 	let canContinueStepOne = $derived(
 		location.trim().length > 0 && userRole.trim().length > 0 && about.trim().length > 0
 	);
@@ -326,7 +329,7 @@
 		revokeLocalVideoPreview();
 		localVideoPreviewUrl = URL.createObjectURL(file);
 
-		if (!$session.data) {
+		if (!auth.isAuthenticated) {
 			errorMessage = 'Please sign in first, then upload the club video.';
 			return;
 		}
@@ -360,7 +363,12 @@
 	const submitStartClub = async () => {
 		errorMessage = '';
 
-		if (!$session.data) {
+		if (auth.isLoading) {
+			errorMessage = 'Checking your session. Please try again.';
+			return;
+		}
+
+		if (!auth.isAuthenticated) {
 			const params = new URLSearchParams();
 			params.set('next', '/onboarding/start-club?step=2');
 			params.set('forceSignup', '1');
@@ -395,19 +403,24 @@
 <FlowShell
 	step={step}
 	total={5}
-	showAccountLink={!$session.data}
+	showAccountLink={false}
 	showSideIllustration={true}
 	desktopContentScrollable={false}
 >
+	{#snippet headerSupplement()}
+		<div class="flex items-center justify-between gap-4">
+			<button
+				type="button"
+				onclick={() => void goBack()}
+				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
+				aria-label="Go back"
+			>
+				<ChevronLeftIcon class="size-7" />
+			</button>
+		</div>
+	{/snippet}
+
 	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
-		<button
-			type="button"
-			onclick={() => void goBack()}
-			class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-			aria-label="Go back"
-		>
-			<ChevronLeftIcon class="size-7" />
-		</button>
 
 		{#if step === 1}
 			<div class="flex flex-col gap-5">
@@ -438,15 +451,19 @@
 					allowCustomValue={false}
 				/>
 
-				<TextareaField
-					id="about"
-					label="Who are you?"
-					required={true}
-					bind:value={about}
-					rows={5}
-					placeholder="Tell us a bit about yourself..."
-					hint="Why do you want to do this? Why are you a right fit? What do you want to learn? Any related previous experiences? Links to previous experiences?"
-				/>
+				<div class="flex flex-col gap-2">
+					<TextareaField
+						id="about"
+						label="Who are you?"
+						required={true}
+						bind:value={about}
+						rows={5}
+						maxlength={ABOUT_CHARACTER_LIMIT}
+						overlayText={`${aboutCharacterCount}/${ABOUT_CHARACTER_LIMIT}`}
+						placeholder="Tell us a bit about yourself..."
+					/>
+					<p class="text-sm leading-6 text-gray-500">Why do you want to do this? Why are you a right fit? What do you want to learn? Any related previous experiences? Links to previous experiences?</p>
+				</div>
 
 				<DropdownField
 					id="referral"
@@ -536,14 +553,14 @@
 					variant="default"
 					size="xl"
 					class="h-12 w-full"
-					disabled={pending || videoUploadPending}
+					disabled={pending || videoUploadPending || auth.isLoading}
 					onclick={() => void submitStartClub()}
 				>
 					{pending
 						? 'Submitting...'
 						: videoUploadPending
 							? 'Uploading video...'
-							: $session.data
+							: auth.isAuthenticated
 								? 'Submit application'
 								: 'Proceed to sign up'}
 				</Button>

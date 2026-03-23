@@ -204,6 +204,69 @@ export const getViewerIdentity = query({
 	}
 });
 
+export const getSignupAccountStatusByEmail = query({
+	args: {
+		email: v.string()
+	},
+	handler: async (ctx, args) => {
+		const normalizedEmail = args.email.trim().toLowerCase();
+		if (!normalizedEmail) {
+			return {
+				exists: false,
+				isVerified: false,
+				firstLoginCompleted: false,
+				hasPassword: false,
+				hasGoogle: false
+			};
+		}
+
+		const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: 'email', value: normalizedEmail }]
+		})) as { _id: string; emailVerified?: boolean } | null;
+
+		const profile = await ctx.db
+			.query('profiles')
+			.withIndex('by_email', (q) => q.eq('email', normalizedEmail))
+			.first();
+
+		if (!authUser && !profile) {
+			return {
+				exists: false,
+				isVerified: false,
+				firstLoginCompleted: false,
+				hasPassword: false,
+				hasGoogle: false
+			};
+		}
+
+		let hasPassword = false;
+		let hasGoogle = false;
+
+		if (authUser?._id) {
+			const accounts = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+				model: 'account',
+				where: [{ field: 'userId', value: authUser._id }],
+				paginationOpts: {
+					cursor: null,
+					numItems: 20
+				}
+			})) as { page: Array<{ providerId: string }> };
+
+			hasPassword = accounts.page.some((account) => account.providerId === 'credential');
+			hasGoogle = accounts.page.some((account) => account.providerId === 'google');
+		}
+
+		return {
+			exists: true,
+			isVerified: Boolean(profile?.isVerified ?? authUser?.emailVerified ?? false),
+			firstLoginCompleted: Boolean(profile?.firstLoginCompleted),
+			hasPassword,
+			hasGoogle
+		};
+	}
+});
+
 export const ensureProfile = mutation({
 	args: {},
 	handler: async (ctx) => {

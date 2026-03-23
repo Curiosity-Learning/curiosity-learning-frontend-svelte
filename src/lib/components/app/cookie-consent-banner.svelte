@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
-	import { _ } from '$lib/i18n';
 
 	const STORAGE_KEY = 'cl_cookie_preferences_v1';
 	const COOKIE_NAME = 'cl_cookie_preferences';
@@ -128,33 +127,31 @@
 		<div class="pointer-events-auto w-full max-w-3xl rounded-xl border border-gray-200 bg-white p-4 shadow-xl">
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 				<div class="flex flex-col gap-2">
-					<p class="type-field-label text-gray-900">{$_('cookie.title')}</p>
+					<p class="type-field-label text-gray-900">Cookie preferences</p>
 					<p class="text-sm leading-6 text-gray-600">
-						{$_('cookie.descriptionStart')}
-						<span class="font-semibold text-gray-900">{$_('cookie.essential')}</span>
-						{$_('cookie.and')}
-						<span class="font-semibold text-gray-900">{$_('cookie.functional')}</span>
-						{$_('cookie.descriptionEnd')}
+						We use only <span class="font-semibold text-gray-900">essential</span> and
+						<span class="font-semibold text-gray-900">functional</span> cookies. We do not use
+						analytics or marketing cookies. See
 						<a href="/privacy" class="font-semibold text-orange-500 hover:text-orange-600"
-							>{$_('cookie.privacyPolicy')}</a
+							>Privacy policy</a
 						>
-						{$_('cookie.and')}
+						and
 						<a href="/terms" class="font-semibold text-orange-500 hover:text-orange-600"
-							>{$_('cookie.termsAndConditions')}</a
+							>Terms and conditions</a
 						>,
-						{$_('cookie.and')}
+						and
 						<a href="/cookies" class="font-semibold text-orange-500 hover:text-orange-600"
-							>{$_('cookie.cookiePolicy')}</a
+							>Cookie policy</a
 						>.
 					</p>
 				</div>
 
 				<div class="flex flex-col gap-2 sm:flex-row">
 					<Button variant="outline" class="h-10 w-full sm:w-auto" onclick={() => setConsent(false)}>
-						{$_('cookie.essentialOnly')}
+						Essential only
 					</Button>
 					<Button variant="default" class="h-10 w-full sm:w-auto" onclick={() => setConsent(true)}>
-						{$_('cookie.allowFunctional')}
+						Allow functional cookies
 					</Button>
 				</div>
 			</div>

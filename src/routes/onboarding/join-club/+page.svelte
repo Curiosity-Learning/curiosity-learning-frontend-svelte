@@ -118,8 +118,8 @@
 </script>
 
 <FlowShell step={1} total={5} showSideIllustration={true}>
-	<div class="mx-auto flex w-full min-w-0 max-w-[28.75rem] flex-1 flex-col gap-8 overflow-x-hidden">
-		<section class="flex flex-col gap-6">
+	{#snippet headerSupplement()}
+		<div class="flex items-center justify-between gap-4">
 			<a
 				href="/onboarding/get-started"
 				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
@@ -127,6 +127,10 @@
 			>
 				<ChevronLeftIcon class="size-7" />
 			</a>
+		</div>
+	{/snippet}
+	<div class="mx-auto flex w-full min-w-0 max-w-[28.75rem] flex-1 flex-col gap-8">
+		<section class="flex flex-col gap-6">
 
 			<div class="flex flex-col gap-2">
 				<h1 class="type-step-title text-gray-900">Join a club</h1>

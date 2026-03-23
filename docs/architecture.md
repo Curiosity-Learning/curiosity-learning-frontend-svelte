@@ -6,7 +6,6 @@
 
 - SvelteKit (Svelte 5, TypeScript)
 - Tailwind v4 + shadcn-svelte
-- svelte-i18n (`src/lib/i18n/index.ts`, locale dictionaries in `src/lib/i18n/messages/*`)
 - Convex backend
 - Better Auth (`@convex-dev/better-auth`)
 - Vitest + Playwright
@@ -110,4 +109,4 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - **Mobile pressed behavior**: Interactive primitives should express visual interaction with `hover:*` utilities at the component level. In `src/routes/layout.css`, the global `hover` variant is configured so on coarse-pointer mobile devices those same styles are applied on `:active`, keeping touch pressed feedback aligned with desktop hover without per-instance overrides.
 - **Inline activity editing**: Session activity cards support inline blur-save editing for title, description, minutes, and building blocks. Building block edits use a reusable searchable inline multi-select (combobox + listbox) at `src/lib/components/ui/multi-select/inline-multi-select.svelte`, composed from shadcn primitives (`Input`) plus reusable token chips (`TagChip`) and accessible listbox roles. Immediate inline-save feedback is driven by Convex mutation `optimisticUpdate` in `session-detail-view`.
 - **Connectivity gating (global)**: Mutation-capable surfaces consume `$lib/app/connectivity.ts` (`canMutateOnline`, `connectivityMessage`, `reportMutationSuccess`, `reportMutationFailure`) so editing can be disabled consistently during offline/network-loss states. AppShell renders a persistent reconnect overlay with spinner while disconnected. This is intentionally centralized so a future offline queue/replay mode can be introduced without rewriting each screen.
-- **Accessibility baseline (global)**: Root layout provides a keyboard skip link (`#main-content`), semantic `<main>` landmark, and localized document language (`<html lang>` driven by active i18n locale). Global CSS defines visible `:focus-visible` rings and a `prefers-reduced-motion` fallback that minimizes animation and transition effects.
+- **Accessibility baseline (global)**: Root layout provides a keyboard skip link (`#main-content`) and semantic `<main>` landmark. Global CSS defines visible `:focus-visible` rings and a `prefers-reduced-motion` fallback that minimizes animation and transition effects.

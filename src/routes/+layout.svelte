@@ -5,14 +5,11 @@
 	import LauncherScreen from '$lib/components/app/LauncherScreen.svelte';
 	import CookieConsentBanner from '$lib/components/app/cookie-consent-banner.svelte';
 	import { Toaster } from '$lib/components/ui/sonner';
-	import { _, initI18n, locale } from '$lib/i18n';
 	import { createSvelteAuthClient } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { authClient } from '$lib/auth-client';
 	import type { LayoutData } from './$types';
 
 	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
-
-	initI18n();
 
 	createSvelteAuthClient({
 		authClient,
@@ -22,20 +19,11 @@
 	let isAuthenticatedFromServer = $derived(Boolean(data.authState?.isAuthenticated));
 	let launcherFinished = $state(false);
 	let showLauncher = $derived(!isAuthenticatedFromServer && !launcherFinished);
-	let localeCleanup: (() => void) | null = null;
 
 	onMount(() => {
-		localeCleanup = locale.subscribe((value) => {
-			if (typeof document !== 'undefined') {
-				document.documentElement.lang = value || 'en';
-			}
-		});
-
 		if (isAuthenticatedFromServer) {
 			launcherFinished = true;
-			return () => {
-				localeCleanup?.();
-			};
+			return;
 		}
 
 		const timer = setTimeout(() => {
@@ -44,17 +32,16 @@
 
 		return () => {
 			clearTimeout(timer);
-			localeCleanup?.();
 		};
 	});
 </script>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<title>{$_('app.title')}</title>
+	<title>Curiosity Learning</title>
 </svelte:head>
 
-<a class="skip-link" href="#main-content">{$_('a11y.skipToMainContent')}</a>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 
 {#if showLauncher}
 	<LauncherScreen />

@@ -14,6 +14,7 @@
 		labelClass?: string;
 		hintClass?: string;
 		textareaClass?: string;
+		overlayText?: string;
 	};
 
 	let {
@@ -26,6 +27,7 @@
 		labelClass,
 		hintClass,
 		textareaClass,
+		overlayText,
 		...restProps
 	}: Props = $props();
 </script>
@@ -39,10 +41,18 @@
 	labelClass={labelClass}
 	hintClass={hintClass}
 >
-	<Textarea
-		{id}
-		bind:value
-		class={cn('min-h-28 rounded-md border-gray-300 px-4 py-3 text-base', textareaClass)}
-		{...restProps}
-	/>
+	<div class="relative">
+		<Textarea
+			{id}
+			bind:value
+			class={cn('min-h-28 rounded-md border-gray-300 px-4 py-3 text-base', overlayText ? 'pb-9' : '', textareaClass)}
+			{...restProps}
+		/>
+
+		{#if overlayText}
+			<div class="pointer-events-none absolute right-3 bottom-3 text-xs font-medium text-gray-500">
+				{overlayText}
+			</div>
+		{/if}
+	</div>
 </FieldShell>

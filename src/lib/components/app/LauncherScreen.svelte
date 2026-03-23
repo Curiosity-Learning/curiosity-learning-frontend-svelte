@@ -1,9 +1,8 @@
 <script lang="ts">
 	import favicon from '$lib/assets/favicon.svg';
-	import { _ } from '$lib/i18n';
 </script>
 
-<div class="launcher-screen" role="status" aria-live="polite" aria-label={$_('a11y.launcherLoading')}>
+<div class="launcher-screen" role="status" aria-live="polite" aria-label="Launching Curiosity Learning">
 	<img src={favicon} alt="Curiosity Learning" class="launcher-icon" />
 </div>
 

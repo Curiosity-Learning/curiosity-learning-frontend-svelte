@@ -71,7 +71,6 @@
 		"@icons-pack/svelte-simple-icons": "^7.1.0",
 		"@mmailaender/convex-better-auth-svelte": "^0.5.0",
 		"convex": "^1.33.1",
-		"convex-svelte": "^0.0.12",
-		"svelte-i18n": "^4.0.1"
+		"convex-svelte": "^0.0.12"
 	}
 }

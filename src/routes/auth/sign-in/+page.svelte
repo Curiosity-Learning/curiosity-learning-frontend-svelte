@@ -12,9 +12,10 @@
 	import { InputField } from '$lib/components/app/form';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
+	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import loginIllustration from '$lib/assets/svg/login.svg';
 
-	const session = authClient.useSession();
+	const auth = useAuth();
 
 	let email = $state('');
 	let password = $state('');
@@ -28,8 +29,14 @@
 
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
+	let forceSignup = $derived(page.url.searchParams.get('forceSignup') === '1');
+	let resolvedNextPath = $derived(
+		forceSignup && nextPath.startsWith('/onboarding/') && !nextPath.startsWith('/onboarding/post-signup')
+			? '/'
+			: nextPath
+	);
 	const signUpHref = '/onboarding/get-started';
-	let forgotHref = $derived(`/auth/reset-password?next=${encodeURIComponent(nextPath)}`);
+	let forgotHref = $derived(`/auth/reset-password?next=${encodeURIComponent(resolvedNextPath)}`);
 	let needsVerification = $derived(errorMessage.toLowerCase().includes('not verified'));
 	let existingGoogleAccount = $derived(page.url.searchParams.get('existingGoogleAccount') === '1');
 
@@ -40,26 +47,26 @@
 
 	$effect(() => {
 		if (!existingGoogleAccount) return;
-		if ($session.data) return;
+		if (auth.isAuthenticated) return;
 		infoMessage = 'You already have an account with Google. Continue with Google to sign in.';
 	});
 
 	$effect(() => {
 		if (existingGoogleAccountHandled) return;
 		if (!existingGoogleAccount) return;
-		if (!$session.data) return;
+		if (auth.isLoading || !auth.isAuthenticated) return;
 		showGlobalSnackbar({
 			title: 'Account already exists',
 			description: 'You already have an account with Google. We signed you in.'
 		});
 		existingGoogleAccountHandled = true;
-		void goto(nextPath, { replaceState: true });
+		void goto(resolvedNextPath, { replaceState: true });
 	});
 
 	$effect(() => {
 		if (existingGoogleAccount) return;
-		if ($session.data) {
-			void goto(nextPath, { replaceState: true });
+		if (!auth.isLoading && auth.isAuthenticated) {
+			void goto(resolvedNextPath, { replaceState: true });
 		}
 	});
 
@@ -74,7 +81,7 @@
 
 		const { data, error } = await authClient.signIn.social({
 			provider: 'google',
-			callbackURL: nextPath
+			callbackURL: resolvedNextPath
 		});
 
 		if (error) {
@@ -99,7 +106,7 @@
 		const { error } = await authClient.signIn.email({
 			email: email.trim(),
 			password,
-			callbackURL: nextPath,
+			callbackURL: resolvedNextPath,
 			rememberMe
 		});
 		pending = false;
@@ -114,7 +121,7 @@
 			errorMessage = error.message ?? 'Failed to sign in.';
 			return;
 		}
-		await goto(nextPath, { replaceState: true });
+		await goto(resolvedNextPath, { replaceState: true });
 	};
 
 	const resendVerification = async () => {
@@ -124,7 +131,7 @@
 		infoMessage = '';
 		const { error } = await authClient.sendVerificationEmail({
 			email: email.trim(),
-			callbackURL: nextPath
+			callbackURL: resolvedNextPath
 		});
 		pending = false;
 		if (error) {

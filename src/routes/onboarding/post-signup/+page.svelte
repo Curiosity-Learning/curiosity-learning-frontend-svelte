@@ -11,17 +11,15 @@
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { InputField } from '$lib/components/app/form';
-	import { authClient } from '$lib/auth-client';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 
-	const session = authClient.useSession();
 	const auth = useAuth();
 	const convexClient = useConvexClient();
-	const profileResponse = useStableQuery(api.profiles.getMe, () => ($session.data ? {} : 'skip'));
+	const profileResponse = useStableQuery(api.profiles.getMe, () => (auth.isAuthenticated ? {} : 'skip'));
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
 
 	const parseStep = (value: string | null): 1 | 2 => (value === '2' ? 2 : 1);
@@ -30,6 +28,13 @@
 			return '/';
 		}
 		return path;
+	};
+
+	const extractPendingClubCodeFromPath = (path: string) => {
+		if (!path.startsWith('/onboarding/join-club/')) return undefined;
+		const rawCode = path.slice('/onboarding/join-club/'.length).split(/[?#/]/)[0] ?? '';
+		const normalizedCode = rawCode.trim().toUpperCase();
+		return /^[A-Z0-9]{6}$/.test(normalizedCode) ? normalizedCode : undefined;
 	};
 
 	let step = $state<1 | 2>(parseStep(page.url.searchParams.get('step')));
@@ -245,7 +250,9 @@
 
 		pending = true;
 		try {
-			const pendingClubCode = profileResponse.data?.pendingClubCode?.trim().toUpperCase();
+			const pendingClubCode =
+				profileResponse.data?.pendingClubCode?.trim().toUpperCase() ??
+				extractPendingClubCodeFromPath(nextPath);
 			if (pendingClubCode) {
 				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
 					code: pendingClubCode

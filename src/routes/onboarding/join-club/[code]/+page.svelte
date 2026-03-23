@@ -8,14 +8,14 @@
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
+	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
-	import { authClient } from '$lib/auth-client';
 	import { formatWeeklyMeetingLabel } from '$lib/domain/date';
 
 	let { data }: PageProps = $props();
 
-	const session = authClient.useSession();
+	const auth = useAuth();
 	const convexClient = useConvexClient();
 	const preview = useStableQuery(api.clubs.getClubPreviewByCode, () => ({ code: data.code }));
 
@@ -53,7 +53,11 @@
 		pending = true;
 		errorMessage = '';
 		try {
-			if ($session.data) {
+			if (auth.isLoading) {
+				errorMessage = 'Checking your session. Please try again.';
+				return;
+			}
+			if (auth.isAuthenticated) {
 				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
 					code: data.code
 				});
@@ -84,14 +88,18 @@
 </script>
 
 <FlowShell step={2} total={5} showSideIllustration={true}>
+	{#snippet headerSupplement()}
+		<div class="flex items-center justify-between gap-4">
+			<a
+				href="/onboarding/join-club"
+				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
+				aria-label="Go back"
+			>
+				<ChevronLeftIcon class="size-7" />
+			</a>
+		</div>
+	{/snippet}
 	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
-		<a
-			href="/onboarding/join-club"
-			class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-			aria-label="Go back"
-		>
-			<ChevronLeftIcon class="size-7" />
-		</a>
 
 		{#if preview.isLoading}
 			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
@@ -161,7 +169,7 @@
 					variant="default"
 					size="xl"
 					class="h-12 w-full"
-					disabled={pending}
+					disabled={pending || auth.isLoading}
 					onclick={() => void joinClub()}
 				>
 					{pending ? 'Continuing...' : 'Join as a learner'}

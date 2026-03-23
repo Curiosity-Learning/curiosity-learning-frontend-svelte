@@ -28,7 +28,7 @@
 	{pattern}
 	{textalign}
 	{pasteTransformer}
-	class={cn('flex items-center justify-between gap-2 sm:gap-3', className)}
+	class={cn('flex w-full min-w-0 max-w-full items-center justify-between gap-2 sm:gap-3', className)}
 	{...restProps}
 >
 	{#snippet children({ cells })}
