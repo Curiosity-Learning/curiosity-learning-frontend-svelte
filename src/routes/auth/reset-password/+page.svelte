@@ -29,6 +29,8 @@
 	let errorMessage = $state('');
 	let showNewPassword = $state(false);
 	let showConfirmPassword = $state(false);
+	let trimmedNewPassword = $derived(newPassword.trim());
+	let trimmedConfirmPassword = $derived(confirmPassword.trim());
 
 	const goToSignIn = async () => {
 		await goto(signInHref, { replaceState: true });
@@ -55,7 +57,7 @@
 	};
 
 	const updatePassword = async () => {
-		if (newPassword !== confirmPassword) {
+		if (trimmedNewPassword !== trimmedConfirmPassword) {
 			errorMessage = 'Passwords do not match.';
 			return;
 		}
@@ -64,7 +66,7 @@
 		errorMessage = '';
 		const { error } = await authClient.resetPassword({
 			token,
-			newPassword
+			newPassword: trimmedNewPassword
 		});
 		pending = false;
 		if (error) {
@@ -172,7 +174,7 @@
 						variant="default"
 						size="xl"
 						class="h-12 w-full"
-						disabled={pending || !newPassword || !confirmPassword}
+						disabled={pending || !trimmedNewPassword || !trimmedConfirmPassword || trimmedNewPassword !== trimmedConfirmPassword}
 						onclick={() => void updatePassword()}
 					>
 						{pending ? 'Saving...' : 'Save changes'}
