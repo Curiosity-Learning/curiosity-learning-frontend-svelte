@@ -5,6 +5,7 @@
 ## Stack
 
 - SvelteKit (Svelte 5, TypeScript)
+- SvelteKit Node runtime via `@sveltejs/adapter-node`
 - Tailwind v4 + shadcn-svelte
 - Convex backend
 - Better Auth (`@convex-dev/better-auth`)
@@ -55,7 +56,6 @@ feed/
 - Sessions/Activities/Attendance
 - Projects/Updates
 - Preferences/Notifications
-- Legal Documents (Privacy Policy, Terms and Conditions, Cookie Policy)
 - Chat (optional slice after core parity)
 
 ## Backend
@@ -63,7 +63,7 @@ feed/
 - `src/convex/schema.ts` defines data model and indexes.
 - `src/convex/*.ts` modules expose queries/mutations/actions.
 - Client uses generated `api` with `convex-svelte` and authenticated token from hooks.
-- Media uploads use Convex Storage upload URLs (`media.generateUploadUrl`) and persist storage IDs on domain rows (`profiles.profileImageStorageId`, `clubs.videoStorageId`).
+- **Shared media upload pipeline**: `src/convex/media.ts` and `src/convex/mediaPipeline.ts` define a constraint-based upload state machine backed by Convex file storage. Each upload session stores its own accepted content types, max file size, and processing flags in `mediaAssets`, so feature code can choose upload rules without registering new backend enum values. Clients create a draft upload, POST directly to the generated upload URL, then finalize with the returned `Id<"_storage">`. The pipeline reads authoritative metadata from the `"_storage"` system table, stores storage IDs plus upload status in `mediaAssets`, and generates file URLs at read time via `ctx.storage.getUrl(...)`. Compression and media safety screening remain pluggable pipeline steps. Ownership/attachment relationships should be modeled by feature tables rather than as soft context fields on upload records. Feature-level rules like attachment count stay outside the shared uploader. See [ADR-012](adr/012-shared-media-upload-pipeline.md).
 - Client query convention: import `useStableQuery` from `src/lib/convex/use-stable-query.svelte.ts` instead of `useQuery` directly. Default mode is stale-first (`keepPreviousData: true`) for content continuity during route and param transitions. Pass `{ mode: 'gate' }` for auth/permission gates that should not reuse stale results. Remount cache is opt-in per query via `{ cache: 'memory' }` (default is `'off'`) so only non-sensitive content queries keep last successful data across remounts.
 - Club projects tabs (`/club/[clubId]/projects/current` and `/club/[clubId]/projects/completed`) opt into remount caching on `api.projects.listPreviewsByClub` in `src/lib/components/app/projects/club-projects-view.svelte` so project cards (including avatar preview data) stay visible on back-navigation while live data refreshes.
 - Auth in `hooks.server.ts` + Better Auth cookie/token integration.
@@ -86,6 +86,7 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - **Dialog → Detail Page pattern**: Creation via minimal dialog with "Open" button → create entity → navigate to detail page. Editing happens on the detail page via ActionMenu. See [ADR-003](adr/003-modal-to-page-refactor.md).
 - **Project detail tabs**: Project detail uses route-backed tabs (`Overview` and `Members`) with `/project/[projectId]` redirecting to `overview`. See [ADR-008](adr/008-project-detail-tabs.md).
 - **Club home session planning**: The `No upcoming sessions` empty state on `/club/[clubId]` opens the same create-session dialog flow used on `/club/[clubId]/sessions` (submit label `Open`), and then routes to `/session/[sessionId]/activities`. The CTA and helper copy are shown only when the viewer has `session:create`.
+- **Session creation + connectivity policy**: Session creation entry points (`Plan a session`, sessions-list header `+`, and create-dialog `Open`) are mutation-capable controls and must be gated by `canMutateOnline`. When connectivity is unhealthy/offline, these controls stay visible but disabled, matching the shared reconnect-overlay behavior.
 - **Shared session card surface**: `/club/[clubId]` and `/club/[clubId]/sessions` both render `src/lib/components/app/sessions/club-session-card.svelte` for upcoming/list cards. View-specific differences (for example, hiding attendees or action menu on dashboard) are controlled via component props instead of separate card implementations.
 - **Session card data prefetching**: Routes that render session cards should prefer `api.sessions.listCardPreviewsByClub` and pass the entry through `prefetchedCardData` to `ClubSessionCard`. This keeps tags/activity preview/attendee preview in a single query and avoids nested per-card loading flashes.
 - **Project card data prefetching**: Routes that render project cards should prefer `api.projects.listPreviewsByClub` and pass `memberPreview` to `ClubProjectCard`. This avoids nested per-card member queries and prevents delayed avatar pop-in after card content renders.
@@ -99,6 +100,7 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - **Dialog back-dismiss default**: Shared `Dialog.Root` enables browser/mobile-back-first close behavior by default. Set `closeOnBack={false}` to opt out for specific dialogs.
 - **Header search** uses `PageHeaderSearch` to opt in per-page search from AppShell, with responsive `auto` mode that resolves between inline, collapsible, and title-overlay variants. See [ADR-005](adr/005-responsive-page-header-search.md).
 - **ActionMenu** provides edit/delete/toggle actions on detail pages via a dropdown triggered by an ellipsis icon.
+- **Icon stroke weight policy**: Lucide icons use global stroke tokens from `src/routes/layout.css` (`--icon-stroke-default`, `--icon-stroke-subtle`, `--icon-stroke-strong`). Use `icon-stroke-subtle`/`icon-stroke-strong` classes for intentional exceptions and avoid hard-coded `strokeWidth` literals in feature code. See [ADR-010](adr/010-icon-stroke-weight-policy.md).
 - **Field component hierarchy**: `Field.Group > Field.Field > Field.Label + Input + Field.Error + Field.Description`.
 - **Session Building Booklet**: Reusable activity templates browsable at `/activity-booklet`, with copy-on-add into sessions, drag-and-drop reordering, and multi-tag filtering that requires activities to match all selected tags (AND semantics). See [ADR-004](adr/004-session-building-booklet.md).
 - **Bottom nav clearance**: The app shell defines a `--bottom-nav-h` CSS variable (currently `4.5rem`) on the outermost wrapper. Content padding (`pb-[var(--bottom-nav-h)]`) and sticky floating element offsets (`bottom-[calc(var(--bottom-nav-h,0rem)+1rem)]`) derive from this single value. On desktop (`lg:`) the sidebar replaces the bottom nav and the padding is removed. Pages should not add their own bottom padding for nav clearance.
@@ -107,6 +109,7 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - **Toggle chips**: `ToggleGroup` renders as pill-shaped filter chips by default (rounded-full, spaced, wrapping). Used for building block filtering in booklet and activity dialogs.
 - **Token chips**: Keep `Badge` as a primitive status component and use `TagChip` for accent/muted pill chips and removable chip interactions. See [ADR-006](adr/006-badge-and-tag-chip-split.md).
 - **Mobile pressed behavior**: Interactive primitives should express visual interaction with `hover:*` utilities at the component level. In `src/routes/layout.css`, the global `hover` variant is configured so on coarse-pointer mobile devices those same styles are applied on `:active`, keeping touch pressed feedback aligned with desktop hover without per-instance overrides.
+- **Button typography contract**: Shared `Button` size variants map to design-system text tokens in `src/lib/components/ui/button/button.svelte` (`default` → `type-btn`, `sm` → `type-btn-sm`, `lg` → `type-btn-lg`). Feature code should select button `size` instead of attaching ad-hoc text-size/font-weight classes.
 - **Inline activity editing**: Session activity cards support inline blur-save editing for title, description, minutes, and building blocks. Building block edits use a reusable searchable inline multi-select (combobox + listbox) at `src/lib/components/ui/multi-select/inline-multi-select.svelte`, composed from shadcn primitives (`Input`) plus reusable token chips (`TagChip`) and accessible listbox roles. Immediate inline-save feedback is driven by Convex mutation `optimisticUpdate` in `session-detail-view`.
 - **Connectivity gating (global)**: Mutation-capable surfaces consume `$lib/app/connectivity.ts` (`canMutateOnline`, `connectivityMessage`, `reportMutationSuccess`, `reportMutationFailure`) so editing can be disabled consistently during offline/network-loss states. AppShell renders a persistent reconnect overlay with spinner while disconnected. This is intentionally centralized so a future offline queue/replay mode can be introduced without rewriting each screen.
 - **Accessibility baseline (global)**: Root layout provides a keyboard skip link (`#main-content`) and semantic `<main>` landmark. Global CSS defines visible `:focus-visible` rings and a `prefers-reduced-motion` fallback that minimizes animation and transition effects.

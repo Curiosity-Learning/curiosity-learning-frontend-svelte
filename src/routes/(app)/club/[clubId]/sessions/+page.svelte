@@ -5,6 +5,11 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
+	import {
+		canMutateOnline as canMutateOnlineStore,
+		reportMutationFailure,
+		reportMutationSuccess
+	} from '$lib/app/connectivity';
 	import { PageHeaderActions, PageHeaderBackButton, PageHeaderSearch } from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
@@ -17,8 +22,10 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { fromStore } from 'svelte/store';
 
 	const convexClient = useConvexClient();
+	const canMutateOnlineState = fromStore(canMutateOnlineStore);
 
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 
@@ -31,6 +38,7 @@
 	let canCreate = $derived(clubPermissions.includes('session:create'));
 	let canDelete = $derived(clubPermissions.includes('session:delete'));
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
+	let canMutateOnline = $derived(canMutateOnlineState.current);
 
 	const sessionCardsResponse = useStableQuery(
 		api.sessions.listCardPreviewsByClub,
@@ -49,6 +57,20 @@
 			description: ''
 		};
 	};
+	const SESSION_CREATE_TIMEOUT_MS = 6_000;
+
+	async function withTimeout<T>(
+		promise: Promise<T>,
+		timeoutMs: number,
+		timeoutMessage: string
+	): Promise<T> {
+		return await Promise.race([
+			promise,
+			new Promise<never>((_, reject) => {
+				setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+			})
+		]);
+	}
 
 	let createDialogOpen = $state(page.url.searchParams.get('openCreateSession') === '1');
 	let sessionForm = $state(buildDefaultSessionForm());
@@ -83,11 +105,14 @@
 	};
 
 	const createSession = async () => {
+		const startTime = sessionForm.startTime;
+		const endTime = sessionForm.endTime;
 		if (
 			!canCreate ||
+			!canMutateOnline ||
 			!clubIdTyped ||
-			sessionForm.startTime === null ||
-			sessionForm.endTime === null
+			startTime === null ||
+			endTime === null
 		) {
 			return;
 		}
@@ -96,22 +121,38 @@
 		errorMessage = '';
 		try {
 			const desc = sessionForm.description.trim();
-			const session = await convexClient.mutation(api.sessions.create, {
-				clubId: clubIdTyped,
-				startTime: sessionForm.startTime,
-				endTime: sessionForm.endTime,
-				...(desc ? { description: desc } : {})
-			});
-			createDialogOpen = false;
+			const session = await withTimeout(
+				convexClient.mutation(api.sessions.create, {
+					clubId: clubIdTyped,
+					startTime,
+					endTime,
+					...(desc ? { description: desc } : {})
+				}),
+				SESSION_CREATE_TIMEOUT_MS,
+				'Request timed out. Check your connection and try again.'
+			);
+			reportMutationSuccess();
 			if (session?._id) {
-				await goto(resolve(`/session/${session._id}/activities`), {
-					state: {
-						headerTitleHint: formatSessionHeaderLine(sessionForm.startTime),
-						headerTitleHintPath: `/session/${session._id}`
-					}
-				});
+				const target = resolve(`/session/${session._id}/activities`);
+				const headerTitleHint = Number.isFinite(startTime)
+					? formatSessionHeaderLine(startTime)
+					: undefined;
+				try {
+					await goto(target, {
+						state: {
+							...(headerTitleHint ? { headerTitleHint } : {}),
+							headerTitleHintPath: `/session/${session._id}`
+						}
+					});
+				} catch {
+					await goto(target);
+				}
+				createDialogOpen = false;
+				return;
 			}
+			errorMessage = 'Session was created, but could not be opened automatically.';
 		} catch (error) {
+			reportMutationFailure(error);
 			errorMessage = error instanceof Error ? error.message : 'Failed to create session.';
 		} finally {
 			pending = false;
@@ -145,7 +186,7 @@
 			variant="ghost"
 			size="icon"
 			aria-label="Create session"
-			disabled={!canCreate}
+			disabled={!canCreate || !canMutateOnline}
 			onclick={openCreateSession}
 		>
 			<PlusIcon class="size-5 text-muted-foreground" />
@@ -209,7 +250,7 @@
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
-				<Button disabled={pending || !canCreate} onclick={() => void createSession()}
+				<Button disabled={pending || !canCreate || !canMutateOnline} onclick={() => void createSession()}
 					>{pending ? 'Creating...' : 'Open'}</Button
 				>
 			</Dialog.Footer>

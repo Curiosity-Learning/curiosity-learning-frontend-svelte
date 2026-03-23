@@ -69,7 +69,43 @@ npm run dev:backend
 npm run dev
 ```
 
+## Production Deployment
+
+Deploy the web app as a Render `Web Service` backed by SvelteKit's Node runtime.
+
+- Adapter: `@sveltejs/adapter-node`
+- Build command: `npm install && npm run build`
+- Start command: `node build/index.js`
+
+Render production env values:
+
+- `BETTER_AUTH_URL=https://<your-production-domain>`
+- `BETTER_AUTH_SECRET=<high-entropy secret>`
+- `PUBLIC_CONVEX_URL=https://<your-production-deployment>.convex.cloud`
+- `PUBLIC_CONVEX_SITE_URL=https://<your-production-deployment>.convex.site`
+- `ALLOW_LAN_TRUSTED_ORIGINS=false`
+
+Convex production deployment env values:
+
+- `BETTER_AUTH_URL=https://<your-production-domain>`
+- `BETTER_AUTH_SECRET=<same secret as Render>`
+- `PUBLIC_CONVEX_SITE_URL=https://<your-production-deployment>.convex.site`
+- `RESEND_API_KEY=<provider key>`
+- `RESEND_FROM=<verified sender>`
+- `ALLOW_LAN_TRUSTED_ORIGINS=false`
+
 ## Quality Gates
+
+Baseline PR gate via GitHub Actions (`pull_request` plus pushes to `main` and `development`):
+
+```sh
+npm ci
+npm run check
+npm run lint:ci
+npm run build
+```
+
+Hard gate before bigger milestones:
 
 ```sh
 npm run lint
@@ -88,3 +124,4 @@ See [`docs/README.md`](docs/README.md) for the full docs index — architecture,
 
 - Convex codegen output lives in `src/convex/_generated`.
 - Demo scaffold routes/tests were removed and replaced by migration smoke + domain tests.
+- The production app is expected to run as a long-lived Node server, not a static export.

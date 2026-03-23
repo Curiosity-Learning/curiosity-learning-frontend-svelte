@@ -2486,3 +2486,209 @@
 - `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
 
 - 2026-03-23: Added signup preflight account checks for existing email/password and Google accounts. Existing verified-but-incomplete users now resume post-signup after sign-in; existing complete users are redirected to sign-in; unverified existing users are sent to OTP without creating duplicate accounts.
+
+## 2026-02-26
+
+### UI Standardization: Lucide Icon Stroke Weight Tokens
+
+- Audited icon usage across the app and confirmed Lucide is the icon system in active use:
+  - 66 Lucide icon imports across 36 source files.
+  - Only one feature-level stroke-weight override existed (`strokeWidth={2.75}` in `club-session-card.svelte`).
+- Added global icon stroke tokens and policy wiring in `src/routes/layout.css`:
+  - `--icon-stroke-default`
+  - `--icon-stroke-subtle`
+  - `--icon-stroke-strong`
+- Added global Lucide rule so icon stroke is token-driven (`.lucide-icon`) with semantic exception classes:
+  - `icon-stroke-subtle`
+  - `icon-stroke-strong`
+- Replaced the hard-coded session-card calendar override with `icon-stroke-strong` in `src/lib/components/app/sessions/club-session-card.svelte`.
+- Added ADR-010 (`docs/adr/010-icon-stroke-weight-policy.md`) and updated `docs/architecture.md` with the policy.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### 2026-03-22: Media Upload Dev Test Surface
+
+- Added a temporary authenticated route at `src/routes/(app)/settings/media-upload-dev/+page.svelte` to exercise the shared `mediaAssets` pipeline without using the Convex dashboard.
+- The page lets us configure per-upload constraints, pick a single file through the local `FileDropZone` UI component, run the real begin/upload/finalize flow, and inspect retry/restart/cancel behavior on existing uploads.
+- Added a settings entry point so the test surface is discoverable from the app.
+- Expanded the same test surface to support multi-file selection, submitting each selected file as its own upload session so batch behavior can be exercised without changing the one-file-per-asset backend contract.
+- Removed temporary `contextType` / `contextId` metadata from `mediaAssets` and the dev page so the upload foundation stays focused on storage, validation, and processing rather than soft ownership hints.
+- Added built-in `FileDropZone` rejection toasts (enabled by default, opt-out via `showErrorToasts={false}`) so feature code can get sane error UX without custom wiring, while still allowing temporary tools or future feature pages to render inline rejection details instead.
+- Removed the temporary dev test route after validation so the branch lands with the shared pipeline and reusable drop-zone behavior, but without shipping an internal-only settings surface.
+
+## 2026-03-14
+
+### DevOps: Baseline PR Gate
+
+- Added GitHub Actions workflow `.github/workflows/pr-gate.yml`.
+- The gate runs on every `pull_request` and on direct pushes to `main` and `development`.
+- It intentionally stays small and fast:
+  - `npm ci`
+  - `npm run check`
+  - `npm run lint:ci`
+  - `npm run build`
+- Added `lint:ci` and `ci` package scripts so the PR gate can stay focused on breakage detection without turning every change into a full prettier-plus-test run.
+
+### Run: Validation
+
+- `npm run ci` ✅
+- `npm run check` reports 0 errors and the same existing 3 Svelte warnings in `src/lib/components/ui/toggle-group/toggle-group.svelte`.
+
+### Infra: Render Node Runtime
+
+- Replaced `@sveltejs/adapter-auto` with `@sveltejs/adapter-node` so production deploys target a long-lived Node server explicitly.
+- Updated `svelte.config.js` to use the Node adapter.
+- Documented the Render production contract:
+  - build command `npm install && npm run build`
+  - start command `node build/index.js`
+  - required Render and Convex production environment variables
+- Added ADR-011 covering the Node runtime decision and environment ownership split.
+
+### Run: Validation
+
+- `npm run check` ✅
+- `npm run build` ✅
+
+### Follow-up: Promote Strong Stroke to Global Default
+
+- Updated icon stroke tokens in `src/routes/layout.css` so old "strong" visual weight is now the baseline:
+  - `--icon-stroke-default: 2.75` (was `2`)
+  - `--icon-stroke-subtle: 2.25` (was `1.75`)
+  - `--icon-stroke-strong: 3` (was `2.75`)
+- Removed the remaining `icon-stroke-strong` class usages in `src/lib/components/app/sessions/club-session-card.svelte` so those icons now inherit the new global default.
+- Result: all current icon instances render at default weight unless a future feature explicitly opts into `icon-stroke-subtle`/`icon-stroke-strong`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Club Dashboard Create-Session “Open” Could Stay on Dashboard
+
+- Hardened create-session navigation on both club dashboard and sessions list routes:
+  - `src/routes/(app)/club/[clubId]/+page.svelte`
+  - `src/routes/(app)/club/[clubId]/sessions/+page.svelte`
+- `createSession` now snapshots `startTime`/`endTime` before async mutation work, so navigation state is built from stable values.
+- Header hint formatting is now guarded (`Number.isFinite`) before `formatSessionHeaderLine(...)`, preventing a formatting/runtime edge case from skipping navigation after successful create.
+
+## 2026-03-22
+
+### Foundation: Shared Media Upload Pipeline
+
+- Added a shared Convex-native upload foundation in:
+  - `src/convex/media.ts`
+  - `src/convex/mediaPipeline.ts`
+  - `src/convex/mediaModel.ts`
+- Added `mediaAssets` to the schema as the canonical upload record for user-facing media.
+- The pipeline now:
+  - creates draft uploads and signed storage URLs,
+  - finalizes uploads against `Id<"_storage">`,
+  - reads authoritative file metadata from the `"_storage"` system table,
+  - validates each file against per-upload constraints (`acceptedContentTypes`, `maxBytes`, processing flags),
+  - tracks explicit states (`pending_upload`, `processing`, `ready`, `failed`, `canceled`),
+  - and exposes restart/cancel/retry hooks for recoverability.
+- Kept file URLs ephemeral by generating them at read time with `ctx.storage.getUrl(...)` instead of persisting them in tables.
+- Refined the initial design away from a backend `purpose` enum and into a constraint-based contract so new upload surfaces can choose their own MIME/size rules without registering a new global upload type.
+- Wired compression and safety screening as shared pipeline steps so future processors can extend the same contract rather than creating feature-specific upload implementations.
+
+### Documentation
+
+- Added ADR-012 for the shared media upload pipeline decision.
+- Updated architecture, data model, parity matrix, and implementation plan docs to reflect the new media foundation.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+- Session open now retries with plain `goto(target)` if the stateful navigation attempt throws, ensuring the new session still opens.
+- Dashboard flow now closes the create dialog after navigation attempt rather than before, reducing chances of state churn affecting post-create routing.
+
+### Run: Validation
+
+- `mcp__svelte__svelte-autofixer` ✅ (`src/routes/(app)/club/[clubId]/+page.svelte`, `src/routes/(app)/club/[clubId]/sessions/+page.svelte`)
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Follow-up Hardening: Create-Session Errors Are Surfaced In-Form
+
+- Updated `src/routes/(app)/club/[clubId]/+page.svelte` to remove silent create-session failures.
+- Added dialog-scoped `createSessionError` state and a destructive alert inside the create-session dialog so failures are visible at the point of action.
+- Create flow now:
+  - clears dialog errors on open and before submit,
+  - closes dialog only after successful navigation/open,
+  - surfaces mutation/navigation failures with explicit messaging instead of swallowing them.
+
+### Debug Instrumentation: End-to-End Create-Session Trace IDs
+
+- Added optional `clientRequestId` to `api.sessions.create` in `src/convex/sessions.ts`.
+- Added Convex-side structured logs for create lifecycle:
+  - `sessions:create:start`
+  - `sessions:create:inserted`
+  - `sessions:create:return`
+- Updated both create-session UI flows to generate and pass `clientRequestId`:
+  - `src/routes/(app)/club/[clubId]/+page.svelte`
+  - `src/routes/(app)/club/[clubId]/sessions/+page.svelte`
+- User-facing create/open error messages now include `Ref: <clientRequestId>` for direct correlation with Convex logs.
+- Added bounded timeouts for both mutation and navigation steps in create-session flows to prevent indefinite `Creating...` state when responses/navigation hang:
+  - create mutation timeout: 12s
+  - open navigation timeout: 5s (with stateful then plain-route fallback)
+- This enables deterministic debugging for “session created but UI stuck” reports by mapping one button click to backend completion and frontend follow-up behavior.
+
+### Follow-up Fix: Create Session Honors Connectivity Guard (No Queued Hang)
+
+- Correlated a reported timeout ref (`83545e75-b1f0-4178-ae05-5355e5e88c35`) and confirmed no matching `sessions:create` execution reached Convex for that click.
+- Updated both create-session flows to use the existing connectivity guard pattern (already used in session detail):
+  - `src/routes/(app)/club/[clubId]/+page.svelte`
+  - `src/routes/(app)/club/[clubId]/sessions/+page.svelte`
+- Added `canMutateOnline` / `connectivityMessage` wiring and fast-fail behavior before mutation calls.
+- Create/open buttons are now disabled when mutation connectivity is unhealthy, preventing queued indefinite mutation waits.
+- Mutation success/failure now reports through `reportMutationSuccess` / `reportMutationFailure` to keep connectivity state accurate.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Review Adjustment: Keep Create Actions Testable While Still Bounded
+
+- Removed create-button disabling tied to `canMutateOnline` from both create-session flows so offline/error-path behavior can still be exercised interactively.
+- Removed early-return gating on `canMutateOnline` before attempting `sessions.create`; create now always attempts and uses timeout + explicit error handling.
+- Kept bounded create/open timeouts and request-id references to avoid indefinite `Creating...` and preserve deterministic tracing.
+- Reduced session create timeout from 12s to 6s for faster failure feedback in degraded connectivity scenarios.
+
+### Simplification: Remove Debug-Only Overhead, Keep Core Reliability
+
+- Removed debug-only request tracing from create-session flow:
+  - dropped `clientRequestId` from `api.sessions.create` arguments in `src/convex/sessions.ts`
+  - removed temporary Convex create lifecycle logs (`sessions:create:start|inserted|return`)
+  - removed `Ref:` suffixes from user-facing errors
+- Kept only the essential safeguards:
+  - stable snapshot of form values before async create/navigation
+  - in-form error UI on club dashboard create dialog
+  - bounded create timeout (6s) to avoid indefinite `Creating...`
+  - simple navigation fallback (`goto` with state, then plain `goto`)
+- This returns the implementation to a minimal, maintainable baseline while preserving the fixes for the original bug and spinner hang.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Follow-up: Session Planning Respects Global Offline Gating
+
+- Aligned create-session entry points with the documented connectivity policy (`canMutateOnline`) for mutation-capable UI.
+- Updated `src/routes/(app)/club/[clubId]/sessions/+page.svelte`:
+  - disabled the header create (`+`) action while offline/unhealthy,
+  - disabled dialog `Open` while offline/unhealthy,
+  - added a create-path guard in `createSession` for `!canMutateOnline`.
+- Updated `src/routes/(app)/club/[clubId]/+page.svelte` create flow to report mutation outcomes through:
+  - `reportMutationSuccess(...)` on successful create mutation,
+  - `reportMutationFailure(...)` on errors.
+- Result: both dashboard and sessions-list create flows now follow the same centralized online-mutation behavior used elsewhere (for example session detail), without extra per-route offline logic.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)

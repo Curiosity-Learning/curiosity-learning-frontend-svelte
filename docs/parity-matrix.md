@@ -34,6 +34,7 @@
 - [x] Project members
 - [x] Project clubs
 - [x] Updates
+- [x] Media assets / upload pipeline
 - [x] Notifications
 - [x] User preferences
 - [x] Legal documents (privacy/terms/cookie)

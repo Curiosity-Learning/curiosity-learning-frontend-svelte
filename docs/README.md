@@ -30,3 +30,5 @@ When a significant design choice is made, it gets an ADR in `adr/`:
 - [ADR-007](adr/007-history-semantics-for-routing-and-back.md) — Back/history semantics for contextual flows
 - [ADR-008](adr/008-project-detail-tabs.md) — Project detail tabs (`Overview` / `Members`)
 - [ADR-009](adr/009-global-convex-auth-readiness-gate.md) — Global Convex auth readiness gating to prevent pre-hydration query races
+- [ADR-010](adr/010-icon-stroke-weight-policy.md) — Lucide icon stroke weights are tokenized globally with semantic exception classes
+- [ADR-011](adr/011-render-node-runtime.md) — Render production deploys use the SvelteKit Node adapter and explicit runtime env wiring

@@ -8,7 +8,7 @@
 </script>
 
 <div class="flex items-center justify-between gap-4">
-	<h2 class="type-h4 text-foreground/80">{title}</h2>
+	<h2 class="type-lead-bold text-foreground/80">{title}</h2>
 	{#if action}
 		<div class="flex items-center gap-2">
 			{@render action()}

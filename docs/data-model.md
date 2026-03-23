@@ -16,7 +16,8 @@ Schema source: `src/convex/schema.ts`
 | Table         | Purpose                            | Key Fields                                      | Indexes                                |
 | ------------- | ---------------------------------- | ----------------------------------------------- | -------------------------------------- |
 | `clubRoles`   | Role definitions with permissions  | `name`, `permissions[]`, `order`                 | `by_name`                              |
-| `clubs`       | Club record + invite code          | `name`, `clubCode?`, `description?`, `location?`, `videoUrl?`, `videoStorageId?`, `createdByUserId` | `by_created_by`, `by_club_code` |
+| `clubs`       | Club record                        | `name`, `description?`, `location?`, `createdByUserId` | `by_created_by`                 |
+| `clubCodes`   | Invite codes                       | `clubId`, `code`                                 | `by_code`, `by_club`                   |
 | `clubMembers` | User-club membership with role     | `clubId`, `userId`, `roleId`, `leftAt?`          | `by_club`, `by_user`, `by_club_and_user` |
 
 ## Sessions / Activities / Attendance
@@ -43,7 +44,13 @@ Schema source: `src/convex/schema.ts`
 | `updates`        | Update posts on projects               | `projectId?`, `questionId?`, `content`, `createdByUserId` | `by_project`, `by_project_and_created` |
 | `updateFiles`    | Files attached to updates              | `updateId`, `storageId`                               | `by_update`                                |
 
-## Notifications / Legal Documents
+## Media Pipeline
+
+| Table         | Purpose                                   | Key Fields                                                                 | Indexes                                             |
+| ------------- | ----------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
+| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `acceptedContentTypes[]`, `maxBytes`, `enableCompression`, `enableSafetyScreening`, `storageId?`, `mediaKind?`, `contentType?`, `sizeBytes?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_storage_id` |
+
+## Notifications / Privacy
 
 | Table            | Purpose                                           | Key Fields                                                                 | Indexes                                                         |
 | ---------------- | ------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
