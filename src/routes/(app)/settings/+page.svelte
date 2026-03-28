@@ -21,6 +21,7 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { authClient } from '$lib/auth-client';
+	import { routes } from '$lib/routes';
 
 	const session = authClient.useSession();
 	const convexClient = useConvexClient();
@@ -337,6 +338,19 @@
 					</Button>
 				{/each}
 			</div>
+		</CardContent>
+	</Card>
+
+	<Card>
+		<CardHeader class="flex flex-col gap-2">
+			<CardTitle>Developer tools</CardTitle>
+			<CardDescription>Manual test surfaces for shared infrastructure.</CardDescription>
+		</CardHeader>
+		<CardContent class="flex flex-col gap-3">
+				<p class="text-sm text-muted-foreground">
+					Use the media upload test page to exercise begin, upload, finalize, retry, and cancel flows against the shared S3-backed pipeline.
+				</p>
+			<Button href={routes.settingsMediaUploadDev} variant="outline">Open media upload test</Button>
 		</CardContent>
 	</Card>
 

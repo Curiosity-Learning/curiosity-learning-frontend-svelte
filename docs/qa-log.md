@@ -1026,6 +1026,60 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+## 2026-03-28
+
+### Infra: Shared Media Storage Migrated to S3
+
+- Replaced Convex file-storage coupling in the shared upload pipeline with S3-backed object storage.
+- `src/convex/media.ts` now treats Convex as the control plane and S3 as the canonical blob store:
+  - `beginUpload` returns a provider-neutral upload descriptor instead of a bare Convex upload URL,
+  - `finalizeUpload` verifies the S3 object and no longer accepts a Convex `storageId`,
+  - `restartUpload` and `cancelUpload` clean up S3 objects before resetting lifecycle state.
+- Added `src/convex/mediaStorage.ts` for S3 config, object-key generation, and ready-asset URL resolution.
+- Updated `mediaAssets` to store provider-neutral references (`storageProvider`, `sourceObjectKey`, `processedObjectKey`, optional bucket fields) instead of Convex `_storage` ids.
+- Updated `updateFiles` to attach `mediaAssetId` rather than raw storage ids, keeping feature-level references on the shared media contract.
+
+### Documentation
+
+- Added ADR-013 for the S3-backed media storage decision.
+- Updated architecture, data model, and implementation plan docs to describe the S3-backed upload contract.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Simplification: Remove Restart From Shared Media Contract
+
+- Removed `restartUpload` from the active shared media API and from the developer test page.
+- Reason: it does not match the intended product workflow, where replacing an attachment should create a new upload/asset selection in feature UI rather than preserving and mutating an existing ready asset.
+- The active shared media contract is now:
+  - `beginUpload`
+  - direct upload to S3
+  - `finalizeUpload`
+  - `retryProcessing`
+  - `cancelUpload`
+- Updated docs and the settings media test page to reflect the leaner flow.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Restart Upload Uses Replacement File Metadata
+
+- Fixed a restart/finalize mismatch in the media test flow.
+- Root cause: `restartUpload` reused the original asset metadata (`originalFilename`, `clientContentType`, `clientSizeBytes`), so replacing a file with a different size caused finalize-time S3 verification to fail with `Uploaded file size does not match the expected size`.
+- Updated the Convex restart path so replacement file metadata is supplied when the replacement file is actually chosen.
+- Updated the settings media test page so `Restart` now arms an asset for replacement, and the actual restart action runs when the replacement file is dropped.
+- Result: restart now preserves the same `mediaAssetId` while issuing a fresh raw object revision that matches the replacement file being uploaded.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+- `npm run test:quick -- src/convex/mediaStorage.spec.ts src/convex/mediaPipeline.spec.ts` ✅
+
 ### 2026-03-22: Media Upload Dev Test Surface
 
 - Added a temporary authenticated route at `src/routes/(app)/settings/media-upload-dev/+page.svelte` to exercise the shared `mediaAssets` pipeline without using the Convex dashboard.
@@ -1080,6 +1134,41 @@
 
 ### Run: Validation
 
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-03-28
+
+### Feature: Settings Media Upload Test Page
+
+- Added `/settings/media-upload-dev` as a manual test surface for the shared media pipeline.
+- The page uses existing UI primitives only and covers:
+  - constraint preset editing,
+  - direct upload via returned upload descriptor,
+  - finalize,
+  - retry,
+  - restart with replacement upload,
+  - cancel,
+  - upload detail inspection and ready-file links.
+- Added a `Developer tools` card on `/settings` linking to the new page.
+- Added `routes.settingsMediaUploadDev` in `src/lib/routes.ts` so the route stays discoverable and avoids ad-hoc path strings.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Media S3 Actions Split Out Of Mixed Convex Module
+
+- Fixed Convex deploy/runtime failures introduced by the S3-backed media migration.
+- Root cause:
+  - adding `"use node"` directly to `src/convex/media.ts` fixed AWS SDK runtime issues,
+  - but Convex then rejected the module because Node-only files may export actions only, while `media.ts` also contains queries and mutations.
+- Moved S3/AWS SDK work into `src/convex/mediaNode.ts` as internal Node actions.
+- Kept the public API stable in `src/convex/media.ts` by turning `beginUpload`, `finalizeUpload`, `restartUpload`, and `cancelUpload` into thin wrapper actions that delegate to `internal.mediaNode.*`.
+- Added `src/convex/mediaShared.ts` for the resolved-asset mapper used by both modules.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
 ### Bug Fix: Club Dashboard Create-Session “Open” Could Stay on Dashboard
