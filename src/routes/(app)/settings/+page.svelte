@@ -362,4 +362,23 @@
 			</div>
 		</CardContent>
 	</Card>
+
+	<Card>
+		<CardHeader class="flex flex-col gap-2">
+			<CardTitle>Developer tools</CardTitle>
+			<CardDescription>Internal surfaces for validating shared platform behavior.</CardDescription>
+		</CardHeader>
+		<CardContent class="flex flex-col gap-3">
+			<div class="flex flex-col gap-1">
+				<p class="font-medium">Media upload sandbox</p>
+				<p class="text-sm text-muted-foreground">
+					Upload through the shared media pipeline, watch moderation/compression status, and
+					debug upload processing end to end.
+				</p>
+			</div>
+			<Button href="/settings/media-upload-dev" variant="outline">
+				Open media upload sandbox
+			</Button>
+		</CardContent>
+	</Card>
 </div>

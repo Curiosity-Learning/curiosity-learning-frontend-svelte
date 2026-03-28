@@ -5,6 +5,9 @@ export const MEDIA_PIPELINE_VERSION = 1;
 export const MEDIA_KINDS = ['image', 'video'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
+export const MEDIA_MODERATION_STATUSES = ['pending', 'approved', 'rejected'] as const;
+export type MediaModerationStatus = (typeof MEDIA_MODERATION_STATUSES)[number];
+
 export const MEDIA_UPLOAD_STATUSES = [
 	'pending_upload',
 	'processing',
@@ -24,6 +27,12 @@ export const MEDIA_PIPELINE_STEP_STATUSES = ['passed', 'failed', 'skipped'] as c
 export type MediaPipelineStepStatus = (typeof MEDIA_PIPELINE_STEP_STATUSES)[number];
 
 export const mediaKindValidator = v.union(v.literal('image'), v.literal('video'));
+
+export const mediaModerationStatusValidator = v.union(
+	v.literal('pending'),
+	v.literal('approved'),
+	v.literal('rejected')
+);
 
 export const mediaUploadStatusValidator = v.union(
 	v.literal('pending_upload'),
@@ -68,6 +77,7 @@ export const mediaFailureValidator = v.object({
 export const mediaUploadConstraintsValidator = v.object({
 	acceptedContentTypes: v.array(v.string()),
 	maxBytes: v.number(),
+	maxDurationSeconds: v.optional(v.number()),
 	enableCompression: v.optional(v.boolean()),
 	enableSafetyScreening: v.optional(v.boolean())
 });
@@ -76,16 +86,24 @@ export const mediaAssetFields = {
 	ownerUserId: v.string(),
 	mediaKind: v.optional(mediaKindValidator),
 	status: mediaUploadStatusValidator,
+	moderationStatus: mediaModerationStatusValidator,
+	moderationProvider: v.optional(v.string()),
+	moderationSummary: v.optional(v.string()),
 	originalFilename: v.optional(v.string()),
 	clientContentType: v.optional(v.string()),
 	clientSizeBytes: v.optional(v.number()),
 	acceptedContentTypes: v.array(v.string()),
 	maxBytes: v.number(),
+	maxDurationSeconds: v.optional(v.number()),
 	enableCompression: v.boolean(),
 	enableSafetyScreening: v.boolean(),
+	sourceStorageId: v.optional(v.id('_storage')),
 	storageId: v.optional(v.id('_storage')),
 	contentType: v.optional(v.string()),
+	originalSizeBytes: v.optional(v.number()),
+	processedSizeBytes: v.optional(v.number()),
 	sizeBytes: v.optional(v.number()),
+	durationSeconds: v.optional(v.number()),
 	sha256: v.optional(v.string()),
 	pipelineVersion: v.number(),
 	attemptCount: v.number(),
@@ -94,7 +112,9 @@ export const mediaAssetFields = {
 	createdAt: v.number(),
 	updatedAt: v.number(),
 	uploadCompletedAt: v.optional(v.number()),
+	moderatedAt: v.optional(v.number()),
 	readyAt: v.optional(v.number()),
+	rejectedAt: v.optional(v.number()),
 	failedAt: v.optional(v.number()),
 	canceledAt: v.optional(v.number())
 };

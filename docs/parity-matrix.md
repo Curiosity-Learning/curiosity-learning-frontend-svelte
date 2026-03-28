@@ -35,6 +35,7 @@
 - [x] Project clubs
 - [x] Updates
 - [x] Media assets / upload pipeline
+- [x] Moderated media gate for project update attachments
 - [x] Notifications
 - [x] User preferences
 - [x] Privacy policy

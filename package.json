@@ -68,10 +68,15 @@
 		"vitest-browser-svelte": "^2.0.2"
 	},
 	"dependencies": {
+		"@aws-sdk/client-rekognition": "^3.1014.0",
 		"@convex-dev/better-auth": "^0.10.10",
 		"@fontsource/dm-sans": "^5.2.8",
 		"@mmailaender/convex-better-auth-svelte": "^0.5.0",
 		"convex": "^1.31.7",
-		"convex-svelte": "^0.0.12"
+		"convex-svelte": "^0.0.12",
+		"ffmpeg-static": "^5.3.0",
+		"ffprobe-static": "^3.1.0",
+		"file-type": "^21.3.4",
+		"jimp": "^1.6.0"
 	}
 }

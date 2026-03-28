@@ -42,13 +42,13 @@ Schema source: `src/convex/schema.ts`
 | `projectMembers` | User membership in a project           | `projectId`, `userId`, `roleId`, `leftAt?`            | `by_project`, `by_user`, `by_project_and_user` |
 | `questions`      | Question prompts for updates           | (minimal)                                             |                                            |
 | `updates`        | Update posts on projects               | `projectId?`, `questionId?`, `content`, `createdByUserId` | `by_project`, `by_project_and_created` |
-| `updateFiles`    | Files attached to updates              | `updateId`, `storageId`                               | `by_update`                                |
+| `updateFiles`    | Files attached to updates              | `updateId`, `mediaAssetId`                            | `by_update`                                |
 
 ## Media Pipeline
 
 | Table         | Purpose                                   | Key Fields                                                                 | Indexes                                             |
 | ------------- | ----------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
-| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `acceptedContentTypes[]`, `maxBytes`, `enableCompression`, `enableSafetyScreening`, `storageId?`, `mediaKind?`, `contentType?`, `sizeBytes?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_storage_id` |
+| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `moderationStatus`, `acceptedContentTypes[]`, `maxBytes`, `maxDurationSeconds?`, `enableCompression`, `enableSafetyScreening`, `sourceStorageId?`, `storageId?`, `mediaKind?`, `contentType?`, `durationSeconds?`, `originalSizeBytes?`, `processedSizeBytes?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_source_storage_id`, `by_storage_id` |
 
 ## Notifications / Privacy
 

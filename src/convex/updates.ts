@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
+import { canAttachToProjectUpdate } from './mediaPolicies';
 import { hasPermission, requireIdentity } from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
@@ -338,7 +339,7 @@ export const update = mutation({
 export const attachFiles = mutation({
 	args: {
 		updateId: v.id('updates'),
-		storageIds: v.array(v.string())
+		mediaAssetIds: v.array(v.id('mediaAssets'))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -353,10 +354,19 @@ export const attachFiles = mutation({
 		}
 
 		const inserted = [];
-		for (const storageId of args.storageIds) {
+		for (const mediaAssetId of args.mediaAssetIds) {
+			const asset = await ctx.db.get(mediaAssetId);
+			if (!asset || asset.ownerUserId !== identity.subject) {
+				throw new ConvexError('Media upload not found');
+			}
+
+			if (!canAttachToProjectUpdate(asset)) {
+				throw new ConvexError('Media upload is not ready to be attached');
+			}
+
 			const id = await ctx.db.insert('updateFiles', {
 				updateId: args.updateId,
-				storageId,
+				mediaAssetId,
 				createdAt: Date.now()
 			});
 			inserted.push(id);
@@ -372,9 +382,26 @@ export const listFiles = query({
 	},
 	handler: async (ctx, args) => {
 		await requireIdentity(ctx);
-		return await ctx.db
+		const rows = await ctx.db
 			.query('updateFiles')
 			.withIndex('by_update', (q) => q.eq('updateId', args.updateId))
 			.collect();
+
+		return await Promise.all(
+			rows.map(async (row) => {
+				const asset = await ctx.db.get(row.mediaAssetId);
+				const fileUrl =
+					asset?.status === 'ready' && asset.moderationStatus === 'approved' && asset.storageId
+						? await ctx.storage.getUrl(asset.storageId)
+						: null;
+
+				return {
+					...row,
+					fileUrl,
+					contentType: asset?.contentType ?? null,
+					mediaKind: asset?.mediaKind ?? null
+				};
+			})
+		);
 	}
 });

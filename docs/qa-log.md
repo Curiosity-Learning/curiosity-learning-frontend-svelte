@@ -40,6 +40,37 @@
 - These requests did not fail the suite and all assertions passed.
 - Playwright's `webServer` boot now injects a stable `BETTER_AUTH_SECRET` in `playwright.config.ts` so `vite preview` can start reliably (it does not automatically load `.env`).
 
+## 2026-03-22
+
+### Media Safety: Moderated Compression Pipeline
+
+- Replaced the shared media pipeline's compression and screening no-ops with a Node-side processing action in `src/convex/mediaProcessing.ts`.
+- Uploads now store raw source blobs separately from processed final blobs so only approved media is exposed through normal feature URLs.
+- Added byte-based MIME validation, optional max video duration enforcement, image/video compression, and AWS Rekognition-based binary moderation (`approved` / `rejected`).
+- Expanded `mediaAssets` to persist moderation metadata plus size/duration processing details.
+- Changed `updateFiles` to reference `mediaAssetId` instead of raw storage IDs, and hardened `updates.attachFiles` so project updates only accept caller-owned uploads that are already approved and match the project-update upload policy.
+- Added focused unit tests for media constraint validation, MIME detection, moderation decision mapping, and the project-update attachment gate.
+
+### Documentation
+
+- Added ADR-013 for the lean media safety and compression pipeline.
+- Updated architecture, data model, parity matrix, implementation plan, and env example docs for the moderated media contract.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+- `npm run test:quick` ✅
+
+## 2026-03-23
+
+### Tooling: Media Pipeline Sandbox Route
+
+- Added an authenticated sandbox route at `src/routes/(app)/settings/media-upload-dev/+page.svelte` to test the shared media upload pipeline end to end from the app.
+- The sandbox uses the real `media.beginUpload`, direct Convex storage upload, `media.finalizeUpload`, and live `media.listMyUploads` state so compression/moderation outcomes can be verified without using the Convex dashboard.
+- Narrowed the sandbox back down to media-pipeline-only testing and debugging so it no longer depends on project or club context.
+- Added a settings entry point so the sandbox is discoverable from `src/routes/(app)/settings/+page.svelte`.
+
 ## 2026-02-12
 
 ### Refactor: Project Creation Modal → Page

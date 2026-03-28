@@ -3,6 +3,7 @@ import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import {
 	internalMutation,
+	internalQuery,
 	mutation,
 	query,
 	type MutationCtx,
@@ -10,16 +11,20 @@ import {
 } from './_generated/server';
 import {
 	MEDIA_PIPELINE_VERSION,
+	mediaFailureValidator,
+	type MediaModerationStatus,
+	mediaModerationStatusValidator,
+	mediaPipelineStepResultValidator,
 	mediaUploadConstraintsValidator,
 	mediaUploadStatusValidator
 } from './mediaModel';
 import {
-	type SupportedContentType,
+	type MediaPipelineFailure,
 	type StoredMediaMetadata,
+	type SupportedContentType,
 	describeUploadConstraints,
 	inferSingleAcceptedMediaKind,
-	normalizeUploadConstraints,
-	runMediaPipeline
+	normalizeUploadConstraints
 } from './mediaPipeline';
 import { requireIdentity } from './permissions';
 
@@ -38,33 +43,50 @@ const assertOwner = async (ctx: ReadCtx, assetId: Id<'mediaAssets'>, userId: str
 	return asset;
 };
 
-const toResolvedAsset = async (
-	ctx: ReadCtx,
-	asset: Doc<'mediaAssets'>
+const deleteStorageObjectIfPresent = async (
+	ctx: MutationCtx,
+	storageId?: Id<'_storage'>
 ) => {
-	// Frontend code should treat the upload record as the source of truth and derive
-	// picker hints from this resolved constraints block, rather than re-encoding MIME
-	// and size rules in each feature surface.
+	if (!storageId) {
+		return;
+	}
+
+	await ctx.storage.delete(storageId);
+};
+
+const toResolvedAsset = async (ctx: ReadCtx, asset: Doc<'mediaAssets'>) => {
 	const constraints = describeUploadConstraints({
 		acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
 		maxBytes: asset.maxBytes,
+		maxDurationSeconds: asset.maxDurationSeconds,
 		enableCompression: asset.enableCompression,
 		enableSafetyScreening: asset.enableSafetyScreening
 	});
 	const fileUrl =
-		asset.status === 'ready' && asset.storageId ? await ctx.storage.getUrl(asset.storageId) : null;
+		asset.status === 'ready' &&
+		asset.moderationStatus === 'approved' &&
+		asset.storageId
+			? await ctx.storage.getUrl(asset.storageId)
+			: null;
 
 	return {
 		assetId: asset._id,
 		ownerUserId: asset.ownerUserId,
 		mediaKind: asset.mediaKind ?? null,
 		status: asset.status,
+		moderationStatus: asset.moderationStatus,
+		moderationProvider: asset.moderationProvider ?? null,
+		moderationSummary: asset.moderationSummary ?? null,
 		originalFilename: asset.originalFilename ?? null,
 		clientContentType: asset.clientContentType ?? null,
 		clientSizeBytes: asset.clientSizeBytes ?? null,
+		sourceStorageId: asset.sourceStorageId ?? null,
 		storageId: asset.storageId ?? null,
 		contentType: asset.contentType ?? null,
+		originalSizeBytes: asset.originalSizeBytes ?? null,
+		processedSizeBytes: asset.processedSizeBytes ?? null,
 		sizeBytes: asset.sizeBytes ?? null,
+		durationSeconds: asset.durationSeconds ?? null,
 		sha256: asset.sha256 ?? null,
 		pipelineVersion: asset.pipelineVersion,
 		attemptCount: asset.attemptCount,
@@ -73,7 +95,9 @@ const toResolvedAsset = async (
 		createdAt: asset.createdAt,
 		updatedAt: asset.updatedAt,
 		uploadCompletedAt: asset.uploadCompletedAt ?? null,
+		moderatedAt: asset.moderatedAt ?? null,
 		readyAt: asset.readyAt ?? null,
+		rejectedAt: asset.rejectedAt ?? null,
 		failedAt: asset.failedAt ?? null,
 		canceledAt: asset.canceledAt ?? null,
 		fileUrl,
@@ -82,6 +106,7 @@ const toResolvedAsset = async (
 			acceptedContentTypes: [...constraints.acceptedContentTypes],
 			acceptedFileExtensions: [...constraints.acceptedFileExtensions],
 			maxBytes: constraints.maxBytes,
+			maxDurationSeconds: constraints.maxDurationSeconds ?? null,
 			enableCompression: constraints.enableCompression,
 			enableSafetyScreening: constraints.enableSafetyScreening,
 			accept: constraints.accept
@@ -89,7 +114,9 @@ const toResolvedAsset = async (
 		actions: {
 			canFinalize: asset.status === 'pending_upload',
 			canRetry:
-				asset.status === 'failed' && Boolean(asset.storageId) && Boolean(asset.lastFailure?.retryable),
+				asset.status === 'failed' &&
+				Boolean(asset.sourceStorageId) &&
+				Boolean(asset.lastFailure?.retryable),
 			canRestart:
 				asset.status === 'pending_upload' ||
 				asset.status === 'failed' ||
@@ -102,17 +129,6 @@ const toResolvedAsset = async (
 	};
 };
 
-const deleteStorageObjectIfPresent = async (
-	ctx: MutationCtx,
-	storageId?: Id<'_storage'>
-) => {
-	if (!storageId) {
-		return;
-	}
-
-	await ctx.storage.delete(storageId);
-};
-
 export const beginUpload = mutation({
 	args: {
 		constraints: mediaUploadConstraintsValidator,
@@ -123,18 +139,18 @@ export const beginUpload = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const now = Date.now();
-		// We persist the validated constraints on the draft upload itself so later media
-		// features can choose their own rules without adding new backend enum values.
 		const constraints = normalizeUploadConstraints(args.constraints);
 		const assetId = await ctx.db.insert('mediaAssets', {
 			ownerUserId: identity.subject,
 			mediaKind: inferSingleAcceptedMediaKind(constraints),
 			status: 'pending_upload',
+			moderationStatus: 'pending',
 			originalFilename: args.originalFilename,
 			clientContentType: args.clientContentType,
 			clientSizeBytes: args.clientSizeBytes,
 			acceptedContentTypes: constraints.acceptedContentTypes,
 			maxBytes: constraints.maxBytes,
+			maxDurationSeconds: constraints.maxDurationSeconds,
 			enableCompression: constraints.enableCompression,
 			enableSafetyScreening: constraints.enableSafetyScreening,
 			pipelineVersion: MEDIA_PIPELINE_VERSION,
@@ -171,28 +187,38 @@ export const finalizeUpload = mutation({
 
 		const duplicate = await ctx.db
 			.query('mediaAssets')
-			.withIndex('by_storage_id', (q) => q.eq('storageId', args.storageId))
+			.withIndex('by_source_storage_id', (q) => q.eq('sourceStorageId', args.storageId))
 			.first();
 		if (duplicate && duplicate._id !== asset._id && duplicate.status !== 'canceled') {
 			throw new ConvexError('Storage object is already attached to another upload');
 		}
 
 		const now = Date.now();
-		// Finalize only records which storage object this draft should process. The heavy
-		// lifting happens in the scheduled internal mutation so the client gets an explicit
-		// processing state instead of waiting on validation/transforms inline.
 		await ctx.db.patch(asset._id, {
-			storageId: args.storageId,
+			sourceStorageId: args.storageId,
+			storageId: undefined,
 			status: 'processing',
+			moderationStatus: 'pending',
+			moderationProvider: undefined,
+			moderationSummary: undefined,
+			contentType: undefined,
+			originalSizeBytes: undefined,
+			processedSizeBytes: undefined,
+			sizeBytes: undefined,
+			durationSeconds: undefined,
+			sha256: undefined,
 			attemptCount: asset.attemptCount + 1,
 			stepResults: [],
 			lastFailure: undefined,
 			uploadCompletedAt: now,
+			moderatedAt: undefined,
+			readyAt: undefined,
+			rejectedAt: undefined,
 			failedAt: undefined,
 			canceledAt: undefined,
 			updatedAt: now
 		});
-		await ctx.scheduler.runAfter(0, internal.media.processUpload, {
+		await ctx.scheduler.runAfter(0, internal.mediaProcessing.processUpload, {
 			assetId: asset._id
 		});
 
@@ -213,20 +239,25 @@ export const retryProcessing = mutation({
 		const identity = await requireIdentity(ctx);
 		const asset = await assertOwner(ctx, args.assetId, identity.subject);
 
-		if (asset.status !== 'failed' || !asset.storageId || !asset.lastFailure?.retryable) {
+		if (asset.status !== 'failed' || !asset.sourceStorageId || !asset.lastFailure?.retryable) {
 			throw new ConvexError('Upload is not eligible for retry');
 		}
 
 		await ctx.db.patch(asset._id, {
 			status: 'processing',
+			moderationStatus: 'pending',
+			moderationProvider: undefined,
+			moderationSummary: undefined,
 			stepResults: [],
 			lastFailure: undefined,
 			attemptCount: asset.attemptCount + 1,
+			moderatedAt: undefined,
+			rejectedAt: undefined,
 			failedAt: undefined,
 			canceledAt: undefined,
 			updatedAt: Date.now()
 		});
-		await ctx.scheduler.runAfter(0, internal.media.processUpload, {
+		await ctx.scheduler.runAfter(0, internal.mediaProcessing.processUpload, {
 			assetId: asset._id
 		});
 
@@ -251,25 +282,36 @@ export const restartUpload = mutation({
 			throw new ConvexError('Upload cannot be restarted from its current state');
 		}
 
+		await deleteStorageObjectIfPresent(ctx, asset.sourceStorageId);
 		await deleteStorageObjectIfPresent(ctx, asset.storageId);
 
 		const now = Date.now();
 		await ctx.db.patch(asset._id, {
 			status: 'pending_upload',
+			moderationStatus: 'pending',
+			moderationProvider: undefined,
+			moderationSummary: undefined,
+			sourceStorageId: undefined,
 			storageId: undefined,
 			mediaKind: inferSingleAcceptedMediaKind({
 				acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
 				maxBytes: asset.maxBytes,
+				maxDurationSeconds: asset.maxDurationSeconds,
 				enableCompression: asset.enableCompression,
 				enableSafetyScreening: asset.enableSafetyScreening
 			}),
 			contentType: undefined,
+			originalSizeBytes: undefined,
+			processedSizeBytes: undefined,
 			sizeBytes: undefined,
+			durationSeconds: undefined,
 			sha256: undefined,
 			stepResults: [],
 			lastFailure: undefined,
 			uploadCompletedAt: undefined,
+			moderatedAt: undefined,
 			readyAt: undefined,
+			rejectedAt: undefined,
 			failedAt: undefined,
 			canceledAt: undefined,
 			updatedAt: now
@@ -301,15 +343,20 @@ export const cancelUpload = mutation({
 		}
 
 		if (args.deleteStorage ?? true) {
+			await deleteStorageObjectIfPresent(ctx, asset.sourceStorageId);
 			await deleteStorageObjectIfPresent(ctx, asset.storageId);
 		}
 
 		await ctx.db.patch(asset._id, {
 			status: 'canceled',
+			sourceStorageId: args.deleteStorage ?? true ? undefined : asset.sourceStorageId,
 			storageId: args.deleteStorage ?? true ? undefined : asset.storageId,
 			mediaKind: args.deleteStorage ?? true ? undefined : asset.mediaKind,
 			contentType: args.deleteStorage ?? true ? undefined : asset.contentType,
+			originalSizeBytes: args.deleteStorage ?? true ? undefined : asset.originalSizeBytes,
+			processedSizeBytes: args.deleteStorage ?? true ? undefined : asset.processedSizeBytes,
 			sizeBytes: args.deleteStorage ?? true ? undefined : asset.sizeBytes,
+			durationSeconds: args.deleteStorage ?? true ? undefined : asset.durationSeconds,
 			sha256: args.deleteStorage ?? true ? undefined : asset.sha256,
 			lastFailure: undefined,
 			stepResults: [],
@@ -361,60 +408,124 @@ export const listMyUploads = query({
 	}
 });
 
-export const processUpload = internalMutation({
+export const getAssetForProcessing = internalQuery({
 	args: {
 		assetId: v.id('mediaAssets')
 	},
 	handler: async (ctx, args) => {
 		const asset = await ctx.db.get(args.assetId);
-		if (!asset || asset.status !== 'processing' || !asset.storageId) {
+		if (!asset) {
 			return null;
 		}
 
-		// Use the system table as the authoritative source for uploaded file metadata.
-		// Clients may send hints, but readiness/failure should always be based on what
-		// Convex actually stored.
-		const metadata = (await ctx.db.system.get('_storage', asset.storageId)) as StoredMediaMetadata | null;
-		const result = await runMediaPipeline({
-			asset: {
-				acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
-				maxBytes: asset.maxBytes,
-				enableCompression: asset.enableCompression,
-				enableSafetyScreening: asset.enableSafetyScreening,
-				originalFilename: asset.originalFilename ?? null,
-				clientContentType: asset.clientContentType ?? null
-			},
-			storageMetadata: metadata
-		});
+		const storageMetadata = asset.sourceStorageId
+			? ((await ctx.db.system.get('_storage', asset.sourceStorageId)) as StoredMediaMetadata | null)
+			: null;
 
-		if (result.ok) {
-			const now = Date.now();
-			await ctx.db.patch(asset._id, {
-				mediaKind: result.descriptor.mediaKind ?? asset.mediaKind,
-				contentType: result.descriptor.contentType ?? undefined,
-				sizeBytes: result.descriptor.sizeBytes,
-				sha256: result.descriptor.sha256,
-				status: 'ready',
-				stepResults: result.steps,
-				lastFailure: undefined,
-				readyAt: now,
-				failedAt: undefined,
-				canceledAt: undefined,
-				updatedAt: now
-			});
-			return await ctx.db.get(asset._id);
+		return {
+			assetId: asset._id,
+			status: asset.status,
+			sourceStorageId: asset.sourceStorageId ?? null,
+			acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
+			maxBytes: asset.maxBytes,
+			maxDurationSeconds: asset.maxDurationSeconds ?? null,
+			enableCompression: asset.enableCompression,
+			enableSafetyScreening: asset.enableSafetyScreening,
+			originalFilename: asset.originalFilename ?? null,
+			clientContentType: asset.clientContentType ?? null,
+			storageMetadata
+		};
+	}
+});
+
+export const completeProcessedUpload = internalMutation({
+	args: {
+		assetId: v.id('mediaAssets'),
+		storageId: v.id('_storage'),
+		contentType: v.string(),
+		mediaKind: v.union(v.literal('image'), v.literal('video')),
+		sizeBytes: v.number(),
+		originalSizeBytes: v.number(),
+		processedSizeBytes: v.number(),
+		durationSeconds: v.optional(v.number()),
+		sha256: v.string(),
+		stepResults: v.array(mediaPipelineStepResultValidator),
+		moderationProvider: v.optional(v.string()),
+		moderationSummary: v.optional(v.string())
+	},
+	handler: async (ctx, args) => {
+		const asset = await ctx.db.get(args.assetId);
+		if (!asset || asset.status !== 'processing') {
+			return null;
 		}
 
+		const now = Date.now();
 		await ctx.db.patch(asset._id, {
-			mediaKind: result.descriptor?.mediaKind ?? asset.mediaKind,
-			contentType: result.descriptor?.contentType ?? asset.contentType,
-			sizeBytes: result.descriptor?.sizeBytes ?? asset.sizeBytes,
-			sha256: result.descriptor?.sha256 ?? asset.sha256,
+			sourceStorageId: undefined,
+			storageId: args.storageId,
+			mediaKind: args.mediaKind,
+			status: 'ready',
+			moderationStatus: 'approved',
+			moderationProvider: args.moderationProvider,
+			moderationSummary: args.moderationSummary,
+			contentType: args.contentType,
+			originalSizeBytes: args.originalSizeBytes,
+			processedSizeBytes: args.processedSizeBytes,
+			sizeBytes: args.sizeBytes,
+			durationSeconds: args.durationSeconds,
+			sha256: args.sha256,
+			stepResults: args.stepResults,
+			lastFailure: undefined,
+			moderatedAt: now,
+			readyAt: now,
+			rejectedAt: undefined,
+			failedAt: undefined,
+			canceledAt: undefined,
+			updatedAt: now
+		});
+
+		return await ctx.db.get(asset._id);
+	}
+});
+
+export const failProcessedUpload = internalMutation({
+	args: {
+		assetId: v.id('mediaAssets'),
+		stepResults: v.array(mediaPipelineStepResultValidator),
+		failure: mediaFailureValidator,
+		clearSourceStorage: v.optional(v.boolean()),
+		clearProcessedStorage: v.optional(v.boolean()),
+		moderationStatus: v.optional(mediaModerationStatusValidator),
+		moderationProvider: v.optional(v.string()),
+		moderationSummary: v.optional(v.string())
+	},
+	handler: async (ctx, args) => {
+		const asset = await ctx.db.get(args.assetId);
+		if (!asset || asset.status !== 'processing') {
+			return null;
+		}
+
+		const moderationStatus =
+			(args.moderationStatus as MediaModerationStatus | undefined) ?? asset.moderationStatus;
+		const now = Date.now();
+		await ctx.db.patch(asset._id, {
 			status: 'failed',
-			lastFailure: result.failure,
-			stepResults: result.steps,
-			failedAt: Date.now(),
-			updatedAt: Date.now()
+			moderationStatus,
+			moderationProvider: args.moderationProvider ?? asset.moderationProvider,
+			moderationSummary: args.moderationSummary ?? asset.moderationSummary,
+			sourceStorageId: args.clearSourceStorage ? undefined : asset.sourceStorageId,
+			storageId: args.clearProcessedStorage ? undefined : asset.storageId,
+			contentType: args.clearProcessedStorage ? undefined : asset.contentType,
+			processedSizeBytes: args.clearProcessedStorage ? undefined : asset.processedSizeBytes,
+			sizeBytes: args.clearProcessedStorage ? undefined : asset.sizeBytes,
+			durationSeconds: args.clearProcessedStorage ? undefined : asset.durationSeconds,
+			sha256: args.clearProcessedStorage ? undefined : asset.sha256,
+			lastFailure: args.failure as MediaPipelineFailure,
+			stepResults: args.stepResults,
+			moderatedAt: moderationStatus !== 'pending' ? now : asset.moderatedAt,
+			rejectedAt: moderationStatus === 'rejected' ? now : undefined,
+			failedAt: now,
+			updatedAt: now
 		});
 
 		return await ctx.db.get(asset._id);
