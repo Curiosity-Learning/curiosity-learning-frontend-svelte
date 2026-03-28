@@ -8,6 +8,7 @@
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
+	import { _, t } from '$lib/i18n';
 	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
 	import {
 		DropdownField,
@@ -78,26 +79,58 @@
 	let errorMessage = $state('');
 	let hydratedDraft = $state(false);
 
-	const roleOptions: DropdownOption[] = [
-		{ label: 'Teacher', value: 'Teacher' },
-		{ label: 'Parent', value: 'Parent' },
-		{ label: 'Student', value: 'Student' },
-		{ label: 'Community organizer', value: 'Community organizer' },
-		{ label: 'Mentor', value: 'Mentor' },
-		{ label: 'Other', value: 'Other' }
-	];
+	const ROLE_VALUE_ALIASES: Record<string, string> = {
+		teacher: 'teacher',
+		parent: 'parent',
+		student: 'student',
+		'community organizer': 'community_organizer',
+		community_organizer: 'community_organizer',
+		mentor: 'mentor',
+		other: 'other'
+	};
 
-	const referralOptions: DropdownOption[] = [
-		{ label: 'Instagram', value: 'Instagram' },
-		{ label: 'LinkedIn', value: 'LinkedIn' },
-		{ label: 'Facebook', value: 'Facebook' },
-		{ label: 'YouTube', value: 'YouTube' },
-		{ label: 'X (Twitter)', value: 'X (Twitter)' },
-		{ label: 'Friend or family', value: 'Friend or family' },
-		{ label: 'School or teacher', value: 'School or teacher' },
-		{ label: 'Event or workshop', value: 'Event or workshop' },
-		{ label: 'Other', value: 'Other' }
-	];
+	const REFERRAL_VALUE_ALIASES: Record<string, string> = {
+		instagram: 'instagram',
+		linkedin: 'linkedin',
+		facebook: 'facebook',
+		youtube: 'youtube',
+		'x (twitter)': 'x_twitter',
+		x_twitter: 'x_twitter',
+		'friend or family': 'friend_family',
+		friend_family: 'friend_family',
+		'school or teacher': 'school_teacher',
+		school_teacher: 'school_teacher',
+		'event or workshop': 'event_workshop',
+		event_workshop: 'event_workshop',
+		other: 'other'
+	};
+
+	const normalizeOptionValue = (value: string, aliases: Record<string, string>) =>
+		aliases[value.trim().toLowerCase()] ?? value.trim().toLowerCase();
+
+	let roleOptions = $derived<DropdownOption[]>([
+		{ label: $_('onboarding.startClub.roles.teacher'), value: 'teacher' },
+		{ label: $_('onboarding.startClub.roles.parent'), value: 'parent' },
+		{ label: $_('onboarding.startClub.roles.student'), value: 'student' },
+		{
+			label: $_('onboarding.startClub.roles.communityOrganizer'),
+			value: 'community_organizer'
+		},
+		{ label: $_('onboarding.startClub.roles.mentor'), value: 'mentor' },
+		{ label: $_('onboarding.startClub.roles.other'), value: 'other' }
+	]);
+
+	let referralOptions = $derived<DropdownOption[]>([
+		{ label: $_('onboarding.startClub.referrals.instagram'), value: 'instagram' },
+		{ label: $_('onboarding.startClub.referrals.linkedin'), value: 'linkedin' },
+		{ label: $_('onboarding.startClub.referrals.facebook'), value: 'facebook' },
+		{ label: $_('onboarding.startClub.referrals.youtube'), value: 'youtube' },
+		{ label: $_('onboarding.startClub.referrals.xTwitter'), value: 'x_twitter' },
+		{ label: $_('onboarding.startClub.referrals.friendFamily'), value: 'friend_family' },
+		{ label: $_('onboarding.startClub.referrals.schoolTeacher'), value: 'school_teacher' },
+		{ label: $_('onboarding.startClub.referrals.eventWorkshop'), value: 'event_workshop' },
+		{ label: $_('onboarding.startClub.referrals.other'), value: 'other' }
+	]);
 
 	let aboutCharacterCount = $derived(about.length);
 	let canContinueStepOne = $derived(
@@ -113,9 +146,15 @@
 			if (!parsed || typeof parsed !== 'object') return null;
 			return {
 				location: typeof parsed.location === 'string' ? parsed.location : '',
-				userRole: typeof parsed.userRole === 'string' ? parsed.userRole : '',
+				userRole:
+					typeof parsed.userRole === 'string'
+						? normalizeOptionValue(parsed.userRole, ROLE_VALUE_ALIASES)
+						: '',
 				about: typeof parsed.about === 'string' ? parsed.about : '',
-				referralSource: typeof parsed.referralSource === 'string' ? parsed.referralSource : '',
+				referralSource:
+					typeof parsed.referralSource === 'string'
+						? normalizeOptionValue(parsed.referralSource, REFERRAL_VALUE_ALIASES)
+						: '',
 				referralOther: typeof parsed.referralOther === 'string' ? parsed.referralOther : '',
 				step: parsed.step === 2 ? 2 : 1,
 				updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0
@@ -164,7 +203,7 @@
 	const goToStepTwo = async () => {
 		errorMessage = '';
 		if (!canContinueStepOne) {
-			errorMessage = 'Please complete all required fields before continuing.';
+			errorMessage = t('auth.signUp.completeRequiredFields');
 			return;
 		}
 		await goto('/onboarding/start-club?step=2');
@@ -266,7 +305,7 @@
 	});
 
 	$effect(() => {
-		if (referralSource === 'Other') return;
+		if (referralSource === 'other') return;
 		if (!referralOther) return;
 		referralOther = '';
 	});
@@ -329,7 +368,7 @@
 		localVideoPreviewUrl = URL.createObjectURL(file);
 
 		if (!auth.isAuthenticated) {
-			errorMessage = 'Please sign in first, then upload the club video.';
+			errorMessage = t('onboarding.startClub.signInFirstUpload');
 			revokeLocalVideoPreview();
 			videoFileName = '';
 			return;
@@ -345,7 +384,7 @@
 				enableSafetyScreening: true
 			});
 			if (!uploadedAsset.storageId) {
-				throw new Error('Video upload could not be finalized.');
+				throw new Error(t('onboarding.startClub.videoFinalizeFailure'));
 			}
 
 			videoStorageId = uploadedAsset.storageId;
@@ -353,7 +392,7 @@
 			videoStorageId = null;
 			revokeLocalVideoPreview();
 			videoFileName = '';
-			errorMessage = error instanceof Error ? error.message : 'Unable to upload video right now.';
+			errorMessage = error instanceof Error ? error.message : t('onboarding.startClub.videoUploadFailure');
 		} finally {
 			videoUploadPending = false;
 		}
@@ -363,7 +402,7 @@
 		errorMessage = '';
 
 		if (auth.isLoading) {
-			errorMessage = 'Checking your session. Please try again.';
+			errorMessage = t('onboarding.startClub.checkingSession');
 			return;
 		}
 
@@ -392,7 +431,7 @@
 			clearStartClubDraft();
 			await goto(result?.clubId ? routes.clubHome(result.clubId) : '/');
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to submit your application.';
+			errorMessage = error instanceof Error ? error.message : t('onboarding.startClub.submitFailure');
 		} finally {
 			pending = false;
 		}
@@ -412,7 +451,7 @@
 				type="button"
 				onclick={() => void goBack()}
 				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label="Go back"
+				aria-label={$_('common.goBack')}
 			>
 				<ChevronLeftIcon class="size-7" />
 			</button>
@@ -423,29 +462,29 @@
 
 		{#if step === 1}
 			<div class="flex flex-col gap-5">
-				<h1 class="type-step-title text-gray-900">Add application details</h1>
+				<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.title')}</h1>
 
 				<DropdownField
 					id="location"
-					label="Where do you want to start a Curiosity Club?"
+					label={$_('onboarding.startClub.locationLabel')}
 					required={true}
 					bind:value={location}
 					options={locationSuggestions}
 					loading={locationLookupPending}
-					placeholder="Search for location..."
+					placeholder={$_('onboarding.startClub.locationPlaceholder')}
 					filterOptions={false}
 					emptyMessage={location.trim().length >= LOCATION_AUTOCOMPLETE_MIN_CHARS
-						? 'No locations found.'
-						: 'Type at least 2 characters.'}
+						? $_('onboarding.startClub.locationEmptyFound')
+						: $_('onboarding.startClub.locationEmptyTypeMore')}
 				/>
 
 				<DropdownField
 					id="role"
-					label="I am a..."
+					label={$_('onboarding.startClub.roleLabel')}
 					required={true}
 					bind:value={userRole}
 					options={roleOptions}
-					placeholder="Select an option"
+					placeholder={$_('onboarding.startClub.rolePlaceholder')}
 					searchable={false}
 					allowCustomValue={false}
 				/>
@@ -453,33 +492,33 @@
 				<div class="flex flex-col gap-2">
 					<TextareaField
 						id="about"
-						label="Who are you?"
+						label={$_('onboarding.startClub.aboutLabel')}
 						required={true}
 						bind:value={about}
 						rows={5}
 						maxlength={ABOUT_CHARACTER_LIMIT}
 						overlayText={`${aboutCharacterCount}/${ABOUT_CHARACTER_LIMIT}`}
-						placeholder="Tell us a bit about yourself..."
+						placeholder={$_('onboarding.startClub.aboutPlaceholder')}
 					/>
-					<p class="text-sm leading-6 text-gray-500">Why do you want to do this? Why are you a right fit? What do you want to learn? Any related previous experiences? Links to previous experiences?</p>
+					<p class="text-sm leading-6 text-gray-500">{$_('onboarding.startClub.aboutHelp')}</p>
 				</div>
 
 				<DropdownField
 					id="referral"
-					label="How did you find out about us?"
+					label={$_('onboarding.startClub.referralLabel')}
 					bind:value={referralSource}
 					options={referralOptions}
-					placeholder="Select an option"
+					placeholder={$_('onboarding.startClub.referralPlaceholder')}
 					searchable={false}
 					allowCustomValue={false}
 				/>
 
-				{#if referralSource === 'Other'}
+				{#if referralSource === 'other'}
 					<InputField
 						id="referral-other"
-						label="Please specify"
+						label={$_('onboarding.startClub.referralOtherLabel')}
 						bind:value={referralOther}
-						placeholder="Tell us how you found us"
+						placeholder={$_('onboarding.startClub.referralOtherPlaceholder')}
 					/>
 				{/if}
 			</div>
@@ -496,22 +535,21 @@
 					disabled={!canContinueStepOne}
 					onclick={() => void goToStepTwo()}
 				>
-					Continue
+					{$_('onboarding.startClub.continue')}
 				</Button>
 			</div>
 		{:else}
 			<div class="flex flex-col gap-5">
-				<h1 class="type-step-title text-gray-900">Add video</h1>
+				<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.videoTitle')}</h1>
 				<div class="flex flex-col gap-2">
-					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">Upload a 1 min video answering the following:</p>
+					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">{$_('onboarding.startClub.videoPromptTitle')}</p>
 					<p class="text-base leading-7 text-gray-600">
-						Why do you want to start a Curiosity Club? How do you see a Curiosity Club fit in your
-						community?
+						{$_('onboarding.startClub.videoPromptDescription')}
 					</p>
 				</div>
 
 				<div class="flex flex-col gap-3">
-					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">Upload a video from your gallery:</p>
+					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">{$_('onboarding.startClub.videoUploadTitle')}</p>
 					<FileDropZone.Root
 						accept={CLUB_VIDEO_ACCEPTED_CONTENT_TYPES.join(',')}
 						maxFiles={1}
@@ -525,19 +563,19 @@
 									class="grid min-h-36 place-items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
 								>
 									<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
-										{videoUploadPending ? 'Uploading' : 'Browse'}
+										{videoUploadPending ? $_('onboarding.startClub.uploading') : $_('common.browse')}
 									</div>
 									<p class="text-base leading-7 font-medium text-gray-700">
-										{videoUploadPending ? 'Uploading your video...' : 'Drag and drop or choose a video'}
+										{videoUploadPending ? $_('onboarding.startClub.videoUploading') : $_('onboarding.startClub.videoDropPrompt')}
 									</p>
-									<p class="text-sm text-gray-500">MP4, MOV, WEBM, or M4V up to 100 MB.</p>
+									<p class="text-sm text-gray-500">{$_('onboarding.startClub.videoRequirements')}</p>
 									{#if videoFileName}
 										<p class="max-w-full truncate text-sm text-gray-500">{videoFileName}</p>
 									{/if}
 									{#if videoUploadPending}
-										<p class="text-xs font-semibold text-primary">Uploading video...</p>
+										<p class="text-xs font-semibold text-primary">{$_('onboarding.startClub.videoUploadingStatus')}</p>
 									{:else if videoStorageId}
-										<p class="text-xs font-semibold text-emerald-600">Video uploaded</p>
+										<p class="text-xs font-semibold text-emerald-600">{$_('onboarding.startClub.videoUploadedStatus')}</p>
 									{/if}
 								</div>
 						</FileDropZone.Trigger>
@@ -570,12 +608,12 @@
 					onclick={() => void submitStartClub()}
 				>
 					{pending
-						? 'Submitting...'
+						? $_('onboarding.startClub.submitting')
 						: videoUploadPending
-							? 'Uploading video...'
+							? $_('onboarding.startClub.videoUploadingStatus')
 							: auth.isAuthenticated
-								? 'Submit application'
-								: 'Proceed to sign up'}
+								? $_('onboarding.startClub.submitApplication')
+								: $_('onboarding.startClub.proceedToSignUp')}
 				</Button>
 			</div>
 		{/if}

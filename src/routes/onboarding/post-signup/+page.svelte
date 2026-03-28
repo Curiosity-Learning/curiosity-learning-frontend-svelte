@@ -12,6 +12,7 @@
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { InputField } from '$lib/components/app/form';
+	import { _, t } from '$lib/i18n';
 	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -153,8 +154,8 @@
 			.mutation(api.pledges.seedDefaults, {})
 			.catch((error) => {
 				showGlobalSnackbar({
-					title: 'Unable to load pledges',
-					description: error instanceof Error ? error.message : 'Please try again.'
+					title: t('onboarding.postSignup.loadPledgesFailedTitle'),
+					description: error instanceof Error ? error.message : t('onboarding.postSignup.loadPledgesFailedDescription')
 				});
 			})
 			.finally(() => {
@@ -185,14 +186,14 @@
 
 			profileImageStorageId = uploadedAsset.storageId;
 			showGlobalSnackbar({
-				title: 'Profile image uploaded'
+				title: t('onboarding.postSignup.profileImageUploadedTitle')
 			});
 		} catch (error) {
 			profileImageStorageId = null;
 			revokeProfilePreview();
 			showGlobalSnackbar({
-				title: 'Unable to upload profile image',
-				description: error instanceof Error ? error.message : 'Please try again.'
+				title: t('onboarding.postSignup.profileImageUploadFailedTitle'),
+				description: error instanceof Error ? error.message : t('onboarding.postSignup.profileImageUploadFailedDescription')
 			});
 		} finally {
 			profileImageUploading = false;
@@ -203,7 +204,7 @@
 		const normalizedUsername = normalizeUsername(username);
 		if (!normalizedUsername) {
 			showGlobalSnackbar({
-				title: 'Username is required'
+				title: t('onboarding.postSignup.usernameRequiredTitle')
 			});
 			return;
 		}
@@ -218,8 +219,8 @@
 			syncStepInUrl(2);
 		} catch (error) {
 			showGlobalSnackbar({
-				title: 'Unable to save profile details',
-				description: error instanceof Error ? error.message : 'Please try again.'
+				title: t('onboarding.postSignup.saveProfileFailedTitle'),
+				description: error instanceof Error ? error.message : t('onboarding.postSignup.saveProfileFailedDescription')
 			});
 		} finally {
 			pending = false;
@@ -229,8 +230,8 @@
 	const completeOnboarding = async () => {
 		if (!agreedAll) {
 			showGlobalSnackbar({
-				title: 'Confirmation required',
-				description: 'Please read and accept all pledges before continuing.'
+				title: t('onboarding.postSignup.confirmationRequiredTitle'),
+				description: t('onboarding.postSignup.confirmationRequiredDescription')
 			});
 			return;
 		}
@@ -263,8 +264,8 @@
 			await goto(completionNextPath, { replaceState: true });
 		} catch (error) {
 			showGlobalSnackbar({
-				title: 'Unable to finish onboarding',
-				description: error instanceof Error ? error.message : 'Please try again.'
+				title: t('onboarding.postSignup.finishOnboardingFailedTitle'),
+				description: error instanceof Error ? error.message : t('onboarding.postSignup.finishOnboardingFailedDescription')
 			});
 		} finally {
 			pending = false;
@@ -278,9 +279,9 @@
 			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
 				<LoaderCircleIcon class="size-7 animate-spin" />
 			</div>
-			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">Continuing your signup</h1>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">{$_('onboarding.postSignup.restoringTitle')}</h1>
 			<p class="text-base leading-7 text-gray-600">
-				We are restoring your session so you can finish the required username and pledge steps.
+				{$_('onboarding.postSignup.restoringDescription')}
 			</p>
 		</div>
 	</div>
@@ -295,19 +296,19 @@
 		<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
 			{#if step === 1}
 			<div class="flex flex-col gap-5">
-				<h1 class="type-step-title text-gray-900">Set up your profile</h1>
+				<h1 class="type-step-title text-gray-900">{$_('onboarding.postSignup.profileTitle')}</h1>
 
 				<InputField
 					id="username"
-					label="Username"
+					label={$_('onboarding.postSignup.usernameLabel')}
 					required={true}
 					bind:value={username}
 					autocomplete="username"
-					placeholder="Choose your username"
+					placeholder={$_('onboarding.postSignup.usernamePlaceholder')}
 				/>
 
 				<div class="flex flex-col gap-3">
-					<p class="type-field-label text-gray-900">Profile image (optional)</p>
+					<p class="type-field-label text-gray-900">{$_('onboarding.postSignup.profileImageLabel')}</p>
 					<FileDropZone.Root
 						accept={PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES.join(',')}
 						maxFiles={1}
@@ -321,15 +322,15 @@
 								class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gray-100"
 							>
 								{#if localProfilePreviewUrl}
-									<img src={localProfilePreviewUrl} alt="Profile preview" class="size-full object-cover" />
+									<img src={localProfilePreviewUrl} alt={$_('onboarding.postSignup.profilePreviewAlt')} class="size-full object-cover" />
 								{:else if profileResponse.data?.coverPhotoUrl}
 									<img
 										src={profileResponse.data.coverPhotoUrl}
-										alt="Profile preview"
+										alt={$_('onboarding.postSignup.profilePreviewAlt')}
 										class="size-full object-cover"
 									/>
 								{:else}
-									<span class="text-xs font-semibold text-gray-500">No image</span>
+									<span class="text-xs font-semibold text-gray-500">{$_('common.noImage')}</span>
 								{/if}
 							</div>
 							<div class="flex min-w-0 flex-1 flex-col gap-2">
@@ -339,12 +340,12 @@
 										>
 											<div class="flex min-w-0 flex-col gap-1">
 												<p class="text-sm font-semibold text-gray-900">
-													{profileImageUploading ? 'Uploading image...' : 'Drop or choose an image'}
+													{profileImageUploading ? $_('onboarding.postSignup.uploadingImage') : $_('onboarding.postSignup.dropOrChooseImage')}
 												</p>
-												<p class="text-xs text-gray-500">PNG, JPG, or WEBP up to 10 MB.</p>
+												<p class="text-xs text-gray-500">{$_('onboarding.postSignup.imageRequirements')}</p>
 											</div>
 											<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
-												{profileImageUploading ? 'Uploading' : 'Browse'}
+												{profileImageUploading ? $_('onboarding.postSignup.uploading') : $_('common.browse')}
 											</div>
 										</div>
 								</FileDropZone.Trigger>
@@ -355,10 +356,9 @@
 			</div>
 		{:else}
 			<div class="flex flex-col gap-5">
-				<h1 class="type-step-title text-gray-900">Read and accept our learning pledges</h1>
+				<h1 class="type-step-title text-gray-900">{$_('onboarding.postSignup.pledgesTitle')}</h1>
 				<p class="text-sm leading-6 text-gray-600">
-					We are committed to a safe and supportive learning space for every student. Please read
-					and accept these pledges.
+					{$_('onboarding.postSignup.pledgesDescription')}
 				</p>
 
 				<div class="flex flex-col gap-3">
@@ -387,11 +387,11 @@
 						{/each}
 					{:else if pledgesSeeding || !pledgesResponse.data}
 						<div class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
-							Loading pledge details...
+							{$_('onboarding.postSignup.pledgesLoading')}
 						</div>
 					{:else}
 						<div class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
-							No pledge details available yet.
+							{$_('onboarding.postSignup.pledgesEmpty')}
 						</div>
 					{/if}
 				</div>
@@ -399,7 +399,7 @@
 				<div class="flex items-center gap-2 pt-1">
 					<Checkbox bind:checked={agreedAll} id="agree-all-post-signup" />
 					<label for="agree-all-post-signup" class="cursor-pointer text-sm leading-6 text-gray-600">
-						I have read and agree to all points above.
+						{$_('onboarding.postSignup.agreeAll')}
 					</label>
 				</div>
 			</div>
@@ -414,7 +414,7 @@
 						disabled={pending || profileImageUploading || !username.trim()}
 						onclick={() => void saveProfileAndContinue()}
 					>
-						{pending ? 'Saving...' : 'Next'}
+						{pending ? $_('common.saving') : $_('common.next')}
 					</Button>
 				{:else}
 					<Button
@@ -424,7 +424,7 @@
 						disabled={pending || !agreedAll}
 						onclick={() => void completeOnboarding()}
 					>
-						{pending ? 'Finishing...' : 'Next'}
+						{pending ? $_('common.finishing') : $_('common.next')}
 					</Button>
 				{/if}
 			</div>

@@ -14,6 +14,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
+	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { useConvexClient } from 'convex-svelte';
@@ -44,8 +45,8 @@
 
 	const getExistingGoogleSignupBlockedMessage = () =>
 		nextPath.startsWith('/onboarding/join-club/')
-			? 'This Google account is already registered. Log in to continue joining this club.'
-			: 'This Google account is already registered. Log in instead of signing up.';
+			? t('auth.signIn.existingGoogleJoinClub')
+			: t('auth.signIn.existingGoogleDefault');
 
 	let rawNextPath = $derived(page.url.searchParams.get('next'));
 	let nextPath = $derived(normalizePostSignInPath(rawNextPath));
@@ -84,8 +85,8 @@
 		}
 		if (combined.includes('signup disabled')) {
 			return args.hasTypedEmail
-				? 'You do not have an account with that email. Sign up to continue.'
-				: 'You do not have an account with that Google email. Sign up to continue.';
+				? t('auth.signIn.noAccountForEmail')
+				: t('auth.signIn.noAccountForGoogleEmail');
 		}
 		if (
 			combined.includes("email doesn't match") ||
@@ -94,12 +95,12 @@
 			combined.includes('unable to link account') ||
 			combined.includes('account already linked')
 		) {
-			return 'This Google account could not be linked here. Sign in with your existing account first or use the same email address.';
+			return t('auth.signIn.linkMismatch');
 		}
 		if (combined.includes('oauth provider not found')) {
-			return 'Google sign-in is not configured yet.';
+			return t('auth.signIn.providerNotConfigured');
 		}
-		return 'Unable to continue with Google right now. Please try again.';
+		return t('auth.signIn.googleUnavailable');
 	};
 
 	const buildSignInPath = () => {
@@ -146,7 +147,7 @@
 	$effect(() => {
 		if (!existingGoogleAccount) return;
 		if (auth.isAuthenticated) return;
-		infoMessage = 'You already have an account with Google. Continue with Google to sign in.';
+		infoMessage = t('auth.signIn.existingGoogleInfo');
 	});
 
 	$effect(() => {
@@ -155,8 +156,8 @@
 		if (forceSignup) return;
 		if (auth.isLoading || !auth.isAuthenticated) return;
 		showGlobalSnackbar({
-			title: 'Account already exists',
-			description: 'You already have an account with Google. We signed you in.'
+			title: t('auth.signIn.existingGoogleTitle'),
+			description: t('auth.signIn.existingGoogleDescription')
 		});
 		existingGoogleAccountHandled = true;
 		void goto(resolvedNextPath, { replaceState: true });
@@ -224,10 +225,10 @@
 				return;
 			}
 
-			errorMessage = 'Failed to start Google sign in.';
+			errorMessage = t('auth.signIn.googleStartFailed');
 		} catch (error) {
 			errorMessage =
-				error instanceof Error ? error.message : 'Failed to start Google sign in.';
+				error instanceof Error ? error.message : t('auth.signIn.googleStartFailedGeneric');
 		} finally {
 			googlePending = false;
 		}
@@ -242,7 +243,7 @@
 			const resolvedEmail = await resolveIdentifierEmail(identifier);
 			resolvedCredentialEmail = resolvedEmail;
 			if (!resolvedEmail) {
-				errorMessage = 'Invalid username, email, or password.';
+				errorMessage = t('auth.signIn.invalidCredentials');
 				return;
 			}
 
@@ -256,12 +257,12 @@
 			if (error) {
 				if (isInvalidEmailError(error.message)) {
 					showGlobalSnackbar({
-						title: 'Invalid login',
-						description: 'Enter a valid username or email and try again.'
+						title: t('auth.signIn.invalidLoginTitle'),
+						description: t('auth.signIn.invalidLoginDescription')
 					});
 					return;
 				}
-				errorMessage = error.message ?? 'Failed to sign in.';
+				errorMessage = error.message ?? t('auth.signIn.genericFailure');
 				return;
 			}
 
@@ -270,7 +271,7 @@
 			errorMessage =
 				error instanceof Error
 					? error.message
-					: 'Unable to sign in right now. Please try again.';
+					: t('auth.signIn.genericFailureRetry');
 		} finally {
 			pending = false;
 		}
@@ -285,7 +286,7 @@
 		try {
 			const resolvedEmail = resolvedCredentialEmail ?? (await resolveIdentifierEmail(identifier));
 			if (!resolvedEmail) {
-				errorMessage = 'Enter a valid username or email to resend verification.';
+				errorMessage = t('auth.signIn.resendIdentifierRequired');
 				return;
 			}
 			const { error } = await authClient.sendVerificationEmail({
@@ -293,15 +294,12 @@
 				callbackURL: resolvedNextPath
 			});
 			if (error) {
-				errorMessage = error.message ?? 'Failed to resend verification email.';
+				errorMessage = error.message ?? t('auth.signIn.resendFailure');
 				return;
 			}
-			infoMessage = 'Verification email sent. Check your inbox and spam folder.';
+			infoMessage = t('auth.signIn.resendSuccess');
 		} catch (error) {
-			errorMessage =
-				error instanceof Error
-					? error.message
-					: 'Failed to resend verification email.';
+			errorMessage = error instanceof Error ? error.message : t('auth.signIn.resendFailure');
 		} finally {
 			pending = false;
 		}
@@ -315,7 +313,7 @@
 				<div class="w-full max-w-[18.5rem] overflow-hidden rounded-2xl bg-orange-50">
 					<img
 						src={loginIllustration}
-						alt="Login illustration"
+						alt={$_('auth.signIn.illustrationAlt')}
 						class="h-auto w-full object-contain"
 					/>
 				</div>
@@ -327,31 +325,31 @@
 						type="button"
 						onclick={() => void goBack()}
 						class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-						aria-label="Go back"
+						aria-label={$_('common.goBack')}
 					>
 						<ChevronLeftIcon class="size-7" />
 					</button>
 
 					<div class="mt-2 flex flex-col gap-5">
-						<h1 class="type-step-title text-gray-900">Log in</h1>
+						<h1 class="type-step-title text-gray-900">{$_('auth.signIn.title')}</h1>
 
 						<Field class="flex flex-col gap-2">
 							<FieldLabel for="email" required class="type-field-label text-gray-900">
-								Username or email
+								{$_('auth.signIn.identifierLabel')}
 							</FieldLabel>
 							<Input
 								id="email"
 								type="text"
 								bind:value={identifier}
 								autocomplete="username"
-								placeholder="Enter your username or email"
+								placeholder={$_('auth.signIn.identifierPlaceholder')}
 								class="h-12 border-gray-300 bg-white px-4 text-base"
 							/>
 						</Field>
 
 						<Field class="flex flex-col gap-2">
 							<FieldLabel for="password" required class="type-field-label text-gray-900">
-								Password
+								{$_('auth.signIn.passwordLabel')}
 							</FieldLabel>
 							<div class="relative">
 								<Input
@@ -359,7 +357,7 @@
 									type={showPassword ? 'text' : 'password'}
 									bind:value={password}
 									autocomplete="current-password"
-									placeholder="Enter your password"
+									placeholder={$_('auth.signIn.passwordPlaceholder')}
 									class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
 								/>
 								<button
@@ -367,7 +365,7 @@
 									onclick={() => (showPassword = !showPassword)}
 									onmousedown={(event) => event.preventDefault()}
 									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
-									aria-label={showPassword ? 'Hide password' : 'Show password'}
+									aria-label={showPassword ? $_('auth.signIn.hidePassword') : $_('auth.signIn.showPassword')}
 									aria-pressed={showPassword}
 								>
 									{#if showPassword}
@@ -383,28 +381,28 @@
 							<div class="flex items-center gap-2 pt-0.5">
 								<Checkbox id="remember-me" bind:checked={rememberMe} />
 								<label for="remember-me" class="cursor-pointer text-sm leading-6 text-gray-600">
-									Remember me
+									{$_('auth.signIn.rememberMe')}
 								</label>
 							</div>
 							<a
 								href={forgotHref}
 								class="text-sm font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600"
 							>
-								Forgot password?
+								{$_('auth.signIn.forgotPassword')}
 							</a>
 						</div>
 					</div>
 
 					{#if activeErrorMessage}
 						<Alert variant="destructive" class="mt-5">
-							<AlertTitle>Sign in failed</AlertTitle>
+							<AlertTitle>{$_('auth.signIn.errorTitle')}</AlertTitle>
 							<AlertDescription>{activeErrorMessage}</AlertDescription>
 						</Alert>
 					{/if}
 
 					{#if infoMessage}
 						<Alert class="mt-5">
-							<AlertTitle>Check your email</AlertTitle>
+							<AlertTitle>{$_('common.checkEmail')}</AlertTitle>
 							<AlertDescription>{infoMessage}</AlertDescription>
 						</Alert>
 					{/if}
@@ -418,7 +416,7 @@
 								disabled={pending || googlePending || !identifier.trim()}
 								onclick={() => void resendVerification()}
 							>
-								Resend verification email
+								{$_('auth.signIn.resendVerification')}
 							</Button>
 						{/if}
 						<Button
@@ -428,7 +426,7 @@
 							disabled={pending || googlePending || !identifier.trim() || !password}
 							onclick={() => void signIn()}
 						>
-							{pending ? 'Logging in...' : 'Log in'}
+							{pending ? $_('auth.signIn.submitting') : $_('auth.signIn.submit')}
 						</Button>
 						<Button
 							variant="outline"
@@ -439,10 +437,10 @@
 						>
 							{#if googlePending}
 								<LoaderCircleIcon class="size-4 animate-spin" />
-								Continuing with Google...
+								{$_('auth.signIn.continuingWithGoogle')}
 							{:else}
 								<Icon icon="logos:google-icon" width="20" height="20" aria-hidden="true" />
-								Continue with Google
+								{$_('auth.signIn.continueWithGoogle')}
 							{/if}
 						</Button>
 						<Button
@@ -452,7 +450,7 @@
 							disabled={pending || googlePending}
 							href={signUpHref}
 						>
-							I'm new, sign me up
+							{$_('common.newSignUp')}
 						</Button>
 					</div>
 				</div>
