@@ -7,6 +7,7 @@
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
+	import { authClient } from '$lib/auth-client';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -19,6 +20,7 @@
 	const auth = useAuth();
 	const convexClient = useConvexClient();
 	const preview = useStableQuery(api.clubs.getClubPreviewByCode, () => ({ code: data.code }));
+	const FORCE_SIGNUP_GOOGLE_PENDING_KEY = 'cl_force_signup_google_pending_v1';
 
 	let pending = $state(false);
 	let errorMessage = $state('');
@@ -41,6 +43,24 @@
 	$effect(() => {
 		void clubVideoUrl;
 		videoLoadFailed = false;
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		if (auth.isLoading || !auth.isAuthenticated) return;
+		const currentPath = `/onboarding/join-club/${data.code}`;
+		const pendingPath = sessionStorage.getItem(FORCE_SIGNUP_GOOGLE_PENDING_KEY);
+		if (pendingPath !== currentPath) return;
+		sessionStorage.removeItem(FORCE_SIGNUP_GOOGLE_PENDING_KEY);
+		void (async () => {
+			await authClient.signOut();
+			const params = new SvelteURLSearchParams();
+			params.set('next', currentPath);
+			params.set('forceSignup', '1');
+			params.set('step', '4');
+			params.set('signupBlocked', 'existing-google');
+			await goto(`/auth/sign-up?${params.toString()}`, { replaceState: true });
+		})();
 	});
 
 	const getSignUpPath = () => {

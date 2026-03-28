@@ -1,8 +1,8 @@
 <script lang="ts">
+	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { cn } from '$lib/utils';
 	import type { HTMLTextareaAttributes } from 'svelte/elements';
-	import FieldShell from './field-shell.svelte';
 
 	type Props = Omit<HTMLTextareaAttributes, 'class' | 'value'> & {
 		id: string;
@@ -32,15 +32,13 @@
 	}: Props = $props();
 </script>
 
-<FieldShell
-	id={id}
-	label={label}
-	required={required}
-	hint={hint}
-	class={className}
-	labelClass={labelClass}
-	hintClass={hintClass}
->
+<Field class={cn('flex flex-col gap-2', className)}>
+	{#if label}
+		<FieldLabel for={id} required={required} class={cn('type-field-label text-gray-900', labelClass)}>
+			{label}
+		</FieldLabel>
+	{/if}
+
 	<div class="relative">
 		<Textarea
 			{id}
@@ -55,4 +53,10 @@
 			</div>
 		{/if}
 	</div>
-</FieldShell>
+
+	{#if hint}
+		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+</Field>

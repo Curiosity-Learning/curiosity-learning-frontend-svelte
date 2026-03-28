@@ -2694,3 +2694,12 @@
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
 - 2026-03-24: Refactored auth/onboarding media uploads to reuse the shared FileDropZone and media begin/finalize flow in post-signup profile setup and start-club video upload. Kept profile and club domain mutations unchanged by continuing to persist profileImageStorageId and videoStorageId from the finalized media asset.
+
+- 2026-03-28: Made Google sign-in authenticate-only by setting `disableSignUp: true` on the Better Auth Google provider, so `/auth/sign-in` no longer provisions new Google accounts implicitly.
+- 2026-03-28: Updated `/auth/sign-in` to show a clear “No account found for this Google email. Create an account first to continue.” message for Google signup-disabled cases, while keeping a separate linked-account mismatch message.
+- 2026-03-28: Normalized post-login redirects so `next=/profile` falls back to `/`, which sends signed-in users to the main club dashboard/home flow instead of the profile page.
+- 2026-03-28: Refactored `src/lib/components/app/form/date-select-field.svelte` to use shared `ui/select` and `ui/field` components instead of native `<select>` elements and bespoke styling, matching the repo’s form component pattern.
+- 2026-03-28: Replaced auth-route `InputField` usage in `/auth/sign-in`, `/auth/sign-up`, and `/auth/reset-password` with direct `ui/field` and `ui/input` primitives so the auth UI now uses the shared Svelte form components instead of app-specific wrappers.
+- 2026-03-28: Updated the remaining `app/form` wrappers (`field-shell`, `input-field`, `textarea-field`, `select-field`, and `dropdown-field`) to compose shared `ui/field`, `ui/input`, `ui/textarea`, and `ui/select` primitives instead of bespoke field shell markup or native `<select>` styling.
+- 2026-03-28: Fixed forced-signup Google handling for onboarding invites so selecting an already-registered Google account no longer resumes the join-club/signup flow; the user is signed back out and shown a signup-blocked error instead.
+- 2026-03-29: Switched the Better Auth Google provider from `disableSignUp` to `disableImplicitSignUp` after verifying the installed `better-auth@1.4.9` runtime reads `disableImplicitSignUp` from `socialProviders` when deciding whether Google sign-in may create a new account.

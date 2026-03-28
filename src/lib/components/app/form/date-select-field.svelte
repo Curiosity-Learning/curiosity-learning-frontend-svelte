@@ -1,7 +1,7 @@
 <script lang="ts">
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
+	import * as Select from '$lib/components/ui/select';
 	import { cn } from '$lib/utils';
-	import FieldShell from './field-shell.svelte';
 
 	const DEFAULT_MONTHS = [
 		'January',
@@ -58,76 +58,71 @@
 	let yearOptions = $derived(Array.from({ length: yearCount }, (_, index) => String(maxYear - index)));
 </script>
 
-<FieldShell
-	id={`${idPrefix}-month`}
-	{label}
-	{required}
-	{hint}
-	class={className}
-	{labelClass}
-	{hintClass}
->
+<Field class={cn('flex flex-col gap-2', className)}>
+	{#if label}
+		<FieldLabel for={`${idPrefix}-month`} required={required} class={cn('type-field-label text-gray-900', labelClass)}>
+			{label}
+		</FieldLabel>
+	{/if}
+
 	<div class={`grid gap-2 ${includeDay ? 'grid-cols-3' : 'grid-cols-2'}`}>
-		<div class="relative">
-			<select
+		<Select.Root type="single" bind:value={month}>
+			<Select.Trigger
 				id={`${idPrefix}-month`}
-				bind:value={month}
 				aria-label="Month"
-				class={cn(
-					'h-12 w-full appearance-none rounded-md border border-gray-300 bg-white pl-3 pr-12 text-base text-gray-700 outline-none transition-[border-color,box-shadow] duration-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200',
-					selectClass
-				)}
+				class={cn('h-12 w-full justify-between bg-white text-base text-gray-700', !month && 'text-gray-500', selectClass)}
 			>
-				<option value="" disabled>Month</option>
+				<span>{month || 'Month'}</span>
+			</Select.Trigger>
+			<Select.Content>
 				{#each months as monthOption (monthOption)}
-					<option value={monthOption}>{monthOption}</option>
+					<Select.Item value={monthOption} label={monthOption}>
+						{monthOption}
+					</Select.Item>
 				{/each}
-			</select>
-			<ChevronDownIcon
-				class="pointer-events-none absolute top-1/2 right-4 size-5 -translate-y-1/2 text-gray-500"
-			/>
-		</div>
+			</Select.Content>
+		</Select.Root>
 
 		{#if includeDay}
-			<div class="relative">
-				<select
+			<Select.Root type="single" bind:value={day}>
+				<Select.Trigger
 					id={`${idPrefix}-day`}
-					bind:value={day}
 					aria-label="Day"
-					class={cn(
-						'h-12 w-full appearance-none rounded-md border border-gray-300 bg-white pl-3 pr-12 text-base text-gray-700 outline-none transition-[border-color,box-shadow] duration-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200',
-						selectClass
-					)}
+					class={cn('h-12 w-full justify-between bg-white text-base text-gray-700', !day && 'text-gray-500', selectClass)}
 				>
-					<option value="" disabled>Day</option>
+					<span>{day || 'Day'}</span>
+				</Select.Trigger>
+				<Select.Content>
 					{#each dayOptions as dayOption (dayOption)}
-						<option value={dayOption}>{dayOption}</option>
+						<Select.Item value={dayOption} label={dayOption}>
+							{dayOption}
+						</Select.Item>
 					{/each}
-				</select>
-				<ChevronDownIcon
-					class="pointer-events-none absolute top-1/2 right-4 size-5 -translate-y-1/2 text-gray-500"
-				/>
-			</div>
+				</Select.Content>
+			</Select.Root>
 		{/if}
 
-		<div class="relative">
-			<select
+		<Select.Root type="single" bind:value={year}>
+			<Select.Trigger
 				id={`${idPrefix}-year`}
-				bind:value={year}
 				aria-label="Year"
-				class={cn(
-					'h-12 w-full appearance-none rounded-md border border-gray-300 bg-white pl-3 pr-12 text-base text-gray-700 outline-none transition-[border-color,box-shadow] duration-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200',
-					selectClass
-				)}
+				class={cn('h-12 w-full justify-between bg-white text-base text-gray-700', !year && 'text-gray-500', selectClass)}
 			>
-				<option value="" disabled>Year</option>
+				<span>{year || 'Year'}</span>
+			</Select.Trigger>
+			<Select.Content>
 				{#each yearOptions as yearOption (yearOption)}
-					<option value={yearOption}>{yearOption}</option>
+					<Select.Item value={yearOption} label={yearOption}>
+						{yearOption}
+					</Select.Item>
 				{/each}
-			</select>
-			<ChevronDownIcon
-				class="pointer-events-none absolute top-1/2 right-4 size-5 -translate-y-1/2 text-gray-500"
-			/>
-		</div>
+			</Select.Content>
+		</Select.Root>
 	</div>
-</FieldShell>
+
+	{#if hint}
+		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+</Field>

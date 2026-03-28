@@ -12,9 +12,11 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
+	import { Input } from '$lib/components/ui/input';
 	import { InputOtp } from '$lib/components/ui/input-otp';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
-	import { DateSelectField, InputField } from '$lib/components/app/form';
+	import { DateSelectField } from '$lib/components/app/form';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
 	import { api } from '$convex/_generated/api';
@@ -30,6 +32,7 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	const EMAIL_POST_VERIFY_MAX_ATTEMPTS = 24;
 	const SIGNUP_DRAFT_STORAGE_KEY = 'cl_signup_draft_v1';
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
+	const FORCE_SIGNUP_GOOGLE_PENDING_KEY = 'cl_force_signup_google_pending_v1';
 
 	const parseSignUpStep = (value: string | null): 3 | 4 | 5 => {
 		if (value === '5') return 5;
@@ -70,6 +73,7 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	let showSuccessScreen = $state(false);
 	let successContinuePending = $state(false);
 	let handledGooglePostSignUp = $state(false);
+	let handledForcedExistingGoogleAccount = $state(false);
 	let hydratedDraft = $state(false);
 	let postSignupRedirecting = $state(false);
 	let emailStatusPending = $state(false);
@@ -81,6 +85,7 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
 	let existingGoogleAccount = $derived(page.url.searchParams.get('existingGoogleAccount') === '1');
 	let isGooglePostSocial = $derived(page.url.searchParams.get('postSocial') === 'google');
+	let googleSignupBlocked = $derived(page.url.searchParams.get('signupBlocked') === 'existing-google');
 	let postSignupNextPath = $derived(resolvePostSignupNextPath(nextPath));
 	let forceSignup = $derived(page.url.searchParams.get('forceSignup') === '1');
 	let backPath = $derived.by(() => {
@@ -140,6 +145,34 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	];
 
 	const normalizeEmail = (rawEmail: string) => rawEmail.trim().toLowerCase();
+
+	const getExistingGoogleSignupBlockedMessage = () =>
+		nextPath.startsWith('/onboarding/join-club/')
+			? 'This Google account is already registered. Log in to continue joining this club.'
+			: 'This Google account is already registered. Log in instead of signing up.';
+
+	const buildGoogleSignupBlockedPath = () => {
+		const params = new SvelteURLSearchParams();
+		if (nextPath !== '/') {
+			params.set('next', nextPath);
+		}
+		params.set('step', String(step));
+		params.set('signupBlocked', 'existing-google');
+		if (forceSignup) {
+			params.set('forceSignup', '1');
+		}
+		return `/auth/sign-up?${params.toString()}`;
+	};
+
+	const setForcedGoogleSignupPending = () => {
+		if (!browser || !forceSignup) return;
+		sessionStorage.setItem(FORCE_SIGNUP_GOOGLE_PENDING_KEY, nextPath);
+	};
+
+	const clearForcedGoogleSignupPending = () => {
+		if (!browser) return;
+		sessionStorage.removeItem(FORCE_SIGNUP_GOOGLE_PENDING_KEY);
+	};
 
 	const isValidEmailFormat = (rawEmail: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail);
 
@@ -548,6 +581,10 @@ type ExistingAccountStatus = {
 		}
 
 		const shouldResumePostSignup = !currentStatus.firstLoginCompleted;
+		if (forceSignup && currentStatus.hasGoogle) {
+			errorMessage = getExistingGoogleSignupBlockedMessage();
+			return true;
+		}
 		if (currentStatus.hasGoogle) {
 			return await startExistingGoogleAccountFlow(shouldResumePostSignup);
 		}
@@ -778,18 +815,23 @@ const signUpWithGoogle = async () => {
 		socialCallbackParams.set('next', nextPath);
 		socialCallbackParams.set('postSocial', 'google');
 		socialCallbackParams.set('step', String(step));
-		const socialCallbackUrl = `/auth/sign-up?${socialCallbackParams.toString()}`;
-		const { data, error } = await authClient.signIn.social({
-			provider: 'google',
-			callbackURL: `/auth/sign-in?${existingAccountParams.toString()}`,
+			const socialCallbackUrl = `/auth/sign-up?${socialCallbackParams.toString()}`;
+			const existingGoogleCallbackUrl = forceSignup
+				? `/auth/sign-up?${existingAccountParams.toString()}`
+				: `/auth/sign-in?${existingAccountParams.toString()}`;
+			setForcedGoogleSignupPending();
+			const { data, error } = await authClient.signIn.social({
+				provider: 'google',
+				callbackURL: existingGoogleCallbackUrl,
 			newUserCallbackURL: socialCallbackUrl,
 			requestSignUp: true
 		});
 
-		if (error) {
-			googleRedirectPending = false;
-			errorMessage = error.message ?? 'Failed to start Google sign up.';
-			return;
+			if (error) {
+				clearForcedGoogleSignupPending();
+				googleRedirectPending = false;
+				errorMessage = error.message ?? 'Failed to start Google sign up.';
+				return;
 		}
 
 		if (data?.url) {
@@ -797,9 +839,10 @@ const signUpWithGoogle = async () => {
 			return;
 		}
 
-		googleRedirectPending = false;
-		errorMessage = 'Failed to start Google sign up.';
-	};
+			clearForcedGoogleSignupPending();
+			googleRedirectPending = false;
+			errorMessage = 'Failed to start Google sign up.';
+		};
 
 	const resendVerificationOtp = async () => {
 		if (!email.trim() || resendCooldownSeconds > 0) return;
@@ -1058,9 +1101,33 @@ const signUpWithGoogle = async () => {
 	});
 
 	$effect(() => {
+		if (!browser) return;
+		if (!googleSignupBlocked) return;
+		clearForcedGoogleSignupPending();
+		errorMessage = getExistingGoogleSignupBlockedMessage();
+		infoMessage = '';
+	});
+
+	$effect(() => {
 		if (auth.isLoading) return;
 		if (auth.isAuthenticated) {
 			if (existingGoogleAccount) {
+				if (forceSignup) {
+					if (handledForcedExistingGoogleAccount) {
+						return;
+					}
+					handledForcedExistingGoogleAccount = true;
+					clearExistingGoogleAccountFromUrl();
+					void (async () => {
+						try {
+							clearForcedGoogleSignupPending();
+							await authClient.signOut();
+						} finally {
+							await goto(buildGoogleSignupBlockedPath(), { replaceState: true });
+						}
+					})();
+					return;
+				}
 				clearExistingGoogleAccountFromUrl();
 				showGlobalSnackbar({
 					title: 'Account already exists',
@@ -1080,13 +1147,14 @@ const signUpWithGoogle = async () => {
 				if (handledGooglePostSignUp) {
 					return;
 				}
-				handledGooglePostSignUp = true;
-				googlePostSignUpPending = true;
-				void (async () => {
-					try {
-						await completeSignupProfile('google');
-						clearPostSocialFromUrl();
-						showSuccessAndContinue();
+					handledGooglePostSignUp = true;
+					googlePostSignUpPending = true;
+					void (async () => {
+						try {
+							clearForcedGoogleSignupPending();
+							await completeSignupProfile('google');
+							clearPostSocialFromUrl();
+							showSuccessAndContinue();
 					} catch (error) {
 						clearPostSocialFromUrl();
 						errorMessage =
@@ -1232,19 +1300,24 @@ const signUpWithGoogle = async () => {
 						</Button>
 					{/if}
 
-					<InputField
-						id="email"
-						label={isMinor ? "Your parent or guardian's email" : 'Email'}
-						required={true}
-						type="email"
-						bind:value={email}
-						autocomplete="email"
-						placeholder="john.doe@gmail.com"
-						hint={isMinor
-							? 'We’re excited to get you started, but we need to notify your parent or guardian about your account.'
-							: undefined}
-						hintClass={isMinor ? 'text-sm leading-6 text-gray-600' : undefined}
-					/>
+					<Field class="flex flex-col gap-2">
+						<FieldLabel for="email" required class="type-field-label text-gray-900">
+							{isMinor ? "Your parent or guardian's email" : 'Email'}
+						</FieldLabel>
+						<Input
+							id="email"
+							type="email"
+							bind:value={email}
+							autocomplete="email"
+							placeholder="john.doe@gmail.com"
+							class="h-12 border-gray-300 bg-white px-4 text-base"
+						/>
+						{#if isMinor}
+							<FieldDescription class="text-sm leading-6 text-gray-600">
+								We’re excited to get you started, but we need to notify your parent or guardian about your account.
+							</FieldDescription>
+						{/if}
+					</Field>
 
 					{#if emailStatusPending}
 						<div class="flex items-center gap-2 text-sm leading-6 text-gray-500">
@@ -1259,65 +1332,69 @@ const signUpWithGoogle = async () => {
 					{/if}
 
 					{#if !shouldHidePasswordFields}
-					<InputField
-						id="password"
-						label="Password"
-						required={true}
-						type={showPassword ? 'text' : 'password'}
-						bind:value={password}
-						autocomplete="new-password"
-						placeholder="Enter your password"
-						inputClass="bg-white"
-						>
-							{#snippet trailing()}
+					<Field class="flex flex-col gap-2">
+						<FieldLabel for="password" required class="type-field-label text-gray-900">
+							Password
+						</FieldLabel>
+						<div class="relative">
+							<Input
+								id="password"
+								type={showPassword ? 'text' : 'password'}
+								bind:value={password}
+								autocomplete="new-password"
+								placeholder="Enter your password"
+								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+							/>
 							<button
 								type="button"
 								onclick={() => (showPassword = !showPassword)}
 								onmousedown={(event) => {
 									event.preventDefault();
 								}}
-								class="inline-flex size-5 cursor-pointer items-center justify-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
+								class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
 								aria-label={showPassword ? 'Hide password' : 'Show password'}
 								aria-pressed={showPassword}
 							>
 								{#if showPassword}
 									<EyeOffIcon class="size-5" />
 								{:else}
-									<EyeIcon class="size-5" />
-								{/if}
-							</button>
-						{/snippet}
-					</InputField>
+										<EyeIcon class="size-5" />
+									{/if}
+								</button>
+						</div>
+					</Field>
 
-					<InputField
-						id="confirmPassword"
-						label="Confirm password"
-						required={true}
-						type={showConfirmPassword ? 'text' : 'password'}
-						bind:value={confirmPassword}
-						autocomplete="new-password"
-						placeholder="Enter your password again"
-						inputClass="bg-white"
-					>
-						{#snippet trailing()}
+					<Field class="flex flex-col gap-2">
+						<FieldLabel for="confirmPassword" required class="type-field-label text-gray-900">
+							Confirm password
+						</FieldLabel>
+						<div class="relative">
+							<Input
+								id="confirmPassword"
+								type={showConfirmPassword ? 'text' : 'password'}
+								bind:value={confirmPassword}
+								autocomplete="new-password"
+								placeholder="Enter your password again"
+								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+							/>
 							<button
 								type="button"
 								onclick={() => (showConfirmPassword = !showConfirmPassword)}
 								onmousedown={(event) => {
 									event.preventDefault();
 								}}
-								class="inline-flex size-5 cursor-pointer items-center justify-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
+								class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
 								aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
 								aria-pressed={showConfirmPassword}
 							>
 								{#if showConfirmPassword}
 									<EyeOffIcon class="size-5" />
 								{:else}
-									<EyeIcon class="size-5" />
-								{/if}
+										<EyeIcon class="size-5" />
+									{/if}
 							</button>
-							{/snippet}
-						</InputField>
+						</div>
+					</Field>
 					{/if}
 				</div>
 

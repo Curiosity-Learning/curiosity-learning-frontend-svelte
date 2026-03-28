@@ -9,9 +9,11 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { InputField } from '$lib/components/app/form';
+	import { Field, FieldLabel } from '$lib/components/ui/field';
+	import { Input } from '$lib/components/ui/input';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
+	import { routes } from '$lib/routes';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import loginIllustration from '$lib/assets/svg/login.svg';
 
@@ -26,19 +28,93 @@
 	let errorMessage = $state('');
 	let infoMessage = $state('');
 	let existingGoogleAccountHandled = $state(false);
+	let handledForcedExistingGoogleAccount = $state(false);
+	let dismissGoogleAuthCallbackError = $state(false);
 
-	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
-	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
+	const normalizePostSignInPath = (value: string | null) => {
+		if (!value?.startsWith('/')) return '/';
+		if (value === routes.profile) return '/';
+		return value;
+	};
+
+	const getExistingGoogleSignupBlockedMessage = () =>
+		nextPath.startsWith('/onboarding/join-club/')
+			? 'This Google account is already registered. Log in to continue joining this club.'
+			: 'This Google account is already registered. Log in instead of signing up.';
+
+	let rawNextPath = $derived(page.url.searchParams.get('next'));
+	let nextPath = $derived(normalizePostSignInPath(rawNextPath));
 	let forceSignup = $derived(page.url.searchParams.get('forceSignup') === '1');
 	let resolvedNextPath = $derived(
 		forceSignup && nextPath.startsWith('/onboarding/') && !nextPath.startsWith('/onboarding/post-signup')
 			? '/'
 			: nextPath
 	);
+	let googleAuthErrorCode = $derived(page.url.searchParams.get('error') ?? '');
+	let googleAuthErrorDescription = $derived(
+		page.url.searchParams.get('error_description') ??
+			page.url.searchParams.get('message') ??
+			page.url.searchParams.get('error_message') ??
+			''
+	);
 	const signUpHref = '/onboarding/get-started';
 	let forgotHref = $derived(`/auth/reset-password?next=${encodeURIComponent(resolvedNextPath)}`);
 	let needsVerification = $derived(errorMessage.toLowerCase().includes('not verified'));
 	let existingGoogleAccount = $derived(page.url.searchParams.get('existingGoogleAccount') === '1');
+
+	const normalizeGoogleAuthError = (value: string | null | undefined) =>
+		(value ?? '').toLowerCase().replaceAll(/[_+%-]+/g, ' ').trim();
+
+	const getGoogleSignInErrorMessage = (args: {
+		code?: string | null;
+		description?: string | null;
+		hasTypedEmail?: boolean;
+	}) => {
+		const combined = `${normalizeGoogleAuthError(args.code)} ${normalizeGoogleAuthError(args.description)}`.trim();
+		if (!combined) {
+			return '';
+		}
+		if (combined.includes('signup disabled')) {
+			return args.hasTypedEmail
+				? 'You do not have an account with that email. Sign up to continue.'
+				: 'You do not have an account with that Google email. Sign up to continue.';
+		}
+		if (
+			combined.includes("email doesn't match") ||
+			combined.includes('email doesnt match') ||
+			combined.includes('different emails') ||
+			combined.includes('unable to link account') ||
+			combined.includes('account already linked')
+		) {
+			return 'This Google account could not be linked here. Sign in with your existing account first or use the same email address.';
+		}
+		if (combined.includes('oauth provider not found')) {
+			return 'Google sign-in is not configured yet.';
+		}
+		return 'Unable to continue with Google right now. Please try again.';
+	};
+
+	const buildSignInPath = () => {
+		const params = new URLSearchParams();
+		if (nextPath !== '/') {
+			params.set('next', nextPath);
+		}
+		if (forceSignup) {
+			params.set('forceSignup', '1');
+		}
+		const query = params.toString();
+		return query.length > 0 ? `/auth/sign-in?${query}` : '/auth/sign-in';
+	};
+
+	let googleAuthCallbackErrorMessage = $derived(
+		dismissGoogleAuthCallbackError || existingGoogleAccount
+			? ''
+			: getGoogleSignInErrorMessage({
+					code: googleAuthErrorCode,
+					description: googleAuthErrorDescription
+				})
+	);
+	let activeErrorMessage = $derived(errorMessage || googleAuthCallbackErrorMessage);
 
 	const isInvalidEmailError = (message?: string) => {
 		const normalized = (message?.trim().toLowerCase() ?? '').replace(/[.!]+$/g, '');
@@ -54,6 +130,7 @@
 	$effect(() => {
 		if (existingGoogleAccountHandled) return;
 		if (!existingGoogleAccount) return;
+		if (forceSignup) return;
 		if (auth.isLoading || !auth.isAuthenticated) return;
 		showGlobalSnackbar({
 			title: 'Account already exists',
@@ -64,9 +141,31 @@
 	});
 
 	$effect(() => {
+		if (forceSignup && existingGoogleAccount) {
+			if (auth.isLoading || !auth.isAuthenticated) return;
+			if (handledForcedExistingGoogleAccount) return;
+			handledForcedExistingGoogleAccount = true;
+			void (async () => {
+				try {
+					await authClient.signOut();
+				} finally {
+					errorMessage = getExistingGoogleSignupBlockedMessage();
+					infoMessage = '';
+					dismissGoogleAuthCallbackError = true;
+				}
+			})();
+			return;
+		}
+
 		if (existingGoogleAccount) return;
 		if (!auth.isLoading && auth.isAuthenticated) {
 			void goto(resolvedNextPath, { replaceState: true });
+		}
+	});
+
+	$effect(() => {
+		if (googleAuthErrorCode || googleAuthErrorDescription) {
+			dismissGoogleAuthCallbackError = false;
 		}
 	});
 
@@ -78,15 +177,20 @@
 		errorMessage = '';
 		infoMessage = '';
 		googlePending = true;
+		dismissGoogleAuthCallbackError = true;
 
 		const { data, error } = await authClient.signIn.social({
 			provider: 'google',
-			callbackURL: resolvedNextPath
+			callbackURL: resolvedNextPath,
+			errorCallbackURL: buildSignInPath()
 		});
 
 		if (error) {
 			googlePending = false;
-			errorMessage = error.message ?? 'Failed to start Google sign in.';
+			errorMessage = getGoogleSignInErrorMessage({
+				description: error.message,
+				hasTypedEmail: Boolean(email.trim())
+			});
 			return;
 		}
 
@@ -103,6 +207,7 @@
 		pending = true;
 		errorMessage = '';
 		infoMessage = '';
+		dismissGoogleAuthCallbackError = true;
 		const { error } = await authClient.signIn.email({
 			email: email.trim(),
 			password,
@@ -129,6 +234,7 @@
 		pending = true;
 		errorMessage = '';
 		infoMessage = '';
+		dismissGoogleAuthCallbackError = true;
 		const { error } = await authClient.sendVerificationEmail({
 			email: email.trim(),
 			callbackURL: resolvedNextPath
@@ -169,33 +275,38 @@
 					<div class="mt-2 flex flex-col gap-5">
 						<h1 class="type-step-title text-gray-900">Log in</h1>
 
-						<InputField
-							id="email"
-							label="Username/Email"
-							required={true}
-							type="email"
-							bind:value={email}
-							autocomplete="email"
-							placeholder="john.doe@gmail.com"
-							inputClass="bg-white"
-						/>
+						<Field class="flex flex-col gap-2">
+							<FieldLabel for="email" required class="type-field-label text-gray-900">
+								Username/Email
+							</FieldLabel>
+							<Input
+								id="email"
+								type="email"
+								bind:value={email}
+								autocomplete="email"
+								placeholder="john.doe@gmail.com"
+								class="h-12 border-gray-300 bg-white px-4 text-base"
+							/>
+						</Field>
 
-						<InputField
-							id="password"
-							label="Password"
-							required={true}
-							type={showPassword ? 'text' : 'password'}
-							bind:value={password}
-							autocomplete="current-password"
-							placeholder="Enter your password"
-							inputClass="bg-white"
-						>
-							{#snippet trailing()}
+						<Field class="flex flex-col gap-2">
+							<FieldLabel for="password" required class="type-field-label text-gray-900">
+								Password
+							</FieldLabel>
+							<div class="relative">
+								<Input
+									id="password"
+									type={showPassword ? 'text' : 'password'}
+									bind:value={password}
+									autocomplete="current-password"
+									placeholder="Enter your password"
+									class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+								/>
 								<button
 									type="button"
 									onclick={() => (showPassword = !showPassword)}
 									onmousedown={(event) => event.preventDefault()}
-									class="inline-flex size-5 cursor-pointer items-center justify-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
+									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
 									aria-label={showPassword ? 'Hide password' : 'Show password'}
 									aria-pressed={showPassword}
 								>
@@ -205,8 +316,8 @@
 										<EyeIcon class="size-5" />
 									{/if}
 								</button>
-							{/snippet}
-						</InputField>
+							</div>
+						</Field>
 
 						<div class="mb-5 flex items-center justify-between gap-3">
 							<div class="flex items-center gap-2 pt-0.5">
@@ -224,10 +335,10 @@
 						</div>
 					</div>
 
-					{#if errorMessage}
+					{#if activeErrorMessage}
 						<Alert variant="destructive" class="mt-5">
 							<AlertTitle>Sign in failed</AlertTitle>
-							<AlertDescription>{errorMessage}</AlertDescription>
+							<AlertDescription>{activeErrorMessage}</AlertDescription>
 						</Alert>
 					{/if}
 

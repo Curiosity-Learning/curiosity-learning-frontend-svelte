@@ -1,8 +1,8 @@
 <script lang="ts">
+	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils';
 	import type { HTMLInputAttributes, HTMLInputTypeAttribute } from 'svelte/elements';
-	import FieldShell from './field-shell.svelte';
 
 	type Props = {
 		id: string;
@@ -55,15 +55,13 @@
 	}: Props = $props();
 </script>
 
-<FieldShell
-	id={id}
-	label={label}
-	required={required}
-	hint={hint}
-	class={className}
-	labelClass={labelClass}
-	hintClass={hintClass}
->
+<Field class={cn('flex flex-col gap-2', className)}>
+	{#if label}
+		<FieldLabel for={id} required={required} class={cn('type-field-label text-gray-900', labelClass)}>
+			{label}
+		</FieldLabel>
+	{/if}
+
 	<div class="relative">
 		<Input
 			{id}
@@ -89,4 +87,10 @@
 			</div>
 		{/if}
 	</div>
-</FieldShell>
+
+	{#if hint}
+		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+</Field>

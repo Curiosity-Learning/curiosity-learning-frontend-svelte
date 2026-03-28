@@ -3,10 +3,10 @@
 	import { onDestroy, tick } from 'svelte';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils';
 	import type { HTMLInputAttributes } from 'svelte/elements';
-	import FieldShell from './field-shell.svelte';
 
 	export type DropdownOption = {
 		label: string;
@@ -181,15 +181,13 @@
 	});
 </script>
 
-<FieldShell
-	{id}
-	{label}
-	{required}
-	{hint}
-	class={className}
-	{labelClass}
-	{hintClass}
->
+<Field class={cn('flex flex-col gap-2', className)}>
+	{#if label}
+		<FieldLabel for={id} required={required} class={cn('type-field-label text-gray-900', labelClass)}>
+			{label}
+		</FieldLabel>
+	{/if}
+
 	<div class="relative" bind:this={root}>
 		<Input
 			{id}
@@ -262,4 +260,10 @@
 			</div>
 		{/if}
 	</div>
-</FieldShell>
+
+	{#if hint}
+		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+</Field>

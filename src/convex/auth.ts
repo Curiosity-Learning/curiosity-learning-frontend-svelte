@@ -93,7 +93,8 @@ const socialProviders =
 		? {
 				google: {
 					clientId: googleClientId,
-					clientSecret: googleClientSecret
+					clientSecret: googleClientSecret,
+					disableImplicitSignUp: true
 				}
 			}
 		: undefined;

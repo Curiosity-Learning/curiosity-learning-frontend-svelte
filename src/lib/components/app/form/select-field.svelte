@@ -1,8 +1,7 @@
 <script lang="ts">
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
+	import * as Select from '$lib/components/ui/select';
 	import { cn } from '$lib/utils';
-	import type { HTMLSelectAttributes } from 'svelte/elements';
-	import FieldShell from './field-shell.svelte';
 
 	export type SelectOption = {
 		label: string;
@@ -10,11 +9,13 @@
 		disabled?: boolean;
 	};
 
-	type Props = Omit<HTMLSelectAttributes, 'class' | 'value'> & {
+	type Props = {
 		id: string;
 		value?: string;
 		options: SelectOption[];
 		placeholder?: string;
+		name?: string;
+		disabled?: boolean;
 		label?: string;
 		required?: boolean;
 		hint?: string;
@@ -29,46 +30,49 @@
 		value = $bindable(''),
 		options,
 		placeholder = 'Select an option',
+		name,
+		disabled = false,
 		label,
 		required = false,
 		hint,
 		class: className,
 		labelClass,
 		hintClass,
-		selectClass,
-		...restProps
+		selectClass
 	}: Props = $props();
 </script>
 
-<FieldShell
-	id={id}
-	label={label}
-	required={required}
-	hint={hint}
-	class={className}
-	labelClass={labelClass}
-	hintClass={hintClass}
->
-	<div class="relative">
-		<select
+<Field class={cn('flex flex-col gap-2', className)}>
+	{#if label}
+		<FieldLabel for={id} required={required} class={cn('type-field-label text-gray-900', labelClass)}>
+			{label}
+		</FieldLabel>
+	{/if}
+
+	<Select.Root type="single" bind:value {name} {disabled}>
+		<Select.Trigger
 			{id}
-			bind:value
+			aria-label={label ?? placeholder}
 			class={cn(
-				'h-12 w-full appearance-none rounded-md border border-gray-300 bg-white px-4 pr-12 text-base text-gray-700 outline-none transition-[border-color,box-shadow] duration-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200',
+				'h-12 w-full justify-between bg-white text-base text-gray-700',
+				!value && 'text-gray-500',
 				selectClass
 			)}
-			{...restProps}
 		>
-			{#if placeholder}
-				<option value="" disabled>{placeholder}</option>
-			{/if}
+			<span>{options.find((option) => option.value === value)?.label || placeholder}</span>
+		</Select.Trigger>
+		<Select.Content>
 			{#each options as option (option.value)}
-				<option value={option.value} disabled={option.disabled}>{option.label}</option>
+				<Select.Item value={option.value} label={option.label} disabled={option.disabled}>
+					{option.label}
+				</Select.Item>
 			{/each}
-		</select>
+		</Select.Content>
+	</Select.Root>
 
-		<ChevronDownIcon
-			class="pointer-events-none absolute top-1/2 right-4 size-5 -translate-y-1/2 text-gray-500"
-		/>
-	</div>
-</FieldShell>
+	{#if hint}
+		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+</Field>

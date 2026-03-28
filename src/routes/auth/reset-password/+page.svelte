@@ -6,7 +6,8 @@
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 	import { Button } from '$lib/components/ui/button';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { InputField } from '$lib/components/app/form';
+	import { Field, FieldLabel } from '$lib/components/ui/field';
+	import { Input } from '$lib/components/ui/input';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { authClient } from '$lib/auth-client';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
@@ -105,22 +106,24 @@
 				<div class="mt-2 flex flex-col gap-6">
 					<h1 class="type-step-title text-gray-900">Create new password</h1>
 
-					<InputField
-						id="newPassword"
-						label="New password"
-						required={true}
-						type={showNewPassword ? 'text' : 'password'}
-						bind:value={newPassword}
-						autocomplete="new-password"
-						placeholder="Enter your new password"
-						inputClass="bg-white"
-					>
-						{#snippet trailing()}
+					<Field class="flex flex-col gap-2">
+						<FieldLabel for="newPassword" required class="type-field-label text-gray-900">
+							New password
+						</FieldLabel>
+						<div class="relative">
+							<Input
+								id="newPassword"
+								type={showNewPassword ? 'text' : 'password'}
+								bind:value={newPassword}
+								autocomplete="new-password"
+								placeholder="Enter your new password"
+								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+							/>
 							<button
 								type="button"
 								onclick={() => (showNewPassword = !showNewPassword)}
 								onmousedown={(event) => event.preventDefault()}
-								class="inline-flex size-5 cursor-pointer items-center justify-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
+								class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
 								aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
 								aria-pressed={showNewPassword}
 							>
@@ -130,25 +133,27 @@
 									<EyeIcon class="size-5" />
 								{/if}
 							</button>
-						{/snippet}
-					</InputField>
+						</div>
+					</Field>
 
-					<InputField
-						id="confirmNewPassword"
-						label="Confirm password"
-						required={true}
-						type={showConfirmPassword ? 'text' : 'password'}
-						bind:value={confirmPassword}
-						autocomplete="new-password"
-						placeholder="Confirm your password"
-						inputClass="bg-white"
-					>
-						{#snippet trailing()}
+					<Field class="flex flex-col gap-2">
+						<FieldLabel for="confirmNewPassword" required class="type-field-label text-gray-900">
+							Confirm password
+						</FieldLabel>
+						<div class="relative">
+							<Input
+								id="confirmNewPassword"
+								type={showConfirmPassword ? 'text' : 'password'}
+								bind:value={confirmPassword}
+								autocomplete="new-password"
+								placeholder="Confirm your password"
+								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+							/>
 							<button
 								type="button"
 								onclick={() => (showConfirmPassword = !showConfirmPassword)}
 								onmousedown={(event) => event.preventDefault()}
-								class="inline-flex size-5 cursor-pointer items-center justify-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
+								class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
 								aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
 								aria-pressed={showConfirmPassword}
 							>
@@ -158,8 +163,8 @@
 									<EyeIcon class="size-5" />
 								{/if}
 							</button>
-						{/snippet}
-					</InputField>
+						</div>
+					</Field>
 				</div>
 
 				{#if errorMessage}
@@ -219,16 +224,19 @@
 						</p>
 					</div>
 
-					<InputField
-						id="resetEmail"
-						label="Username/Email"
-						required={true}
-						type="email"
-						bind:value={email}
-						autocomplete="email"
-						placeholder="john.doe@gmail.com"
-						inputClass="bg-white"
-					/>
+					<Field class="flex flex-col gap-2">
+						<FieldLabel for="resetEmail" required class="type-field-label text-gray-900">
+							Username/Email
+						</FieldLabel>
+						<Input
+							id="resetEmail"
+							type="email"
+							bind:value={email}
+							autocomplete="email"
+							placeholder="john.doe@gmail.com"
+							class="h-12 border-gray-300 bg-white px-4 text-base"
+						/>
+					</Field>
 				</div>
 
 				{#if errorMessage}
