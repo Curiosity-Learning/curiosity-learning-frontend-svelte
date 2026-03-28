@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
+	import { _ } from '$lib/i18n';
 
 	const STORAGE_KEY = 'cl_cookie_preferences_v1';
 	const COOKIE_NAME = 'cl_cookie_preferences';
@@ -127,31 +128,33 @@
 		<div class="pointer-events-auto w-full max-w-3xl rounded-xl border border-gray-200 bg-white p-4 shadow-xl">
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 				<div class="flex flex-col gap-2">
-					<p class="type-field-label text-gray-900">Cookie preferences</p>
+					<p class="type-field-label text-gray-900">{$_('legal.cookieBanner.title')}</p>
 					<p class="text-sm leading-6 text-gray-600">
-						We use only <span class="font-semibold text-gray-900">essential</span> and
-						<span class="font-semibold text-gray-900">functional</span> cookies. We do not use
-						analytics or marketing cookies. See
+						{$_('legal.cookieBanner.descriptionStart')}
+						<span class="font-semibold text-gray-900">{$_('legal.cookieBanner.essential')}</span>
+						{$_('legal.cookieBanner.descriptionMiddle')}
+						<span class="font-semibold text-gray-900">{$_('legal.cookieBanner.functional')}</span>
+						{$_('legal.cookieBanner.descriptionAfterTypes')}
 						<a href="/privacy" class="font-semibold text-orange-500 hover:text-orange-600"
-							>Privacy policy</a
+							>{$_('legal.cookieBanner.privacyLink')}</a
 						>
-						and
+						{$_('legal.cookieBanner.betweenPrivacyAndTerms')}
 						<a href="/terms" class="font-semibold text-orange-500 hover:text-orange-600"
-							>Terms and conditions</a
-						>,
-						and
+							>{$_('legal.cookieBanner.termsLink')}</a
+						>
+						{$_('legal.cookieBanner.betweenTermsAndCookies')}
 						<a href="/cookies" class="font-semibold text-orange-500 hover:text-orange-600"
-							>Cookie policy</a
-						>.
+							>{$_('legal.cookieBanner.cookiesLink')}</a
+						>{$_('legal.cookieBanner.descriptionEnd')}
 					</p>
 				</div>
 
 				<div class="flex flex-col gap-2 sm:flex-row">
 					<Button variant="outline" class="h-10 w-full sm:w-auto" onclick={() => setConsent(false)}>
-						Essential only
+						{$_('legal.cookieBanner.essentialOnly')}
 					</Button>
 					<Button variant="default" class="h-10 w-full sm:w-auto" onclick={() => setConsent(true)}>
-						Allow functional cookies
+						{$_('legal.cookieBanner.allowFunctional')}
 					</Button>
 				</div>
 			</div>

@@ -181,7 +181,7 @@
 				enableSafetyScreening: true
 			});
 			if (!uploadedAsset.storageId) {
-				throw new Error('Profile image upload could not be finalized.');
+				throw new Error(t('onboarding.postSignup.profileImageFinalizeFailure'));
 			}
 
 			profileImageStorageId = uploadedAsset.storageId;

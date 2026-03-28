@@ -16,6 +16,7 @@ const en = {
 		saving: 'Saving...',
 		finishing: 'Finishing...',
 		loading: 'Loading...',
+		lastUpdatedOn: 'Last updated on {date}',
 		months: {
 			january: 'January',
 			february: 'February',
@@ -31,12 +32,59 @@ const en = {
 			december: 'December'
 		}
 	},
+	legal: {
+		privacyTitle: 'Privacy Policy',
+		termsTitle: 'Terms and Conditions',
+		cookiesTitle: 'Cookie Policy',
+		privacyEmpty: 'No privacy policy content is configured yet.',
+		termsEmpty: 'No terms and conditions content is configured yet.',
+		cookiesEmpty: 'No cookie policy content is configured yet.',
+		cookieBanner: {
+			title: 'Cookie preferences',
+			descriptionStart: 'We use only ',
+			essential: 'essential',
+			descriptionMiddle: ' and ',
+			functional: 'functional',
+			descriptionAfterTypes:
+				' cookies. We do not use analytics or marketing cookies. See ',
+			privacyLink: 'Privacy policy',
+			termsLink: 'Terms and conditions',
+			cookiesLink: 'Cookie policy',
+			betweenPrivacyAndTerms: ', ',
+			betweenTermsAndCookies: ', and ',
+			descriptionEnd: '.',
+			essentialOnly: 'Essential only',
+			allowFunctional: 'Allow functional cookies'
+		}
+	},
+	mediaUpload: {
+		failedBeforeStorage: 'Upload failed before the file reached storage.',
+		missingStorageReference: 'Upload completed, but no storage reference was returned.'
+	},
 	settings: {
 		language: {
 			label: 'Language',
 			english: 'English',
 			dutch: 'Dutch'
 		}
+	},
+	settingsPage: {
+		errorTitle: 'Settings update failed',
+		successTitle: 'Saved',
+		policiesTitle: 'Policies',
+		policiesDescription: 'Privacy, terms and cookie information.',
+		openPrivacyPolicy: 'Open Privacy Policy',
+		openTerms: 'Open Terms and Conditions',
+		openCookies: 'Open Cookie Policy',
+		profileImageFinalizeFailure: 'Profile image upload could not be finalized.',
+		profileImageUploaded: 'Profile image uploaded. Click Save profile to apply changes.',
+		profileImageUploadFailure: 'Unable to upload profile image.',
+		profileUpdated: 'Profile updated.',
+		saveProfileFailure: 'Unable to save profile.',
+		preferencesSaved: 'Preferences saved.',
+		savePreferencesFailure: 'Unable to save preferences.',
+		activeClubUpdated: 'Active club updated.',
+		switchClubFailure: 'Failed to switch club.'
 	},
 	authLayout: {
 		description: 'Sign in to continue your club experience.'
@@ -299,6 +347,7 @@ const en = {
 			profileImageUploadedTitle: 'Profile image uploaded',
 			profileImageUploadFailedTitle: 'Unable to upload profile image',
 			profileImageUploadFailedDescription: 'Please try again.',
+			profileImageFinalizeFailure: 'Profile image upload could not be finalized.',
 			usernameRequiredTitle: 'Username is required',
 			saveProfileFailedTitle: 'Unable to save profile details',
 			saveProfileFailedDescription: 'Please try again.',

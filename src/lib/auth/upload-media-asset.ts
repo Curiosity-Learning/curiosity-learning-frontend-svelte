@@ -1,6 +1,7 @@
 import type { useConvexClient } from 'convex-svelte';
 import { api } from '$convex/_generated/api';
 import type { Id } from '$convex/_generated/dataModel';
+import { t } from '$lib/i18n';
 
 type UploadConstraints = {
 	acceptedContentTypes: string[];
@@ -36,14 +37,14 @@ export async function uploadMediaAsset(
 		body: file
 	});
 	if (!uploadResponse.ok) {
-		throw new Error('Upload failed before the file reached storage.');
+		throw new Error(t('mediaUpload.failedBeforeStorage'));
 	}
 
 	const uploadResult = (await uploadResponse.json()) as {
 		storageId?: Id<'_storage'>;
 	};
 	if (!uploadResult.storageId) {
-		throw new Error('Upload completed, but no storage reference was returned.');
+		throw new Error(t('mediaUpload.missingStorageReference'));
 	}
 
 	const finalized = await convexClient.mutation(api.media.finalizeUpload, {

@@ -16,6 +16,7 @@ const nl = {
 		saving: 'Opslaan...',
 		finishing: 'Afronden...',
 		loading: 'Laden...',
+		lastUpdatedOn: 'Laatst bijgewerkt op {date}',
 		months: {
 			january: 'Januari',
 			february: 'Februari',
@@ -31,12 +32,60 @@ const nl = {
 			december: 'December'
 		}
 	},
+	legal: {
+		privacyTitle: 'Privacybeleid',
+		termsTitle: 'Algemene voorwaarden',
+		cookiesTitle: 'Cookiebeleid',
+		privacyEmpty: 'Er is nog geen inhoud voor het privacybeleid ingesteld.',
+		termsEmpty: 'Er is nog geen inhoud voor de algemene voorwaarden ingesteld.',
+		cookiesEmpty: 'Er is nog geen inhoud voor het cookiebeleid ingesteld.',
+		cookieBanner: {
+			title: 'Cookievoorkeuren',
+			descriptionStart: 'We gebruiken alleen ',
+			essential: 'essentiële',
+			descriptionMiddle: ' en ',
+			functional: 'functionele',
+			descriptionAfterTypes:
+				' cookies. We gebruiken geen analytische of marketingcookies. Bekijk het ',
+			privacyLink: 'privacybeleid',
+			termsLink: 'algemene voorwaarden',
+			cookiesLink: 'cookiebeleid',
+			betweenPrivacyAndTerms: ', de ',
+			betweenTermsAndCookies: ' en het ',
+			descriptionEnd: '.',
+			essentialOnly: 'Alleen essentieel',
+			allowFunctional: 'Functionele cookies toestaan'
+		}
+	},
+	mediaUpload: {
+		failedBeforeStorage: 'Uploaden is mislukt voordat het bestand de opslag bereikte.',
+		missingStorageReference: 'Uploaden is voltooid, maar er is geen opslagverwijzing teruggekomen.'
+	},
 	settings: {
 		language: {
 			label: 'Taal',
 			english: 'Engels',
 			dutch: 'Nederlands'
 		}
+	},
+	settingsPage: {
+		errorTitle: 'Bijwerken van instellingen mislukt',
+		successTitle: 'Opgeslagen',
+		policiesTitle: 'Beleidsdocumenten',
+		policiesDescription: 'Privacy-, voorwaarden- en cookie-informatie.',
+		openPrivacyPolicy: 'Open privacybeleid',
+		openTerms: 'Open algemene voorwaarden',
+		openCookies: 'Open cookiebeleid',
+		profileImageFinalizeFailure: 'Het uploaden van de profielafbeelding kon niet worden afgerond.',
+		profileImageUploaded:
+			'Profielafbeelding geüpload. Klik op Profiel opslaan om de wijzigingen toe te passen.',
+		profileImageUploadFailure: 'Kan profielafbeelding niet uploaden.',
+		profileUpdated: 'Profiel bijgewerkt.',
+		saveProfileFailure: 'Kan profiel niet opslaan.',
+		preferencesSaved: 'Voorkeuren opgeslagen.',
+		savePreferencesFailure: 'Kan voorkeuren niet opslaan.',
+		activeClubUpdated: 'Actieve club bijgewerkt.',
+		switchClubFailure: 'Wisselen van club mislukt.'
 	},
 	authLayout: {
 		description: 'Log in om verder te gaan met je clubervaring.'
@@ -299,6 +348,8 @@ const nl = {
 			profileImageUploadedTitle: 'Profielafbeelding geüpload',
 			profileImageUploadFailedTitle: 'Kon profielafbeelding niet uploaden',
 			profileImageUploadFailedDescription: 'Probeer het opnieuw.',
+			profileImageFinalizeFailure:
+				'Het uploaden van de profielafbeelding kon niet worden afgerond.',
 			usernameRequiredTitle: 'Gebruikersnaam is verplicht',
 			saveProfileFailedTitle: 'Kon profielgegevens niet opslaan',
 			saveProfileFailedDescription: 'Probeer het opnieuw.',
