@@ -1,0 +1,404 @@
+"use node";
+
+import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { ConvexError, v } from 'convex/values';
+import { internal } from './_generated/api';
+import type { Doc } from './_generated/dataModel';
+import { internalAction } from './_generated/server';
+import {
+	loadMediaStorageConfig,
+	type MediaStorageConfig,
+	type MediaUploadDescriptor
+} from './mediaStorage';
+import {
+	mediaFailureValidator,
+	mediaPipelineStepResultValidator,
+	mediaUploadConstraintsValidator
+} from './mediaModel';
+import {
+	type SupportedContentType,
+	type StoredMediaMetadata,
+	runMediaPipeline
+} from './mediaPipeline';
+import { toResolvedAsset } from './mediaShared';
+
+const createS3Client = (config: MediaStorageConfig) =>
+	new S3Client({
+		region: config.region,
+		credentials: {
+			accessKeyId: config.accessKeyId,
+			secretAccessKey: config.secretAccessKey
+		},
+		endpoint: config.endpoint,
+		forcePathStyle: config.forcePathStyle
+	});
+
+const isMissingObjectError = (error: unknown) => {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+
+	const details = error as Error & {
+		name?: string;
+		Code?: string;
+		code?: string;
+		$metadata?: { httpStatusCode?: number };
+	};
+
+	return (
+		details.name === 'NotFound' ||
+		details.name === 'NoSuchKey' ||
+		details.Code === 'NoSuchKey' ||
+		details.code === 'NoSuchKey' ||
+		details.$metadata?.httpStatusCode === 404
+	);
+};
+
+const buildUploadDescriptor = async ({
+	client,
+	config,
+	objectKey,
+	clientContentType
+}: {
+	client: S3Client;
+	config: MediaStorageConfig;
+	objectKey: string;
+	clientContentType?: string | null;
+}): Promise<MediaUploadDescriptor> => {
+	const command = new PutObjectCommand({
+		Bucket: config.bucket,
+		Key: objectKey,
+		ContentType: clientContentType?.trim() || undefined
+	});
+	const url = await getSignedUrl(client, command, {
+		expiresIn: config.uploadUrlTtlSeconds
+	});
+
+	return {
+		provider: config.provider,
+		method: 'PUT',
+		url,
+		headers: clientContentType?.trim()
+			? {
+					'content-type': clientContentType.trim()
+				}
+			: undefined,
+		objectKey
+	};
+};
+
+const loadStoredMediaMetadata = async ({
+	client,
+	bucket,
+	objectKey,
+	provider
+}: {
+	client: S3Client;
+	bucket: string;
+	objectKey: string;
+	provider: Doc<'mediaAssets'>['storageProvider'];
+}): Promise<StoredMediaMetadata | null> => {
+	try {
+		const response = await client.send(
+			new HeadObjectCommand({
+				Bucket: bucket,
+				Key: objectKey
+			})
+		);
+
+		return {
+			storageProvider: provider,
+			bucket,
+			objectKey,
+			contentType: response.ContentType ?? null,
+			sha256: response.ChecksumSHA256 ?? null,
+			size: Number(response.ContentLength ?? -1),
+			eTag: response.ETag ?? null,
+			lastModified: response.LastModified?.getTime() ?? null
+		};
+	} catch (error) {
+		if (isMissingObjectError(error)) {
+			return null;
+		}
+		throw error;
+	}
+};
+
+const deleteObjectIfPresent = async ({
+	client,
+	bucket,
+	objectKey
+}: {
+	client: S3Client;
+	bucket?: string | null;
+	objectKey?: string | null;
+}) => {
+	if (!bucket || !objectKey) {
+		return;
+	}
+
+	try {
+		await client.send(
+			new DeleteObjectCommand({
+				Bucket: bucket,
+				Key: objectKey
+			})
+		);
+	} catch (error) {
+		if (!isMissingObjectError(error)) {
+			throw error;
+		}
+	}
+};
+
+const verifyFinalizeExpectations = ({
+	asset,
+	storageMetadata
+}: {
+	asset: Doc<'mediaAssets'>;
+	storageMetadata: StoredMediaMetadata | null;
+}) => {
+	if (!storageMetadata) {
+		throw new ConvexError('Uploaded file could not be found in storage');
+	}
+
+	if (asset.clientSizeBytes !== undefined && storageMetadata.size !== asset.clientSizeBytes) {
+		throw new ConvexError('Uploaded file size does not match the expected size');
+	}
+
+	if (storageMetadata.size <= 0) {
+		throw new ConvexError('Uploaded file is empty');
+	}
+};
+
+export const beginUpload = internalAction({
+	args: {
+		ownerUserId: v.string(),
+		constraints: mediaUploadConstraintsValidator,
+		originalFilename: v.optional(v.string()),
+		clientContentType: v.optional(v.string()),
+		clientSizeBytes: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const config = loadMediaStorageConfig();
+		const client = createS3Client(config);
+		const asset: Doc<'mediaAssets'> = await ctx.runMutation(internal.media.createUploadDraft, {
+			ownerUserId: args.ownerUserId,
+			sourceBucket: config.bucket,
+			objectPrefix: config.objectPrefix,
+			envPrefix: config.envPrefix,
+			constraints: args.constraints,
+			originalFilename: args.originalFilename,
+			clientContentType: args.clientContentType,
+			clientSizeBytes: args.clientSizeBytes
+		});
+
+		if (!asset.sourceObjectKey) {
+			throw new ConvexError('Failed to create upload');
+		}
+
+		console.info('media:beginUpload:prepared', {
+			ownerUserId: args.ownerUserId,
+			assetId: asset._id,
+			bucket: config.bucket,
+			objectKey: asset.sourceObjectKey,
+			clientContentType: asset.clientContentType ?? null,
+			clientSizeBytes: asset.clientSizeBytes ?? null
+		});
+
+		return {
+			asset: toResolvedAsset(asset),
+			upload: await buildUploadDescriptor({
+				client,
+				config,
+				objectKey: asset.sourceObjectKey,
+				clientContentType: asset.clientContentType ?? null
+			})
+		};
+	}
+});
+
+export const finalizeUpload = internalAction({
+	args: {
+		assetId: v.id('mediaAssets'),
+		userId: v.string()
+	},
+	handler: async (ctx, args) => {
+		const config = loadMediaStorageConfig();
+		const client = createS3Client(config);
+		const asset: Doc<'mediaAssets'> = await ctx.runQuery(internal.media.getOwnedAsset, {
+			assetId: args.assetId,
+			userId: args.userId
+		});
+
+		if (asset.status !== 'pending_upload' || !asset.sourceObjectKey || !asset.sourceBucket) {
+			throw new ConvexError('Upload is not ready to be finalized');
+		}
+
+		const storageMetadata = await loadStoredMediaMetadata({
+			client,
+			bucket: asset.sourceBucket,
+			objectKey: asset.sourceObjectKey,
+			provider: asset.storageProvider
+		});
+		console.info('media:finalizeUpload:headObject', {
+			assetId: asset._id,
+			bucket: asset.sourceBucket,
+			objectKey: asset.sourceObjectKey,
+			clientSizeBytes: asset.clientSizeBytes ?? null,
+			storedSize: storageMetadata?.size ?? null,
+			storedContentType: storageMetadata?.contentType ?? null
+		});
+		verifyFinalizeExpectations({
+			asset,
+			storageMetadata
+		});
+
+		const updated: Doc<'mediaAssets'> = await ctx.runMutation(internal.media.markUploadProcessing, {
+			assetId: args.assetId,
+			ownerUserId: args.userId
+		});
+		await ctx.scheduler.runAfter(0, internal.mediaNode.processUpload, {
+			assetId: args.assetId
+		});
+		console.info('media:finalizeUpload:queued', {
+			assetId: args.assetId,
+			attemptCount: updated.attemptCount
+		});
+
+		return toResolvedAsset(updated);
+	}
+});
+
+export const cancelUpload = internalAction({
+	args: {
+		assetId: v.id('mediaAssets'),
+		userId: v.string(),
+		deleteStorage: v.optional(v.boolean())
+	},
+	handler: async (ctx, args) => {
+		const asset: Doc<'mediaAssets'> = await ctx.runQuery(internal.media.getOwnedAsset, {
+			assetId: args.assetId,
+			userId: args.userId
+		});
+		const deleteStorage = args.deleteStorage ?? true;
+
+		console.info('media:cancelUpload:start', {
+			assetId: asset._id,
+			status: asset.status,
+			deleteStorage,
+			sourceBucket: asset.sourceBucket ?? null,
+			sourceObjectKey: asset.sourceObjectKey ?? null,
+			processedBucket: asset.processedBucket ?? null,
+			processedObjectKey: asset.processedObjectKey ?? null
+		});
+
+		if (asset.status === 'ready') {
+			throw new ConvexError('Ready uploads must be detached by feature-level logic, not canceled');
+		}
+
+		if (deleteStorage) {
+			const config = loadMediaStorageConfig();
+			const client = createS3Client(config);
+			await deleteObjectIfPresent({
+				client,
+				bucket: asset.sourceBucket ?? null,
+				objectKey: asset.sourceObjectKey ?? null
+			});
+			if (asset.processedObjectKey && asset.processedObjectKey !== asset.sourceObjectKey) {
+				await deleteObjectIfPresent({
+					client,
+					bucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+					objectKey: asset.processedObjectKey
+				});
+			}
+		}
+
+		const updated: Doc<'mediaAssets'> = await ctx.runMutation(internal.media.markUploadCanceled, {
+			assetId: args.assetId,
+			ownerUserId: args.userId,
+			deleteStorage
+		});
+		console.info('media:cancelUpload:completed', {
+			assetId: updated._id,
+			status: updated.status,
+			deleteStorage
+		});
+
+		return toResolvedAsset(updated);
+	}
+});
+
+export const processUpload = internalAction({
+	args: {
+		assetId: v.id('mediaAssets')
+	},
+	handler: async (ctx, args): Promise<Doc<'mediaAssets'> | null> => {
+		const asset: Doc<'mediaAssets'> | null = await ctx.runQuery(internal.media.getAssetRecord, {
+			assetId: args.assetId
+		});
+		if (!asset || asset.status !== 'processing' || !asset.sourceBucket || !asset.sourceObjectKey) {
+			return null;
+		}
+
+		const config = loadMediaStorageConfig();
+		const client = createS3Client(config);
+		const storageMetadata = await loadStoredMediaMetadata({
+			client,
+			bucket: asset.sourceBucket,
+			objectKey: asset.sourceObjectKey,
+			provider: asset.storageProvider
+		});
+		console.info('media:processUpload:start', {
+			assetId: asset._id,
+			bucket: asset.sourceBucket,
+			objectKey: asset.sourceObjectKey,
+			storedSize: storageMetadata?.size ?? null,
+			storedContentType: storageMetadata?.contentType ?? null
+		});
+		const result = await runMediaPipeline({
+			asset: {
+				acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
+				maxBytes: asset.maxBytes,
+				enableCompression: asset.enableCompression,
+				enableSafetyScreening: asset.enableSafetyScreening,
+				originalFilename: asset.originalFilename ?? null,
+				clientContentType: asset.clientContentType ?? null
+			},
+			storageMetadata
+		});
+
+		if (result.ok) {
+			console.info('media:processUpload:ready', {
+				assetId: asset._id,
+				mediaKind: result.descriptor.mediaKind ?? null,
+				contentType: result.descriptor.contentType ?? null,
+				sizeBytes: result.descriptor.sizeBytes
+			});
+			return await ctx.runMutation(internal.media.markUploadReady, {
+				assetId: asset._id,
+				mediaKind: result.descriptor.mediaKind ?? undefined,
+				contentType: result.descriptor.contentType ?? undefined,
+				sizeBytes: result.descriptor.sizeBytes,
+				sha256: result.descriptor.sha256 ?? undefined,
+				stepResults: result.steps
+			});
+		}
+
+		console.warn('media:processUpload:failed', {
+			assetId: asset._id,
+			failure: result.failure,
+			descriptor: result.descriptor ?? null
+		});
+		return await ctx.runMutation(internal.media.markUploadFailed, {
+			assetId: asset._id,
+			mediaKind: result.descriptor?.mediaKind ?? undefined,
+			contentType: result.descriptor?.contentType ?? undefined,
+			sizeBytes: result.descriptor?.sizeBytes ?? undefined,
+			sha256: result.descriptor?.sha256 ?? undefined,
+			stepResults: result.steps,
+			failure: result.failure
+		});
+	}
+});

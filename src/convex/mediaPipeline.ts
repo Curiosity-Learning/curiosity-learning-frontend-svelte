@@ -1,10 +1,10 @@
-import type { Id } from './_generated/dataModel';
 import {
 	type MediaFailureStage,
 	type MediaKind,
 	type MediaPipelineStage,
 	type MediaPipelineStepStatus
 } from './mediaModel';
+import type { MediaStorageProvider } from './mediaStorage';
 
 const mb = (value: number) => value * 1024 * 1024;
 
@@ -117,11 +117,14 @@ const buildAcceptedFileExtensions = (acceptedContentTypes: readonly SupportedCon
 	];
 
 export type StoredMediaMetadata = {
-	_id: Id<'_storage'>;
-	_creationTime: number;
-	contentType?: string;
-	sha256: string;
+	storageProvider: MediaStorageProvider;
+	bucket: string;
+	objectKey: string;
+	contentType?: string | null;
+	sha256?: string | null;
 	size: number;
+	eTag?: string | null;
+	lastModified?: number | null;
 };
 
 export type MediaPipelineFailure = {
@@ -140,11 +143,13 @@ export type MediaPipelineStepResult = {
 };
 
 type MediaPipelineDescriptor = {
-	storageId: Id<'_storage'>;
+	storageProvider: MediaStorageProvider;
+	bucket: string;
+	objectKey: string;
 	mediaKind: MediaKind | null;
 	contentType: string | null;
 	sizeBytes: number;
-	sha256: string;
+	sha256: string | null;
 };
 
 export type MediaPipelineAssetSnapshot = NormalizedUploadConstraints & {
@@ -297,7 +302,7 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 		name: 'validate-storage-metadata',
 		stage: 'validation',
 		run: async ({ descriptor }) => {
-			if (!descriptor.sha256 || descriptor.sizeBytes < 0) {
+			if (!descriptor.objectKey || descriptor.sizeBytes < 0) {
 				return {
 					status: 'failed',
 					message: 'Stored file metadata is incomplete.',
@@ -461,14 +466,16 @@ export const runMediaPipeline = async ({
 
 	const config = describeUploadConstraints(asset);
 	let descriptor: MediaPipelineDescriptor = {
-		storageId: storageMetadata._id,
+		storageProvider: storageMetadata.storageProvider,
+		bucket: storageMetadata.bucket,
+		objectKey: storageMetadata.objectKey,
 		mediaKind: null,
 		contentType: getEffectiveContentType({
 			storedContentType: storageMetadata.contentType ?? null,
 			clientContentType: asset.clientContentType
 		}),
 		sizeBytes: storageMetadata.size,
-		sha256: storageMetadata.sha256
+		sha256: storageMetadata.sha256 ?? null
 	};
 
 	const steps: MediaPipelineStepResult[] = [];

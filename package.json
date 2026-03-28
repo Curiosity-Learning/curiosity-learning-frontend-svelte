@@ -68,6 +68,8 @@
 		"vitest-browser-svelte": "^2.0.2"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.940.0",
+		"@aws-sdk/s3-request-presigner": "^3.940.0",
 		"@convex-dev/better-auth": "^0.10.10",
 		"@fontsource/dm-sans": "^5.2.8",
 		"@mmailaender/convex-better-auth-svelte": "^0.5.0",

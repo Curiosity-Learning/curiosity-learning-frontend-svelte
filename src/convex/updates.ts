@@ -338,7 +338,7 @@ export const update = mutation({
 export const attachFiles = mutation({
 	args: {
 		updateId: v.id('updates'),
-		storageIds: v.array(v.string())
+		mediaAssetIds: v.array(v.id('mediaAssets'))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -353,10 +353,18 @@ export const attachFiles = mutation({
 		}
 
 		const inserted = [];
-		for (const storageId of args.storageIds) {
+		for (const mediaAssetId of args.mediaAssetIds) {
+			const asset = await ctx.db.get(mediaAssetId);
+			if (!asset || asset.ownerUserId !== identity.subject) {
+				throw new ConvexError('Media asset not found');
+			}
+			if (asset.status !== 'ready') {
+				throw new ConvexError('Only ready media assets can be attached');
+			}
+
 			const id = await ctx.db.insert('updateFiles', {
 				updateId: args.updateId,
-				storageId,
+				mediaAssetId,
 				createdAt: Date.now()
 			});
 			inserted.push(id);

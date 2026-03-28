@@ -217,14 +217,14 @@ export default defineSchema({
 
 	updateFiles: defineTable({
 		updateId: v.id('updates'),
-		storageId: v.string(),
+		mediaAssetId: v.id('mediaAssets'),
 		createdAt: v.number()
 	}).index('by_update', ['updateId']),
 
 	mediaAssets: defineTable(mediaAssetFields)
 		.index('by_owner', ['ownerUserId'])
 		.index('by_owner_and_status', ['ownerUserId', 'status'])
-		.index('by_storage_id', ['storageId']),
+		.index('by_source_object_key', ['sourceObjectKey']),
 
 	notifications: defineTable({
 		userId: v.string(),

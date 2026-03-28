@@ -39,4 +39,5 @@ Playwright screenshots saved in `docs/screenshots/`.
 ## Open Follow-ups
 
 - Authenticated visual captures for full `/app/*` pages require a verified test account/session bootstrap in CI-like runs.
-- Feature-level media surfaces should attach domain records to `mediaAssets` instead of storing raw file URLs or ad-hoc storage IDs.
+- Feature-level media surfaces should attach domain records to `mediaAssets` via `mediaAssetId`, not raw file URLs, S3 object keys, or legacy storage IDs.
+- Compression and moderation work should now layer on top of the shared S3-backed upload foundation instead of changing storage plumbing again.
