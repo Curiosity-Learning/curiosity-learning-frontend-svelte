@@ -268,6 +268,31 @@ export const getSignupAccountStatusByEmail = query({
 	}
 });
 
+export const resolveAuthIdentifier = query({
+	args: {
+		identifier: v.string()
+	},
+	handler: async (ctx, args) => {
+		const normalizedIdentifier = args.identifier.trim().toLowerCase();
+		if (!normalizedIdentifier) {
+			return { email: null };
+		}
+
+		if (normalizedIdentifier.includes('@')) {
+			return { email: normalizedIdentifier };
+		}
+
+		const profile = await ctx.db
+			.query('profiles')
+			.withIndex('by_username', (q) => q.eq('username', normalizedIdentifier))
+			.first();
+
+		return {
+			email: profile?.email ?? null
+		};
+	}
+});
+
 export const ensureProfile = mutation({
 	args: {},
 	handler: async (ctx) => {

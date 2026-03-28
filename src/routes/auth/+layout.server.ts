@@ -9,6 +9,10 @@ const normalizeRedirectTarget = (nextPath: string | null) => {
 };
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
+	if (url.pathname === '/auth/sign-up') {
+		return {};
+	}
+
 	if (locals.token) {
 		throw redirect(307, normalizeRedirectTarget(url.searchParams.get('next')));
 	}

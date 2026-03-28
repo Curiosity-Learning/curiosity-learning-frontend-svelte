@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import { Button } from '$lib/components/ui/button';
@@ -8,6 +9,7 @@
 	import { api } from '$convex/_generated/api';
 
 	const CODE_LENGTH = 6;
+	const JOIN_CLUB_CODE_STORAGE_KEY = 'cl_join_club_code_v1';
 	const convexClient = useConvexClient();
 
 	let codeChars = $state<string[]>(Array.from({ length: CODE_LENGTH }, () => ''));
@@ -19,6 +21,28 @@
 	let joinedCode = $derived(codeChars.join(''));
 
 	const normalizeCode = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+	const writeStoredCode = (value: string) => {
+		if (!browser) return;
+		try {
+			if (value) {
+				sessionStorage.setItem(JOIN_CLUB_CODE_STORAGE_KEY, value);
+				return;
+			}
+			sessionStorage.removeItem(JOIN_CLUB_CODE_STORAGE_KEY);
+		} catch {
+			// Ignore storage errors.
+		}
+	};
+
+	const readStoredCode = () => {
+		if (!browser) return '';
+		try {
+			return normalizeCode(sessionStorage.getItem(JOIN_CLUB_CODE_STORAGE_KEY) ?? '').slice(0, CODE_LENGTH);
+		} catch {
+			return '';
+		}
+	};
 
 	const focusInput = (index: number) => {
 		if (index < 0 || index >= CODE_LENGTH) return;
@@ -108,11 +132,19 @@
 	};
 
 	onMount(() => {
+		const storedCode = readStoredCode();
+		if (storedCode) {
+			fillFrom(0, storedCode);
+			const firstEmptyIndex = codeChars.findIndex((char) => char.length === 0);
+			focusInput(firstEmptyIndex >= 0 ? firstEmptyIndex : CODE_LENGTH - 1);
+			return;
+		}
 		focusInput(0);
 	});
 
 	$effect(() => {
 		void joinedCode;
+		writeStoredCode(joinedCode);
 		codeError = '';
 	});
 </script>

@@ -555,7 +555,7 @@ type ExistingAccountStatus = {
 		}
 
 		if (data?.url) {
-			await goto(data.url);
+			navigateToExternalUrl(data.url);
 			return true;
 		}
 
@@ -699,6 +699,10 @@ type ExistingAccountStatus = {
 		syncStepInUrl(4);
 	};
 
+	const navigateToExternalUrl = (url: string) => {
+		window.location.assign(url);
+	};
+
 const signUp = async () => {
 		errorMessage = '';
 		infoMessage = '';
@@ -815,34 +819,34 @@ const signUpWithGoogle = async () => {
 		socialCallbackParams.set('next', nextPath);
 		socialCallbackParams.set('postSocial', 'google');
 		socialCallbackParams.set('step', String(step));
-			const socialCallbackUrl = `/auth/sign-up?${socialCallbackParams.toString()}`;
-			const existingGoogleCallbackUrl = forceSignup
-				? `/auth/sign-up?${existingAccountParams.toString()}`
-				: `/auth/sign-in?${existingAccountParams.toString()}`;
-			setForcedGoogleSignupPending();
-			const { data, error } = await authClient.signIn.social({
-				provider: 'google',
-				callbackURL: existingGoogleCallbackUrl,
+		const socialCallbackUrl = `/auth/sign-up?${socialCallbackParams.toString()}`;
+		const existingGoogleCallbackUrl = forceSignup
+			? buildGoogleSignupBlockedPath()
+			: `/auth/sign-in?${existingAccountParams.toString()}`;
+		setForcedGoogleSignupPending();
+		const { data, error } = await authClient.signIn.social({
+			provider: 'google',
+			callbackURL: existingGoogleCallbackUrl,
 			newUserCallbackURL: socialCallbackUrl,
 			requestSignUp: true
 		});
 
-			if (error) {
-				clearForcedGoogleSignupPending();
-				googleRedirectPending = false;
-				errorMessage = error.message ?? 'Failed to start Google sign up.';
-				return;
-		}
-
-		if (data?.url) {
-			await goto(data.url);
+		if (error) {
+			clearForcedGoogleSignupPending();
+			googleRedirectPending = false;
+			errorMessage = error.message ?? 'Failed to start Google sign up.';
 			return;
 		}
 
-			clearForcedGoogleSignupPending();
-			googleRedirectPending = false;
-			errorMessage = 'Failed to start Google sign up.';
-		};
+		if (data?.url) {
+			navigateToExternalUrl(data.url);
+			return;
+		}
+
+		clearForcedGoogleSignupPending();
+		googleRedirectPending = false;
+		errorMessage = 'Failed to start Google sign up.';
+	};
 
 	const resendVerificationOtp = async () => {
 		if (!email.trim() || resendCooldownSeconds > 0) return;
@@ -1106,6 +1110,22 @@ const signUpWithGoogle = async () => {
 		clearForcedGoogleSignupPending();
 		errorMessage = getExistingGoogleSignupBlockedMessage();
 		infoMessage = '';
+	});
+
+	$effect(() => {
+		if (auth.isLoading) return;
+		if (!forceSignup || !googleSignupBlocked || !auth.isAuthenticated) return;
+		if (handledForcedExistingGoogleAccount) return;
+		handledForcedExistingGoogleAccount = true;
+		void (async () => {
+			try {
+				clearForcedGoogleSignupPending();
+				await authClient.signOut();
+			} finally {
+				errorMessage = getExistingGoogleSignupBlockedMessage();
+				infoMessage = '';
+			}
+		})();
 	});
 
 	$effect(() => {

@@ -6,6 +6,7 @@
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -15,11 +16,14 @@
 	import { authClient } from '$lib/auth-client';
 	import { routes } from '$lib/routes';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
+	import { useConvexClient } from 'convex-svelte';
+	import { api } from '$convex/_generated/api';
 	import loginIllustration from '$lib/assets/svg/login.svg';
 
 	const auth = useAuth();
+	const convexClient = useConvexClient();
 
-	let email = $state('');
+	let identifier = $state('');
 	let password = $state('');
 	let rememberMe = $state(false);
 	let showPassword = $state(false);
@@ -30,6 +34,7 @@
 	let existingGoogleAccountHandled = $state(false);
 	let handledForcedExistingGoogleAccount = $state(false);
 	let dismissGoogleAuthCallbackError = $state(false);
+	let resolvedCredentialEmail = $state<string | null>(null);
 
 	const normalizePostSignInPath = (value: string | null) => {
 		if (!value?.startsWith('/')) return '/';
@@ -61,6 +66,9 @@
 	let forgotHref = $derived(`/auth/reset-password?next=${encodeURIComponent(resolvedNextPath)}`);
 	let needsVerification = $derived(errorMessage.toLowerCase().includes('not verified'));
 	let existingGoogleAccount = $derived(page.url.searchParams.get('existingGoogleAccount') === '1');
+
+	const normalizeIdentifier = (value: string) => value.trim().toLowerCase();
+	const isEmailLike = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 	const normalizeGoogleAuthError = (value: string | null | undefined) =>
 		(value ?? '').toLowerCase().replaceAll(/[_+%-]+/g, ' ').trim();
@@ -95,7 +103,7 @@
 	};
 
 	const buildSignInPath = () => {
-		const params = new URLSearchParams();
+		const params = new SvelteURLSearchParams();
 		if (nextPath !== '/') {
 			params.set('next', nextPath);
 		}
@@ -119,6 +127,20 @@
 	const isInvalidEmailError = (message?: string) => {
 		const normalized = (message?.trim().toLowerCase() ?? '').replace(/[.!]+$/g, '');
 		return normalized === 'invalid email' || normalized === 'invalid email address';
+	};
+
+	const resolveIdentifierEmail = async (rawIdentifier: string) => {
+		const normalizedIdentifier = normalizeIdentifier(rawIdentifier);
+		if (!normalizedIdentifier) {
+			return null;
+		}
+		if (isEmailLike(normalizedIdentifier)) {
+			return normalizedIdentifier;
+		}
+		const result = await convexClient.query(api.auth.resolveAuthIdentifier, {
+			identifier: normalizedIdentifier
+		});
+		return result.email;
 	};
 
 	$effect(() => {
@@ -173,78 +195,116 @@
 		await goto('/onboarding/get-started');
 	};
 
+	const navigateToExternalUrl = (url: string) => {
+		window.location.assign(url);
+	};
+
 	const signInWithGoogle = async () => {
 		errorMessage = '';
 		infoMessage = '';
 		googlePending = true;
 		dismissGoogleAuthCallbackError = true;
-
-		const { data, error } = await authClient.signIn.social({
-			provider: 'google',
-			callbackURL: resolvedNextPath,
-			errorCallbackURL: buildSignInPath()
-		});
-
-		if (error) {
-			googlePending = false;
-			errorMessage = getGoogleSignInErrorMessage({
-				description: error.message,
-				hasTypedEmail: Boolean(email.trim())
+		try {
+			const { data, error } = await authClient.signIn.social({
+				provider: 'google',
+				callbackURL: resolvedNextPath,
+				errorCallbackURL: buildSignInPath()
 			});
-			return;
-		}
 
-		if (data?.url) {
-			await goto(data.url);
-			return;
-		}
-
-		googlePending = false;
-		errorMessage = 'Failed to start Google sign in.';
-	};
-
-	const signIn = async () => {
-		pending = true;
-		errorMessage = '';
-		infoMessage = '';
-		dismissGoogleAuthCallbackError = true;
-		const { error } = await authClient.signIn.email({
-			email: email.trim(),
-			password,
-			callbackURL: resolvedNextPath,
-			rememberMe
-		});
-		pending = false;
-		if (error) {
-			if (isInvalidEmailError(error.message)) {
-				showGlobalSnackbar({
-					title: 'Invalid email',
-					description: 'Enter a valid email address and try again.'
+			if (error) {
+				errorMessage = getGoogleSignInErrorMessage({
+					description: error.message,
+					hasTypedEmail: isEmailLike(normalizeIdentifier(identifier))
 				});
 				return;
 			}
-			errorMessage = error.message ?? 'Failed to sign in.';
-			return;
+
+			if (data?.url) {
+				navigateToExternalUrl(data.url);
+				return;
+			}
+
+			errorMessage = 'Failed to start Google sign in.';
+		} catch (error) {
+			errorMessage =
+				error instanceof Error ? error.message : 'Failed to start Google sign in.';
+		} finally {
+			googlePending = false;
 		}
-		await goto(resolvedNextPath, { replaceState: true });
 	};
 
-	const resendVerification = async () => {
-		if (!email.trim()) return;
-		pending = true;
+	const signIn = async () => {
 		errorMessage = '';
 		infoMessage = '';
 		dismissGoogleAuthCallbackError = true;
-		const { error } = await authClient.sendVerificationEmail({
-			email: email.trim(),
-			callbackURL: resolvedNextPath
-		});
-		pending = false;
-		if (error) {
-			errorMessage = error.message ?? 'Failed to resend verification email.';
-			return;
+		pending = true;
+		try {
+			const resolvedEmail = await resolveIdentifierEmail(identifier);
+			resolvedCredentialEmail = resolvedEmail;
+			if (!resolvedEmail) {
+				errorMessage = 'Invalid username, email, or password.';
+				return;
+			}
+
+			const { error } = await authClient.signIn.email({
+				email: resolvedEmail,
+				password,
+				callbackURL: resolvedNextPath,
+				rememberMe
+			});
+
+			if (error) {
+				if (isInvalidEmailError(error.message)) {
+					showGlobalSnackbar({
+						title: 'Invalid login',
+						description: 'Enter a valid username or email and try again.'
+					});
+					return;
+				}
+				errorMessage = error.message ?? 'Failed to sign in.';
+				return;
+			}
+
+			await goto(resolvedNextPath, { replaceState: true });
+		} catch (error) {
+			errorMessage =
+				error instanceof Error
+					? error.message
+					: 'Unable to sign in right now. Please try again.';
+		} finally {
+			pending = false;
 		}
-		infoMessage = 'Verification email sent. Check your inbox and spam folder.';
+	};
+
+	const resendVerification = async () => {
+		if (!identifier.trim()) return;
+		errorMessage = '';
+		infoMessage = '';
+		dismissGoogleAuthCallbackError = true;
+		pending = true;
+		try {
+			const resolvedEmail = resolvedCredentialEmail ?? (await resolveIdentifierEmail(identifier));
+			if (!resolvedEmail) {
+				errorMessage = 'Enter a valid username or email to resend verification.';
+				return;
+			}
+			const { error } = await authClient.sendVerificationEmail({
+				email: resolvedEmail,
+				callbackURL: resolvedNextPath
+			});
+			if (error) {
+				errorMessage = error.message ?? 'Failed to resend verification email.';
+				return;
+			}
+			infoMessage = 'Verification email sent. Check your inbox and spam folder.';
+		} catch (error) {
+			errorMessage =
+				error instanceof Error
+					? error.message
+					: 'Failed to resend verification email.';
+		} finally {
+			pending = false;
+		}
 	};
 </script>
 
@@ -277,14 +337,14 @@
 
 						<Field class="flex flex-col gap-2">
 							<FieldLabel for="email" required class="type-field-label text-gray-900">
-								Username/Email
+								Username or email
 							</FieldLabel>
 							<Input
 								id="email"
-								type="email"
-								bind:value={email}
-								autocomplete="email"
-								placeholder="john.doe@gmail.com"
+								type="text"
+								bind:value={identifier}
+								autocomplete="username"
+								placeholder="Enter your username or email"
 								class="h-12 border-gray-300 bg-white px-4 text-base"
 							/>
 						</Field>
@@ -355,12 +415,21 @@
 								variant="outline"
 								size="xl"
 								class="h-12 w-full"
-								disabled={pending || googlePending || !email.trim()}
+								disabled={pending || googlePending || !identifier.trim()}
 								onclick={() => void resendVerification()}
 							>
 								Resend verification email
 							</Button>
 						{/if}
+						<Button
+							variant="default"
+							size="xl"
+							class="h-12 w-full"
+							disabled={pending || googlePending || !identifier.trim() || !password}
+							onclick={() => void signIn()}
+						>
+							{pending ? 'Logging in...' : 'Log in'}
+						</Button>
 						<Button
 							variant="outline"
 							size="xl"
@@ -375,15 +444,6 @@
 								<Icon icon="logos:google-icon" width="20" height="20" aria-hidden="true" />
 								Continue with Google
 							{/if}
-						</Button>
-						<Button
-							variant="default"
-							size="xl"
-							class="h-12 w-full"
-							disabled={pending || googlePending || !email.trim() || !password}
-							onclick={() => void signIn()}
-						>
-							{pending ? 'Logging in...' : 'Log in'}
 						</Button>
 						<Button
 							variant="outline"

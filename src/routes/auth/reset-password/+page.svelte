@@ -11,6 +11,8 @@
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { authClient } from '$lib/auth-client';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
+	import { useConvexClient } from 'convex-svelte';
+	import { api } from '$convex/_generated/api';
 	import resetPasswordImage from '$lib/assets/svg/reset_password.png';
 
 	let token = $derived(page.url.searchParams.get('token') ?? '');
@@ -21,8 +23,9 @@
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
 	let signInHref = $derived(`/auth/sign-in?next=${encodeURIComponent(nextPath)}`);
 	const signUpHref = '/onboarding/get-started';
+	const convexClient = useConvexClient();
 
-	let email = $state('');
+	let identifier = $state('');
 	let newPassword = $state('');
 	let confirmPassword = $state('');
 	let pending = $state(false);
@@ -33,28 +36,56 @@
 	let trimmedNewPassword = $derived(newPassword.trim());
 	let trimmedConfirmPassword = $derived(confirmPassword.trim());
 
+	const normalizeIdentifier = (value: string) => value.trim().toLowerCase();
+	const isEmailLike = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+	const resolveIdentifierEmail = async (rawIdentifier: string) => {
+		const normalizedIdentifier = normalizeIdentifier(rawIdentifier);
+		if (!normalizedIdentifier) {
+			return null;
+		}
+		if (isEmailLike(normalizedIdentifier)) {
+			return normalizedIdentifier;
+		}
+		const result = await convexClient.query(api.auth.resolveAuthIdentifier, {
+			identifier: normalizedIdentifier
+		});
+		return result.email;
+	};
+
 	const goToSignIn = async () => {
 		await goto(signInHref, { replaceState: true });
 	};
 
 	const requestReset = async () => {
-		pending = true;
 		errorMessage = '';
-		const redirectTo = new URL('/auth/reset-password', window.location.origin);
-		redirectTo.searchParams.set('next', nextPath);
-		if (isParentResetFlow) {
-			redirectTo.searchParams.set('parent', '1');
+		pending = true;
+		try {
+			const resolvedEmail = await resolveIdentifierEmail(identifier);
+			if (!resolvedEmail) {
+				errorMessage = 'Enter a valid username or email.';
+				return;
+			}
+			const redirectTo = new URL('/auth/reset-password', window.location.origin);
+			redirectTo.searchParams.set('next', nextPath);
+			if (isParentResetFlow) {
+				redirectTo.searchParams.set('parent', '1');
+			}
+			const { error } = await authClient.requestPasswordReset({
+				email: resolvedEmail,
+				redirectTo: redirectTo.toString()
+			});
+			if (error) {
+				errorMessage = error.message ?? 'Could not send reset email.';
+				return;
+			}
+			requestSent = true;
+		} catch (error) {
+			errorMessage =
+				error instanceof Error ? error.message : 'Could not send reset email.';
+		} finally {
+			pending = false;
 		}
-		const { error } = await authClient.requestPasswordReset({
-			email: email.trim(),
-			redirectTo: redirectTo.toString()
-		});
-		pending = false;
-		if (error) {
-			errorMessage = error.message ?? 'Could not send reset email.';
-			return;
-		}
-		requestSent = true;
 	};
 
 	const updatePassword = async () => {
@@ -226,14 +257,14 @@
 
 					<Field class="flex flex-col gap-2">
 						<FieldLabel for="resetEmail" required class="type-field-label text-gray-900">
-							Username/Email
+							Username or email
 						</FieldLabel>
 						<Input
 							id="resetEmail"
-							type="email"
-							bind:value={email}
-							autocomplete="email"
-							placeholder="john.doe@gmail.com"
+							type="text"
+							bind:value={identifier}
+							autocomplete="username"
+							placeholder="Enter your username or email"
 							class="h-12 border-gray-300 bg-white px-4 text-base"
 						/>
 					</Field>
@@ -251,7 +282,7 @@
 						variant="default"
 						size="xl"
 						class="h-12 w-full"
-						disabled={pending || !email.trim()}
+						disabled={pending || !identifier.trim()}
 						onclick={() => void requestReset()}
 					>
 						{pending ? 'Sending...' : 'Reset password'}

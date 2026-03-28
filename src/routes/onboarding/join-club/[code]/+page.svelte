@@ -25,6 +25,7 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let videoLoadFailed = $state(false);
+	let forcedGoogleSignupRecoveryPending = $state(false);
 
 	const isValidVideoUrl = (value: string | null | undefined) => {
 		if (!value) return false;
@@ -47,10 +48,19 @@
 
 	$effect(() => {
 		if (!browser) return;
-		if (auth.isLoading || !auth.isAuthenticated) return;
 		const currentPath = `/onboarding/join-club/${data.code}`;
 		const pendingPath = sessionStorage.getItem(FORCE_SIGNUP_GOOGLE_PENDING_KEY);
-		if (pendingPath !== currentPath) return;
+		if (pendingPath !== currentPath) {
+			forcedGoogleSignupRecoveryPending = false;
+			return;
+		}
+		forcedGoogleSignupRecoveryPending = auth.isLoading || auth.isAuthenticated;
+		if (auth.isLoading) return;
+		if (!auth.isAuthenticated) {
+			sessionStorage.removeItem(FORCE_SIGNUP_GOOGLE_PENDING_KEY);
+			forcedGoogleSignupRecoveryPending = false;
+			return;
+		}
 		sessionStorage.removeItem(FORCE_SIGNUP_GOOGLE_PENDING_KEY);
 		void (async () => {
 			await authClient.signOut();
@@ -133,6 +143,13 @@
 				<Button href="/onboarding/join-club" variant="outline" size="xl" class="h-12 w-full">
 					Enter another code
 				</Button>
+			</div>
+		{:else if forcedGoogleSignupRecoveryPending}
+			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
+				<h1 class="text-2xl font-bold text-gray-900">Checking your account…</h1>
+				<p class="text-base text-gray-600">
+					We&apos;re returning you to sign up so you can continue from the same step.
+				</p>
 			</div>
 		{:else}
 			<div class="flex flex-col gap-5">
