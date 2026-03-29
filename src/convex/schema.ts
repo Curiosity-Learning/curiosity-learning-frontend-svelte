@@ -44,6 +44,8 @@ export default defineSchema({
 		name: v.string(),
 		clubCode: v.optional(v.string()),
 		location: v.optional(v.string()),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number()),
 		description: v.optional(v.string()),
 		time: v.optional(v.number()),
 		videoStorageId: v.optional(v.id('_storage')),

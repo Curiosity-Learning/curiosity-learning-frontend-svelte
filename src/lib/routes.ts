@@ -1,5 +1,7 @@
 export const routes = {
 	onboardingGetStarted: '/onboarding/get-started',
+	onboardingJoinClub: '/onboarding/join-club',
+	onboardingPublicClubs: '/onboarding/join-club/public-clubs',
 	feed: '/feed',
 	feedMyClubs: '/feed/my-clubs',
 	feedGlobal: '/feed/global',
