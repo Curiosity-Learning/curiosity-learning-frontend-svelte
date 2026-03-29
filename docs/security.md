@@ -69,6 +69,18 @@ All require auth + club permission via `requirePermission`:
 | `updates.attachFiles`  | Yes  | `project:update`  |                                                 |
 | `updates.listFiles`    | Yes  | —                 | **Gap:** only checks auth, not project scope    |
 
+### Media Delivery
+
+| Endpoint                          | Auth | Permission        | Notes                                                        |
+| --------------------------------- | ---- | ----------------- | ------------------------------------------------------------ |
+| `media.beginUpload/finalize/cancel/retry/getUpload/listMyUploads` | Yes | owner-scoped | Upload control plane is always scoped to the asset owner     |
+| `POST /api/media/refresh` (`owned`)   | Yes | owner-scoped       | Mints signed URLs only for caller-owned ready assets         |
+| `POST /api/media/refresh` (`project`) | Yes | `project:update`   | Uses `updates.getProjectDeliveryAssets`; currently manager-scoped |
+
+Notes:
+- Client upload constraints sent to Convex must stay limited to the backend validator shape (`acceptedContentTypes`, `maxBytes`, processing flags). UI helpers such as HTML `accept` strings are client-only metadata and must not be forwarded through `media.beginUpload`.
+- Signed delivery is URL-based via `/api/media/refresh`; the app no longer relies on a shared `/media/[assetId]` route or CloudFront signed cookies.
+
 ### Preferences / Notifications / Privacy
 
 | Endpoint                     | Auth | Permission | Notes                                     |

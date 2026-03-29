@@ -10,7 +10,8 @@ export type FileRejectedReason =
 export type FileDropZoneRootPropsWithoutHTML = WithChildren<{
 	ref?: HTMLInputElement | null;
 	id?: string;
-	/** Called with the uploaded files when the user drops or clicks and selects their files.
+	/** Called with the accepted files when the user drops or selects them.
+	 * Feature code is responsible for the actual upload step.
 	 *
 	 * @param files
 	 */

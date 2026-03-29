@@ -1026,6 +1026,86 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+### Fix: Separate UI Upload Constraints From Convex Request Constraints
+
+- Root cause of the Convex upload validation failure was a contract mix-up in `src/lib/media/upload-manager.svelte.ts`.
+- The shared manager was building one constraint object for both:
+  - UI/drop-zone metadata (`accept`)
+  - backend `media.beginUpload` request args
+- Added an explicit split between:
+  - backend-safe request constraints
+  - UI constraints enriched with `accept`
+- `media.beginUpload` now receives only the fields covered by the Convex validator, while `FileDropZone` still uses the derived `accept` string for browser-side filtering.
+- Added small boundary comments in the shared upload manager and `FileDropZone` internals so this contract does not drift again.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Refactor: Shared Client Media Upload Manager
+
+- Added `src/lib/media/upload-manager.svelte.ts` as the reusable client-side orchestration layer for the shared media pipeline.
+- The manager now owns:
+  - upload constraint normalization for drop zones,
+  - `beginUpload -> direct upload -> finalizeUpload`,
+  - retry and cancel helpers,
+  - local preview lifecycle,
+  - recent upload run state for debug or feature UI.
+- Updated `src/routes/(app)/settings/media-upload-dev/+page.svelte` to use the shared manager instead of a page-local upload state machine, so the dev page now acts as the reference integration.
+- Hardened `src/lib/components/ui/file-drop-zone/file-drop-zone.svelte.ts` so failed consumer uploads do not leave the control stuck in an uploading state, and pasted files now respect the same disabled/capacity gate as drag/drop.
+- Clarified `src/lib/components/ui/file-drop-zone/types.ts` docs so `onUpload(files)` is documented as accepted-file handoff, not completed upload behavior.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+ 
+## 2026-03-29
+ 
+### Dev Media: Manual Debug Console
+ 
+- Extended `src/routes/(app)/settings/media-upload-dev/+page.svelte` with a debug console for manual validation.
+- The page now exposes:
+  - auth readiness state,
+  - live `listMyUploads` / `getUpload` query state,
+  - manual snapshot probes for uploads, selected asset detail, and signed delivery,
+  - probe history rendered as JSON for quick inspection during browser testing.
+- This keeps the media verification workflow manual-first without requiring automated test scaffolding.
+ 
+## 2026-03-29
+ 
+### Dev Media: On-Demand Embedded Delivery Preview
+ 
+- Extended `src/routes/(app)/settings/media-upload-dev/+page.svelte` with a safer delivery-verification path for ready assets.
+- The page still uses immediate local browser previews during upload attempts, but processed private media is now embedded only on demand through `Load embedded preview`.
+- The embedded preview fetches a signed URL only when explicitly requested for the selected ready asset, then renders:
+  - `<img>` for images
+  - `<video controls>` for videos
+  - `<iframe>` for PDF/text/JSON-like assets
+- The page now shows the signed delivery expiry timestamp next to the embedded preview so short-lived URL behavior can be checked manually without reintroducing the earlier reactive preview regression.
+ 
+## 2026-03-29
+ 
+### Dev Media: Local Preview + Ready-State Test Flow
+ 
+- Updated `src/routes/(app)/settings/media-upload-dev/+page.svelte` to show an immediate local preview for dropped image/video files using browser object URLs.
+- Kept the private processed asset out of the page body after the earlier inline signed-preview regression.
+- Recent upload attempts now make the intended flow clearer:
+  - local preview appears immediately,
+  - upload/finalize progress remains visible,
+  - `Ready to use` appears once processing is complete.
+- Kept signed delivery verification on explicit `Open file` / `Open ready file` actions instead of auto-embedding the processed private asset.
+
+### Secure Media Delivery Pivot: CloudFront Signed URLs
+
+- Replaced the CloudFront signed-cookie delivery scaffolding with server-minted CloudFront signed URLs.
+- Added `src/routes/api/media/refresh/+server.ts` as the shared signed URL refresh endpoint for authorized media contexts.
+- Added `src/lib/media/signed-media.svelte.ts` to centralize client-side signed URL refresh timing and reuse.
+- Removed the canonical `/media/[assetId]` redirect route and the `routes.mediaAsset(...)` helper.
+- Updated the media upload dev page to open ready assets through signed URL refresh instead of the old route contract.
+- Added owner-scoped and project-scoped delivery resolvers so signed URLs are minted only after context-specific checks.
+- Added `mediaAssetIds` to project updates and rendered project update attachments through short-lived signed URLs with automatic refresh.
+- Extended media asset metadata with optional `durationSeconds` so video delivery TTL can become duration-aware without changing the public asset identifier contract.
+
 ## 2026-03-29
 
 ### Feature: App-Level Media Read Route
@@ -1325,3 +1405,4 @@
 ### Run: Validation
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+ 

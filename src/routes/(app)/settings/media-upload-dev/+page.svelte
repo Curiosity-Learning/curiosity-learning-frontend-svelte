@@ -17,84 +17,68 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { requestSignedMediaUrls } from '$lib/media/signed-media.svelte';
+	import {
+		createMediaUploadManager,
+		describeMediaUploadConstraints,
+		mediaUploadPresets,
+		type MediaUploadPreset
+	} from '$lib/media/upload-manager.svelte';
 	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
-	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
+	import { onDestroy } from 'svelte';
 
 	type UploadStatus = 'pending_upload' | 'processing' | 'ready' | 'failed' | 'canceled';
 	type UploadFilter = 'all' | UploadStatus;
-	type UploadPreset = 'images' | 'videos' | 'mixed';
 
-	type UploadDescriptor = {
-		provider: string;
-		method: 'PUT' | 'POST';
-		url: string;
-		headers?: Record<string, string>;
-		fields?: Record<string, string>;
-		objectKey: string;
-		uploadToken?: string;
+	type DeliveryPreview = {
+		assetId: Id<'mediaAssets'>;
+		signedUrl: string;
+		contentType: string | null;
+		mediaKind: string | null;
+		expiresAt: number;
 	};
 
-	type UploadRun = {
-		id: string;
-		fileName: string;
-		assetId?: Id<'mediaAssets'>;
-		status:
-			| 'starting'
-			| 'uploading'
-			| 'waiting_to_finalize'
-			| 'finalizing'
-			| 'completed'
-			| 'failed';
-		message: string;
-		objectKey?: string;
+	type DebugProbe = {
+		label: string;
+		at: string;
+		payload: string;
 	};
 
-	const IMAGE_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-	const VIDEO_CONTENT_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'];
-
-	const presetConfig: Record<
-		UploadPreset,
-		{
-			label: string;
-			acceptedContentTypes: string[];
-			maxBytesMb: number;
-		}
-	> = {
-		images: {
-			label: 'Images',
-			acceptedContentTypes: IMAGE_CONTENT_TYPES,
-			maxBytesMb: 20
-		},
-		videos: {
-			label: 'Videos',
-			acceptedContentTypes: VIDEO_CONTENT_TYPES,
-			maxBytesMb: 250
-		},
-		mixed: {
-			label: 'Mixed media',
-			acceptedContentTypes: [...IMAGE_CONTENT_TYPES, ...VIDEO_CONTENT_TYPES],
-			maxBytesMb: 250
-		}
-	};
-
+	const presetConfig = mediaUploadPresets;
 	const convexClient = useConvexClient();
+	const auth = useAuth();
+	const uploadManager = createMediaUploadManager(convexClient, {
+		maxRecentRuns: 10
+	});
 
 	const uploadsResponse = useStableQuery(api.media.listMyUploads, {});
 
 	let filter = $state<UploadFilter>('all');
 	let manualSelectedAssetId = $state<Id<'mediaAssets'> | null>(null);
-	let pending = $state(false);
 	let autoFinalize = $state(true);
 	let deleteStorageOnCancel = $state(true);
-	let errorMessage = $state('');
-	let successMessage = $state('');
-	let recentRuns = $state<UploadRun[]>([]);
+	let pageErrorMessage = $state('');
+	let pageSuccessMessage = $state('');
+	let deliveryPreviewAssetId = $state<Id<'mediaAssets'> | null>(null);
+	let deliveryPreview = $state<DeliveryPreview | null>(null);
+	let deliveryPreviewPending = $state(false);
+	let deliveryPreviewError = $state('');
+	let debugProbePending = $state<string | null>(null);
+	let debugProbes = $state<DebugProbe[]>([]);
 
-	let constraintForm = $state({
-		preset: 'mixed' as UploadPreset,
+	let constraintForm = $state<{
+		preset: MediaUploadPreset;
+		acceptedContentTypes: string;
+		maxBytesMb: number;
+		enableCompression: boolean;
+		enableSafetyScreening: boolean;
+	}>({
+		preset: 'mixed' as MediaUploadPreset,
 		acceptedContentTypes: presetConfig.mixed.acceptedContentTypes.join(', '),
 		maxBytesMb: presetConfig.mixed.maxBytesMb,
 		enableCompression: true,
@@ -123,7 +107,34 @@
 		return new Date(value).toLocaleString();
 	};
 
-	const applyPreset = (preset: UploadPreset) => {
+	const formatSignedExpiry = (value?: number | null) =>
+		value ? new Date(value * 1000).toLocaleString() : 'Not recorded';
+
+	const formatDebugPayload = (value: unknown) => JSON.stringify(value, null, 2);
+
+	const isDeliveryVideo = (preview: DeliveryPreview | null) =>
+		Boolean(preview && (preview.mediaKind === 'video' || preview.contentType?.startsWith('video/')));
+
+	const isDeliveryImage = (preview: DeliveryPreview | null) =>
+		Boolean(preview && (preview.mediaKind === 'image' || preview.contentType?.startsWith('image/')));
+
+	const supportsInlineDeliveryFrame = (preview: DeliveryPreview | null) => {
+		const contentType = preview?.contentType?.toLowerCase() ?? '';
+		return (
+			contentType === 'application/pdf' ||
+			contentType.startsWith('text/') ||
+			contentType.endsWith('+json') ||
+			contentType === 'application/json'
+		);
+	};
+
+	const clearFeedback = () => {
+		pageErrorMessage = '';
+		pageSuccessMessage = '';
+		uploadManager.clearFeedback();
+	};
+
+	const applyPreset = (preset: MediaUploadPreset) => {
 		const config = presetConfig[preset];
 		constraintForm.preset = preset;
 		constraintForm.acceptedContentTypes = config.acceptedContentTypes.join(', ');
@@ -132,15 +143,21 @@
 
 	const currentAcceptedContentTypes = $derived(parseAcceptedContentTypes(constraintForm.acceptedContentTypes));
 
-	const currentConstraints = $derived.by(() => ({
-		acceptedContentTypes: currentAcceptedContentTypes,
-		maxBytes: Math.max(1, Math.floor((Number(constraintForm.maxBytesMb) || 1) * 1024 * 1024)),
-		enableCompression: constraintForm.enableCompression,
-		enableSafetyScreening: constraintForm.enableSafetyScreening
-	}));
+	const currentConstraints = $derived.by(() =>
+		describeMediaUploadConstraints({
+			acceptedContentTypes: currentAcceptedContentTypes,
+			maxBytes: Math.max(1, Math.floor((Number(constraintForm.maxBytesMb) || 1) * 1024 * 1024)),
+			enableCompression: constraintForm.enableCompression,
+			enableSafetyScreening: constraintForm.enableSafetyScreening
+		})
+	);
 
-	const uploadAccept = $derived(currentAcceptedContentTypes.join(','));
+	const uploadAccept = $derived(currentConstraints.accept);
 	const maxBytesLabel = $derived(formatBytes(currentConstraints.maxBytes));
+	const pending = $derived(uploadManager.isUploading);
+	const errorMessage = $derived(pageErrorMessage || uploadManager.errorMessage);
+	const successMessage = $derived(pageSuccessMessage || uploadManager.successMessage);
+	const recentRuns = $derived(uploadManager.recentRuns);
 	const uploads = $derived(uploadsResponse.data ?? []);
 	const filteredUploads = $derived.by(() =>
 		filter === 'all' ? uploads : uploads.filter((upload) => upload.status === filter)
@@ -180,196 +197,211 @@
 		selectedAssetResponse.data ??
 			(selectedAssetId ? uploads.find((upload) => upload.assetId === selectedAssetId) ?? null : null)
 	);
+	const selectedDeliveryPreview = $derived(
+		selectedAsset && deliveryPreview?.assetId === selectedAsset.assetId ? deliveryPreview : null
+	);
+	const selectedDeliveryPreviewPending = $derived(
+		Boolean(selectedAsset && deliveryPreviewAssetId === selectedAsset.assetId && deliveryPreviewPending)
+	);
+	const selectedDeliveryPreviewError = $derived(
+		selectedAsset && deliveryPreviewAssetId === selectedAsset.assetId ? deliveryPreviewError : ''
+	);
+	const liveDebugState = $derived.by(() => ({
+		auth: {
+			isLoading: auth.isLoading,
+			isAuthenticated: auth.isAuthenticated
+		},
+		page: {
+			filter,
+			pending,
+			autoFinalize,
+			selectedAssetId,
+			manualSelectedAssetId
+		},
+		uploadManager: {
+			recentRuns: recentRuns.length,
+			lastUploadedAssetId: uploadManager.lastUploadedAssetId
+		},
+		uploadsQuery: {
+			isLoading: uploadsResponse.isLoading,
+			error: uploadsResponse.error?.message ?? null,
+			count: uploads.length
+		},
+		selectedQuery: {
+			isLoading: selectedAssetResponse.isLoading,
+			error: selectedAssetResponse.error?.message ?? null,
+			assetId: selectedAsset?.assetId ?? null,
+			status: selectedAsset?.status ?? null
+		},
+		deliveryPreview: {
+			pending: selectedDeliveryPreviewPending,
+			error: selectedDeliveryPreviewError || null,
+			assetId: selectedDeliveryPreview?.assetId ?? null,
+			expiresAt: selectedDeliveryPreview?.expiresAt ?? null
+		}
+	}));
 
 	const selectedAssetJson = $derived(selectedAsset ? JSON.stringify(selectedAsset, null, 2) : '');
 
-	const pushRun = (run: UploadRun) => {
-		recentRuns = [run, ...recentRuns].slice(0, 10);
-	};
-
-	const patchRun = (id: string, patch: Partial<UploadRun>) => {
-		recentRuns = recentRuns.map((run) => (run.id === id ? { ...run, ...patch } : run));
-	};
-
-	const compactWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
-
-	const truncate = (value: string, maxLength = 240) =>
-		value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
-
-	const buildUploadFailureMessage = async (response: Response) => {
-		const suffix = response.statusText ? ` ${response.statusText}` : '';
-		const rawBody = compactWhitespace(await response.text());
-		const xmlCode = rawBody.match(/<Code>([^<]+)<\/Code>/)?.[1];
-		const xmlMessage = rawBody.match(/<Message>([^<]+)<\/Message>/)?.[1];
-		const xmlRequestId = rawBody.match(/<RequestId>([^<]+)<\/RequestId>/)?.[1];
-		const detail =
-			[xmlCode, xmlMessage, xmlRequestId ? `RequestId ${xmlRequestId}` : null]
-				.filter(Boolean)
-				.join(' | ') || truncate(rawBody);
-
-		return detail
-			? `Upload failed (${response.status}${suffix}): ${detail}`
-			: `Upload failed (${response.status}${suffix})`;
-	};
-
-	const normalizeUploadErrorMessage = (error: unknown) => {
-		if (error instanceof Error) {
-			if (error instanceof TypeError) {
-				return `${error.message}. The browser did not get a usable S3 response. Check bucket CORS, the presigned URL region, and network access to S3.`;
-			}
-
-			return error.message;
-		}
-
-		return 'Upload failed.';
-	};
-
-	const uploadFileToDescriptor = async (file: File, upload: UploadDescriptor) => {
-		if (upload.method === 'POST') {
-			const formData = new FormData();
-			for (const [key, value] of Object.entries(upload.fields ?? {})) {
-				formData.append(key, value);
-			}
-			formData.append('file', file);
-
-			const response = await fetch(upload.url, {
-				method: 'POST',
-				body: formData
-			});
-
-			if (!response.ok) {
-				throw new Error(await buildUploadFailureMessage(response));
-			}
-
-			return;
-		}
-
-		const response = await fetch(upload.url, {
-			method: upload.method,
-			headers: {
-				...(upload.headers ?? {}),
-				...(!upload.headers?.['content-type'] && file.type ? { 'content-type': file.type } : {})
+	const pushDebugProbe = (label: string, payload: unknown) => {
+		debugProbes = [
+			{
+				label,
+				at: new Date().toLocaleString(),
+				payload: formatDebugPayload(payload)
 			},
-			body: file
-		});
-
-		if (!response.ok) {
-			throw new Error(await buildUploadFailureMessage(response));
-		}
+			...debugProbes
+		].slice(0, 8);
 	};
+
+	onDestroy(() => {
+		uploadManager.destroy();
+	});
 
 	const beginAndUploadFiles = async (files: File[]) => {
-		if (!currentAcceptedContentTypes.length) {
-			errorMessage = 'Add at least one accepted content type before uploading.';
-			return;
-		}
-
-		pending = true;
-		errorMessage = '';
-		successMessage = '';
-
-		try {
-			for (const file of files) {
-				const runId = crypto.randomUUID();
-				pushRun({
-					id: runId,
-					fileName: file.name,
-					status: 'starting',
-					message: 'Creating upload session...'
-				});
-
-				try {
-					const beginResult = await convexClient.action(api.media.beginUpload, {
-						constraints: currentConstraints,
-						originalFilename: file.name,
-						clientContentType: file.type || undefined,
-						clientSizeBytes: file.size
-					});
-
-					patchRun(runId, {
-						assetId: beginResult.asset.assetId,
-						objectKey: beginResult.upload.objectKey,
-						status: 'uploading',
-						message: `Uploading ${file.name} to ${beginResult.upload.provider}...`
-					});
-
-					await uploadFileToDescriptor(file, beginResult.upload as UploadDescriptor);
-					manualSelectedAssetId = beginResult.asset.assetId;
-
-					if (autoFinalize) {
-						patchRun(runId, {
-							status: 'finalizing',
-							message: 'Upload complete. Finalizing asset...'
-						});
-						await convexClient.action(api.media.finalizeUpload, {
-							assetId: beginResult.asset.assetId
-						});
-						patchRun(runId, {
-							status: 'completed',
-							message: 'Upload finalized and queued for processing.'
-						});
-					} else {
-						patchRun(runId, {
-							status: 'waiting_to_finalize',
-							message: 'Binary upload finished. Use Finalize to start processing.'
-						});
-					}
-				} catch (error) {
-					const message = normalizeUploadErrorMessage(error);
-					errorMessage = message;
-					patchRun(runId, {
-						status: 'failed',
-						message
-					});
-				}
+		clearFeedback();
+		await uploadManager.uploadFiles(files, {
+			constraints: currentConstraints,
+			autoFinalize,
+			onAssetSelected: (assetId) => {
+				manualSelectedAssetId = assetId;
 			}
-
-			successMessage = autoFinalize
-				? 'Upload batch completed. Review processing state below.'
-				: 'Upload batch sent. Finalize pending uploads when you are ready.';
-		} finally {
-			pending = false;
-		}
+		});
 	};
 
 	const finalizeAsset = async (assetId: Id<'mediaAssets'>) => {
-		errorMessage = '';
-		successMessage = '';
-		try {
-			manualSelectedAssetId = assetId;
-			await convexClient.action(api.media.finalizeUpload, { assetId });
-			successMessage = 'Upload finalized and queued for processing.';
-		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to finalize upload.';
-		}
+		clearFeedback();
+		manualSelectedAssetId = assetId;
+		await uploadManager.finalizeAsset(assetId);
 	};
 
 	const retryAsset = async (assetId: Id<'mediaAssets'>) => {
-		errorMessage = '';
-		successMessage = '';
-		try {
-			manualSelectedAssetId = assetId;
-			await convexClient.mutation(api.media.retryProcessing, { assetId });
-			successMessage = 'Retry queued.';
-		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to retry processing.';
-		}
+		clearFeedback();
+		manualSelectedAssetId = assetId;
+		await uploadManager.retryAsset(assetId);
 	};
 
 	const cancelAsset = async (assetId: Id<'mediaAssets'>) => {
-		errorMessage = '';
-		successMessage = '';
+		clearFeedback();
+		manualSelectedAssetId = assetId;
+		await uploadManager.cancelAsset(assetId, {
+			deleteStorage: deleteStorageOnCancel
+		});
+	};
+
+	const openSignedAsset = async (assetId: Id<'mediaAssets'>) => {
+		clearFeedback();
+
 		try {
-			manualSelectedAssetId = assetId;
-			await convexClient.action(api.media.cancelUpload, {
-				assetId,
-				deleteStorage: deleteStorageOnCancel
+			const assets = await requestSignedMediaUrls({
+				assetIds: [assetId],
+				context: {
+					kind: 'owned'
+				}
 			});
-			successMessage = deleteStorageOnCancel
-				? 'Upload canceled and storage cleaned up.'
-				: 'Upload canceled without deleting storage.';
+			const asset = assets[0];
+			if (!asset) {
+				throw new Error('No signed URL is available for this asset yet.');
+			}
+
+			window.open(asset.signedUrl, '_blank', 'noopener,noreferrer');
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to cancel upload.';
+			pageErrorMessage = error instanceof Error ? error.message : 'Unable to open media asset.';
+		}
+	};
+
+	const loadDeliveryPreview = async (assetId: Id<'mediaAssets'>) => {
+		clearFeedback();
+		deliveryPreviewAssetId = assetId;
+		deliveryPreview = null;
+		deliveryPreviewPending = true;
+		deliveryPreviewError = '';
+
+		try {
+			const assets = await requestSignedMediaUrls({
+				assetIds: [assetId],
+				context: {
+					kind: 'owned'
+				}
+			});
+			const asset = assets[0];
+			if (!asset) {
+				throw new Error('No signed URL is available for this asset yet.');
+			}
+
+			deliveryPreview = {
+				assetId,
+				signedUrl: asset.signedUrl,
+				contentType: asset.contentType,
+				mediaKind: asset.mediaKind,
+				expiresAt: asset.expiresAt
+			};
+		} catch (error) {
+			deliveryPreview = null;
+			deliveryPreviewError =
+				error instanceof Error ? error.message : 'Unable to load embedded delivery preview.';
+		} finally {
+			deliveryPreviewPending = false;
+		}
+	};
+
+	const probeUploadsSnapshot = async () => {
+		debugProbePending = 'uploads';
+		try {
+			const snapshot = await convexClient.query(api.media.listMyUploads, {});
+			pushDebugProbe('Uploads snapshot', {
+				count: snapshot.length,
+				uploads: snapshot.map((upload) => ({
+					assetId: upload.assetId,
+					status: upload.status,
+					updatedAt: upload.updatedAt
+				}))
+			});
+		} catch (error) {
+			pushDebugProbe('Uploads snapshot error', {
+				message: error instanceof Error ? error.message : 'Unknown error'
+			});
+		} finally {
+			debugProbePending = null;
+		}
+	};
+
+	const probeSelectedSnapshot = async () => {
+		if (!selectedAssetId) return;
+		debugProbePending = 'selected';
+		try {
+			const snapshot = await convexClient.query(api.media.getUpload, {
+				assetId: selectedAssetId
+			});
+			pushDebugProbe('Selected asset snapshot', snapshot);
+		} catch (error) {
+			pushDebugProbe('Selected asset snapshot error', {
+				assetId: selectedAssetId,
+				message: error instanceof Error ? error.message : 'Unknown error'
+			});
+		} finally {
+			debugProbePending = null;
+		}
+	};
+
+	const probeDeliverySnapshot = async () => {
+		if (!selectedAsset || selectedAsset.status !== 'ready') return;
+		debugProbePending = 'delivery';
+		try {
+			const assets = await requestSignedMediaUrls({
+				assetIds: [selectedAsset.assetId],
+				context: {
+					kind: 'owned'
+				}
+			});
+			pushDebugProbe('Signed delivery snapshot', assets);
+		} catch (error) {
+			pushDebugProbe('Signed delivery snapshot error', {
+				assetId: selectedAsset.assetId,
+				message: error instanceof Error ? error.message : 'Unknown error'
+			});
+		} finally {
+			debugProbePending = null;
 		}
 	};
 </script>
@@ -408,6 +440,89 @@
 			</CardContent>
 		</Card>
 
+		<Card>
+			<CardHeader class="flex flex-col gap-2">
+				<CardTitle>Debug Console</CardTitle>
+				<CardDescription>
+					Inspect auth, live query state, and manual backend snapshots while you test the media flow.
+				</CardDescription>
+			</CardHeader>
+			<CardContent class="flex flex-col gap-4">
+				<div class="flex flex-wrap gap-2">
+					<Badge variant="outline">Auth: {auth.isAuthenticated ? 'authenticated' : 'unauthenticated'}</Badge>
+					<Badge variant="outline">Auth loading: {auth.isLoading ? 'yes' : 'no'}</Badge>
+					<Badge variant="outline">Uploads query: {uploadsResponse.isLoading ? 'loading' : 'settled'}</Badge>
+					<Badge variant="outline">
+						Selected query: {selectedAssetResponse.isLoading ? 'loading' : 'settled'}
+					</Badge>
+				</div>
+
+				<div class="flex flex-wrap gap-2">
+					<Button
+						size="sm"
+						variant="outline"
+						onclick={() => void probeUploadsSnapshot()}
+						disabled={debugProbePending !== null}
+					>
+						{debugProbePending === 'uploads' ? 'Probing uploads...' : 'Probe uploads snapshot'}
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						onclick={() => void probeSelectedSnapshot()}
+						disabled={!selectedAssetId || debugProbePending !== null}
+					>
+						{debugProbePending === 'selected' ? 'Probing selected...' : 'Probe selected snapshot'}
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						onclick={() => void probeDeliverySnapshot()}
+						disabled={!selectedAsset || selectedAsset.status !== 'ready' || debugProbePending !== null}
+					>
+						{debugProbePending === 'delivery' ? 'Probing delivery...' : 'Probe signed delivery'}
+					</Button>
+					<Button
+						size="sm"
+						variant="ghost"
+						onclick={() => {
+							debugProbes = [];
+						}}
+						disabled={!debugProbes.length}
+					>
+						Clear probe history
+					</Button>
+				</div>
+
+				<div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+					<div class="flex flex-col gap-2">
+						<p class="text-sm font-medium">Live state</p>
+						<pre class="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">{formatDebugPayload(liveDebugState)}</pre>
+					</div>
+					<div class="flex flex-col gap-2">
+						<p class="text-sm font-medium">Probe history</p>
+						{#if !debugProbes.length}
+							<div class="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+								No probes yet.
+							</div>
+						{:else}
+							<div class="flex flex-col gap-3">
+								{#each debugProbes as probe, index (`${probe.label}-${probe.at}-${index}`)}
+									<div class="flex flex-col gap-2 rounded-md border border-border p-3">
+										<div class="flex flex-wrap items-center gap-2">
+											<p class="text-sm font-medium">{probe.label}</p>
+											<Badge variant="outline">{probe.at}</Badge>
+										</div>
+										<pre class="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">{probe.payload}</pre>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+			</CardContent>
+		</Card>
+
 	<div class="flex flex-col gap-6">
 		<Card>
 			<CardHeader class="flex flex-col gap-2">
@@ -424,7 +539,7 @@
 							<Button
 								variant={constraintForm.preset === presetKey ? 'default' : 'outline'}
 								size="sm"
-								onclick={() => applyPreset(presetKey as UploadPreset)}
+								onclick={() => applyPreset(presetKey as MediaUploadPreset)}
 							>
 								{preset.label}
 							</Button>
@@ -511,7 +626,30 @@
 											{#if run.assetId}
 												<Badge variant="outline">{run.assetId}</Badge>
 											{/if}
+											{#if run.status === 'completed'}
+												<Badge>Ready to use</Badge>
+											{/if}
 										</div>
+										{#if run.previewUrl && run.previewKind}
+											<div class="overflow-hidden rounded-md border border-border bg-muted/20">
+												{#if run.previewKind === 'image'}
+													<img
+														src={run.previewUrl}
+														alt={`Local preview for ${run.fileName}`}
+														class="aspect-video w-full bg-background object-contain"
+													/>
+												{:else if run.previewKind === 'video'}
+													<!-- svelte-ignore a11y_media_has_caption -->
+													<video
+														src={run.previewUrl}
+														controls
+														muted
+														preload="metadata"
+														class="aspect-video w-full bg-black object-contain"
+													></video>
+												{/if}
+											</div>
+										{/if}
 										<p class="text-sm text-muted-foreground">{run.message}</p>
 										{#if run.objectKey}
 											<p class="break-all text-xs text-muted-foreground">{run.objectKey}</p>
@@ -556,6 +694,11 @@
 
 				{#if uploadsResponse.isLoading}
 					<p class="text-sm text-muted-foreground">Loading uploads...</p>
+				{:else if uploadsResponse.error}
+					<Alert variant="destructive">
+						<AlertTitle>Unable to load uploads</AlertTitle>
+						<AlertDescription>{uploadsResponse.error.message}</AlertDescription>
+					</Alert>
 				{:else if !filteredUploads.length}
 					<p class="text-sm text-muted-foreground">No uploads match the current filter yet.</p>
 				{:else}
@@ -596,12 +739,11 @@
 												Cancel
 											</Button>
 										{/if}
-										{#if upload.fileUrl}
+										{#if upload.status === 'ready'}
 											<Button
 												size="sm"
 												variant="ghost"
-												href={routes.mediaAsset(upload.assetId)}
-												target="_blank"
+												onclick={() => void openSignedAsset(upload.assetId)}
 											>
 												Open file
 											</Button>
@@ -632,14 +774,19 @@
 			<CardContent class="flex flex-col gap-4">
 				{#if selectedAssetResponse.isLoading && selectedAssetId}
 					<p class="text-sm text-muted-foreground">Loading selected upload...</p>
+				{:else if selectedAssetResponse.error}
+					<Alert variant="destructive">
+						<AlertTitle>Unable to load selected upload</AlertTitle>
+						<AlertDescription>{selectedAssetResponse.error.message}</AlertDescription>
+					</Alert>
 				{:else if selectedAsset}
 					<div class="flex flex-wrap gap-2">
 						<Badge variant="outline">{selectedAsset.assetId}</Badge>
-						<Badge variant="outline">{selectedAsset.status}</Badge>
-						{#if selectedAsset.mediaKind}
-							<Badge variant="outline">{selectedAsset.mediaKind}</Badge>
-						{/if}
-					</div>
+							<Badge variant="outline">{selectedAsset.status}</Badge>
+							{#if selectedAsset.mediaKind}
+								<Badge variant="outline">{selectedAsset.mediaKind}</Badge>
+							{/if}
+						</div>
 
 					<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
 						<div class="flex flex-col gap-2 rounded-md border border-border p-3">
@@ -650,15 +797,28 @@
 							<p class="break-all text-sm text-muted-foreground">
 								Processed: {selectedAsset.processedBucket ?? 'n/a'} / {selectedAsset.processedObjectKey ?? 'n/a'}
 							</p>
-							{#if selectedAsset.fileUrl}
-								<Button
-									size="sm"
-									variant="outline"
-									href={routes.mediaAsset(selectedAsset.assetId)}
-									target="_blank"
-								>
-									Open ready file
-								</Button>
+							{#if selectedAsset.status === 'ready'}
+								<div class="flex flex-wrap gap-2">
+									<Button
+										size="sm"
+										variant="outline"
+										onclick={() => void openSignedAsset(selectedAsset.assetId)}
+									>
+										Open ready file
+									</Button>
+									<Button
+										size="sm"
+										variant="secondary"
+										onclick={() => void loadDeliveryPreview(selectedAsset.assetId)}
+										disabled={selectedDeliveryPreviewPending}
+									>
+										{selectedDeliveryPreviewPending && selectedAsset.assetId !== selectedDeliveryPreview?.assetId
+											? 'Loading preview...'
+											: selectedDeliveryPreview
+												? 'Refresh embedded preview'
+												: 'Load embedded preview'}
+									</Button>
+								</div>
 							{/if}
 						</div>
 
@@ -673,6 +833,76 @@
 					</div>
 
 					<Separator />
+
+					{#if selectedAsset.status === 'ready'}
+						<div class="flex flex-col gap-3">
+							<p class="text-sm font-medium">Embedded delivery preview</p>
+							<div class="overflow-hidden rounded-md border border-border bg-muted/20">
+								{#if selectedDeliveryPreviewPending && !selectedDeliveryPreview}
+									<div class="flex aspect-video items-center justify-center p-4">
+										<p class="text-sm text-muted-foreground">Loading signed delivery preview...</p>
+									</div>
+								{:else if selectedDeliveryPreview}
+									{#if isDeliveryVideo(selectedDeliveryPreview)}
+										<!-- svelte-ignore a11y_media_has_caption -->
+										<video
+											src={selectedDeliveryPreview.signedUrl}
+											controls
+											preload="metadata"
+											class="aspect-video w-full bg-black object-contain"
+										></video>
+									{:else if isDeliveryImage(selectedDeliveryPreview)}
+										<img
+											src={selectedDeliveryPreview.signedUrl}
+											alt={selectedAsset.originalFilename ?? 'Delivered media asset'}
+											class="aspect-video w-full bg-background object-contain"
+										/>
+									{:else if supportsInlineDeliveryFrame(selectedDeliveryPreview)}
+										<iframe
+											src={selectedDeliveryPreview.signedUrl}
+											title={selectedAsset.originalFilename ?? 'Delivered media asset'}
+											class="aspect-video w-full bg-background"
+										></iframe>
+									{:else}
+										<div class="flex aspect-video flex-col items-center justify-center gap-3 p-4 text-center">
+											<p class="text-sm text-muted-foreground">
+												Inline delivery preview is not configured for
+												{selectedDeliveryPreview.contentType ?? 'this file type'}.
+											</p>
+											<Button
+												size="sm"
+												variant="outline"
+												onclick={() => void openSignedAsset(selectedAsset.assetId)}
+											>
+												Open file in new tab
+											</Button>
+										</div>
+									{/if}
+								{:else}
+									<div class="flex aspect-video items-center justify-center p-4">
+										<p class="text-sm text-muted-foreground">
+											Load an embedded preview to verify signed delivery in-page.
+										</p>
+									</div>
+								{/if}
+							</div>
+
+							{#if selectedDeliveryPreview}
+								<div class="flex flex-wrap gap-2">
+									<Badge variant="outline">Signed delivery loaded</Badge>
+									<Badge variant="outline">
+										Expires: {formatSignedExpiry(selectedDeliveryPreview.expiresAt)}
+									</Badge>
+								</div>
+							{/if}
+
+							{#if selectedDeliveryPreviewError}
+								<p class="text-sm text-destructive">{selectedDeliveryPreviewError}</p>
+							{/if}
+						</div>
+
+						<Separator />
+					{/if}
 
 					<div class="flex flex-col gap-2">
 						<p class="text-sm font-medium">Raw payload</p>
