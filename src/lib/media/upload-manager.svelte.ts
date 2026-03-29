@@ -175,6 +175,43 @@ const createLocalPreviewUrl = (file: File) => {
 	return URL.createObjectURL(file);
 };
 
+const readLocalMediaDurationSeconds = async (file: File) => {
+	if (!browser || !file.type.startsWith('video/')) {
+		return undefined;
+	}
+
+	const objectUrl = URL.createObjectURL(file);
+
+	try {
+		return await new Promise<number | undefined>((resolve) => {
+			const video = document.createElement('video');
+			video.preload = 'metadata';
+
+			const cleanup = () => {
+				video.removeAttribute('src');
+				video.load();
+				URL.revokeObjectURL(objectUrl);
+			};
+
+			video.onloadedmetadata = () => {
+				const duration = Number(video.duration);
+				cleanup();
+				resolve(Number.isFinite(duration) && duration > 0 ? duration : undefined);
+			};
+
+			video.onerror = () => {
+				cleanup();
+				resolve(undefined);
+			};
+
+			video.src = objectUrl;
+		});
+	} catch {
+		URL.revokeObjectURL(objectUrl);
+		return undefined;
+	}
+};
+
 const revokePreviewUrl = (previewUrl?: string) => {
 	if (!browser || !previewUrl) return;
 	URL.revokeObjectURL(previewUrl);
@@ -280,11 +317,13 @@ export const createMediaUploadManager = (
 				});
 
 				try {
+					const clientDurationSeconds = await readLocalMediaDurationSeconds(file);
 					const beginResult = (await convexClient.action(api.media.beginUpload, {
 						constraints: toMediaUploadRequestConstraints(constraints),
 						originalFilename: file.name,
 						clientContentType: file.type || undefined,
-						clientSizeBytes: file.size
+						clientSizeBytes: file.size,
+						clientDurationSeconds
 					})) as MediaBeginUploadResult;
 
 					patchRun(runId, {

@@ -59,17 +59,26 @@ const buildUploadDescriptor = async ({
 	client,
 	config,
 	objectKey,
-	clientContentType
+	clientContentType,
+	clientDurationSeconds
 }: {
 	client: S3Client;
 	config: MediaStorageConfig;
 	objectKey: string;
 	clientContentType?: string | null;
+	clientDurationSeconds?: number | null;
 }): Promise<MediaUploadDescriptor> => {
+	const metadata =
+		typeof clientDurationSeconds === 'number' && Number.isFinite(clientDurationSeconds)
+			? {
+					'duration-seconds': String(clientDurationSeconds)
+				}
+			: undefined;
 	const command = new PutObjectCommand({
 		Bucket: config.bucket,
 		Key: objectKey,
-		ContentType: clientContentType?.trim() || undefined
+		ContentType: clientContentType?.trim() || undefined,
+		Metadata: metadata
 	});
 	const url = await getSignedUrl(client, command, {
 		expiresIn: config.uploadUrlTtlSeconds
@@ -79,11 +88,18 @@ const buildUploadDescriptor = async ({
 		provider: config.provider,
 		method: 'PUT',
 		url,
-		headers: clientContentType?.trim()
-			? {
-					'content-type': clientContentType.trim()
-				}
-			: undefined,
+		headers: {
+			...(clientContentType?.trim()
+				? {
+						'content-type': clientContentType.trim()
+					}
+				: {}),
+			...(metadata
+				? {
+						'x-amz-meta-duration-seconds': metadata['duration-seconds']
+					}
+				: {})
+		},
 		objectKey
 	};
 };
@@ -114,6 +130,7 @@ const loadStoredMediaMetadata = async ({
 			contentType: response.ContentType ?? null,
 			sha256: response.ChecksumSHA256 ?? null,
 			size: Number(response.ContentLength ?? -1),
+			durationSeconds: Number(response.Metadata?.['duration-seconds'] ?? NaN),
 			eTag: response.ETag ?? null,
 			lastModified: response.LastModified?.getTime() ?? null
 		};
@@ -178,7 +195,8 @@ export const beginUpload = internalAction({
 		constraints: mediaUploadConstraintsValidator,
 		originalFilename: v.optional(v.string()),
 		clientContentType: v.optional(v.string()),
-		clientSizeBytes: v.optional(v.number())
+		clientSizeBytes: v.optional(v.number()),
+		clientDurationSeconds: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
 		const config = loadMediaStorageConfig();
@@ -213,7 +231,8 @@ export const beginUpload = internalAction({
 				client,
 				config,
 				objectKey: asset.sourceObjectKey,
-				clientContentType: asset.clientContentType ?? null
+				clientContentType: asset.clientContentType ?? null,
+				clientDurationSeconds: args.clientDurationSeconds ?? null
 			})
 		};
 	}
@@ -381,6 +400,7 @@ export const processUpload = internalAction({
 				mediaKind: result.descriptor.mediaKind ?? undefined,
 				contentType: result.descriptor.contentType ?? undefined,
 				sizeBytes: result.descriptor.sizeBytes,
+				durationSeconds: result.descriptor.durationSeconds ?? undefined,
 				sha256: result.descriptor.sha256 ?? undefined,
 				stepResults: result.steps
 			});
@@ -396,6 +416,7 @@ export const processUpload = internalAction({
 			mediaKind: result.descriptor?.mediaKind ?? undefined,
 			contentType: result.descriptor?.contentType ?? undefined,
 			sizeBytes: result.descriptor?.sizeBytes ?? undefined,
+			durationSeconds: result.descriptor?.durationSeconds ?? undefined,
 			sha256: result.descriptor?.sha256 ?? undefined,
 			stepResults: result.steps,
 			failure: result.failure

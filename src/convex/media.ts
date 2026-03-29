@@ -234,6 +234,7 @@ export const markUploadFailed = internalMutation({
 		mediaKind: v.optional(v.union(v.literal('image'), v.literal('video'))),
 		contentType: v.optional(v.string()),
 		sizeBytes: v.optional(v.number()),
+		durationSeconds: v.optional(v.number()),
 		sha256: v.optional(v.string()),
 		stepResults: v.array(mediaPipelineStepResultValidator),
 		failure: mediaFailureValidator
@@ -252,7 +253,7 @@ export const markUploadFailed = internalMutation({
 			mediaKind: args.mediaKind ?? asset.mediaKind,
 			contentType: args.contentType ?? asset.contentType,
 			sizeBytes: args.sizeBytes ?? asset.sizeBytes,
-			durationSeconds: asset.durationSeconds,
+			durationSeconds: args.durationSeconds ?? asset.durationSeconds,
 			sha256: args.sha256 ?? asset.sha256,
 			status: 'failed',
 			lastFailure: args.failure,
@@ -270,7 +271,8 @@ export const beginUpload: ReturnType<typeof action> = action({
 		constraints: mediaUploadConstraintsValidator,
 		originalFilename: v.optional(v.string()),
 		clientContentType: v.optional(v.string()),
-		clientSizeBytes: v.optional(v.number())
+		clientSizeBytes: v.optional(v.number()),
+		clientDurationSeconds: v.optional(v.number())
 	},
 	handler: async (ctx, args): Promise<unknown> => {
 		const identity = await requireIdentity(ctx);
@@ -279,7 +281,8 @@ export const beginUpload: ReturnType<typeof action> = action({
 			constraints: args.constraints,
 			originalFilename: args.originalFilename,
 			clientContentType: args.clientContentType,
-			clientSizeBytes: args.clientSizeBytes
+			clientSizeBytes: args.clientSizeBytes,
+			clientDurationSeconds: args.clientDurationSeconds
 		});
 	}
 });

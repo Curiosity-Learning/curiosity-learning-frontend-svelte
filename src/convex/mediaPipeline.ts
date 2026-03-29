@@ -104,6 +104,9 @@ const getEffectiveContentType = ({
 	return normalizedClient;
 };
 
+const normalizeDurationSeconds = (value?: number | null) =>
+	typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+
 const SUPPORTED_CONTENT_TYPE_SET = new Set<string>(SUPPORTED_CONTENT_TYPES);
 
 const buildAcceptedMediaKinds = (acceptedContentTypes: readonly SupportedContentType[]) =>
@@ -123,6 +126,7 @@ export type StoredMediaMetadata = {
 	contentType?: string | null;
 	sha256?: string | null;
 	size: number;
+	durationSeconds?: number | null;
 	eTag?: string | null;
 	lastModified?: number | null;
 };
@@ -149,6 +153,7 @@ type MediaPipelineDescriptor = {
 	mediaKind: MediaKind | null;
 	contentType: string | null;
 	sizeBytes: number;
+	durationSeconds: number | null;
 	sha256: string | null;
 };
 
@@ -475,6 +480,7 @@ export const runMediaPipeline = async ({
 			clientContentType: asset.clientContentType
 		}),
 		sizeBytes: storageMetadata.size,
+		durationSeconds: normalizeDurationSeconds(storageMetadata.durationSeconds ?? null),
 		sha256: storageMetadata.sha256 ?? null
 	};
 
