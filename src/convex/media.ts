@@ -204,6 +204,9 @@ export const markUploadReady = internalMutation({
 		if (!asset) {
 			return null;
 		}
+		if (asset.status !== 'processing') {
+			return asset;
+		}
 
 		const now = Date.now();
 		await ctx.db.patch(asset._id, {
@@ -239,6 +242,9 @@ export const markUploadFailed = internalMutation({
 		const asset = await ctx.db.get(args.assetId);
 		if (!asset) {
 			return null;
+		}
+		if (asset.status !== 'processing') {
+			return asset;
 		}
 
 		const now = Date.now();
