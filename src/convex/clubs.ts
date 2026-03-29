@@ -246,6 +246,8 @@ export const getClubPreviewByCode = query({
 			description: club.description ?? null,
 			videoUrl: await resolveClubVideoUrl(ctx, club),
 			location: club.location ?? null,
+			locationLatitude: club.locationLatitude ?? null,
+			locationLongitude: club.locationLongitude ?? null,
 			meetingDay: club.meetingDay ?? null,
 			meetingTime: club.meetingTime ?? null,
 			memberCount: members.filter((member) => !member.leftAt).length,
@@ -255,11 +257,45 @@ export const getClubPreviewByCode = query({
 	}
 });
 
+export const listPublicClubs = query({
+	args: {},
+	handler: async (ctx) => {
+		const clubs = await ctx.db.query('clubs').collect();
+		const publicClubs = clubs.filter((club) => Boolean(club.clubCode));
+
+		return await Promise.all(
+			publicClubs.map(async (club) => {
+				const members = await ctx.db
+					.query('clubMembers')
+					.withIndex('by_club', (q) => q.eq('clubId', club._id))
+					.collect();
+
+				return {
+					id: club._id,
+					code: club.clubCode ?? null,
+					name: club.name,
+					description: club.description ?? null,
+					location: club.location ?? null,
+					locationLatitude: club.locationLatitude ?? null,
+					locationLongitude: club.locationLongitude ?? null,
+					meetingDay: club.meetingDay ?? null,
+					meetingTime: club.meetingTime ?? null,
+					memberCount: members.filter((member) => !member.leftAt).length,
+					videoUrl: await resolveClubVideoUrl(ctx, club),
+					createdAt: club.createdAt
+				};
+			})
+		);
+	}
+});
+
 export const createClub = mutation({
 	args: {
 		name: v.string(),
 		description: v.optional(v.string()),
 		location: v.optional(v.string()),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number()),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string()),
 		videoStorageId: v.optional(v.id('_storage'))
@@ -276,6 +312,8 @@ export const createClub = mutation({
 			clubCode: inviteCode,
 			description: args.description,
 			location: args.location,
+			locationLatitude: args.locationLatitude,
+			locationLongitude: args.locationLongitude,
 			videoStorageId: args.videoStorageId,
 			meetingDay: args.meetingDay,
 			meetingTime: args.meetingTime,
@@ -451,6 +489,8 @@ export const updateClub = mutation({
 		name: v.optional(v.string()),
 		description: v.optional(v.string()),
 		location: v.optional(v.string()),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number()),
 		videoStorageId: v.optional(v.id('_storage')),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string())
@@ -468,6 +508,8 @@ export const updateClub = mutation({
 			name: args.name ?? club.name,
 			description: args.description ?? club.description,
 			location: args.location ?? club.location,
+			locationLatitude: args.locationLatitude ?? club.locationLatitude,
+			locationLongitude: args.locationLongitude ?? club.locationLongitude,
 			videoStorageId: args.videoStorageId ?? club.videoStorageId,
 			meetingDay: args.meetingDay ?? club.meetingDay,
 			meetingTime: args.meetingTime ?? club.meetingTime,
