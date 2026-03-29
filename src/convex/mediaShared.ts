@@ -1,5 +1,4 @@
 import type { Doc } from './_generated/dataModel';
-import { resolveMediaAssetFileUrl } from './mediaStorage';
 import { type SupportedContentType, describeUploadConstraints } from './mediaPipeline';
 
 export const toResolvedAsset = (asset: Doc<'mediaAssets'>) => {
@@ -8,14 +7,6 @@ export const toResolvedAsset = (asset: Doc<'mediaAssets'>) => {
 		maxBytes: asset.maxBytes,
 		enableCompression: asset.enableCompression,
 		enableSafetyScreening: asset.enableSafetyScreening
-	});
-	const fileUrl = resolveMediaAssetFileUrl({
-		status: asset.status,
-		storageProvider: asset.storageProvider,
-		sourceBucket: asset.sourceBucket ?? null,
-		sourceObjectKey: asset.sourceObjectKey ?? null,
-		processedBucket: asset.processedBucket ?? null,
-		processedObjectKey: asset.processedObjectKey ?? null
 	});
 
 	return {
@@ -33,6 +24,7 @@ export const toResolvedAsset = (asset: Doc<'mediaAssets'>) => {
 		processedObjectKey: asset.processedObjectKey ?? null,
 		contentType: asset.contentType ?? null,
 		sizeBytes: asset.sizeBytes ?? null,
+		durationSeconds: asset.durationSeconds ?? null,
 		sha256: asset.sha256 ?? null,
 		pipelineVersion: asset.pipelineVersion,
 		attemptCount: asset.attemptCount,
@@ -44,7 +36,6 @@ export const toResolvedAsset = (asset: Doc<'mediaAssets'>) => {
 		readyAt: asset.readyAt ?? null,
 		failedAt: asset.failedAt ?? null,
 		canceledAt: asset.canceledAt ?? null,
-		fileUrl,
 		constraints: {
 			acceptedMediaKinds: [...constraints.acceptedMediaKinds],
 			acceptedContentTypes: [...constraints.acceptedContentTypes],

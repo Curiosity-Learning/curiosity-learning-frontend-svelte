@@ -42,13 +42,13 @@ Schema source: `src/convex/schema.ts`
 | `projectMembers` | User membership in a project           | `projectId`, `userId`, `roleId`, `leftAt?`            | `by_project`, `by_user`, `by_project_and_user` |
 | `questions`      | Question prompts for updates           | (minimal)                                             |                                            |
 | `updates`        | Update posts on projects               | `projectId?`, `questionId?`, `content`, `createdByUserId` | `by_project`, `by_project_and_created` |
-| `updateFiles`    | Files attached to updates              | `updateId`, `mediaAssetId`                            | `by_update`                                |
+| `updateFiles`    | Files attached to updates              | `updateId`, `mediaAssetId`                            | `by_update`, `by_media_asset`              |
 
 ## Media Pipeline
 
 | Table         | Purpose                                   | Key Fields                                                                 | Indexes                                             |
 | ------------- | ----------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
-| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `acceptedContentTypes[]`, `maxBytes`, `enableCompression`, `enableSafetyScreening`, `storageProvider`, `sourceObjectKey?`, `processedObjectKey?`, `mediaKind?`, `contentType?`, `sizeBytes?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_source_object_key` |
+| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `acceptedContentTypes[]`, `maxBytes`, `enableCompression`, `enableSafetyScreening`, `storageProvider`, `sourceObjectKey?`, `processedObjectKey?`, `mediaKind?`, `contentType?`, `sizeBytes?`, `durationSeconds?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_source_object_key` |
 
 ## Notifications / Privacy
 

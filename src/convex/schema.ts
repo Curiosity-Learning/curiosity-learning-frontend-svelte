@@ -219,7 +219,9 @@ export default defineSchema({
 		updateId: v.id('updates'),
 		mediaAssetId: v.id('mediaAssets'),
 		createdAt: v.number()
-	}).index('by_update', ['updateId']),
+	})
+		.index('by_update', ['updateId'])
+		.index('by_media_asset', ['mediaAssetId']),
 
 	mediaAssets: defineTable(mediaAssetFields)
 		.index('by_owner', ['ownerUserId'])

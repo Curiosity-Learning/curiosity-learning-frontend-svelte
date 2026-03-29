@@ -93,6 +93,7 @@ export const mediaAssetFields = {
 	processedObjectKey: v.optional(v.string()),
 	contentType: v.optional(v.string()),
 	sizeBytes: v.optional(v.number()),
+	durationSeconds: v.optional(v.number()),
 	sha256: v.optional(v.string()),
 	pipelineVersion: v.number(),
 	attemptCount: v.number(),

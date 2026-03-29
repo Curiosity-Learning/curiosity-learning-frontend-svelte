@@ -10,7 +10,7 @@ import {
 	type MutationCtx,
 	type QueryCtx
 } from './_generated/server';
-import { buildMediaObjectKey, resolveMediaAssetFileUrl } from './mediaStorage';
+import { buildMediaObjectKey } from './mediaStorage';
 import {
 	MEDIA_PIPELINE_VERSION,
 	mediaFailureValidator,
@@ -172,6 +172,7 @@ export const markUploadCanceled = internalMutation({
 			mediaKind: args.deleteStorage ? undefined : asset.mediaKind,
 			contentType: args.deleteStorage ? undefined : asset.contentType,
 			sizeBytes: args.deleteStorage ? undefined : asset.sizeBytes,
+			durationSeconds: args.deleteStorage ? undefined : asset.durationSeconds,
 			sha256: args.deleteStorage ? undefined : asset.sha256,
 			lastFailure: undefined,
 			stepResults: [],
@@ -194,6 +195,7 @@ export const markUploadReady = internalMutation({
 		mediaKind: v.optional(v.union(v.literal('image'), v.literal('video'))),
 		contentType: v.optional(v.string()),
 		sizeBytes: v.number(),
+		durationSeconds: v.optional(v.number()),
 		sha256: v.optional(v.string()),
 		stepResults: v.array(mediaPipelineStepResultValidator)
 	},
@@ -208,6 +210,7 @@ export const markUploadReady = internalMutation({
 			mediaKind: args.mediaKind ?? asset.mediaKind,
 			contentType: args.contentType ?? undefined,
 			sizeBytes: args.sizeBytes,
+			durationSeconds: args.durationSeconds ?? asset.durationSeconds,
 			sha256: args.sha256 ?? undefined,
 			status: 'ready',
 			stepResults: args.stepResults,
@@ -243,6 +246,7 @@ export const markUploadFailed = internalMutation({
 			mediaKind: args.mediaKind ?? asset.mediaKind,
 			contentType: args.contentType ?? asset.contentType,
 			sizeBytes: args.sizeBytes ?? asset.sizeBytes,
+			durationSeconds: asset.durationSeconds,
 			sha256: args.sha256 ?? asset.sha256,
 			status: 'failed',
 			lastFailure: args.failure,
@@ -347,32 +351,33 @@ export const getUpload = query({
 	}
 });
 
-export const getDeliveryAsset = query({
+export const getOwnedDeliveryAssets = query({
 	args: {
-		assetId: v.id('mediaAssets')
+		assetIds: v.array(v.id('mediaAssets'))
 	},
 	handler: async (ctx, args) => {
-		await requireIdentity(ctx);
-		const asset = await ctx.db.get(args.assetId);
-		if (!asset) {
-			throw new ConvexError('Upload not found');
-		}
+		const identity = await requireIdentity(ctx);
+		const uniqueAssetIds = [...new Set(args.assetIds)];
+		const assets = await Promise.all(
+			uniqueAssetIds.map(async (assetId) => {
+				const asset = await ctx.db.get(assetId);
+				if (!asset || asset.ownerUserId !== identity.subject || asset.status !== 'ready') {
+					return null;
+				}
 
-		return {
-			assetId: asset._id,
-			status: asset.status,
-			storageProvider: asset.storageProvider,
-			deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
-			deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
-			fallbackFileUrl: resolveMediaAssetFileUrl({
-				status: asset.status,
-				storageProvider: asset.storageProvider,
-				sourceBucket: asset.sourceBucket ?? null,
-				sourceObjectKey: asset.sourceObjectKey ?? null,
-				processedBucket: asset.processedBucket ?? null,
-				processedObjectKey: asset.processedObjectKey ?? null
+				return {
+					assetId: asset._id,
+					storageProvider: asset.storageProvider,
+					deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+					deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+					mediaKind: asset.mediaKind ?? null,
+					contentType: asset.contentType ?? null,
+					durationSeconds: asset.durationSeconds ?? null
+				};
 			})
-		};
+		);
+
+		return assets.filter(Boolean);
 	}
 });
 

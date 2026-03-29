@@ -10,6 +10,15 @@ type AuthorSummary = {
 	imageUrl: string | null;
 };
 
+const listUpdateMediaAssetIds = async (ctx: Ctx, updateId: Id<'updates'>) => {
+	const files = await ctx.db
+		.query('updateFiles')
+		.withIndex('by_update', (q) => q.eq('updateId', updateId))
+		.collect();
+
+	return files.map((file) => file.mediaAssetId);
+};
+
 const resolveAuthorSummary = async (
 	ctx: QueryCtx,
 	userId: string,
@@ -92,10 +101,22 @@ export const listByProject = query({
 		if (args.limit) {
 			// Keep chronological ordering (oldest -> newest) while limiting.
 			const newestFirst = await queryBuilder.order('desc').take(args.limit);
-			return newestFirst.reverse();
+			const chronological = newestFirst.reverse();
+			return await Promise.all(
+				chronological.map(async (update) => ({
+					...update,
+					mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
+				}))
+			);
 		}
 
-		return await queryBuilder.collect();
+		const updates = await queryBuilder.collect();
+		return await Promise.all(
+			updates.map(async (update) => ({
+				...update,
+				mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
+			}))
+		);
 	}
 });
 
@@ -384,5 +405,58 @@ export const listFiles = query({
 			.query('updateFiles')
 			.withIndex('by_update', (q) => q.eq('updateId', args.updateId))
 			.collect();
+	}
+});
+
+export const getProjectDeliveryAssets = query({
+	args: {
+		projectId: v.id('projects'),
+		assetIds: v.array(v.id('mediaAssets'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const allowed = await canManageProject(ctx, args.projectId, identity.subject);
+		if (!allowed) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const uniqueAssetIds = [...new Set(args.assetIds)];
+		const assets = await Promise.all(
+			uniqueAssetIds.map(async (assetId) => {
+				const fileLinks = await ctx.db
+					.query('updateFiles')
+					.withIndex('by_media_asset', (q) => q.eq('mediaAssetId', assetId))
+					.collect();
+				if (!fileLinks.length) {
+					return null;
+				}
+
+				for (const link of fileLinks) {
+					const update = await ctx.db.get(link.updateId);
+					if (!update || update.projectId !== args.projectId) {
+						continue;
+					}
+
+					const asset = await ctx.db.get(assetId);
+					if (!asset || asset.status !== 'ready') {
+						return null;
+					}
+
+					return {
+						assetId: asset._id,
+						storageProvider: asset.storageProvider,
+						deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+						deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+						mediaKind: asset.mediaKind ?? null,
+						contentType: asset.contentType ?? null,
+						durationSeconds: asset.durationSeconds ?? null
+					};
+				}
+
+				return null;
+			})
+		);
+
+		return assets.filter(Boolean);
 	}
 });

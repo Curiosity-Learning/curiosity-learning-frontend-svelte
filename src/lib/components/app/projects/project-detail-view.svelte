@@ -34,6 +34,7 @@
 		ItemMedia,
 		ItemTitle
 	} from '$lib/components/ui/item';
+	import { createSignedMediaManager } from '$lib/media/signed-media.svelte';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -71,6 +72,7 @@
 	const updatesResponse = useStableQuery(api.updates.listByProject, () =>
 		view === 'overview' && projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
+	const updateMedia = createSignedMediaManager();
 
 	let pending = $state(false);
 	let errorMessage = $state('');
@@ -150,6 +152,17 @@
 			roleName: member.roleName ?? null
 		}))
 	);
+	let orderedUpdates = $derived([...(updatesResponse.data ?? [])].reverse());
+	let updateMediaAssetIds = $derived.by(() =>
+		view === 'overview'
+			? [...new Set((updatesResponse.data ?? []).flatMap((update) => update.mediaAssetIds ?? []))]
+			: []
+	);
+
+	const isVideoAsset = (
+		asset: ReturnType<typeof updateMedia.get>
+	): asset is NonNullable<ReturnType<typeof updateMedia.get>> =>
+		Boolean(asset && (asset.mediaKind === 'video' || asset.contentType?.startsWith('video/')));
 
 	const memberSubtitleFor = (member: (typeof memberSummaries)[number]) => {
 		if (member.username) return `@${member.username}`;
@@ -244,6 +257,24 @@
 			onSelect: () => void toggleDone()
 		}
 	]);
+
+	$effect(() => {
+		if (view !== 'overview' || !projectIdTyped || !updateMediaAssetIds.length) {
+			updateMedia.clear();
+			return;
+		}
+
+		void updateMedia.track(updateMediaAssetIds, {
+			kind: 'project',
+			projectId: projectIdTyped
+		});
+	});
+
+	$effect(() => {
+		return () => {
+			updateMedia.destroy();
+		};
+	});
 </script>
 
 <PageHeaderBackButton fallbackHref={routes.feed} />
@@ -323,10 +354,43 @@
 					<p class="type-sm text-muted-foreground">No updates yet.</p>
 				{:else}
 					<div class="flex flex-col gap-3">
-						{#each [...(updatesResponse.data ?? [])].reverse() as update (update._id)}
+						{#each orderedUpdates as update (update._id)}
 							<Card class="gap-0 py-0">
 								<CardContent class="flex flex-col gap-2 p-4">
 									<p class="type-body whitespace-pre-wrap">{update.content}</p>
+									{#if update.mediaAssetIds?.length}
+										<div class="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-2">
+											{#each update.mediaAssetIds as mediaAssetId (mediaAssetId)}
+												{@const mediaAsset = updateMedia.get(mediaAssetId)}
+												{@const mediaUrl = mediaAsset?.signedUrl ?? null}
+												<div class="overflow-hidden rounded-xl border border-border bg-muted/20">
+													{#if mediaUrl}
+														{#if isVideoAsset(mediaAsset)}
+															<!-- svelte-ignore a11y_media_has_caption -->
+															<video
+																src={mediaUrl}
+																controls
+																preload="metadata"
+																class="aspect-video w-full bg-black object-cover"
+															></video>
+														{:else}
+															<img
+																src={mediaUrl}
+																alt="Project update attachment"
+																class="aspect-video w-full object-cover"
+															/>
+														{/if}
+													{:else}
+														<div class="flex aspect-video items-center justify-center p-4">
+															<p class="text-sm text-muted-foreground">
+																Preparing media...
+															</p>
+														</div>
+													{/if}
+												</div>
+											{/each}
+										</div>
+									{/if}
 									<p class="type-sm text-muted-foreground">
 										{formatRelativeTime(update.createdAt)}
 									</p>
@@ -334,6 +398,13 @@
 							</Card>
 						{/each}
 					</div>
+				{/if}
+
+				{#if updateMedia.errorMessage}
+					<Alert variant="destructive">
+						<AlertTitle>Media refresh failed</AlertTitle>
+						<AlertDescription>{updateMedia.errorMessage}</AlertDescription>
+					</Alert>
 				{/if}
 			</div>
 		{:else}
