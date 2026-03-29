@@ -218,6 +218,20 @@
 - Removed experimental external-remove-button layout from active implementation to keep MVP behavior predictable and maintainable.
 - Added inline code comments in multi-select for two non-obvious behaviors:
   - optimistic selected-chip sync during async saves,
+
+## 2026-03-29
+
+### Bug Fix: Media Upload Pipeline Hardening
+
+- Prevented in-flight processors from reviving uploads after a user cancels them by guarding terminal media mutations behind the current `processing` state.
+- Persisted video duration through the upload path by probing local video metadata, signing it into S3 object metadata, and carrying it through the Convex media pipeline so CloudFront TTLs can scale with video length.
+- Made signed-media refreshes generation-aware so stale refresh responses cannot overwrite newer signed URL state.
+- Switched direct S3 uploads from presigned `PUT` to presigned `POST` with a `content-length-range` policy, so oversized uploads are rejected by S3 before they are stored.
+- Hardened media validation to inspect object signatures from S3 byte ranges instead of trusting filename extensions or claimed MIME types.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing upstream warnings remain in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
   - delayed blur-close logic for intra-control focus movement.
 - Added ADR-006 documenting the `Badge` (primitive) + `TagChip` (token/interactions) split and updated docs references.
 
