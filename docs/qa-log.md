@@ -1026,6 +1026,32 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+## 2026-03-29
+
+### Feature: App-Level Media Read Route
+
+- Added `/media/[assetId]` as the canonical app-level media fetch path.
+- The current implementation requires an authenticated app session, resolves the requested asset through Convex, and redirects ready assets to the resolved file URL.
+- This keeps feature UI code off raw S3 URLs so secure cookie-checked media delivery can be added later behind the same route.
+- Updated the settings media upload dev page to open ready files through the app route instead of binding directly to the storage URL.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Feature: Secure Media Delivery Scaffolding
+
+- Added server-side secure media delivery scaffolding around the canonical `/media/[assetId]` route.
+- `src/lib/server/media-delivery.ts` now loads CloudFront delivery env, generates signed-cookie values, and builds CDN object URLs.
+- Added `api.media.getDeliveryAsset` so authenticated server routes can resolve ready asset delivery metadata without going through the owner-only upload inspection query.
+- `/media/[assetId]` now prefers CloudFront signed-cookie delivery when secure media env is present, while keeping the existing resolved-file fallback for development until CDN setup is complete.
+- Current temporary access rule is intentionally broad: any authenticated user can resolve a ready media asset by id. Feature-specific authorization is deferred to later work.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
 ## 2026-03-28
 
 ### Infra: Shared Media Storage Migrated to S3

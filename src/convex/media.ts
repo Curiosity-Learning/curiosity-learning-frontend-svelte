@@ -10,7 +10,7 @@ import {
 	type MutationCtx,
 	type QueryCtx
 } from './_generated/server';
-import { buildMediaObjectKey } from './mediaStorage';
+import { buildMediaObjectKey, resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	MEDIA_PIPELINE_VERSION,
 	mediaFailureValidator,
@@ -344,6 +344,35 @@ export const getUpload = query({
 		const identity = await requireIdentity(ctx);
 		const asset = await assertOwner(ctx, args.assetId, identity.subject);
 		return toResolvedAsset(asset);
+	}
+});
+
+export const getDeliveryAsset = query({
+	args: {
+		assetId: v.id('mediaAssets')
+	},
+	handler: async (ctx, args) => {
+		await requireIdentity(ctx);
+		const asset = await ctx.db.get(args.assetId);
+		if (!asset) {
+			throw new ConvexError('Upload not found');
+		}
+
+		return {
+			assetId: asset._id,
+			status: asset.status,
+			storageProvider: asset.storageProvider,
+			deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+			deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+			fallbackFileUrl: resolveMediaAssetFileUrl({
+				status: asset.status,
+				storageProvider: asset.storageProvider,
+				sourceBucket: asset.sourceBucket ?? null,
+				sourceObjectKey: asset.sourceObjectKey ?? null,
+				processedBucket: asset.processedBucket ?? null,
+				processedObjectKey: asset.processedObjectKey ?? null
+			})
+		};
 	}
 });
 

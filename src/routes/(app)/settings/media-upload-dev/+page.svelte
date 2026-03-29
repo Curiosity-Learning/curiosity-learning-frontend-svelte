@@ -597,7 +597,12 @@
 											</Button>
 										{/if}
 										{#if upload.fileUrl}
-											<Button size="sm" variant="ghost" href={upload.fileUrl} target="_blank">
+											<Button
+												size="sm"
+												variant="ghost"
+												href={routes.mediaAsset(upload.assetId)}
+												target="_blank"
+											>
 												Open file
 											</Button>
 										{/if}
@@ -646,7 +651,12 @@
 								Processed: {selectedAsset.processedBucket ?? 'n/a'} / {selectedAsset.processedObjectKey ?? 'n/a'}
 							</p>
 							{#if selectedAsset.fileUrl}
-								<Button size="sm" variant="outline" href={selectedAsset.fileUrl} target="_blank">
+								<Button
+									size="sm"
+									variant="outline"
+									href={routes.mediaAsset(selectedAsset.assetId)}
+									target="_blank"
+								>
 									Open ready file
 								</Button>
 							{/if}
