@@ -78,6 +78,8 @@ export const createSignedMediaManager = (fetcher: typeof fetch = fetch) => {
 	let trackedAssetIds = $state.raw<string[]>([]);
 	let trackedContext = $state<MediaRefreshContext | null>(null);
 	let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+	let refreshGeneration = 0;
+	let activeRefreshCount = 0;
 
 	const clearTimer = () => {
 		if (refreshTimer !== null) {
@@ -88,10 +90,12 @@ export const createSignedMediaManager = (fetcher: typeof fetch = fetch) => {
 
 	const clear = () => {
 		clearTimer();
+		refreshGeneration += 1;
 		trackedAssetIds = [];
 		trackedContext = null;
 		assetsById = {};
 		errorMessage = null;
+		isRefreshing = activeRefreshCount > 0;
 	};
 
 	const scheduleRefresh = () => {
@@ -127,6 +131,8 @@ export const createSignedMediaManager = (fetcher: typeof fetch = fetch) => {
 			return [];
 		}
 
+		const requestGeneration = ++refreshGeneration;
+		activeRefreshCount += 1;
 		isRefreshing = true;
 		errorMessage = null;
 
@@ -144,15 +150,20 @@ export const createSignedMediaManager = (fetcher: typeof fetch = fetch) => {
 				nextAssets[asset.assetId] = asset;
 			}
 
-			assetsById = nextAssets;
-			scheduleRefresh();
+			if (requestGeneration === refreshGeneration) {
+				assetsById = nextAssets;
+				scheduleRefresh();
+			}
 			return assets;
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to refresh media.';
-			scheduleRefresh();
+			if (requestGeneration === refreshGeneration) {
+				errorMessage = error instanceof Error ? error.message : 'Unable to refresh media.';
+				scheduleRefresh();
+			}
 			throw error;
 		} finally {
-			isRefreshing = false;
+			activeRefreshCount = Math.max(0, activeRefreshCount - 1);
+			isRefreshing = activeRefreshCount > 0;
 		}
 	};
 
