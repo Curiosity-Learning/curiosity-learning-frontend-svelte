@@ -4,7 +4,6 @@ export const routes = {
 	feedMyClubs: '/feed/my-clubs',
 	feedGlobal: '/feed/global',
 	chat: '/chat',
-	mediaAsset: (assetId: string) => `/media/${assetId}`,
 	profile: '/profile',
 	settings: '/settings',
 	settingsMediaUploadDev: '/settings/media-upload-dev',
