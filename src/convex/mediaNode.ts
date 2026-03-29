@@ -1,7 +1,7 @@
 "use node";
 
-import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { DeleteObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
@@ -22,6 +22,10 @@ import {
 	runMediaPipeline
 } from './mediaPipeline';
 import { toResolvedAsset } from './mediaShared';
+
+type PresignedPostCondition = NonNullable<
+	Parameters<typeof createPresignedPost>[1]['Conditions']
+>[number];
 
 const createS3Client = (config: MediaStorageConfig) =>
 	new S3Client({
@@ -59,47 +63,54 @@ const buildUploadDescriptor = async ({
 	client,
 	config,
 	objectKey,
+	maxBytes,
 	clientContentType,
 	clientDurationSeconds
 }: {
 	client: S3Client;
 	config: MediaStorageConfig;
 	objectKey: string;
+	maxBytes: number;
 	clientContentType?: string | null;
 	clientDurationSeconds?: number | null;
 }): Promise<MediaUploadDescriptor> => {
-	const metadata =
+	const metadataFields =
 		typeof clientDurationSeconds === 'number' && Number.isFinite(clientDurationSeconds)
 			? {
 					'duration-seconds': String(clientDurationSeconds)
 				}
 			: undefined;
-	const command = new PutObjectCommand({
+	const fields = {
+		...(clientContentType?.trim() ? { 'Content-Type': clientContentType.trim() } : {}),
+		...(metadataFields
+			? {
+					'x-amz-meta-duration-seconds': metadataFields['duration-seconds']
+				}
+			: {})
+	};
+	const conditions: PresignedPostCondition[] = [['content-length-range', 1, maxBytes]];
+
+	if (clientContentType?.trim()) {
+		conditions.push(['eq', '$Content-Type', clientContentType.trim()]);
+	}
+
+	if (metadataFields) {
+		conditions.push(['eq', '$x-amz-meta-duration-seconds', metadataFields['duration-seconds']]);
+	}
+
+	const presignedPost = await createPresignedPost(client, {
 		Bucket: config.bucket,
 		Key: objectKey,
-		ContentType: clientContentType?.trim() || undefined,
-		Metadata: metadata
-	});
-	const url = await getSignedUrl(client, command, {
-		expiresIn: config.uploadUrlTtlSeconds
+		Expires: config.uploadUrlTtlSeconds,
+		Fields: fields,
+		Conditions: conditions
 	});
 
 	return {
 		provider: config.provider,
-		method: 'PUT',
-		url,
-		headers: {
-			...(clientContentType?.trim()
-				? {
-						'content-type': clientContentType.trim()
-					}
-				: {}),
-			...(metadata
-				? {
-						'x-amz-meta-duration-seconds': metadata['duration-seconds']
-					}
-				: {})
-		},
+		method: 'POST',
+		url: presignedPost.url,
+		fields: presignedPost.fields,
 		objectKey
 	};
 };
@@ -231,6 +242,7 @@ export const beginUpload = internalAction({
 				client,
 				config,
 				objectKey: asset.sourceObjectKey,
+				maxBytes: asset.maxBytes,
 				clientContentType: asset.clientContentType ?? null,
 				clientDurationSeconds: args.clientDurationSeconds ?? null
 			})
