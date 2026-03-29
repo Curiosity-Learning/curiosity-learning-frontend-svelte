@@ -1,3 +1,4 @@
+import { dev } from '$app/environment';
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { api } from '$convex/_generated/api';
@@ -43,12 +44,12 @@ export const GET: RequestHandler = async ({ cookies, locals, params }) => {
 			const { cookieValues, expiresAt } = createCloudFrontSignedCookies(deliveryConfig);
 			for (const cookieValue of cookieValues) {
 				cookies.set(cookieValue.name, cookieValue.value, {
-					domain: deliveryConfig.cookieDomain,
+					domain: dev ? undefined : deliveryConfig.cookieDomain,
 					path: '/',
 					expires: new Date(expiresAt * 1000),
 					httpOnly: true,
 					sameSite: 'lax',
-					secure: true
+					secure: !dev
 				});
 			}
 

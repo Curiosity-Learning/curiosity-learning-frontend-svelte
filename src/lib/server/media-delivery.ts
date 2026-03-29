@@ -1,4 +1,5 @@
 import { createSign } from 'node:crypto';
+import { env } from '$env/dynamic/private';
 
 const DEFAULT_COOKIE_TTL_SECONDS = 300;
 
@@ -71,10 +72,10 @@ const buildPolicy = ({ resourcePattern, expiresAt }: { resourcePattern: string; 
 	});
 
 export const loadMediaDeliveryConfigOrNull = (): MediaDeliveryConfig | null => {
-	const baseUrl = trimToUndefined(process.env.MEDIA_CDN_BASE_URL);
-	const publicKeyId = trimToUndefined(process.env.MEDIA_CLOUDFRONT_PUBLIC_KEY_ID);
-	const privateKey = trimToUndefined(process.env.MEDIA_CLOUDFRONT_PRIVATE_KEY);
-	const cookieDomain = trimToUndefined(process.env.MEDIA_CLOUDFRONT_COOKIE_DOMAIN);
+	const baseUrl = trimToUndefined(env.MEDIA_CDN_BASE_URL);
+	const publicKeyId = trimToUndefined(env.MEDIA_CLOUDFRONT_PUBLIC_KEY_ID);
+	const privateKey = trimToUndefined(env.MEDIA_CLOUDFRONT_PRIVATE_KEY);
+	const cookieDomain = trimToUndefined(env.MEDIA_CLOUDFRONT_COOKIE_DOMAIN);
 
 	if (!baseUrl && !publicKeyId && !privateKey && !cookieDomain) {
 		return null;
@@ -91,9 +92,7 @@ export const loadMediaDeliveryConfigOrNull = (): MediaDeliveryConfig | null => {
 		publicKeyId,
 		privateKey: normalizePrivateKey(privateKey),
 		cookieDomain,
-		cookieTtlSeconds: parsePositiveInteger(
-			trimToUndefined(process.env.MEDIA_CLOUDFRONT_COOKIE_TTL_SECONDS)
-		)
+		cookieTtlSeconds: parsePositiveInteger(trimToUndefined(env.MEDIA_CLOUDFRONT_COOKIE_TTL_SECONDS))
 	};
 };
 
