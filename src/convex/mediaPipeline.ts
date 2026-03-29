@@ -71,30 +71,22 @@ const normalizeContentType = (value?: string | null) => {
 	return rawType || null;
 };
 
-const getFileExtension = (filename?: string | null) => {
-	if (!filename) {
-		return null;
-	}
-
-	const normalized = filename.trim().toLowerCase();
-	const lastDot = normalized.lastIndexOf('.');
-	if (lastDot < 0) {
-		return null;
-	}
-
-	return normalized.slice(lastDot);
-};
-
 const isGenericContentType = (contentType: string | null) =>
 	Boolean(contentType && GENERIC_CONTENT_TYPES.has(contentType));
 
 const getEffectiveContentType = ({
+	detectedContentType,
 	storedContentType,
 	clientContentType
 }: {
+	detectedContentType?: SupportedContentType | null;
 	storedContentType?: string | null;
 	clientContentType?: string | null;
 }) => {
+	if (detectedContentType) {
+		return detectedContentType;
+	}
+
 	const normalizedStored = normalizeContentType(storedContentType);
 	if (normalizedStored && !isGenericContentType(normalizedStored)) {
 		return normalizedStored;
@@ -123,6 +115,7 @@ export type StoredMediaMetadata = {
 	storageProvider: MediaStorageProvider;
 	bucket: string;
 	objectKey: string;
+	detectedContentType?: SupportedContentType | null;
 	contentType?: string | null;
 	sha256?: string | null;
 	size: number;
@@ -151,6 +144,7 @@ type MediaPipelineDescriptor = {
 	bucket: string;
 	objectKey: string;
 	mediaKind: MediaKind | null;
+	detectedContentType: SupportedContentType | null;
 	contentType: string | null;
 	sizeBytes: number;
 	durationSeconds: number | null;
@@ -279,22 +273,15 @@ const buildPipelinePlugins = (constraints: NormalizedUploadConstraints): MediaPi
 
 const detectMediaKind = ({
 	contentType,
-	fileExtension,
 	acceptedContentTypes
 }: {
 	contentType: string | null;
-	fileExtension: string | null;
 	acceptedContentTypes: readonly SupportedContentType[];
 }) => {
 	for (const acceptedContentType of acceptedContentTypes) {
 		const mediaKind = getMediaKindForContentType(acceptedContentType);
-		const extensions = getFileExtensionsForContentType(acceptedContentType);
 
 		if (contentType && acceptedContentType === contentType) {
-			return mediaKind;
-		}
-
-		if (fileExtension && (extensions as readonly string[]).includes(fileExtension)) {
 			return mediaKind;
 		}
 	}
@@ -328,14 +315,24 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 		name: 'validate-media-type',
 		stage: 'validation',
 		run: async ({ asset, config, descriptor }) => {
-			const extension = getFileExtension(asset.originalFilename);
+			if (!descriptor.detectedContentType) {
+				return {
+					status: 'failed',
+					message: 'The uploaded file signature does not match a supported media format.',
+					failure: buildValidationFailure(
+						'unsupported_media_signature',
+						'The uploaded file could not be verified as a supported image or video format.'
+					)
+				};
+			}
+
 			const contentType = getEffectiveContentType({
+				detectedContentType: descriptor.detectedContentType,
 				storedContentType: descriptor.contentType,
 				clientContentType: asset.clientContentType
 			});
 			const mediaKind = detectMediaKind({
 				contentType,
-				fileExtension: extension,
 				acceptedContentTypes: config.acceptedContentTypes
 			});
 
@@ -356,9 +353,7 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 					mediaKind,
 					contentType
 				},
-				message: contentType
-					? `Accepted ${MEDIA_KIND_DEFINITIONS[mediaKind].label.toLowerCase()} upload (${contentType}).`
-					: 'Accepted upload using filename extension fallback.'
+				message: `Accepted ${MEDIA_KIND_DEFINITIONS[mediaKind].label.toLowerCase()} upload via file signature (${contentType}).`
 			};
 		}
 	},
@@ -475,7 +470,9 @@ export const runMediaPipeline = async ({
 		bucket: storageMetadata.bucket,
 		objectKey: storageMetadata.objectKey,
 		mediaKind: null,
+		detectedContentType: storageMetadata.detectedContentType ?? null,
 		contentType: getEffectiveContentType({
+			detectedContentType: storageMetadata.detectedContentType ?? null,
 			storedContentType: storageMetadata.contentType ?? null,
 			clientContentType: asset.clientContentType
 		}),

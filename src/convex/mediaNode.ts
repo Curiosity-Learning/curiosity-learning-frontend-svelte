@@ -1,6 +1,6 @@
 "use node";
 
-import { DeleteObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
@@ -26,6 +26,8 @@ import { toResolvedAsset } from './mediaShared';
 type PresignedPostCondition = NonNullable<
 	Parameters<typeof createPresignedPost>[1]['Conditions']
 >[number];
+
+const SIGNATURE_RANGE_BYTES = 512;
 
 const createS3Client = (config: MediaStorageConfig) =>
 	new S3Client({
@@ -115,6 +117,106 @@ const buildUploadDescriptor = async ({
 	};
 };
 
+const readAscii = (bytes: Uint8Array, start: number, end: number) =>
+	Buffer.from(bytes.slice(start, end)).toString('ascii');
+
+const collectIsoBrands = (bytes: Uint8Array) => {
+	const brands: string[] = [];
+	for (let offset = 8; offset + 4 <= bytes.length; offset += 4) {
+		brands.push(readAscii(bytes, offset, offset + 4).toLowerCase());
+	}
+	return brands;
+};
+
+const sniffSupportedContentType = (bytes: Uint8Array): SupportedContentType | null => {
+	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+		return 'image/jpeg';
+	}
+
+	if (
+		bytes.length >= 8 &&
+		bytes[0] === 0x89 &&
+		bytes[1] === 0x50 &&
+		bytes[2] === 0x4e &&
+		bytes[3] === 0x47 &&
+		bytes[4] === 0x0d &&
+		bytes[5] === 0x0a &&
+		bytes[6] === 0x1a &&
+		bytes[7] === 0x0a
+	) {
+		return 'image/png';
+	}
+
+	if (
+		bytes.length >= 12 &&
+		readAscii(bytes, 0, 4) === 'RIFF' &&
+		readAscii(bytes, 8, 12) === 'WEBP'
+	) {
+		return 'image/webp';
+	}
+
+	if (bytes.length >= 12 && readAscii(bytes, 4, 8) === 'ftyp') {
+		const brands = collectIsoBrands(bytes);
+
+		if (brands.some((brand) => ['heic', 'heix', 'hevc', 'hevx'].includes(brand))) {
+			return 'image/heic';
+		}
+
+		if (brands.some((brand) => ['heif', 'heim', 'heis', 'mif1', 'msf1'].includes(brand))) {
+			return 'image/heif';
+		}
+
+		if (brands.includes('qt  ')) {
+			return 'video/quicktime';
+		}
+
+		if (brands.includes('m4v ')) {
+			return 'video/x-m4v';
+		}
+
+		if (brands.some((brand) => ['avc1', 'dash', 'isom', 'iso2', 'mp41', 'mp42'].includes(brand))) {
+			return 'video/mp4';
+		}
+	}
+
+	if (
+		bytes.length >= 4 &&
+		bytes[0] === 0x1a &&
+		bytes[1] === 0x45 &&
+		bytes[2] === 0xdf &&
+		bytes[3] === 0xa3 &&
+		Buffer.from(bytes).toString('latin1').toLowerCase().includes('webm')
+	) {
+		return 'video/webm';
+	}
+
+	return null;
+};
+
+const readObjectSignatureBytes = async ({
+	client,
+	bucket,
+	objectKey
+}: {
+	client: S3Client;
+	bucket: string;
+	objectKey: string;
+}) => {
+	const response = await client.send(
+		new GetObjectCommand({
+			Bucket: bucket,
+			Key: objectKey,
+			Range: `bytes=0-${SIGNATURE_RANGE_BYTES - 1}`
+		})
+	);
+
+	if (!response.Body) {
+		return null;
+	}
+
+	return await response.Body.transformToByteArray();
+};
+
 const loadStoredMediaMetadata = async ({
 	client,
 	bucket,
@@ -125,7 +227,7 @@ const loadStoredMediaMetadata = async ({
 	bucket: string;
 	objectKey: string;
 	provider: Doc<'mediaAssets'>['storageProvider'];
-}): Promise<StoredMediaMetadata | null> => {
+	}): Promise<StoredMediaMetadata | null> => {
 	try {
 		const response = await client.send(
 			new HeadObjectCommand({
@@ -133,11 +235,20 @@ const loadStoredMediaMetadata = async ({
 				Key: objectKey
 			})
 		);
+		const signatureBytes =
+			Number(response.ContentLength ?? 0) > 0
+				? await readObjectSignatureBytes({
+						client,
+						bucket,
+						objectKey
+					})
+				: null;
 
 		return {
 			storageProvider: provider,
 			bucket,
 			objectKey,
+			detectedContentType: signatureBytes ? sniffSupportedContentType(signatureBytes) : null,
 			contentType: response.ContentType ?? null,
 			sha256: response.ChecksumSHA256 ?? null,
 			size: Number(response.ContentLength ?? -1),
