@@ -132,19 +132,50 @@ export const seedDefaults = mutation({
 			}
 		}
 
-		const activePolicy = await ctx.db
-			.query('privacyPolicy')
-			.withIndex('by_active', (q) => q.eq('isActive', true))
-			.first();
-		if (!activePolicy) {
-			await ctx.db.insert('privacyPolicy', {
+		const legalDocumentDefaults = [
+			{
+				documentKey: 'privacy_policy' as const,
+				fullName: 'Privacy Policy' as const,
 				title: 'Privacy Policy',
 				content: 'Privacy policy content has not been configured yet.',
-				version: '1.0',
-				isActive: true,
-				createdAt: now,
-				updatedAt: now
-			});
+				version: '1.0'
+			},
+			{
+				documentKey: 'terms_and_conditions' as const,
+				fullName: 'Terms and Conditions' as const,
+				title: 'Terms and Conditions',
+				content: 'Terms and conditions content has not been configured yet.',
+				version: '1.0'
+			},
+			{
+				documentKey: 'cookie_policy' as const,
+				fullName: 'Cookie Policy' as const,
+				title: 'Cookie Policy',
+				content:
+					'We use essential and functional cookies to keep the app secure and improve your experience.',
+				version: '1.0'
+			}
+		];
+
+		for (const legalDocument of legalDocumentDefaults) {
+			const activeDocument = await ctx.db
+				.query('legalDocuments')
+				.withIndex('by_document_key_and_active', (q) =>
+					q.eq('documentKey', legalDocument.documentKey).eq('isActive', true)
+				)
+				.first();
+			if (!activeDocument) {
+				await ctx.db.insert('legalDocuments', {
+					documentKey: legalDocument.documentKey,
+					fullName: legalDocument.fullName,
+					title: legalDocument.title,
+					content: legalDocument.content,
+					version: legalDocument.version,
+					isActive: true,
+					createdAt: now,
+					updatedAt: now
+				});
+			}
 		}
 
 		const baseBlocks = [
@@ -221,6 +252,47 @@ export const seedDefaults = mutation({
 		}
 
 		return { success: true };
+	}
+});
+
+const FIXED_TEST_CLUB_CODE = '84NPWT';
+
+export const seedClubCode84NPWT = mutation({
+	args: {},
+	handler: async (ctx) => {
+		const now = Date.now();
+
+		const existingClubWithField = await ctx.db
+			.query('clubs')
+			.withIndex('by_club_code', (q) => q.eq('clubCode', FIXED_TEST_CLUB_CODE))
+			.first();
+		if (existingClubWithField) {
+			return {
+				success: true,
+				created: false,
+				clubId: existingClubWithField._id,
+				code: FIXED_TEST_CLUB_CODE
+			};
+		}
+
+		const clubId = await ctx.db.insert('clubs', {
+			name: 'Demo Curiosity Club',
+			clubCode: FIXED_TEST_CLUB_CODE,
+			description: 'Demo club for onboarding invite code testing.',
+			location: 'Amsterdam',
+			meetingDay: 'Wednesday',
+			meetingTime: '4:00 pm',
+			createdByUserId: 'seed-script',
+			createdAt: now,
+			updatedAt: now
+		});
+
+		return {
+			success: true,
+			created: true,
+			clubId,
+			code: FIXED_TEST_CLUB_CODE
+		};
 	}
 });
 

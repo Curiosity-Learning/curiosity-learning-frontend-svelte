@@ -69,14 +69,15 @@ All require auth + club permission via `requirePermission`:
 | `updates.attachFiles`  | Yes  | `project:update`  |                                                 |
 | `updates.listFiles`    | Yes  | —                 | **Gap:** only checks auth, not project scope    |
 
-### Preferences / Notifications / Privacy
+### Preferences / Notifications / Legal Documents
 
 | Endpoint                     | Auth | Permission | Notes                                     |
 | ---------------------------- | ---- | ---------- | ----------------------------------------- |
 | `preferences.get/upsert`    | Yes  | —          |                                           |
 | `notifications.list/markRead`| Yes  | —          | `markRead` enforces ownership             |
-| `privacyPolicy.getActive`   | No   | —          | Public                                    |
-| `privacyPolicy.upsertActive`| Yes  | —          | **Gap:** any auth user can edit policy    |
+| `legalDocuments.getActiveByKey/listActive` | No | —   | Public                                    |
+| `legalDocuments.upsertActive`| Yes | —          | **Gap:** any auth user can edit legal docs |
+| `privacyPolicy.getActive/upsertActive` | Yes/No | — | Legacy alias behavior backed by `legalDocuments` |
 
 ### Chat
 
@@ -90,7 +91,7 @@ All require auth + club permission via `requirePermission`:
 
 ### High Priority
 
-1. **Privacy policy write is too broad** — `privacyPolicy.upsertActive` callable by any auth user. Should restrict to admin.
+1. **Legal document write is too broad** — `legalDocuments.upsertActive` is callable by any auth user. Should restrict to admin.
 2. **Update file listing is too broad** — `updates.listFiles(updateId)` only checks auth. Any user who knows an `updateId` can list its files.
 3. **Bootstrap is unauthenticated** — `bootstrap.seedDefaults` should be `internalMutation` or require auth.
 

@@ -64,7 +64,7 @@
 					{...props}
 					variant="ghost"
 					size="sm"
-					class="px-0 py-0 type-sm-bold text-primary hover:bg-transparent hover:text-primary/80"
+					class="px-0 py-0 type-sm-bold text-orange-500 hover:bg-transparent hover:text-orange-600"
 				>
 					<PlusIcon class="size-4" />
 					<span>{triggerLabel}</span>

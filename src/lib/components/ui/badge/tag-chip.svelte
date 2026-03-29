@@ -4,7 +4,7 @@
 	import { cn } from '$lib/utils.js';
 	import Badge from './badge.svelte';
 
-	export type TagChipTone = 'accent' | 'muted';
+	export type TagChipTone = 'primary' | 'primarySoft' | 'accent' | 'muted';
 
 	type Props = {
 		label: string;
@@ -30,11 +30,11 @@
 		class: className
 	}: Props = $props();
 
-	let toneClass = $derived(
-		tone === 'muted'
-			? 'bg-secondary py-0.5 text-primary'
-			: 'bg-accent/60 px-3 py-0.5 type-sm-bold text-primary'
-	);
+	let toneClass = $derived.by(() => {
+		if (tone === 'muted') return 'bg-secondary py-0.5 text-primary';
+		if (tone === 'primary') return 'bg-orange-500 px-3 py-0.5 type-sm-bold text-white';
+		return 'bg-orange-50 px-3 py-0.5 type-sm-bold text-orange-500';
+	});
 	let removablePaddingClass = $derived(removable ? 'pr-1.5' : '');
 
 	const handleRemove = (event: MouseEvent) => {

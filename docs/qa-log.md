@@ -1005,6 +1005,1488 @@
 
 - `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+### Media Uploads: Club Videos + Profile Images (Convex Storage)
+
+- Added Convex storage upload mutation:
+  - `src/convex/media.ts` → `media.generateUploadUrl` (auth-gated).
+- Extended schema for storage-backed media IDs:
+  - `profiles.profileImageStorageId?: Id<'_storage'>`
+  - `clubs.videoStorageId?: Id<'_storage'>`
+- Updated `src/convex/profiles.ts`:
+  - `updateMe` accepts `profileImageStorageId`.
+  - resolves storage URL via `ctx.storage.getUrl` and keeps profile/denormalized member avatar fields in sync.
+  - `getMe` now resolves profile image URL from `profileImageStorageId` when present.
+- Updated `src/convex/clubs.ts`:
+  - `createClub` accepts optional `videoUrl` or `videoStorageId`.
+  - invite-preview and club responses resolve storage-backed video URL.
+- Updated onboarding start-club UI:
+  - actual file upload to Convex Storage from `src/routes/onboarding/start-club/+page.svelte`.
+  - uploaded `videoStorageId` is submitted with club creation.
+- Updated join-club preview UI:
+  - `src/routes/onboarding/join-club/[code]/+page.svelte` now renders `<video controls>` when club video is available.
+- Updated settings profile UI:
+  - `src/routes/(app)/settings/+page.svelte` now supports profile image upload to Convex Storage and saves via `profiles.updateMe`.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-12
+
+### UI Polish: Standardized Orange CTA Hover/Pressed States
+
+- Refined shared button interaction styles in `src/lib/components/ui/button/button.svelte`:
+  - `brand`: hover darken + pressed darken (`active`) for consistent contained-button feedback.
+  - `brand-outline`: hover tint + stronger border + pressed tint for standard outlined-button behavior.
+  - added `brand-ghost` for text-CTA style with matching orange hover/pressed feedback.
+- Switched Get Started “I have an account” CTA to shared `variant="brand-ghost"` in `src/routes/onboarding/get-started/+page.svelte`.
+
+### UI Refactor: Shared Orange CTA Button Variants
+
+- Added shared button variants in `src/lib/components/ui/button/button.svelte`:
+  - `brand` (filled orange CTA),
+  - `brand-outline` (orange outline CTA).
+- Added shared button size `xl` (`h-12`) for onboarding-style primary actions.
+- Updated `src/routes/onboarding/get-started/+page.svelte` to use common variants instead of per-button inline styling:
+  - `Join a club` now uses `variant="brand" size="xl"`,
+  - `Start a club` now uses `variant="brand-outline" size="xl"`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-03-11
+
+### UI + Typography: Get Started Screen Parity Refresh (Flutter Reference)
+
+- Added `@fontsource/bevan` and updated global font tokens in `src/routes/layout.css`:
+  - headings now use `Bevan`,
+  - body/controls remain `DM Sans`.
+- Rebuilt `src/routes/onboarding/get-started/+page.svelte` to mirror the provided Flutter/UI reference:
+  - responsive desktop split layout (illustration + CTA column),
+  - mobile stacked layout,
+  - logo/header/subtitle/button hierarchy aligned with reference content,
+  - primary, outline, and text-only CTA styling aligned with orange theme.
+- Wired get-started assets to Flutter-equivalent names:
+  - logo: `src/lib/assets/images/login_image.svg`,
+  - main illustration: `src/lib/assets/images/image.svg`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Splash Screen Shows Only Animated App Icon
+
+- Updated `src/lib/components/app/LauncherScreen.svelte` to render only the app icon with no text/content.
+- Switched splash icon source to imported `src/lib/assets/favicon.svg` so it uses the same logo as the app favicon and resolves correctly in all builds.
+- Added opacity pulse animation and `prefers-reduced-motion` fallback for accessible motion behavior.
+- Updated `src/routes/+layout.svelte` launcher timer to run in `onMount` with cleanup, keeping splash timing client-only and predictable.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-03-12
+
+### UI: Onboarding Flow Redesign (Join/Start/Signup/Terms)
+
+- Added shared onboarding flow scaffold at `src/lib/components/app/onboarding/flow-shell.svelte` with responsive step counter, progress bar, logo lane (desktop), and account link lane.
+- Rebuilt `src/routes/onboarding/join-club/+page.svelte` to match the reference flow:
+  - 6-cell invite code entry UX with focus management, paste handling, and disabled/enabled continue state.
+  - Mobile-only secondary CTA for `Scan a QR code`.
+- Rebuilt `src/routes/onboarding/join-club/[code]/+page.svelte` as the club preview/detail step with media panel, learner/guide sections, and join/apply CTAs while preserving existing Convex join mutation.
+- Rebuilt `src/routes/onboarding/start-club/+page.svelte` into responsive 2-step application UI (`Add application details`, `Add video`) with auth-gated final submit and Convex create-club integration for authenticated users.
+- Rebuilt `src/routes/auth/sign-up/+page.svelte` into onboarding-style multi-step signup UI (step `3/5` personal info and `4/5` account details), preserving Better Auth email signup and verification resend flow.
+- Updated `src/routes/auth/+layout.svelte` so `/auth/sign-up` renders full-page onboarding layout while keeping card layout for other auth routes.
+- Updated `src/routes/onboarding/+layout.svelte` to full-bleed white onboarding container.
+- Restyled `src/routes/terms/+page.svelte` to the simple mobile/web reference layout with back action and content-first typography.
+
+### Run: Type Check
+
+- `npm run check` ✅
+- Residual pre-existing warnings remain in `src/lib/components/ui/toggle-group/toggle-group.svelte` (`state_referenced_locally`), unchanged by this work.
+
+### UX Fix: QR Scan CTA Availability
+
+- Updated `src/routes/onboarding/join-club/+page.svelte` so `Scan a QR code` is shown only when the client appears mobile-like **and** has camera API support (`mediaDevices/getUserMedia`).
+- This removes scan CTA on normal desktop/laptop web by default while keeping it available on mobile web devices that can scan.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Refactor: Shared Onboarding/Auth Form Components
+
+- Added reusable form primitives in `src/lib/components/app/form/`:
+  - `FieldShell`
+  - `InputField`
+  - `TextareaField`
+  - `SelectField`
+  - `DateSelectField`
+- Refactored onboarding/auth screens to reuse shared form components instead of ad-hoc label/input/select markup:
+  - `src/routes/onboarding/start-club/+page.svelte`
+  - `src/routes/auth/sign-up/+page.svelte`
+  - `src/routes/auth/sign-in/+page.svelte`
+  - `src/routes/auth/reset-password/+page.svelte`
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### UI Consistency: Step Header Typography
+
+- Added shared `.type-step-title` typography token in `src/routes/layout.css` with:
+  - `font-family: DM Sans`
+  - `font-weight: 700`
+  - `font-size: 20px`
+  - `line-height: 24px`
+  - `letter-spacing: 0`
+- Applied this class to step headers in:
+  - `src/routes/onboarding/join-club/+page.svelte`
+  - `src/routes/onboarding/join-club/[code]/+page.svelte`
+  - `src/routes/onboarding/start-club/+page.svelte`
+  - `src/routes/auth/sign-up/+page.svelte`
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### UI Consistency: Text Field Label Typography
+
+- Added shared `.type-field-label` typography token in `src/routes/layout.css` with:
+  - `font-family: DM Sans`
+  - `font-weight: 700`
+  - `font-size: 16px`
+  - `line-height: 24px`
+  - `letter-spacing: 0`
+- Updated shared form label wrapper (`src/lib/components/app/form/field-shell.svelte`) to use `.type-field-label` by default.
+- Removed custom larger label override from `src/routes/onboarding/start-club/+page.svelte` so it inherits the common field-label typography.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Theme Alignment: Primary Orange Button/Link Color
+
+- Updated shared button variants in `src/lib/components/ui/button/button.svelte` so onboarding-focused button styles use primary orange (`#F5791D` / `orange-500`) as the default accent color:
+  - `brand-outline` now defaults to orange-500 for border/text.
+  - `brand-ghost` now defaults to orange-500 text.
+- Updated onboarding/account accent links to primary orange-500 for consistency:
+  - `src/lib/components/app/onboarding/flow-shell.svelte` (`I have an account` link)
+  - `src/routes/onboarding/join-club/+page.svelte` (`View public clubs near you.`)
+  - `src/routes/auth/sign-up/+page.svelte` (`Terms and conditions` link)
+  - `src/routes/onboarding/join-club/[code]/+page.svelte` location/time badges.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Join Club: Code Validation via getClubPreviewByCode
+
+- Updated `src/routes/onboarding/join-club/+page.svelte` to call `api.clubs.getClubPreviewByCode` before navigating to the preview step.
+- `Continue` now validates the 6-character club code against existing clubs and shows inline error messaging for invalid/unresolvable codes.
+- Added loading state (`Checking...`) while validation is in progress.
+
+### Run: Type Check
+
+- `npm run check` ✅
+
+### Signup: OTP Email Verification Flow
+
+- Switched signup email verification from link-based to OTP-based verification using Better Auth `emailOTP` plugin.
+- Added email OTP server plugin setup in `src/convex/auth.ts` with Resend delivery for:
+  - `email-verification`
+  - `sign-in`
+  - `forget-password`
+- Enabled OTP auto-send on signup via Better Auth `emailVerification.sendOnSignUp` with default email-verification override (`overrideDefaultEmailVerification`).
+- Added `emailOTPClient()` to `src/lib/auth-client.ts`.
+- Completed signup flow UI in `src/routes/auth/sign-up/+page.svelte`:
+  - Added `5/5` email verification step with 6-digit OTP entry.
+  - Added OTP verify action (`authClient.emailOtp.verifyEmail`).
+  - Added OTP resend action (`authClient.emailOtp.sendVerificationOtp`) with 30s cooldown.
+  - Kept onboarding step progression and responsive layout intact.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking `toggle-group` warnings unchanged)
+
+### Onboarding: Start Club Back Navigation Fix
+
+- Fixed incorrect back behavior in `src/routes/onboarding/start-club/+page.svelte` where returning from step 1 could bounce users back to step 2.
+- Step navigation is now URL-driven (`/onboarding/start-club` for step 1 and `/onboarding/start-club?step=2` for step 2).
+- Back from step 2 now replaces URL history to step 1, and back from step 1 always routes to `/onboarding/get-started`.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Clubs Media Storage: Persist `videoStorageId` Only
+
+- Updated `clubs` table schema to stop persisting raw `videoUrl` and store only `videoStorageId` for uploaded videos.
+- Updated `src/convex/clubs.ts`:
+  - removed `videoUrl` write args from `createClub` and `updateClub`
+  - removed raw-url fallback from `resolveClubVideoUrl`
+  - keeps returning resolved `videoUrl` in read responses by calling `ctx.storage.getUrl(videoStorageId)` when present
+- Updated onboarding start-club submit flow (`src/routes/onboarding/start-club/+page.svelte`) to send only `videoStorageId`.
+- Updated start-club step copy/UI to remove external link input and focus on upload-based video submission.
+- Regenerated Convex bindings with `npm run convex:codegen`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Login Desktop Layout Refinement: Show Login SVG on Laptop + Align with Figma Composition
+
+- Updated `src/routes/auth/sign-in/+page.svelte`:
+  - moved to a centered two-column desktop composition with compact card-like structure
+  - desktop illustration now appears from `md` breakpoint (instead of only `lg`)
+  - left panel wraps `src/lib/assets/svg/login.svg` in a light-orange rounded container
+  - adjusted top logo/link visibility and spacing to better match provided login references
+- Result: login illustration now renders on typical laptop widths and overall screen hierarchy is closer to the design screenshots.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Auth UI Update: New Login + Forgot/Reset Password Screens (Figma-Aligned)
+
+- Updated auth layout routing in `src/routes/auth/+layout.svelte` so:
+  - `/auth/sign-in` and `/auth/reset-password` render in full-screen white layout mode (no legacy auth card wrapper)
+- Rebuilt login screen in `src/routes/auth/sign-in/+page.svelte`:
+  - desktop left-side illustration uses `src/lib/assets/svg/login.svg`
+  - top branding + "I'm new, sign me up" CTA
+  - username/email + password fields
+  - remember-me checkbox
+  - forgot-password link to reset flow
+  - login + sign-up buttons
+  - preserved verification resend behavior for unverified-email sign-in errors
+- Rebuilt reset flow screen in `src/routes/auth/reset-password/+page.svelte` with three states:
+  - request reset link (username/email + reset button)
+  - reset link sent confirmation (uses `src/lib/assets/reset_password.png`)
+  - create new password form (new/confirm password + save changes)
+  - added optional parent-flow messaging support via `?parent=1`
+  - successful password reset shows snackbar and routes back to sign-in
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Unified Dropdown UX in Start Club Step 1
+
+- Added shared form component:
+  - `src/lib/components/app/form/dropdown-field.svelte`
+  - supports input-style dropdown with menu opening below field, loading state, click-outside close, searchable/non-searchable modes
+- Updated form exports:
+  - `src/lib/components/app/form/index.ts` now exports `DropdownField`
+- Updated `src/routes/onboarding/start-club/+page.svelte`:
+  - location field now uses `DropdownField` with Photon suggestions
+  - `I am a...` and `How did you find out about us?` now also use `DropdownField` (non-searchable)
+- Result: all three dropdowns in this step now share consistent styling and behavior.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Start Club Location Field: Photon (Free OSM) Autocomplete Integration
+
+- Updated `src/routes/onboarding/start-club/+page.svelte` to replace plain location input behavior with Photon-backed autocomplete:
+  - debounced client-side search against `https://photon.komoot.io/api/`
+  - dropdown suggestions with click-to-select
+  - loading spinner during lookup
+  - deduplicated label formatting from Photon place properties
+  - graceful fallback to manual typing if lookup fails
+- Added click-outside behavior to close the dropdown and abort/cleanup lookup timers/controllers on state changes and unmount.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Start Club Step 1: Referral Dropdown + Conditional "Other" Field + Desktop No-Scroll Option
+
+- Updated `src/routes/onboarding/start-club/+page.svelte`:
+  - changed "How did you find out about us?" from free-text input to a dropdown with source options
+  - added conditional "Please specify" input that appears only when `Other` is selected
+  - added common social/source options (Instagram, LinkedIn, Facebook, YouTube, X, Friend/family, School/teacher, Event/workshop, Other)
+- Updated shared onboarding shell `src/lib/components/app/onboarding/flow-shell.svelte`:
+  - added `desktopContentScrollable` prop (default `true`)
+  - Start Club flow now sets `desktopContentScrollable={false}` to avoid internal desktop scroll for this step
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Post-Signup Redirect Fix: Prevent Bounce to Get Started After Pledge Acceptance
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to preserve the original `nextPath` when routing into post-signup, instead of hardcoding `next=/`.
+- Updated `src/routes/onboarding/post-signup/+page.svelte` completion logic:
+  - if profile has `pendingClubCode`, it now calls `api.clubs.joinClubWithCode` and routes directly to `/club/{clubId}`
+  - otherwise it keeps existing `firstLoginCompleted` update + `nextPath` redirect
+- Result: users coming from join-club signup flow are taken to club/home after accepting pledges, instead of landing on get-started.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Post-Signup UX: Replaced Inline Alerts with Global Snackbar Feedback
+
+- Updated `src/routes/onboarding/post-signup/+page.svelte`:
+  - removed static inline alert UI blocks
+  - switched success/error/validation feedback to `showGlobalSnackbar(...)`
+  - includes upload success, invalid file type, pledge load errors, username required, and onboarding completion errors
+- Goal: keep the step UI clean and show transient feedback consistently across web/mobile.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Onboarding UI Cleanup: Removed Header Logo from Step Shell
+
+- Updated `src/lib/components/app/onboarding/flow-shell.svelte` to remove the Curiosity Learning logo from the onboarding step header on web.
+- Cleaned up header grid layout after logo removal while preserving progress bar and account-link alignment.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### OTP UX/Sync Fix: Remove OTP Field Blinking + Improve Session Hydration Reliability
+
+- Updated `src/routes/auth/sign-up/+page.svelte` email OTP finalization behavior:
+  - increased retry window for session hydration (`30` attempts, `800ms` delay),
+  - added active session refresh check via `authClient.getSession()` before deciding session is unavailable.
+- Removed repeated `pending` toggles during post-OTP finalization to avoid UI flicker.
+- Added a unified OTP sync state (`otpSyncInProgress`) and applied it to:
+  - OTP input disabled/cell styles,
+  - verify button disabled/loading label,
+  - change-email / resend actions.
+- Result: OTP cells no longer blink while verifying/finalizing, and false "Session sync is taking too long" errors are less likely during normal auth hydration delays.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Join Flow UX: "Join as a learner" No Longer Auto-Uses Existing Session
+
+- Updated `src/routes/onboarding/join-club/[code]/+page.svelte` so the CTA now always routes into signup flow (DOB/account steps), instead of directly running join mutation when a session exists.
+- Added explicit `forceSignup=1` on signup redirect from join flow and signed out any existing session before redirect, to prevent implicit account reuse.
+- Updated `src/routes/auth/sign-up/+page.svelte` to preserve `forceSignup` across step/terms navigation and skip automatic `session -> nextPath` redirect while `forceSignup=1` is active.
+- This prevents “auto logging in” when user taps join from club detail onboarding.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### OTP Finalization Reliability: Bounded Retry + No Infinite Loading Loop
+
+- Updated `src/routes/auth/sign-up/+page.svelte` OTP post-verification finalization flow to prevent repeated `auth:ensureProfile` spam and stuck loading states.
+- Added controlled retry queue for email post-verify completion:
+  - delayed retries (`EMAIL_POST_VERIFY_RETRY_DELAY_MS`),
+  - max attempt cap (`EMAIL_POST_VERIFY_MAX_ATTEMPTS`),
+  - timer guards to prevent concurrent retry loops.
+- Added explicit state reset helper for post-verify flow to avoid stale retry flags on back/change navigation.
+- Added in-screen info alert for OTP verification status (`Email verified. Finalizing your account...`).
+- Verify button now disables and shows `Finalizing` during session/profile synchronization.
+- On repeated session sync failure, users now receive clear guidance instead of indefinite loading (`Please sign in again and continue.`).
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Join Club Backend Fix: Auto-Create Missing Profile for Authenticated Users
+
+- Fixed `Profile not found` crash in `clubs:joinClubWithCode` when an authenticated user has no `profiles` row yet.
+- Updated `src/convex/clubs.ts`:
+  - added mutation-only `getOrCreateProfile` helper that creates a minimal profile from Better Auth user data when missing,
+  - added `resolveUniqueUsername` safeguard for generated username collisions,
+  - switched `createClub`, `joinClubWithCode`, and `switchActiveClub` to use `getOrCreateProfile`.
+- Hardened `getActiveClubContext` query to return empty context instead of throwing when profile is absent.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Join Club Onboarding: Handle Convex Auth Hydration Race on "Join as a learner"
+
+- Updated `src/routes/onboarding/join-club/[code]/+page.svelte` join handler to avoid surfacing raw `Unauthenticated` server errors when Better Auth session exists but Convex identity is still hydrating.
+- New behavior on "Join as a learner":
+  - if not signed in, route to sign-up with `next` back to the same join-club code page,
+  - if mutation fails with `Unauthenticated`, retry once after a short delay,
+  - if still unauthenticated, redirect to sign-up flow instead of showing backend error text.
+- Keeps existing direct success path for fully authenticated users.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Signup UX Fix: Existing Unverified Email Now Resends OTP Instead of Blocking
+
+- Updated `src/routes/auth/sign-up/+page.svelte` signup handling for the "email already exists" case:
+  - if signup detects an existing account, the flow now attempts `email-verification` OTP resend,
+  - on resend success, user is moved to verification step (`step 5`) with fresh code prompt and cooldown.
+- This fixes the change-email/back-and-continue path where users could see a false-end error even when they only needed to verify OTP.
+- Added fallback handling:
+  - if email is already fully verified, show clear guidance to sign in instead.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### OTP Verification Race Fix: Delay Profile Completion Until Session Hydrates
+
+- Fixed email OTP verification race in `src/routes/auth/sign-up/+page.svelte` where Convex profile mutations could run before auth session hydration, causing:
+  - `Uncaught ConvexError: Unauthenticated` in `auth:ensureProfile`.
+- Added guarded post-OTP completion flow:
+  - mark verification as complete,
+  - wait for authenticated session availability,
+  - finalize profile setup only after session is present.
+- Added in-flight guards to avoid duplicate profile completion attempts.
+- Kept user on the verify step with a clear interim message while session finalizes.
+- Reset post-verify flags when navigating back/change to keep step transitions consistent.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Theme Consistency: Checkbox Checked State Uses Primary Orange
+
+- Updated shared checkbox component in `src/lib/components/ui/checkbox/checkbox.svelte` so checked state now uses primary orange (`#F5791D`) consistently:
+  - `data-[state=checked]:bg-orange-500`
+  - `data-[state=checked]:border-orange-500`
+  - checked icon color set to white
+- Updated checkbox focus styles to orange ring/border for consistent interaction styling.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Signup UI Polish: Password Field Fill + Eye Toggle Interaction
+
+- Updated password and confirm-password fields in `src/routes/auth/sign-up/+page.svelte` to use white input fill (`inputClass="bg-white"`).
+- Refined show/hide-password icon button behavior for cleaner interaction:
+  - removed focus/hover border/ring artifacts around the eye icon,
+  - preserved input focus on icon press for smoother typing flow (`onmousedown` prevent-default),
+  - added `aria-pressed` state for the visibility toggle buttons.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Signup UI: Removed Username Field from Account Details Step
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to remove the username input from the "Enter your account details" screen.
+- Updated signup payload construction to derive `name` from the email local part (with safe fallback) for `authClient.signUp.email`.
+- Updated profile completion call to no longer pass a username from this step.
+- Updated sign-up button disabled-state validation to require only email + password + confirm password.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Club Dashboard Theme Alignment: Chip Component + Primary Orange Consistency
+
+- Updated shared chip styling in `src/lib/components/ui/badge/tag-chip.svelte`:
+  - added `primary` (filled orange) tone
+  - added `primarySoft` tone using light orange background (`#FEF2E8`)
+  - kept `accent` as a supported tone and mapped it to the same light-orange visual treatment
+- Updated `src/lib/components/app/record-card/relation-chip-set.svelte` tone typing to accept the new chip tone variants.
+- Aligned club dashboard surface colors to primary orange:
+  - `View all` action links now use explicit orange in `src/lib/components/app/home/home-action-link.svelte`
+  - empty-state card icons now use light-orange background + orange icon in `src/lib/components/app/home/home-empty-card.svelte`
+  - session and project calendar icons now use orange in:
+    - `src/lib/components/app/sessions/club-session-card.svelte`
+    - `src/lib/components/app/projects/club-project-card.svelte`
+  - invite learner trigger link now uses orange in `src/lib/components/app/home/invite-learner-dialog.svelte`
+  - avatar overflow counter pill now uses light-orange + orange text in `src/lib/components/app/home/avatar-stack.svelte`
+  - project preview card calendar icon updated to orange in `src/lib/components/app/home/project-preview-card.svelte`
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking `toggle-group` warnings unchanged)
+
+### Video Rendering Guard: Valid Video Only
+
+- Updated onboarding club detail screen (`src/routes/onboarding/join-club/[code]/+page.svelte`) to render the video player only when a valid HTTP(S) video URL is present and media loading succeeds.
+- Removed fallback poster/play overlay from that screen so no video UI appears when no valid club video exists.
+- Updated onboarding start-club step (`src/routes/onboarding/start-club/+page.svelte`) to:
+  - accept only files with `video/*` MIME type,
+  - render preview video only after successful upload (`videoStorageId`) and successful media load.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Accessibility Baseline
+
+- Added global accessibility/disability-support defaults:
+  - keyboard skip link to main content in root layout
+  - semantic `<main id="main-content">` landmark
+  - focus-visible ring styles for keyboard navigation
+  - reduced motion fallback for users with `prefers-reduced-motion`
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+### Convex: Removed Legacy `clubCodes` Table
+
+- Removed `clubCodes` table from `src/convex/schema.ts`.
+- Updated invite-code flows in `src/convex/clubs.ts` to use only `clubs.clubCode`:
+  - invite code generation uniqueness check
+  - join/preview by code resolution
+  - club payloads (`getMyClubs`, `getClubById`)
+  - club creation (no dual-write to legacy table)
+- Updated `src/convex/bootstrap.ts` `seedClubCode84NPWT` to use only `clubs.clubCode`.
+- `clubs.clubCode` is now the single source of truth for club invite codes.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Legal Docs: Unified Table + Cookie Policy Page
+
+- Added a new Convex `legalDocuments` table in `src/convex/schema.ts` to store legal content by full-name document type:
+  - `Privacy Policy`
+  - `Terms and Conditions`
+  - `Cookie Policy`
+- Added `src/convex/legalDocuments.ts` with:
+  - `getActiveByKey`
+  - `listActive`
+  - `upsertActive`
+- Updated bootstrap seeding in `src/convex/bootstrap.ts` to ensure active defaults exist for all three legal documents.
+- Updated public legal routes to read from `legalDocuments`:
+  - `src/routes/privacy/+page.server.ts`
+  - `src/routes/terms/+page.server.ts`
+  - new `src/routes/cookies/+page.server.ts`
+- Added shared Terms-style legal UI component:
+  - `src/lib/components/app/legal/legal-document-screen.svelte`
+- Migrated Privacy and Terms pages to the shared legal-document UI and added a new Cookie Policy page:
+  - `src/routes/privacy/+page.svelte`
+  - `src/routes/terms/+page.svelte`
+  - `src/routes/cookies/+page.svelte`
+- Updated cookie consent banner links to include Cookie Policy and full legal names.
+- Updated settings policy section to show all legal document types and direct links to each page.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Cookies: Delayed Popup on Get Started
+
+- Updated `src/lib/components/app/cookie-consent-banner.svelte` so cookie consent popup appears with a short delay (`1500ms`) after user reaches `/onboarding/get-started`.
+- Popup now stays hidden on other routes by default and still respects previously saved consent.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Cookies: Essential + Functional Only
+
+- Updated `src/lib/components/app/cookie-consent-banner.svelte` to support only two cookie categories:
+  - essential (always on)
+  - functional (user choice)
+- Removed `Accept all` wording and replaced with:
+  - `Essential only`
+  - `Allow functional cookies`
+- Updated consent persistence keys/formats:
+  - localStorage: `cl_cookie_preferences_v1` (JSON)
+  - cookie: `cl_cookie_preferences` (`essential_only` or `essential_functional`)
+- Added backward compatibility mapping for previous values (`accepted` / `declined`).
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Web: Global Cookie Consent Popup
+
+- Added website-style cookie consent popup component at `src/lib/components/app/cookie-consent-banner.svelte`.
+- Popup appears once, allows:
+  - `Accept all`
+  - `Essential only`
+- Consent is persisted in both:
+  - localStorage key: `cl_cookie_consent_v1`
+  - cookie: `cl_cookie_consent`
+- Mounted globally in `src/routes/+layout.svelte` (shown after launcher screen) so it works across all routes.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Convex: clubs.clubCode + Fixed Test Code Seed
+
+- Added `clubCode` column to `clubs` table schema and index:
+  - `clubCode: v.optional(v.string())`
+  - `.index('by_club_code', ['clubCode'])`
+- Updated club backend to persist and read from `clubs.clubCode` while keeping compatibility with legacy `clubCodes` table:
+  - invite code generation now checks both `clubs` and `clubCodes` for uniqueness
+  - `createClub` writes generated invite code into both `clubs.clubCode` and `clubCodes`
+  - code-based preview/join now resolves by `clubs.clubCode` first, then falls back to `clubCodes`
+  - `getMyClubs` and `getClubById` prefer `clubs.clubCode` with legacy fallback
+- Added `seedClubCode84NPWT` mutation in `src/convex/bootstrap.ts` to ensure code `84NPWT` exists and is synced in both tables (idempotent behavior).
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Onboarding: Removed Visible Step Counter Text
+
+- Updated shared onboarding shell `src/lib/components/app/onboarding/flow-shell.svelte` to remove the visible `step/total` text (e.g., `1/5`) from the header.
+- Kept the progress bar behavior unchanged across onboarding and auth step flows.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Auth: Resend Verification + Shared OTP Component
+
+- Confirmed auth email OTP delivery is wired through Resend in `src/convex/auth.ts`:
+  - `sendVerificationOTP` for `email-verification`, `sign-in`, and `forget-password`
+  - password reset email (`sendResetPassword`)
+  - required env: `RESEND_API_KEY` (optional sender override: `RESEND_FROM`)
+- Added shared `InputOtp` UI primitive in `src/lib/components/ui/input-otp/` built on `bits-ui` `PinInput` (shadcn-style component approach).
+- Refactored signup step `5/5` in `src/routes/auth/sign-up/+page.svelte` to use `InputOtp` and removed custom per-cell OTP keyboard/paste handlers.
+- Kept existing resend cooldown and OTP verify flow behavior intact.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Onboarding: Join Club Initial Steps Restored
+
+- Updated `src/routes/onboarding/get-started/+page.svelte` so both `Join a club` and `Start a club` always enter onboarding flows first instead of sending unauthenticated users directly to sign-up.
+- This restores the expected Join Club sequence visibility:
+  - Step 1: enter club code (`/onboarding/join-club`)
+  - Step 2: club details (`/onboarding/join-club/[code]`)
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Convex Seed: Dummy Club Mutation
+
+- Added `seedDummyClub` mutation in `src/convex/bootstrap.ts` to insert a dummy row in `clubs` table (plus matching `clubCodes` row).
+- Defaults:
+  - name: `Demo Curiosity Club`
+  - code: `CLUB01`
+  - location: `Amsterdam`
+  - meeting: `Wednesdays 4:00 pm`
+- Mutation is idempotent by invite code (returns existing club if code already exists).
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Signup DOB: Month + Year Only
+
+- Updated signup DOB flow to remove day selection and capture only month and year.
+- Extended shared `DateSelectField` with `includeDay` prop (default `true`) and used `includeDay={false}` in signup.
+- Updated signup personal-step validation to require only name + birth month + birth year.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+### Signup: Age-Gated Google Sign Up (Step 4)
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to show a `Sign up with Google` CTA on account-details step only when user age is over 16.
+- Added `signUpWithGoogle` flow using Better Auth social sign-in:
+  - `authClient.signIn.social({ provider: 'google', callbackURL, newUserCallbackURL, requestSignUp: true })`
+- Kept terms acceptance requirement for Google sign-up path for consistency with email sign-up flow.
+
+### Run: Type Check
+
+- `npm run check` ✅ (existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Onboarding Layout: Desktop Illustration + Mobile-Style Form Column
+
+- Updated shared onboarding shell `src/lib/components/app/onboarding/flow-shell.svelte` with optional `showSideIllustration` support.
+- Enabled desktop left-side illustration (same asset as get-started: `assets/images/image.svg`) for:
+  - `src/routes/onboarding/join-club/+page.svelte`
+  - `src/routes/onboarding/join-club/[code]/+page.svelte`
+  - `src/routes/onboarding/start-club/+page.svelte`
+- Right panel remains the same mobile-style step UI and stays responsive on smaller screens.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Date/Time Helpers: Reusable Weekly Meeting Label Formatter
+
+- Added reusable format helpers in `src/lib/domain/date.ts`:
+  - `formatMeetingTime(value)`
+  - `formatWeeklyMeetingLabel(day, time)`
+- Refactored `src/routes/onboarding/join-club/[code]/+page.svelte` to use `formatWeeklyMeetingLabel` instead of local inline formatting logic.
+- Added unit test coverage in `src/lib/domain/date.spec.ts` for:
+  - 24-hour to am/pm conversion
+  - weekday pluralization + `"at"` separator output
+  - partial input handling.
+
+### Run: Validation
+
+- `npm run test:quick -- src/lib/domain/date.spec.ts` ✅
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Onboarding Club Detail: Removed Member/Project Sections
+
+- Updated `src/routes/onboarding/join-club/[code]/+page.svelte` to remove Learners/Guides display from onboarding club detail UI.
+- The onboarding club detail step now focuses on title, description, location/time, optional video, and CTA actions only.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Onboarding Join CTA: Unauthenticated Path to Signup (DOB Step)
+
+- Fixed onboarding join-club detail CTA in `src/routes/onboarding/join-club/[code]/+page.svelte`.
+- `Join as a learner` now routes unauthenticated users to `/auth/sign-up` (with `next` back to join-club code page) instead of `/auth/sign-in`.
+- This ensures users land on signup step 3 (DOB/personal information) as expected.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup Personal Step: Removed Name Field from DOB Step
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to remove the `Full name` input from step 3 (DOB/personal step).
+- Step 3 continue validation now depends only on month + year selection.
+- Signup request now uses `username` as the initial `name` field for `authClient.signUp.email`.
+- Removed remaining step-4 submit guard dependency on `fullName`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup Step 4 UI Order: Terms Checkbox + Google CTA
+
+- Updated `src/routes/auth/sign-up/+page.svelte` account-details step order to:
+  1. Header
+  2. Terms checkbox line
+  3. Outlined `Continue with Google` button (only when age > 16)
+  4. Remaining account fields and sign-up button
+- Kept existing conditional logic and account creation behavior unchanged.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup/Legal Navigation: Preserve Account Step After Opening Terms
+
+- Fixed signup terms-navigation regression where returning from Terms could reset `/auth/sign-up` to DOB (step 3).
+- Updated `src/routes/auth/sign-up/+page.svelte` to:
+  - initialize signup step from the `step` query param,
+  - sync step transitions into the URL with `history.replaceState` (so browser back preserves step),
+  - generate a step-aware `backTo` URL for Terms (`/terms?backTo=...`).
+- Updated `src/lib/components/app/legal/legal-document-screen.svelte` back action to:
+  - prefer `backTo` query navigation via `goto`,
+  - fall back to `history.back()` when `backTo` is absent.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup UI: Multicolor Google Logo in Social CTA
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to use the multicolor Google “G” icon in the `Continue with Google` button (`logos:google-icon` via Iconify).
+- Added dependency `@iconify/svelte` for brand-accurate icon rendering.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Auth: Google OAuth Provider Registration + Signup UI Guard
+
+- Fixed Google social signup failure (`/api/auth/sign-in/social` provider not found) by registering Google in Better Auth server config when credentials are present.
+- Updated `src/convex/auth.ts` to include `socialProviders.google` using `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+- Added `src/routes/auth/sign-up/+page.server.ts` to expose `googleOAuthEnabled` from server env.
+- Updated `src/routes/auth/sign-up/+page.svelte` to:
+  - render `Continue with Google` only when age > 16 and Google OAuth is configured,
+  - show a clear fallback error if Google OAuth is not configured.
+- Documented required Google OAuth env variables in `.env.example` and `README.md`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup Data Binding: Persist DOB + Signup Source + Onboarding Club Intent
+
+- Added `profiles.signUpWith` schema field (`'email' | 'google'`) in `src/convex/schema.ts`.
+- Added new mutation `api.auth.completeSignupProfile` in `src/convex/auth.ts` to persist signup metadata after authentication:
+  - `signUpWith`
+  - `dateOfBirth` (from month/year as `YYYY-MM`)
+  - username normalization
+  - inferred pending onboarding intent from `nextPath` (`pendingClubCode` + `pendingRole` for join/start club flows)
+- Hardened `api.auth.ensureProfile` to keep profile fields in sync with auth-provider data (first/last name and image fallback).
+- Updated `src/routes/auth/sign-up/+page.svelte` to call profile completion for:
+  - email signup (after instant-token path and after OTP verification)
+  - Google signup callback return path (`postSocial=google`)
+- Updated Google social auth callback to return to signup route first, so profile completion runs before redirecting to onboarding target.
+- Regenerated Convex bindings via `npm run convex:codegen`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### Signup UI: Show Google CTA for Age >16 Regardless of Env Gate
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to render the `Continue with Google` button whenever age is above 16 (removed `googleOAuthEnabled` visibility gate).
+- Kept runtime guard in click handler so users still get a clear error if Google OAuth credentials are not configured.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-15
+
+### i18n Update: Replace Hindi Locale with Dutch
+
+- Updated i18n locale registry in `src/lib/i18n/index.ts`:
+  - removed `hi`
+  - added `nl`
+- Added Dutch message bundle at `src/lib/i18n/messages/nl.ts`.
+- Removed Hindi message bundle `src/lib/i18n/messages/hi.ts`.
+- Updated settings language toggle in `src/routes/(app)/settings/+page.svelte` to show `English` and `Dutch` (`nl`).
+- Updated English dictionary language labels in `src/lib/i18n/messages/en.ts` (`hindi` -> `dutch`).
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Signup Google CTA: Removed Frontend False-Negative Config Gate
+
+- Removed `googleOAuthEnabled` server-load gate from `/auth/sign-up`.
+- Deleted `src/routes/auth/sign-up/+page.server.ts` and removed `isGoogleOAuthEnabled` checks in `src/routes/auth/sign-up/+page.svelte`.
+- `Continue with Google` now always attempts social sign-up for age >16 (backend/provider config is now the only source of truth).
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Auth Runtime Fix: Accept Both Google Env Naming Conventions
+
+- Fixed Google provider registration in `src/convex/auth.ts` by adding env fallback support:
+  - client id: `GOOGLE_CLIENT_ID` or `AUTH_GOOGLE_ID`
+  - client secret: `GOOGLE_CLIENT_SECRET` or `AUTH_GOOGLE_SECRET`
+- Root cause observed in active deployment: only `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` were set, which previously resulted in Better Auth `Provider not found` for `google`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Auth UX: Email OTP Verification Screens + Global Snackbar + Success Screen
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to align email verification UI with Figma using existing components (`Button`, `InputOtp`, `Alert`):
+  - heading/subcopy updated
+  - email row with `Change` action
+  - resend text-link behavior with countdown (`Resend (Ns)`)
+  - verify button loading state (`Verifying` + spinner)
+- Added reusable global snackbar component for future screens:
+  - `src/lib/components/app/snackbar/snackbar-toast.svelte`
+  - `src/lib/components/app/snackbar/index.ts` (`showGlobalSnackbar` helper)
+- Wired resend success in sign-up verification step to global snackbar:
+  - title: `Email resent`
+  - description: `We've resent the email. Please check your inbox.`
+- Added success screen using existing asset `src/lib/assets/images/success.png`.
+- Updated auth flow behavior:
+  - Email sign-up now proceeds to OTP verification step.
+  - Google sign-up callback (`postSocial=google`) now shows success screen directly.
+  - Both success paths auto-continue to `next` after a short delay.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Auth Session Sync Fix: Stop `ensureProfile` Unauthenticated Loop After OTP Verification
+
+- Updated `src/routes/(app)/+layout.svelte` to gate app-level profile initialization behind a verified Convex user session (`api.auth.getCurrentUser`) before calling `api.auth.ensureProfile`.
+- Gated app context queries (`getMyClubs`, `getActiveClubContext`) and bootstrap seeding on Convex-ready auth instead of only Better Auth local state.
+- Updated `src/routes/auth/sign-up/+page.svelte` OTP finalize readiness check to verify both:
+  - Better Auth session cookie hydration (`authClient.getSession`)
+  - Convex user session availability (`api.auth.getCurrentUser`)
+- Reduced post-OTP finalize retry latency (`500ms`) and capped retries (`20`) to avoid long “finalizing” stalls.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Signup Success Screen: Manual Next CTA After Email Verification
+
+- Updated `src/routes/auth/sign-up/+page.svelte` success state behavior:
+  - removed auto-redirect timer after verification success
+  - added explicit `Next` button on the success screen
+  - wired `Next` to navigate to `nextPath` with `replaceState: true`
+  - added button loading/disable guard to prevent double navigation
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### OTP Finalization Reliability: Explicit Sign-In After Email Verification
+
+- Updated `src/routes/auth/sign-up/+page.svelte` OTP flow to explicitly sign in after `emailOtp.verifyEmail` succeeds:
+  - added `ensureSessionAfterEmailVerification()` helper
+  - performs `authClient.signIn.email({ email, password })` before finalizing profile
+  - falls back to `getSession({ disableCookieCache: true })` if sign-in returns an error but session is already present
+- Updated verify state messaging:
+  - `Email verified. Signing you in...` before finalization
+  - then `Email verified. Finalizing your account...`
+- Goal: remove dependence on delayed background session hydration and prevent recurring `Session sync is taking too long` failures.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### OTP Finalization Reliability (Follow-up): Retry Immediate Sign-In After Verify
+
+- Hardened `src/routes/auth/sign-up/+page.svelte` `ensureSessionAfterEmailVerification()`:
+  - added retry loop for post-verify `signIn.email` (`6` attempts, `400ms` delay)
+  - retries only on transient verification/auth sync style errors
+  - still falls back to `getSession({ disableCookieCache: true })` before failing
+- Purpose: handle short consistency windows right after OTP verification where sign-in can momentarily report not verified/unauthenticated.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Onboarding Layout Consistency: Show Left Illustration in Signup Steps on Web
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to pass `showSideIllustration={true}` to `FlowShell`.
+- Result: desktop/web now shows the left onboarding illustration for all signup steps (personal info, account details, and OTP verification), matching join/start onboarding layouts.
+
+## 2026-03-16
+
+### Signup Verify Callback Fix: Keep User on Step 5 Until Success `Next`
+
+- Updated `src/routes/auth/sign-up/+page.svelte` to use a dedicated `verificationCallbackPath` (`/auth/sign-up?step=5...`) instead of `nextPath` during:
+  - `authClient.signUp.email(...)`
+  - post-verify `authClient.signIn.email(...)`
+- Prevents unexpected redirect to onboarding/get-started/club-detail before success screen is shown.
+- Success flow now reliably stays on signup, shows success UI, and moves forward only when user taps `Next`.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Signup OTP Recovery Fix: Persist Draft + Auto-Resume Finalization on Step 5
+
+- Updated `src/routes/auth/sign-up/+page.svelte`:
+  - Added `sessionStorage` signup draft persistence (`cl_signup_draft_v1`) for email, DOB, terms, and current step.
+  - Added initial draft hydration to restore state after callback/reload.
+  - Added step-5 authenticated auto-resume logic:
+    - fills email from session when missing
+    - sets `awaitingEmailPostVerify` automatically
+    - queues finalization without requiring another OTP entry
+  - Clears persisted draft when success screen is shown.
+- Purpose: prevent the “empty verify email screen” after verification redirect/splash reload and continue reliably to success.
+
+### Backend Noise Guard: `ensureProfile` No-Throw on Unauthenticated
+
+- Updated `src/convex/auth.ts` `ensureProfile` to use `safeGetAuthUser` and return `null` when unauthenticated, instead of throwing.
+- Purpose: remove repeated unauthenticated error spam from backend logs if a stale/early client call occurs.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Post-Signup Onboarding: Added 2 New Steps After Success
+
+- Updated `src/routes/auth/sign-up/+page.svelte`:
+  - `Hooray -> Next` now routes to `/auth/post-signup?next=/`.
+- Added new route `src/routes/auth/post-signup/+page.svelte` with shared onboarding shell and styling:
+  - Step 1: required `Username` + optional profile image upload.
+    - Uses existing `InputField`, `Button`, and Convex upload flow (`api.media.generateUploadUrl`).
+    - Persists data via `api.profiles.updateMe` (`username`, `profileImageStorageId`).
+  - Step 2: collapsible agreements list + mandatory checkbox.
+    - Requires user confirmation before continue.
+    - On continue, sets `firstLoginCompleted: true` via `api.profiles.updateMe`, then routes to dashboard path (`/`).
+- Added auth guard in post-signup route:
+  - unauthenticated users are redirected to sign-in with a return URL back to post-signup.
+- Added completion guard:
+  - if `firstLoginCompleted` is already true, route immediately to next path.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Signup Loop Fix: Prevent Verify/Success Bounce Before Post-Signup
+
+- Updated `src/routes/auth/sign-up/+page.svelte`:
+  - removed explicit `signIn.email` call after OTP verification to avoid callback-driven route bounces.
+  - added `cl_post_signup_pending_v1` session flag.
+  - when pending flag exists and session is present, sign-up route now force-redirects to `/auth/post-signup`.
+  - `Hooray -> Next` sets this pending flag before navigation.
+- Updated `src/routes/auth/post-signup/+page.svelte`:
+  - clears the pending flag when onboarding is completed or already complete.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Post-Signup Layout Alignment: Same Onboarding Shell Without Progress Bar
+
+- Updated shared `FlowShell` (`src/lib/components/app/onboarding/flow-shell.svelte`) with `showProgressBar` prop (default `true`).
+- Updated post-signup flow (`src/routes/auth/post-signup/+page.svelte`) to use:
+  - `showSideIllustration={true}`
+  - `showProgressBar={false}`
+  - `showAccountLink={false}`
+- Result: post-signup keeps the same white layout with left illustration + right content as onboarding, but no top progress strip.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Signup Bounce Guard: Immediate Redirect to Post-Signup When Pending
+
+- Updated `src/routes/auth/sign-up/+page.svelte` with an early redirect effect:
+  - if `cl_post_signup_pending_v1` is set, route immediately to `/auth/post-signup`
+  - prevents temporary render of OTP/success states during callback hydration bounces
+- Added local `postSignupRedirecting` guard to avoid duplicate navigations.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Post-Signup Route Move: Use Onboarding Layout Instead of Auth Card Layout
+
+- Moved main post-signup flow UI route from `/auth/post-signup` to `/onboarding/post-signup`:
+  - `src/routes/onboarding/post-signup/+page.svelte`
+- Updated sign-up success navigation and pending-flow redirects to target `/onboarding/post-signup`.
+- Added compatibility redirect route:
+  - `src/routes/auth/post-signup/+page.svelte` now forwards to `/onboarding/post-signup` while preserving query params.
+- Purpose: ensure post-signup screens render with onboarding shell style (left image + right content) and not inside auth card UI.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Hard Redirect Guard: Eliminate Auth Card Wrapper for Legacy `/auth/post-signup`
+
+- Updated `src/routes/auth/+layout.svelte` to treat `/auth/post-signup` as onboarding-style route (white full-screen wrapper) instead of auth card layout.
+- Replaced client-side compatibility page with server redirect:
+  - added `src/routes/auth/post-signup/+page.ts` redirecting to `/onboarding/post-signup`
+  - removed `src/routes/auth/post-signup/+page.svelte`
+- Purpose: prevent old auth card header/subheader UI from appearing in post-signup flow and avoid client-side flicker.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Post-Signup Navigation Constraint: Removed In-Screen Back Button
+
+- Updated `src/routes/onboarding/post-signup/+page.svelte`:
+  - removed back button UI entirely
+  - removed back-navigation handler for the post-signup steps
+- Result: after success screen, post-signup flow is forward-only in UI and does not expose navigation back to prior signup/OTP screens.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Review & Accept Now Uses Convex Pledge API (PDF-Backed Seed Data)
+
+- Added a new `pledges` data model and API to source Review & Accept content from DB instead of hardcoded UI content.
+  - Table: `src/convex/schema.ts` (`pledges` with key/title/description/bullets/order/isActive/timestamps)
+  - API: `src/convex/pledges.ts`
+    - `listActive` query for ordered active pledges
+    - `seedDefaults` mutation to upsert guiding-principle pledges extracted from the provided PDF
+- Updated post-signup review screen:
+  - `src/routes/onboarding/post-signup/+page.svelte`
+  - replaced static `agreementItems` with `api.pledges.listActive` data
+  - renders pledge title + description + bullet points in collapsible sections
+  - auto-seeds default pledges once when table is empty for authenticated users
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Login Eye Alignment + Onboarding Step Continuity (Join/Start Club)
+
+- Updated shared input trailing-slot alignment to vertically center right-side icons/buttons in password fields:
+  - `src/lib/components/app/form/input-field.svelte`
+- Fixed onboarding sign-up back navigation path mapping so Join Club signup returns to the club-detail step instead of Get Started:
+  - `src/routes/auth/sign-up/+page.svelte`
+  - back path now respects:
+    - `/onboarding/start-club?step=2`
+    - `/onboarding/join-club/:code`
+    - `/onboarding/join-club`
+- Updated Start Club flow shell progress to 5-step continuity so it aligns with the downstream personal-details/account/OTP signup phases:
+  - `src/routes/onboarding/start-club/+page.svelte` (`total={5}`)
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Reset Password Flow Spacing Pass (All States)
+
+- Updated reset-password screen spacing for consistent vertical rhythm across all states:
+  - request reset form
+  - reset link sent
+  - create new password
+- Increased content stack spacing and button-group separation:
+  - content `gap` adjusted from `5` to `6`
+  - footer action groups updated to include `pt-4` and `gap-4`
+- Purpose: add clearer space after `Username/Email` input and after primary reset action, matching onboarding spacing quality.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Splash Behavior After Login: Skip Launcher For Authenticated Sessions
+
+- Updated root layout launcher logic so authenticated users do not see the splash before dashboard redirects.
+  - File: `src/routes/+layout.svelte`
+  - Launcher now derives visibility from:
+    - server auth state (`authState.isAuthenticated`)
+    - local launcher timer completion for signed-out users
+- Result:
+  - Signed-in flows (including post-login) bypass splash.
+  - Signed-out app-open still shows launcher for the configured duration.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### Mobile Step Layout: Top Progress + Bottom-Pinned Actions Across Onboarding/Auth Steps
+
+- Updated shared onboarding shell to enforce mobile step structure consistently:
+  - progress/header area remains at top
+  - content takes full mobile viewport height
+  - action sections using `mt-auto` stay at the bottom
+- File updated:
+  - `src/lib/components/app/onboarding/flow-shell.svelte`
+- Implementation details:
+  - mobile-first container now stretches full height (`min-h-[calc(100dvh-2rem)]`)
+  - removed mobile vertical centering behavior from shell wrapper
+  - retained desktop centering behavior (`lg:items-center`) and side illustration layout
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-16
+
+### OTP Verification Finalization Reliability Fix (Email Sign Up)
+
+- Reworked email-OTP post-verification finalize flow to avoid long polling deadlock and session-timeout errors.
+  - File: `src/routes/auth/sign-up/+page.svelte`
+- Key changes:
+  - after OTP verify success, run deterministic finalization immediately (no deferred timer loop)
+  - explicitly ensure authenticated session after OTP via:
+    - `authClient.getSession(disableCookieCache)`
+    - fallback `authClient.signIn.email(...)` with entered credentials
+  - handle `already verified` OTP response by continuing finalize flow instead of failing verification
+  - complete profile mutation with capped retries only for transient `Unauthenticated` sync lag
+  - if session still unavailable, route user to sign-in with pending post-signup continuation preserved
+  - removed auto-finalize trigger that ran on step-5 page load and could cause inconsistent loops
+- Result:
+  - faster post-OTP transition
+  - avoids repeated “Session sync is taking too long” in common verify flow
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-22
+
+### Onboarding: Dropdowns Flip Above Inputs When Space Is Tight
+
+- Updated the shared `DropdownField` used on `/onboarding/start-club` so its menu measures viewport space while open.
+- Dropdowns now open above the input when there is not enough room below, instead of clipping off-screen near the bottom of the viewport.
+- Added viewport-aware max-height recalculation during open state so long option lists stay usable on smaller screens and during resize/scroll changes.
+- This fixes the referral-source dropdown for `How did you find out about us?` when it appears close to the bottom of the form.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors; existing non-blocking toggle-group warnings unchanged)
+
+## 2026-03-22
+
+### Onboarding: Get Started Language Picker
+
+- Added a globe icon button at the top-right of `/onboarding/get-started`.
+- The dropdown allowed users to switch between English and Dutch before entering auth or onboarding flows.
+- The current language was marked inside the menu, and selection persisted across reloads.
+
+## 2026-03-22
+
+### Auth: Sign-In Verification Action Spacing
+
+- Fixed the spacing between `Resend verification email` and `Log in` on `/auth/sign-in`.
+- Moved the resend action into the same bottom button stack so shared vertical gaps are applied consistently whenever the verification CTA is shown.
+
+## 2026-03-22
+
+### Auth: Invalid Email Sign-In Error Uses Snackbar
+
+- Updated `/auth/sign-in` so `Invalid email` failures now surface through the global snackbar instead of the inline destructive alert.
+- Other sign-in errors still use the existing on-screen alert behavior.
+
+## 2026-03-22
+
+### Auth: Wrong Password No Longer Triggers Invalid Email Snackbar
+
+- Tightened the `/auth/sign-in` invalid-email detection so only exact invalid-email messages use the snackbar.
+- Combined credential failures such as wrong-password responses now fall back to the normal inline sign-in error state.
+
+## 2026-03-22
+
+### Onboarding: Join Club Code Inputs Now Fit Mobile Width
+
+- Updated `/onboarding/join-club` so the 6-character club code inputs use a responsive 6-column grid instead of a fixed horizontal row.
+- The code boxes now shrink on smaller screens rather than causing sideways scrolling while entering the club code.
+
+## 2026-03-22
+
+### Onboarding: Join Club Actions No Longer Force Horizontal Overflow On Mobile
+
+- Updated `/onboarding/join-club` to prevent action elements from pushing the page sideways on small screens.
+- The `View public clubs near you` prompt now wraps naturally, and the main CTA buttons override nowrap sizing locally so they stay responsive instead of contributing to horizontal scroll.
+
+## 2026-03-22
+
+### Onboarding: Join Club QR Scan CTA Removed For Now
+
+- Removed the `Scan a QR code` action from `/onboarding/join-club`.
+- Also deleted the now-unused mobile camera capability detection and QR icon import tied to that temporary CTA.
+
+## 2026-03-22
+
+### Auth: Join Club Google Signup No Longer Loops Back To Club Preview
+
+- Updated the signup success handoff so join-club invite flows stop carrying the club preview route as the final post-signup `next` destination.
+- The pending club code is still preserved during account creation, but `/onboarding/post-signup` now falls back to `/` after completion instead of reopening `/onboarding/join-club/[code]`.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Signup Header Actions Moved Below Progress Bar On Desktop
+
+- Updated the shared onboarding `FlowShell` to support an optional secondary header row directly below the progress bar.
+- In `/auth/sign-up`, the back button now sits on the left and `I have an account` sits on the right in that row on desktop, instead of rendering the account link in the top-right header lane.
+- The sign-in link also preserves the current signup `next` destination when present.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Onboarding: Existing Session Is Reused For Club Invite Joins
+
+- Updated `/onboarding/join-club/[code]` so signed-in users are no longer signed out when they tap `Join as a learner`.
+- The invite now attempts to join the club with the current account immediately, which keeps the session intact and navigates straight into the club on success.
+- If the current account is already a member of that club, the flow now routes directly to that club instead of failing on an avoidable auth interruption.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Google Signup Shows Loading State And Avoids Callback Screen Flash
+
+- Updated `/auth/sign-up` so `Continue with Google` now shows an inline spinner and loading label while the Google redirect is being started.
+- Added a dedicated post-Google processing screen so the previous signup step no longer briefly flashes before the success screen appears on callback return.
+- Cleared the `postSocial` URL flag after handling the callback so the success/error transition stays stable.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Onboarding: Post-Signup Flow No Longer Auto-Skips Required Username And Pledges
+
+- Updated `/onboarding/post-signup` so an active signup handoff keeps users inside the required onboarding flow even if their profile already has `firstLoginCompleted: true`.
+- This prevents the username screen from auto-redirecting to home before the user finishes the mandatory username step and accepts the pledges.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Login Screen Now Supports Google Sign-In
+
+- Added a `Continue with Google` button to `/auth/sign-in` using the same outline styling as the Google button on signup.
+- The login flow now calls Better Auth social sign-in for Google with the current `next` destination, so users who registered with Google can return with Google from the login screen.
+- Added an inline spinner/loading label while the Google redirect is starting.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Existing Google Accounts No Longer Fall Through Signup As New Users
+
+- Updated Google signup on `/auth/sign-up` to use Better Auth's separate existing-user and new-user callback paths.
+- If the Google account already exists, the flow now lands on `/auth/sign-in` and treats it like login instead of showing the signup success/onboarding path again.
+- Added existing-account messaging on `/auth/sign-in` so the user is told that the Google account already exists and is signed in appropriately.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Fresh Start/Join Club Signup Intents No Longer Get Rerouted To Login
+
+- Updated `/auth/sign-up` so a stale post-signup session flag is cleared when there is no authenticated session, instead of redirecting a fresh signup attempt into post-signup/login.
+- This fixes onboarding entry paths like `/onboarding/start-club?step=2` and `/onboarding/join-club/[code]`, which should open the signup steps for a new user instead of unexpectedly landing on the login screen.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: Signup Flow No Longer Auto-Jumps Into Login During Recovery States
+
+- Updated `/auth/sign-up` so existing Google-account handling stays inside the signup flow and continues with the already signed-in account instead of redirecting to `/auth/sign-in` mid-flow.
+- Removed the email-verification fallback that previously kicked the user to login when session sync lagged; the signup flow now stays on the verification step and asks the user to retry there instead.
+- Updated `/onboarding/post-signup` to hold on a signup-session recovery screen while an active signup handoff is being restored, instead of auto-redirecting to login before the mandatory username and pledge steps finish.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Auth: No-Club Login No Longer Loops Back To Get Started
+
+- Updated the root route so authenticated users with no clubs are sent to `/profile` instead of being bounced back to `/onboarding/get-started`.
+- Updated the get-started `I have an account` action to sign in with `next=/profile`, which avoids the `/` → get-started redirect loop for signed-in accounts that have not joined or created a club yet.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Onboarding: Start-Club Signup Now Resumes Instead Of Feeling Like It Jumps Back
+
+- Updated `/onboarding/start-club` to send unauthenticated users into `/auth/sign-up` with `forceSignup=1`, matching the protected join-club flow and preventing premature redirects back to earlier onboarding steps.
+- Added session-storage draft persistence for the start-club fields so location, role, about, and referral answers survive the account-creation handoff and resume when the user returns.
+- Cleared the saved draft after club creation succeeds.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-22
+
+### Onboarding: Club Join Dashboard Loading Is More Session-Stable
+
+- Updated the club route access guard to wait for auth readiness before deciding membership access, instead of immediately querying club membership during auth/session hydration.
+- Successful club joins now also remember the joined club in local storage before navigation, which helps the app shell stabilize faster on the destination club dashboard.
+- This was applied to both the direct join-club path and the post-signup pending-club completion path.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+## 2026-03-23
+
+### Branch Cleanup: Remove CL-689 i18n Wiring
+
+- Removed the branch-local i18n subsystem and reverted the app to fixed English copy on this branch.
+- Deleted `src/lib/i18n/*`, removed `svelte-i18n` from the package manifests, and removed the onboarding/settings language switchers.
+- Replaced localized strings in the root layout, launcher, cookie banner, and get-started screen with plain English while keeping auth, launcher, and cookie-consent behavior unchanged.
+
+### Auth Routing: Server-First Redirects And Main-Parity Club Navigation
+
+- Added a server guard for `/auth/*` so authenticated users no longer land on sign-in, sign-up, or reset-password screens in new tabs; they are redirected back into the app immediately.
+- Updated `/onboarding/get-started` to redirect authenticated users to `/`, keeping onboarding entry points bounded to signed-out users.
+- Switched sign-in, sign-up, and post-signup route guards to use the shared auth readiness state instead of cached client session data during hydration.
+- Restored the app-shell club navigation query timing and club layout access handling to match `main`, so the club drawer navigation follows the stable branch behavior.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+### Session Hardening: Fresh Onboarding Starts And Cleaner Logout Boundaries
+
+- Added a shared client-side onboarding state reset helper to clear signup drafts, post-signup handoff flags, and remembered club context when a user signs out.
+- Updated the get-started screen to clear stale onboarding handoff state on mount, so a new onboarding attempt starts cleanly instead of inheriting a previous user's partially completed flow.
+- Replaced the last onboarding `useSession()` gates in join-club and start-club with shared auth readiness checks, so those steps no longer branch on cached client session data mid-flow.
+- Strengthened sign-out by waiting for a fresh `getSession({ disableCookieCache: true })` check before routing to login, reducing same-browser account handoff issues when a new user signs up after logout.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+### OTP Verification: Longer Finalization Window For Slow Session Sync
+
+- Extended the email-OTP post-verification finalize flow so it no longer gives up after a short session sync window.
+- The signup screen now uses the OTP verification response itself to detect auto-sign-in, waits through a staged retry window, and only attempts fallback email sign-in later if the verified session still has not propagated.
+- Finalization failures now keep the user in the verification context with a retry message instead of immediately forcing a sign-in-again outcome when sync is simply slow.
+- `npm run check` ✅ (`0` errors, same existing `toggle-group.svelte` warnings)
+
+- 2026-03-23: Added signup preflight account checks for existing email/password and Google accounts. Existing verified-but-incomplete users now resume post-signup after sign-in; existing complete users are redirected to sign-in; unverified existing users are sent to OTP without creating duplicate accounts.
+
 ## 2026-02-26
 
 ### UI Standardization: Lucide Icon Stroke Weight Tokens
@@ -1210,3 +2692,17 @@
 ### Run: Validation
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+- 2026-03-24: Refactored auth/onboarding media uploads to reuse the shared FileDropZone and media begin/finalize flow in post-signup profile setup and start-club video upload. Kept profile and club domain mutations unchanged by continuing to persist profileImageStorageId and videoStorageId from the finalized media asset.
+
+- 2026-03-28: Made Google sign-in authenticate-only by setting `disableSignUp: true` on the Better Auth Google provider, so `/auth/sign-in` no longer provisions new Google accounts implicitly.
+- 2026-03-28: Updated `/auth/sign-in` to show a clear “No account found for this Google email. Create an account first to continue.” message for Google signup-disabled cases, while keeping a separate linked-account mismatch message.
+- 2026-03-28: Normalized post-login redirects so `next=/profile` falls back to `/`, which sends signed-in users to the main club dashboard/home flow instead of the profile page.
+- 2026-03-28: Refactored `src/lib/components/app/form/date-select-field.svelte` to use shared `ui/select` and `ui/field` components instead of native `<select>` elements and bespoke styling, matching the repo’s form component pattern.
+- 2026-03-28: Replaced auth-route `InputField` usage in `/auth/sign-in`, `/auth/sign-up`, and `/auth/reset-password` with direct `ui/field` and `ui/input` primitives so the auth UI now uses the shared Svelte form components instead of app-specific wrappers.
+- 2026-03-28: Updated the remaining `app/form` wrappers (`field-shell`, `input-field`, `textarea-field`, `select-field`, and `dropdown-field`) to compose shared `ui/field`, `ui/input`, `ui/textarea`, and `ui/select` primitives instead of bespoke field shell markup or native `<select>` styling.
+- 2026-03-28: Fixed forced-signup Google handling for onboarding invites so selecting an already-registered Google account no longer resumes the join-club/signup flow; the user is signed back out and shown a signup-blocked error instead.
+- 2026-03-29: Switched the Better Auth Google provider from `disableSignUp` to `disableImplicitSignUp` after verifying the installed `better-auth@1.4.9` runtime reads `disableImplicitSignUp` from `socialProviders` when deciding whether Google sign-in may create a new account.
+- 2026-03-29: Wrapped the `/api/auth/[...all]` SvelteKit proxy handler so aborted Better Auth session requests return quietly instead of surfacing as `[500] GET /api/auth/get-session` during cancelled navigations in development.
+- 2026-03-29: Stopped `src/routes/auth/+layout.server.ts` from redirecting authenticated `/auth/sign-up` requests to `next`, so OAuth callback flows can stay on the signup step and show blocked/existing-account messaging instead of bouncing into the join-club details page.
+- 2026-03-29: Added real username-or-email resolution for auth recovery flows by looking up profile usernames before calling Better Auth email endpoints, so sign-in and reset-password now both accept the username chosen during post-signup setup.

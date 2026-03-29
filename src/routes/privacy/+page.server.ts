@@ -4,9 +4,11 @@ import { api } from '$convex/_generated/api';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const convex = getConvexServerClient(locals.token);
-	const policy = await convex.query(api.privacyPolicy.getActive, {});
+	const document = await convex.query(api.legalDocuments.getActiveByKey, {
+		documentKey: 'privacy_policy'
+	});
 
 	return {
-		policy
+		document
 	};
 };

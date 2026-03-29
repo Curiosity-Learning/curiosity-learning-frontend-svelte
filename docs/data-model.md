@@ -8,7 +8,7 @@ Schema source: `src/convex/schema.ts`
 
 | Table             | Purpose                                 | Key Fields                                                              | Indexes                              |
 | ----------------- | --------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------ |
-| `profiles`        | Per-user profile and onboarding state   | `userId`, `email`, `username?`, `activeClubId?`, `isVerified`, `firstLoginCompleted`, `pendingClubCode?`, `pendingRole?` | `by_user_id`, `by_email`, `by_username` |
+| `profiles`        | Per-user profile and onboarding state   | `userId`, `email`, `username?`, `profileImageStorageId?`, `activeClubId?`, `isVerified`, `firstLoginCompleted`, `pendingClubCode?`, `pendingRole?` | `by_user_id`, `by_email`, `by_username` |
 | `userPreferences` | Theme + notification settings           | `userId`, `activeClubId?`                                               | `by_user`                            |
 
 ## Clubs / Membership / Permissions
@@ -52,10 +52,11 @@ Schema source: `src/convex/schema.ts`
 
 ## Notifications / Privacy
 
-| Table           | Purpose                      | Key Fields                                           | Indexes                          |
-| --------------- | ---------------------------- | ---------------------------------------------------- | -------------------------------- |
-| `notifications` | Per-user notifications       | `userId`, `clubId?`, `title`, `message`, `url?`, `isRead` | `by_user`, `by_user_and_created` |
-| `privacyPolicy` | Versioned policy content     | `content`, `isActive`                                | `by_active`                      |
+| Table            | Purpose                                           | Key Fields                                                                 | Indexes                                                         |
+| ---------------- | ------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `notifications`  | Per-user notifications                            | `userId`, `clubId?`, `title`, `message`, `url?`, `isRead`                 | `by_user`, `by_user_and_created`                               |
+| `legalDocuments` | Versioned legal docs (privacy/terms/cookie)      | `documentKey`, `fullName`, `title`, `content`, `version`, `isActive`      | `by_document_key`, `by_document_key_and_active`, `by_document_key_and_updated` |
+| `privacyPolicy`  | Legacy compatibility wrapper source table         | `title`, `content`, `version`, `isActive`                                  | `by_active`                                                     |
 
 ## Chat
 

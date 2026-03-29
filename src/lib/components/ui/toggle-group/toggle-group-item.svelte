@@ -19,13 +19,13 @@
 <ToggleGroupPrimitive.Item
 	bind:ref
 	data-slot="toggle-group-item"
-	data-variant={ctx.variant || variant}
-	data-size={ctx.size || size}
-	data-spacing={ctx.spacing}
+	data-variant={ctx.variant() ?? variant}
+	data-size={ctx.size() ?? size}
+	data-spacing={ctx.spacing()}
 	class={cn(
 		toggleVariants({
-			variant: ctx.variant || variant,
-			size: ctx.size || size,
+			variant: ctx.variant() ?? variant,
+			size: ctx.size() ?? size,
 		}),
 		"w-auto min-w-0 shrink-0 focus:z-10 focus-visible:z-10 data-[spacing=0]:rounded-none data-[spacing=0]:shadow-none data-[spacing=0]:first:rounded-l-full data-[spacing=0]:last:rounded-r-full data-[spacing=0]:data-[variant=outline]:border-l-0 data-[spacing=0]:data-[variant=outline]:first:border-l",
 		className

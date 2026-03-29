@@ -1,3 +1,4 @@
+@import '@fontsource/bevan/400.css';
 @import '@fontsource/dm-sans/400.css';
 @import '@fontsource/dm-sans/500.css';
 @import '@fontsource/dm-sans/700.css';
@@ -23,10 +24,7 @@
 :root {
 	--radius: 0.625rem;
 	--font-family-sans: 'DM Sans', sans-serif;
-	--font-family-heading: 'DM Sans', sans-serif;
-	--icon-stroke-default: 2.75;
-	--icon-stroke-subtle: 2.25;
-	--icon-stroke-strong: 3;
+	--font-family-heading: 'Bevan', serif;
 
 	/* ── Neutral ── */
 	--neutral-black: #191919;
@@ -357,24 +355,15 @@
 }
 
 @layer base {
+	html {
+		scroll-behavior: smooth;
+	}
+
 	* {
 		@apply border-border outline-ring/50;
 		/* Thin, subtle scrollbars globally (Firefox + WebKit) */
 		scrollbar-width: thin;
 		scrollbar-color: var(--border) transparent;
-	}
-
-	/* Lucide icon stroke weights are token-driven for global consistency. */
-	.lucide-icon {
-		stroke-width: var(--icon-stroke, var(--icon-stroke-default));
-	}
-
-	.lucide-icon.icon-stroke-subtle {
-		--icon-stroke: var(--icon-stroke-subtle);
-	}
-
-	.lucide-icon.icon-stroke-strong {
-		--icon-stroke: var(--icon-stroke-strong);
 	}
 
 	*::-webkit-scrollbar {
@@ -396,6 +385,26 @@
 		font-family: var(--font-family-sans);
 		font-size: var(--text-type-body-default-size);
 		line-height: var(--text-type-body-default-line);
+	}
+
+	a,
+	button,
+	input,
+	select,
+	textarea,
+	[role='button'],
+	[tabindex] {
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	:focus-visible {
+		outline: 3px solid var(--orange-500);
+		outline-offset: 2px;
+	}
+
+	/* Do not show focus rings for pointer-only interaction. */
+	:focus:not(:focus-visible) {
+		outline: none;
 	}
 
 	/* Headings */
@@ -487,6 +496,24 @@
 		font-size: var(--text-type-heading-h6-size);
 		line-height: var(--text-type-heading-h6-line);
 		font-weight: 700;
+	}
+
+	/* Step heading */
+	.type-step-title {
+		font-family: var(--font-family-sans);
+		font-size: 20px;
+		line-height: 24px;
+		font-weight: 700;
+		letter-spacing: 0;
+	}
+
+	/* Field label */
+	.type-field-label {
+		font-family: var(--font-family-sans);
+		font-size: 16px;
+		line-height: 24px;
+		font-weight: 700;
+		letter-spacing: 0;
 	}
 
 	/* Body - large */
@@ -674,6 +701,50 @@
 		font-size: var(--text-type-body-default-size);
 		line-height: var(--text-type-body-default-line);
 		font-weight: 500;
+	}
+}
+
+@layer components {
+	.skip-link {
+		position: fixed;
+		left: 1rem;
+		top: 1rem;
+		z-index: 1000;
+		border-radius: 0.625rem;
+		background: var(--orange-500);
+		color: var(--neutral-white);
+		padding: 0.625rem 0.875rem;
+		font-family: var(--font-family-sans);
+		font-size: 0.875rem;
+		font-weight: 700;
+		line-height: 1.25rem;
+		text-decoration: none;
+		box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
+		transform: translateY(-180%);
+		transition: transform 120ms ease;
+	}
+
+	.skip-link:focus,
+	.skip-link:focus-visible {
+		transform: translateY(0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+
+	.skip-link {
+		transition: none;
 	}
 }
 

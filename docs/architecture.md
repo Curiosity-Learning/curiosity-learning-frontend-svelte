@@ -11,28 +11,14 @@
 - Better Auth (`@convex-dev/better-auth`)
 - Vitest + Playwright
 
-## Deployment Topology
-
-- The frontend deploy target is a Render `Web Service`, not a static site build.
-- SvelteKit server hooks, `+server.ts` routes, and server loads require a Node runtime in production.
-- Convex environments should be separated into:
-  - developer-specific dev deployments for day-to-day work,
-  - a shared staging deployment for integration/QA,
-  - a separate production deployment for live traffic.
-- Environment variable names stay constant across environments; only values change.
-
-## Delivery Gate
-
-- GitHub Actions runs the baseline PR gate on `pull_request` plus direct pushes to `main` and `development`.
-- The fast gate is intentionally limited to `npm ci`, `npm run check`, `npm run lint:ci`, and `npm run build` so obvious breakage is caught before deploy without turning every PR into a full test run.
-- Full lint (`npm run lint`) and test suites remain milestone gates rather than default-on-every-PR checks.
-
 ## Route Layout
 
 - `/auth/*`: sign in/up/reset
 - `/onboarding/*`: get started, join club, start club
 - `/app/*`: authenticated app area
+- `/privacy`, `/terms`, `/cookies`: public legal document pages
 - Club-scoped routes are canonical under `/club/[clubId]/*` and should be built via `$lib/routes` helpers (`routes.clubHome`, `routes.clubSessions`, etc.) rather than ad-hoc string paths.
+- Signup verification is OTP-based: `/auth/sign-up` includes step `5/5` for email OTP verification (`authClient.emailOtp.verifyEmail`) after account creation.
 
 ### Layout Groups
 
@@ -93,6 +79,7 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - `validators: zod4Client(schema)` for client-side validation (client adapter).
 - `SPA: true` because the backend is Convex, not SvelteKit form actions.
 - `Field.Label` supports a `required` prop for red asterisk indicators.
+- Non-Superforms onboarding/auth screens should reuse shared app-level form primitives in `src/lib/components/app/form/` (`InputField`, `TextareaField`, `SelectField`, `DateSelectField`) for consistent field spacing, label styles, and control states.
 
 ## UI Patterns
 
@@ -125,3 +112,4 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - **Button typography contract**: Shared `Button` size variants map to design-system text tokens in `src/lib/components/ui/button/button.svelte` (`default` → `type-btn`, `sm` → `type-btn-sm`, `lg` → `type-btn-lg`). Feature code should select button `size` instead of attaching ad-hoc text-size/font-weight classes.
 - **Inline activity editing**: Session activity cards support inline blur-save editing for title, description, minutes, and building blocks. Building block edits use a reusable searchable inline multi-select (combobox + listbox) at `src/lib/components/ui/multi-select/inline-multi-select.svelte`, composed from shadcn primitives (`Input`) plus reusable token chips (`TagChip`) and accessible listbox roles. Immediate inline-save feedback is driven by Convex mutation `optimisticUpdate` in `session-detail-view`.
 - **Connectivity gating (global)**: Mutation-capable surfaces consume `$lib/app/connectivity.ts` (`canMutateOnline`, `connectivityMessage`, `reportMutationSuccess`, `reportMutationFailure`) so editing can be disabled consistently during offline/network-loss states. AppShell renders a persistent reconnect overlay with spinner while disconnected. This is intentionally centralized so a future offline queue/replay mode can be introduced without rewriting each screen.
+- **Accessibility baseline (global)**: Root layout provides a keyboard skip link (`#main-content`) and semantic `<main>` landmark. Global CSS defines visible `:focus-visible` rings and a `prefers-reduced-motion` fallback that minimizes animation and transition effects.
