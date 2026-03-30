@@ -34,13 +34,19 @@
 		ItemMedia,
 		ItemTitle
 	} from '$lib/components/ui/item';
-	import { createSignedMediaManager } from '$lib/media/signed-media.svelte';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	type Props = {
 		view: 'overview' | 'members';
+	};
+
+	type SignedProjectUpdateMedia = {
+		assetId: Id<'mediaAssets'>;
+		signedUrl: string;
+		mediaKind: 'image' | 'video' | null;
+		contentType: string | null;
 	};
 
 	let { view }: Props = $props();
@@ -72,7 +78,6 @@
 	const updatesResponse = useStableQuery(api.updates.listByProject, () =>
 		view === 'overview' && projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
-	const updateMedia = createSignedMediaManager();
 
 	let pending = $state(false);
 	let errorMessage = $state('');
@@ -169,15 +174,16 @@
 		return null;
 	};
 	let orderedUpdates = $derived([...(updatesResponse.data ?? [])].reverse());
-	let updateMediaAssetIds = $derived.by(() =>
-		view === 'overview'
-			? [...new Set((updatesResponse.data ?? []).flatMap((update) => update.mediaAssetIds ?? []))]
-			: []
+	let initialProjectUpdateMedia = $derived(
+		(page.data.initialProjectUpdateMedia as Array<SignedProjectUpdateMedia> | undefined) ?? []
 	);
+	let initialProjectUpdateMediaById = $derived.by(() => {
+		return new Map(initialProjectUpdateMedia.map((asset) => [asset.assetId, asset] as const));
+	});
 
 	const isVideoAsset = (
-		asset: ReturnType<typeof updateMedia.get>
-	): asset is NonNullable<ReturnType<typeof updateMedia.get>> =>
+		asset: SignedProjectUpdateMedia | null | undefined
+	): asset is SignedProjectUpdateMedia =>
 		Boolean(asset && (asset.mediaKind === 'video' || asset.contentType?.startsWith('video/')));
 
 	const memberSubtitleFor = (member: (typeof memberSummaries)[number]) => {
@@ -274,23 +280,6 @@
 		}
 	]);
 
-	$effect(() => {
-		if (view !== 'overview' || !projectIdTyped || !updateMediaAssetIds.length) {
-			updateMedia.clear();
-			return;
-		}
-
-		void updateMedia.track(updateMediaAssetIds, {
-			kind: 'project',
-			projectId: projectIdTyped
-		});
-	});
-
-	$effect(() => {
-		return () => {
-			updateMedia.destroy();
-		};
-	});
 </script>
 
 <PageHeaderBackButton fallbackHref={routes.feed} />
@@ -377,7 +366,7 @@
 									{#if update.mediaAssetIds?.length}
 										<div class="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-2">
 											{#each update.mediaAssetIds as mediaAssetId (mediaAssetId)}
-												{@const mediaAsset = updateMedia.get(mediaAssetId)}
+												{@const mediaAsset = initialProjectUpdateMediaById.get(mediaAssetId) ?? null}
 												{@const mediaUrl = mediaAsset?.signedUrl ?? null}
 												<div class="overflow-hidden rounded-xl border border-border bg-muted/20">
 													{#if mediaUrl}
@@ -416,12 +405,6 @@
 					</div>
 				{/if}
 
-				{#if updateMedia.errorMessage}
-					<Alert variant="destructive">
-						<AlertTitle>Media refresh failed</AlertTitle>
-						<AlertDescription>{updateMedia.errorMessage}</AlertDescription>
-					</Alert>
-				{/if}
 			</div>
 		{:else}
 			<div class="flex flex-col gap-4">
