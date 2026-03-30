@@ -19,6 +19,7 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
+	import { _, t } from '$lib/i18n';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -179,14 +180,15 @@
 				enableSafetyScreening: true
 			});
 			if (!uploadedAsset.storageId) {
-				throw new Error('Profile image upload could not be finalized.');
+				throw new Error(t('settingsPage.profileImageFinalizeFailure'));
 			}
 			profileImageStorageId = uploadedAsset.storageId;
-			successMessage = 'Profile image uploaded. Click Save profile to apply changes.';
+			successMessage = t('settingsPage.profileImageUploaded');
 		} catch (error) {
 			profileImageStorageId = null;
 			revokeProfilePreview();
-			errorMessage = error instanceof Error ? error.message : 'Unable to upload profile image.';
+			errorMessage =
+				error instanceof Error ? error.message : t('settingsPage.profileImageUploadFailure');
 		} finally {
 			profileImageUploading = false;
 			input.value = '';
@@ -210,9 +212,9 @@
 			});
 			profileImageStorageId = null;
 			revokeProfilePreview();
-			successMessage = 'Profile updated.';
+			successMessage = t('settingsPage.profileUpdated');
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to save profile.';
+			errorMessage = error instanceof Error ? error.message : t('settingsPage.saveProfileFailure');
 		} finally {
 			pending = false;
 		}
@@ -228,9 +230,10 @@
 				notificationsEnabled: preferencesForm.notificationsEnabled,
 				notificationPreferences: preferencesForm.notificationPreferences
 			});
-			successMessage = 'Preferences saved.';
+			successMessage = t('settingsPage.preferencesSaved');
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to save preferences.';
+			errorMessage =
+				error instanceof Error ? error.message : t('settingsPage.savePreferencesFailure');
 		} finally {
 			pending = false;
 		}
@@ -247,9 +250,9 @@
 		try {
 			await convexClient.mutation(api.clubs.switchActiveClub, { clubId });
 			await convexClient.mutation(api.preferences.upsert, { activeClubId: clubId });
-			successMessage = 'Active club updated.';
+			successMessage = t('settingsPage.activeClubUpdated');
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to switch club.';
+			errorMessage = error instanceof Error ? error.message : t('settingsPage.switchClubFailure');
 		} finally {
 			pending = false;
 		}
@@ -269,13 +272,13 @@
 <div class="grid grid-cols-1 gap-4">
 	{#if errorMessage}
 		<Alert variant="destructive">
-			<AlertTitle>Settings update failed</AlertTitle>
+			<AlertTitle>{$_('settingsPage.errorTitle')}</AlertTitle>
 			<AlertDescription>{errorMessage}</AlertDescription>
 		</Alert>
 	{/if}
 	{#if successMessage}
 		<Alert>
-			<AlertTitle>Saved</AlertTitle>
+			<AlertTitle>{$_('settingsPage.successTitle')}</AlertTitle>
 			<AlertDescription>{successMessage}</AlertDescription>
 		</Alert>
 	{/if}
@@ -446,8 +449,8 @@
 
 	<Card>
 		<CardHeader class="flex flex-col gap-2">
-			<CardTitle>Policies</CardTitle>
-			<CardDescription>Privacy, terms and cookie information.</CardDescription>
+			<CardTitle>{$_('settingsPage.policiesTitle')}</CardTitle>
+			<CardDescription>{$_('settingsPage.policiesDescription')}</CardDescription>
 		</CardHeader>
 		<CardContent class="flex flex-col gap-3">
 			{#if orderedLegalDocuments.length}
@@ -463,9 +466,9 @@
 			{/if}
 			<Separator />
 			<div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
-				<Button href="/privacy" variant="outline">Open Privacy Policy</Button>
-				<Button href="/terms" variant="outline">Open Terms and Conditions</Button>
-				<Button href="/cookies" variant="outline">Open Cookie Policy</Button>
+				<Button href="/privacy" variant="outline">{$_('settingsPage.openPrivacyPolicy')}</Button>
+				<Button href="/terms" variant="outline">{$_('settingsPage.openTerms')}</Button>
+				<Button href="/cookies" variant="outline">{$_('settingsPage.openCookies')}</Button>
 			</div>
 		</CardContent>
 	</Card>

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { clearOnboardingFlowState } from '$lib/auth/onboarding-state';
+	import { _ } from '$lib/i18n';
 	import { routes } from '$lib/routes';
 	import loginLogo from '$lib/assets/images/login_image.svg';
 	import onboardingIllustration from '$lib/assets/images/get_started.svg';
@@ -19,7 +20,7 @@
 			<div class="hidden justify-center lg:flex">
 				<img
 					src={onboardingIllustration}
-					alt="Curiosity Learning illustration"
+					alt={$_('onboarding.getStarted.illustrationAlt')}
 					class="h-auto w-full max-w-[32rem] object-contain"
 				/>
 			</div>
@@ -28,7 +29,7 @@
 				<img src={loginLogo} alt="Curiosity Learning" class="h-10 w-auto sm:h-12" />
 				<img
 					src={onboardingIllustration}
-					alt="Curiosity Learning illustration"
+					alt={$_('onboarding.getStarted.illustrationAlt')}
 					class="mt-8 h-auto w-full max-w-[16rem] object-contain lg:hidden"
 				/>
 
@@ -36,13 +37,19 @@
 					class="mt-8 text-[1.75rem] leading-[1.2] text-neutral-black sm:text-[1.9rem]"
 					style="font-family: var(--font-family-heading);"
 				>
-					Welcome to Curiosity Learning!
+					{$_('onboarding.getStarted.welcome')}
 				</h1>
-				<p class="mt-3 text-base leading-6 text-gray-600">Nurture your love for learning.</p>
+				<p class="mt-3 text-base leading-6 text-gray-600">
+					{$_('onboarding.getStarted.subtitle')}
+				</p>
 
 				<div class="mt-8 flex w-full flex-col gap-3">
-					<Button href="/onboarding/join-club" variant="default" size="xl" class="w-full">Join a club</Button>
-					<Button href="/onboarding/start-club" variant="outline" size="xl" class="w-full">Start a club</Button>
+					<Button href="/onboarding/join-club" variant="default" size="xl" class="w-full">
+						{$_('onboarding.getStarted.joinClub')}
+					</Button>
+					<Button href="/onboarding/start-club" variant="outline" size="xl" class="w-full">
+						{$_('onboarding.getStarted.startClub')}
+					</Button>
 
 					<Button
 						href={`/auth/sign-in?next=${encodeURIComponent(routes.profile)}`}
@@ -50,7 +57,7 @@
 						size="lg"
 						class="mt-2 w-full"
 					>
-						I have an account
+						{$_('onboarding.getStarted.iHaveAccount')}
 					</Button>
 				</div>
 			</div>

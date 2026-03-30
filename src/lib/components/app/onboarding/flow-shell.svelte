@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
+	import { _ } from '$lib/i18n';
 	import onboardingIllustration from '$lib/assets/images/get_started.svg';
 
 	type Props = {
@@ -20,7 +21,7 @@
 		step,
 		total,
 		accountHref = '/auth/sign-in',
-		accountLabel = 'I have an account',
+		accountLabel,
 		showAccountLink = false,
 		showProgressBar = true,
 		showSideIllustration = false,
@@ -51,7 +52,7 @@
 				<div class={`hidden ${edgeToEdgePanel ? 'justify-center bg-white lg:h-screen' : 'justify-center lg:h-[calc(100vh-4rem)]'} lg:flex lg:items-center`}>
 					<img
 						src={onboardingIllustration}
-						alt="Curiosity Learning illustration"
+						alt={$_('onboarding.getStarted.illustrationAlt')}
 						class={`h-auto w-full object-contain ${edgeToEdgePanel ? 'max-w-[36rem]' : 'max-w-[32rem]'}`}
 					/>
 				</div>
@@ -81,7 +82,7 @@
 									href={accountHref}
 									class="mt-1 hidden items-center gap-2 text-base font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600 sm:inline-flex"
 								>
-									<span>{accountLabel}</span>
+									<span>{accountLabel ?? $_('onboarding.getStarted.iHaveAccount')}</span>
 									<ArrowRightIcon class="size-5" />
 								</a>
 							{/if}

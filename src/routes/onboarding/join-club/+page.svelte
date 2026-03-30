@@ -5,6 +5,7 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
+	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
@@ -121,12 +122,12 @@
 		try {
 			const preview = await convexClient.query(api.clubs.getClubPreviewByCode, { code: joinedCode });
 			if (!preview) {
-				codeError = 'No club found for this code. Please check and try again.';
+				codeError = t('onboarding.joinClub.notFound');
 				return;
 			}
 			await goto(`/onboarding/join-club/${joinedCode}`);
 		} catch {
-			codeError = 'Unable to validate this code right now. Please try again.';
+			codeError = t('onboarding.joinClub.validateFailure');
 		} finally {
 			validatingCode = false;
 		}
@@ -160,7 +161,7 @@
 			<a
 				href="/onboarding/get-started"
 				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label="Go back"
+				aria-label={$_('common.goBack')}
 			>
 				<ChevronLeftIcon class="size-7" />
 			</a>
@@ -170,8 +171,8 @@
 		<section class="flex flex-col gap-6">
 
 			<div class="flex flex-col gap-2">
-				<h1 class="type-step-title text-gray-900">Join a club</h1>
-				<p class="text-base leading-7 text-gray-600">Please enter a club code to join:</p>
+				<h1 class="type-step-title text-gray-900">{$_('onboarding.joinClub.title')}</h1>
+				<p class="text-base leading-7 text-gray-600">{$_('onboarding.joinClub.description')}</p>
 			</div>
 
 			<div class="grid w-full grid-cols-6 gap-1.5 sm:gap-2.5">
@@ -192,13 +193,13 @@
 			</div>
 
 			<div class="relative z-20 flex flex-wrap items-center gap-x-2 gap-y-1 text-base leading-7 text-gray-600">
-				<span>Don’t have a code?</span>
+				<span>{$_('onboarding.joinClub.noCode')}</span>
 				<button
 					type="button"
 					class="pointer-events-auto inline-flex cursor-pointer items-center font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600"
 					onclick={() => void viewPublicClubs()}
 				>
-					View public clubs near you.
+					{$_('onboarding.joinClub.publicClubs')}
 				</button>
 			</div>
 		</section>
@@ -215,7 +216,7 @@
 				disabled={!canContinue || validatingCode}
 				onclick={() => void continueToPreview()}
 			>
-				{validatingCode ? 'Checking...' : 'Continue'}
+				{validatingCode ? $_('onboarding.joinClub.checking') : $_('onboarding.joinClub.continue')}
 			</Button>
 		</div>
 	</div>

@@ -18,6 +18,11 @@
 		'December'
 	];
 
+	type DateSelectOption = {
+		label: string;
+		value: string;
+	};
+
 	type Props = {
 		idPrefix?: string;
 		label: string;
@@ -27,7 +32,7 @@
 		month?: string;
 		day?: string;
 		year?: string;
-		months?: string[];
+		months?: Array<string | DateSelectOption>;
 		maxYear?: number;
 		yearCount?: number;
 		class?: string;
@@ -56,6 +61,16 @@
 
 	let dayOptions = $derived(Array.from({ length: 31 }, (_, index) => String(index + 1)));
 	let yearOptions = $derived(Array.from({ length: yearCount }, (_, index) => String(maxYear - index)));
+	let monthOptions = $derived(
+		months.map((monthOption) =>
+			typeof monthOption === 'string'
+				? { label: monthOption, value: monthOption }
+				: monthOption
+		)
+	);
+	let selectedMonthLabel = $derived(
+		monthOptions.find((monthOption) => monthOption.value === month)?.label ?? ''
+	);
 </script>
 
 <Field class={cn('flex flex-col gap-2', className)}>
@@ -72,12 +87,12 @@
 				aria-label="Month"
 				class={cn('h-12 w-full justify-between bg-white text-base text-gray-700', !month && 'text-gray-500', selectClass)}
 			>
-				<span>{month || 'Month'}</span>
+				<span>{selectedMonthLabel || 'Month'}</span>
 			</Select.Trigger>
 			<Select.Content>
-				{#each months as monthOption (monthOption)}
-					<Select.Item value={monthOption} label={monthOption}>
-						{monthOption}
+				{#each monthOptions as monthOption (monthOption.value)}
+					<Select.Item value={monthOption.value} label={monthOption.label}>
+						{monthOption.label}
 					</Select.Item>
 				{/each}
 			</Select.Content>

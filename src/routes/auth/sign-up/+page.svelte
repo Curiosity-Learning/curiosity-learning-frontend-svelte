@@ -19,6 +19,7 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { DateSelectField } from '$lib/components/app/form';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
+	import { _, formatT, t } from '$lib/i18n';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -129,27 +130,47 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	});
 	let termsHref = $derived(`/terms?backTo=${encodeURIComponent(signUpPathForCurrentStep)}`);
 
-	const monthOptions = [
-		'January',
-		'February',
-		'March',
-		'April',
-		'May',
-		'June',
-		'July',
-		'August',
-		'September',
-		'October',
-		'November',
-		'December'
-	];
+	const MONTH_VALUES = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'] as const;
+
+	let monthOptions = $derived(
+		MONTH_VALUES.map((value, index) => ({
+			value,
+			label: $_(
+				`common.months.${
+					[
+						'january',
+						'february',
+						'march',
+						'april',
+						'may',
+						'june',
+						'july',
+						'august',
+						'september',
+						'october',
+						'november',
+						'december'
+					][index]
+				}`
+			)
+		}))
+	);
 
 	const normalizeEmail = (rawEmail: string) => rawEmail.trim().toLowerCase();
+	const normalizeBirthMonth = (rawMonth: string) => {
+		const normalized = rawMonth.trim();
+		if (!normalized) return '';
+		if (/^(0[1-9]|1[0-2])$/.test(normalized)) return normalized;
+		const monthIndex = monthOptions.findIndex(
+			(monthOption) => monthOption.label.toLowerCase() === normalized.toLowerCase()
+		);
+		return monthIndex >= 0 ? String(monthIndex + 1).padStart(2, '0') : '';
+	};
 
 	const getExistingGoogleSignupBlockedMessage = () =>
 		nextPath.startsWith('/onboarding/join-club/')
-			? 'This Google account is already registered. Log in to continue joining this club.'
-			: 'This Google account is already registered. Log in instead of signing up.';
+			? t('auth.signUp.existingGoogleJoinClub')
+			: t('auth.signUp.existingGoogleDefault');
 
 	const buildGoogleSignupBlockedPath = () => {
 		const params = new SvelteURLSearchParams();
@@ -178,8 +199,8 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	const calculateAge = (month: string, year: string) => {
 		if (!month || !year) return null;
-		const monthIndex = monthOptions.indexOf(month);
-		if (monthIndex < 0) return null;
+		const monthIndex = Number(month) - 1;
+		if (!Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) return null;
 		// Day is intentionally omitted in this flow; use end-of-month for a conservative age check.
 		const dob = new Date(Number(year), monthIndex + 1, 0);
 		if (Number.isNaN(dob.getTime())) return null;
@@ -261,9 +282,9 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	const formatDateOfBirth = (month: string, year: string) => {
 		if (!month || !year) return undefined;
-		const monthIndex = monthOptions.indexOf(month);
-		if (monthIndex < 0) return undefined;
-		return `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+		const monthNumber = Number(month);
+		if (!Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) return undefined;
+		return `${year}-${String(monthNumber).padStart(2, '0')}`;
 	};
 
 	const deriveNameFromEmail = (rawEmail: string) => {
@@ -314,7 +335,8 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 			const parsed = JSON.parse(raw) as Partial<SignupDraft>;
 			if (!parsed || typeof parsed !== 'object') return null;
 			return {
-				birthMonth: typeof parsed.birthMonth === 'string' ? parsed.birthMonth : '',
+				birthMonth:
+					typeof parsed.birthMonth === 'string' ? normalizeBirthMonth(parsed.birthMonth) : '',
 				birthYear: typeof parsed.birthYear === 'string' ? parsed.birthYear : '',
 				email: typeof parsed.email === 'string' ? parsed.email : '',
 				acceptedTerms: Boolean(parsed.acceptedTerms),
@@ -400,18 +422,18 @@ type ExistingAccountStatus = {
 	const getExistingAccountInlineMessage = (status: ExistingAccountStatus) => {
 		if (!status.exists) return '';
 		if (!status.isVerified) {
-			return 'This email already has an account that still needs email verification. Continue and we will send you back to the verification step.';
+			return t('auth.signUp.existingInlineUnverified');
 		}
 		if (!status.firstLoginCompleted) {
 			if (status.hasGoogle && !status.hasPassword) {
-				return 'This email already has a Google account and signup is not finished yet. Continue with Google to resume your username and pledge steps.';
+				return t('auth.signUp.existingInlineResumeGoogle');
 			}
-			return 'This email is already verified, but signup is not finished yet. Go to login to resume your username and pledge steps.';
+			return t('auth.signUp.existingInlineResumeLogin');
 		}
 		if (status.hasGoogle && !status.hasPassword) {
-			return 'This email is already registered with Google. Continue with Google to sign in.';
+			return t('auth.signUp.existingInlineGoogleRegistered');
 		}
-		return 'This email is already registered. Go to login to continue.';
+		return t('auth.signUp.existingInlineRegistered');
 	};
 
 	const goToExistingAccount = async () => {
@@ -419,8 +441,8 @@ type ExistingAccountStatus = {
 		await redirectToExistingAccountLogin(
 			!existingEmailStatus.firstLoginCompleted,
 			!existingEmailStatus.firstLoginCompleted
-				? 'This email is already verified. Sign in to finish your username and pledge steps.'
-				: 'This email is already registered. Please sign in to continue.'
+				? t('auth.signUp.existingVerifiedResume')
+				: t('auth.signUp.existingRegisteredSignIn')
 		);
 	};
 
@@ -467,7 +489,7 @@ type ExistingAccountStatus = {
 		description: string
 	) => {
 		showGlobalSnackbar({
-			title: resumePostSignup ? 'Continue your signup' : 'Account already exists',
+			title: resumePostSignup ? t('auth.signUp.continueSignupTitle') : t('auth.signUp.accountExistsTitle'),
 			description
 		});
 		await goto(getExistingAccountLoginPath(resumePostSignup));
@@ -485,10 +507,10 @@ type ExistingAccountStatus = {
 			clearOtp();
 			resetEmailPostVerifyState();
 			startResendCooldown();
-			infoMessage = `We sent a new 6-digit verification code to ${sanitizedEmail}.`;
+			infoMessage = formatT('auth.signUp.verificationCodeSentToEmail', { email: sanitizedEmail });
 			showGlobalSnackbar({
-				title: 'Verification code sent',
-				description: 'Please check your inbox for the latest code.'
+				title: t('auth.signUp.verificationCodeSentTitle'),
+				description: t('auth.signUp.verificationCodeSentDescription')
 			});
 			return true;
 		}
@@ -497,7 +519,7 @@ type ExistingAccountStatus = {
 			return false;
 		}
 
-		errorMessage = resendError.message ?? 'Failed to send verification code.';
+		errorMessage = resendError.message ?? t('auth.signUp.failedSendVerificationCode');
 		return true;
 	};
 
@@ -521,16 +543,16 @@ type ExistingAccountStatus = {
 		const shouldResumePostSignup = !currentStatus.firstLoginCompleted;
 		if (currentStatus.hasGoogle && !currentStatus.hasPassword) {
 			errorMessage = shouldResumePostSignup
-				? 'This email already has a Google account. Continue with Google to finish your signup.'
-				: 'This email is already registered with Google. Continue with Google to sign in.';
+				? t('auth.signUp.existingManualGoogleResume')
+				: t('auth.signUp.existingManualGoogleSignIn');
 			return true;
 		}
 
 		await redirectToExistingAccountLogin(
 			shouldResumePostSignup,
 			shouldResumePostSignup
-				? 'This email is already verified. Sign in to finish your username and pledge steps.'
-				: 'This email is already registered. Please sign in to continue.'
+				? t('auth.signUp.existingVerifiedResume')
+				: t('auth.signUp.existingRegisteredSignIn')
 		);
 		return true;
 	};
@@ -550,7 +572,7 @@ type ExistingAccountStatus = {
 		});
 
 		if (error) {
-			errorMessage = error.message ?? 'Failed to continue with Google.';
+			errorMessage = error.message ?? t('auth.signUp.failedContinueWithGoogle');
 			return true;
 		}
 
@@ -559,7 +581,7 @@ type ExistingAccountStatus = {
 			return true;
 		}
 
-		errorMessage = 'Failed to continue with Google.';
+		errorMessage = t('auth.signUp.failedContinueWithGoogle');
 		return true;
 	};
 
@@ -592,8 +614,8 @@ type ExistingAccountStatus = {
 		await redirectToExistingAccountLogin(
 			shouldResumePostSignup,
 			shouldResumePostSignup
-				? 'This email already belongs to an existing account. Sign in to finish your username and pledge steps.'
-				: 'This email is already registered. Sign in to your existing account to continue.'
+				? t('auth.signUp.existingBelongsResume')
+				: t('auth.signUp.existingBelongsSignIn')
 		);
 		return true;
 	};
@@ -692,7 +714,7 @@ type ExistingAccountStatus = {
 	const goToAccountStep = () => {
 		errorMessage = '';
 		if (!canContinuePersonalStep) {
-			errorMessage = 'Please complete all required fields before continuing.';
+			errorMessage = t('auth.signUp.completeRequiredFields');
 			return;
 		}
 		step = 4;
@@ -720,13 +742,13 @@ const signUp = async () => {
 
 		if (!acceptedTerms) {
 			pending = false;
-			errorMessage = 'Please accept the terms and conditions to continue.';
+			errorMessage = t('auth.signUp.acceptTerms');
 			return;
 		}
 
 		if (password !== confirmPassword) {
 			pending = false;
-			errorMessage = 'Passwords do not match.';
+			errorMessage = t('auth.signUp.passwordsMismatch');
 			return;
 		}
 
@@ -739,7 +761,7 @@ const signUp = async () => {
 		pending = false;
 
 		if (error) {
-			const errorText = error.message ?? 'Failed to create account.';
+			const errorText = error.message ?? t('auth.signUp.failedCreateAccount');
 
 			if (isAlreadyExistsError(errorText)) {
 				const { error: resendError } = await authClient.emailOtp.sendVerificationOtp({
@@ -753,20 +775,20 @@ const signUp = async () => {
 					clearOtp();
 					resetEmailPostVerifyState();
 					startResendCooldown();
-					infoMessage = `We sent a new 6-digit verification code to ${sanitizedEmail}.`;
+					infoMessage = formatT('auth.signUp.verificationCodeSentToEmail', { email: sanitizedEmail });
 					showGlobalSnackbar({
-						title: 'Verification code sent',
-						description: 'Please check your inbox for the latest code.'
+						title: t('auth.signUp.verificationCodeSentTitle'),
+						description: t('auth.signUp.verificationCodeSentDescription')
 					});
 					return;
 				}
 
 				if (isAlreadyVerifiedError(resendError.message) || isAlreadyExistsError(resendError.message)) {
-					errorMessage = 'This email is already registered. Please sign in instead.';
+					errorMessage = t('auth.signUp.registeredSignInInstead');
 					return;
 				}
 
-				errorMessage = resendError.message ?? 'Failed to send verification code.';
+				errorMessage = resendError.message ?? t('auth.signUp.failedSendVerificationCode');
 				return;
 			}
 
@@ -778,7 +800,7 @@ const signUp = async () => {
 		syncStepInUrl(5);
 		clearOtp();
 		resetEmailPostVerifyState();
-		infoMessage = `We sent a 6-digit verification code to ${sanitizedEmail}.`;
+		infoMessage = formatT('auth.signUp.verificationCodeInitialToEmail', { email: sanitizedEmail });
 	};
 
 const signUpWithGoogle = async () => {
@@ -797,13 +819,13 @@ const signUpWithGoogle = async () => {
 
 		if (!isOver16) {
 			googleRedirectPending = false;
-			errorMessage = 'Google sign up is available only for users older than 16.';
+			errorMessage = t('auth.signUp.googleOnlyOver16');
 			return;
 		}
 
 		if (!acceptedTerms) {
 			googleRedirectPending = false;
-			errorMessage = 'Please accept the terms and conditions to continue.';
+			errorMessage = t('auth.signUp.acceptTerms');
 			return;
 		}
 
@@ -834,7 +856,7 @@ const signUpWithGoogle = async () => {
 		if (error) {
 			clearForcedGoogleSignupPending();
 			googleRedirectPending = false;
-			errorMessage = error.message ?? 'Failed to start Google sign up.';
+			errorMessage = error.message ?? t('auth.signUp.failedStartGoogleSignUp');
 			return;
 		}
 
@@ -845,7 +867,7 @@ const signUpWithGoogle = async () => {
 
 		clearForcedGoogleSignupPending();
 		googleRedirectPending = false;
-		errorMessage = 'Failed to start Google sign up.';
+		errorMessage = t('auth.signUp.failedStartGoogleSignUp');
 	};
 
 	const resendVerificationOtp = async () => {
@@ -862,16 +884,16 @@ const signUpWithGoogle = async () => {
 		pending = false;
 
 		if (error) {
-			errorMessage = error.message ?? 'Failed to send verification code.';
+			errorMessage = error.message ?? t('auth.signUp.failedSendVerificationCode');
 			return;
 		}
 
 		clearOtp();
 		startResendCooldown();
-		infoMessage = 'A new verification code has been sent.';
+		infoMessage = t('auth.signUp.emailResentInfo');
 		showGlobalSnackbar({
-			title: 'Email resent',
-			description: "We've resent the email. Please check your inbox."
+			title: t('auth.signUp.emailResentTitle'),
+			description: t('auth.signUp.emailResentDescription')
 		});
 	};
 
@@ -880,7 +902,7 @@ const signUpWithGoogle = async () => {
 		infoMessage = '';
 
 		if (!isOtpComplete) {
-			errorMessage = 'Enter the complete 6-digit verification code.';
+			errorMessage = t('auth.signUp.enterCompleteCode');
 			return;
 		}
 
@@ -895,17 +917,17 @@ const signUpWithGoogle = async () => {
 			if (isAlreadyVerifiedError(error.message)) {
 				resetEmailPostVerifyState();
 				awaitingEmailPostVerify = true;
-				infoMessage = 'Email already verified. Finalizing your account...';
+				infoMessage = t('auth.signUp.emailAlreadyVerifiedFinalizing');
 				await finalizeEmailPostVerify();
 				return;
 			}
-			errorMessage = error.message ?? 'Invalid verification code.';
+			errorMessage = error.message ?? t('auth.signUp.invalidVerificationCode');
 			return;
 		}
 
 		resetEmailPostVerifyState();
 		awaitingEmailPostVerify = true;
-		infoMessage = 'Email verified. Finalizing your account. This can take a few seconds...';
+		infoMessage = t('auth.signUp.emailVerifiedFinalizing');
 		await finalizeEmailPostVerify(Boolean(data?.token));
 	};
 
@@ -979,7 +1001,7 @@ const signUpWithGoogle = async () => {
 					const message =
 						profileError instanceof Error
 							? profileError.message
-							: 'Unable to save profile details. Please try again.';
+							: t('auth.signUp.unableSaveProfile');
 
 					if (!isUnauthenticatedError(message)) {
 						throw profileError;
@@ -991,18 +1013,17 @@ const signUpWithGoogle = async () => {
 			}
 
 			resetEmailPostVerifyState();
-			errorMessage =
-				'We verified your email, but finishing your account is taking longer than expected. Please wait a moment and tap Verify again.';
+			errorMessage = t('auth.signUp.postVerifyDelayed');
 			infoMessage = '';
 			showGlobalSnackbar({
-				title: 'Email verified',
-				description: 'We are still waiting for your session to finish syncing. Please try Verify again in a moment.'
+				title: t('auth.signUp.emailVerifiedTitle'),
+				description: t('auth.signUp.emailVerifiedDescription')
 			});
 		} catch (profileError) {
 			const message =
 				profileError instanceof Error
 					? profileError.message
-					: 'Unable to save profile details. Please try again.';
+					: t('auth.signUp.unableSaveProfile');
 
 			resetEmailPostVerifyState();
 			errorMessage = message;
@@ -1150,8 +1171,8 @@ const signUpWithGoogle = async () => {
 				}
 				clearExistingGoogleAccountFromUrl();
 				showGlobalSnackbar({
-					title: 'Account already exists',
-					description: 'You already have an account with Google. We signed you in.'
+					title: t('auth.signUp.accountExistsTitle'),
+					description: t('auth.signUp.existingGoogleSignedInDescription')
 				});
 				void goto(nextPath, { replaceState: true });
 				return;
@@ -1180,7 +1201,7 @@ const signUpWithGoogle = async () => {
 						errorMessage =
 							error instanceof Error
 								? error.message
-								: 'Unable to finish Google sign up. Please retry.';
+								: t('auth.signUp.unableFinishGoogleSignup');
 					} finally {
 						googlePostSignUpPending = false;
 					}
@@ -1202,10 +1223,10 @@ const signUpWithGoogle = async () => {
 {#if showSuccessScreen}
 	<div class="flex min-h-screen items-center justify-center bg-white px-4">
 		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-3 text-center">
-			<img src={successImage} alt="Account verification success" class="h-auto w-[11.5rem] object-contain" />
-			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">Hooray!</h1>
+			<img src={successImage} alt={$_('auth.signUp.successAlt')} class="h-auto w-[11.5rem] object-contain" />
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">{$_('auth.signUp.successTitle')}</h1>
 			<p class="text-base leading-7 text-gray-600">
-				Your email account has been successfully created and verified.
+				{$_('auth.signUp.successDescription')}
 			</p>
 			<Button
 				variant="default"
@@ -1214,7 +1235,7 @@ const signUpWithGoogle = async () => {
 				disabled={successContinuePending}
 				onclick={() => void continueFromSuccess()}
 			>
-				{successContinuePending ? 'Loading...' : 'Next'}
+				{successContinuePending ? $_('common.loading') : $_('common.next')}
 			</Button>
 		</div>
 	</div>
@@ -1224,9 +1245,9 @@ const signUpWithGoogle = async () => {
 			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
 				<LoaderCircleIcon class="size-7 animate-spin" />
 			</div>
-			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">Signing you in</h1>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">{$_('auth.signUp.existingGoogleProcessingTitle')}</h1>
 			<p class="text-base leading-7 text-gray-600">
-				This Google account already exists. We are continuing with your existing account.
+				{$_('auth.signUp.existingGoogleProcessingDescription')}
 			</p>
 		</div>
 	</div>
@@ -1236,9 +1257,9 @@ const signUpWithGoogle = async () => {
 			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
 				<LoaderCircleIcon class="size-7 animate-spin" />
 			</div>
-			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">Connecting your Google account</h1>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">{$_('auth.signUp.googlePostProcessingTitle')}</h1>
 			<p class="text-base leading-7 text-gray-600">
-				Finalizing your signup. This should only take a moment.
+				{$_('auth.signUp.googlePostProcessingDescription')}
 			</p>
 		</div>
 	</div>
@@ -1250,7 +1271,7 @@ const signUpWithGoogle = async () => {
 					type="button"
 					onclick={() => void goBack()}
 					class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-					aria-label="Go back"
+					aria-label={$_('common.goBack')}
 				>
 					<ChevronLeftIcon class="size-7" />
 				</button>			</div>
@@ -1259,11 +1280,11 @@ const signUpWithGoogle = async () => {
 		<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
 			{#if step === 3}
 				<div class="flex flex-col gap-5">
-					<h1 class="type-step-title text-gray-900">Enter your personal information</h1>
+					<h1 class="type-step-title text-gray-900">{$_('auth.signUp.personalTitle')}</h1>
 
 					<DateSelectField
 						idPrefix="date-of-birth"
-						label="Date of birth"
+						label={$_('auth.signUp.dateOfBirth')}
 						required={true}
 						includeDay={false}
 						months={monthOptions}
@@ -1273,10 +1294,10 @@ const signUpWithGoogle = async () => {
 				</div>
 
 				{#if errorMessage}
-					<Alert variant="destructive">
-						<AlertTitle>Can’t continue yet</AlertTitle>
-						<AlertDescription>{errorMessage}</AlertDescription>
-					</Alert>
+						<Alert variant="destructive">
+							<AlertTitle>{$_('auth.signUp.cannotContinueTitle')}</AlertTitle>
+							<AlertDescription>{errorMessage}</AlertDescription>
+						</Alert>
 				{/if}
 
 				<div class="mt-auto pb-2 sm:pb-6">
@@ -1287,18 +1308,18 @@ const signUpWithGoogle = async () => {
 						disabled={!canContinuePersonalStep}
 						onclick={goToAccountStep}
 					>
-						Continue
+						{$_('common.continue')}
 					</Button>
 				</div>
 			{:else if step === 4}
 				<div class="flex flex-col gap-4">
-					<h1 class="type-step-title text-gray-900">Enter your account details</h1>
+					<h1 class="type-step-title text-gray-900">{$_('auth.signUp.accountTitle')}</h1>
 
 					<div class="flex items-center gap-2 pt-1">
 						<Checkbox bind:checked={acceptedTerms} id="terms" />
 						<label for="terms" class="cursor-pointer text-sm leading-6 text-gray-600">
-							I agree to the
-							<a href={termsHref} class="font-medium text-orange-500">Terms and conditions</a>
+							{$_('auth.signUp.agreeTo')}
+							<a href={termsHref} class="font-medium text-orange-500">{$_('auth.signUp.termsAndConditions')}</a>
 						</label>
 					</div>
 
@@ -1312,29 +1333,29 @@ const signUpWithGoogle = async () => {
 						>
 							{#if googleRedirectPending}
 								<LoaderCircleIcon class="size-4 animate-spin" />
-								Continuing with Google...
+								{$_('auth.signUp.continuingWithGoogle')}
 							{:else}
 								<Icon icon="logos:google-icon" width="20" height="20" aria-hidden="true" />
-								Continue with Google
+								{$_('auth.signUp.continueWithGoogle')}
 							{/if}
 						</Button>
 					{/if}
 
 					<Field class="flex flex-col gap-2">
 						<FieldLabel for="email" required class="type-field-label text-gray-900">
-							{isMinor ? "Your parent or guardian's email" : 'Email'}
+							{isMinor ? $_('auth.signUp.parentEmailLabel') : $_('auth.signUp.emailLabel')}
 						</FieldLabel>
 						<Input
 							id="email"
 							type="email"
 							bind:value={email}
 							autocomplete="email"
-							placeholder="john.doe@gmail.com"
+							placeholder={$_('auth.signUp.emailPlaceholder')}
 							class="h-12 border-gray-300 bg-white px-4 text-base"
 						/>
 						{#if isMinor}
 							<FieldDescription class="text-sm leading-6 text-gray-600">
-								We’re excited to get you started, but we need to notify your parent or guardian about your account.
+								{$_('auth.signUp.parentEmailDescription')}
 							</FieldDescription>
 						{/if}
 					</Field>
@@ -1342,11 +1363,11 @@ const signUpWithGoogle = async () => {
 					{#if emailStatusPending}
 						<div class="flex items-center gap-2 text-sm leading-6 text-gray-500">
 							<LoaderCircleIcon class="size-4 animate-spin text-orange-500" />
-							<span>Checking this email...</span>
+							<span>{$_('auth.signUp.checkingEmail')}</span>
 						</div>
 					{:else if hasExistingAccount && existingEmailStatus}
 						<Alert>
-							<AlertTitle>Account found</AlertTitle>
+							<AlertTitle>{$_('auth.signUp.accountFoundTitle')}</AlertTitle>
 							<AlertDescription>{getExistingAccountInlineMessage(existingEmailStatus)}</AlertDescription>
 						</Alert>
 					{/if}
@@ -1354,7 +1375,7 @@ const signUpWithGoogle = async () => {
 					{#if !shouldHidePasswordFields}
 					<Field class="flex flex-col gap-2">
 						<FieldLabel for="password" required class="type-field-label text-gray-900">
-							Password
+							{$_('auth.signUp.passwordLabel')}
 						</FieldLabel>
 						<div class="relative">
 							<Input
@@ -1362,7 +1383,7 @@ const signUpWithGoogle = async () => {
 								type={showPassword ? 'text' : 'password'}
 								bind:value={password}
 								autocomplete="new-password"
-								placeholder="Enter your password"
+								placeholder={$_('auth.signUp.passwordPlaceholder')}
 								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
 							/>
 							<button
@@ -1372,7 +1393,7 @@ const signUpWithGoogle = async () => {
 									event.preventDefault();
 								}}
 								class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
-								aria-label={showPassword ? 'Hide password' : 'Show password'}
+								aria-label={showPassword ? $_('auth.signUp.hidePassword') : $_('auth.signUp.showPassword')}
 								aria-pressed={showPassword}
 							>
 								{#if showPassword}
@@ -1386,7 +1407,7 @@ const signUpWithGoogle = async () => {
 
 					<Field class="flex flex-col gap-2">
 						<FieldLabel for="confirmPassword" required class="type-field-label text-gray-900">
-							Confirm password
+							{$_('auth.signUp.confirmPasswordLabel')}
 						</FieldLabel>
 						<div class="relative">
 							<Input
@@ -1394,7 +1415,7 @@ const signUpWithGoogle = async () => {
 								type={showConfirmPassword ? 'text' : 'password'}
 								bind:value={confirmPassword}
 								autocomplete="new-password"
-								placeholder="Enter your password again"
+								placeholder={$_('auth.signUp.confirmPasswordPlaceholder')}
 								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
 							/>
 							<button
@@ -1404,7 +1425,7 @@ const signUpWithGoogle = async () => {
 									event.preventDefault();
 								}}
 								class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
-								aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+								aria-label={showConfirmPassword ? $_('auth.signUp.hideConfirmPassword') : $_('auth.signUp.showConfirmPassword')}
 								aria-pressed={showConfirmPassword}
 							>
 								{#if showConfirmPassword}
@@ -1419,10 +1440,10 @@ const signUpWithGoogle = async () => {
 				</div>
 
 				{#if errorMessage}
-					<Alert variant="destructive">
-						<AlertTitle>Sign up failed</AlertTitle>
-						<AlertDescription>{errorMessage}</AlertDescription>
-					</Alert>
+						<Alert variant="destructive">
+							<AlertTitle>{$_('auth.signUp.errorTitle')}</AlertTitle>
+							<AlertDescription>{errorMessage}</AlertDescription>
+						</Alert>
 				{/if}
 
 				<div class="mt-auto flex flex-col gap-3 pb-2 sm:pb-6">
@@ -1434,26 +1455,26 @@ const signUpWithGoogle = async () => {
 						onclick={() => void (hasExistingAccount ? continueExistingAccount() : signUp())}
 					>
 						{#if pending}
-							Creating account...
+							{$_('auth.signUp.creatingAccount')}
 						{:else if googleRedirectPending}
-							Continuing with Google...
+							{$_('auth.signUp.continuingWithGoogle')}
 						{:else if hasExistingAccount && existingEmailStatus && !existingEmailStatus.isVerified}
-							Continue to verify email
+							{$_('auth.signUp.continueVerifyEmail')}
 						{:else if hasExistingAccount && existingEmailStatus?.hasGoogle && !existingEmailStatus?.hasPassword}
-							Continue with Google
+							{$_('auth.signUp.continueWithGoogle')}
 						{:else if hasExistingAccount}
-							Go to login
+							{$_('auth.signUp.goToLogin')}
 						{:else}
-							Sign up
+							{$_('auth.signUp.submit')}
 						{/if}
 					</Button>
 				</div>
 			{:else}
 				<div class="flex flex-col gap-5">
 					<div class="flex flex-col gap-1.5">
-						<h1 class="type-step-title text-gray-900">Verify your email address</h1>
+						<h1 class="type-step-title text-gray-900">{$_('auth.signUp.verifyEmailTitle')}</h1>
 						<p class="text-sm leading-6 text-gray-500">
-							This helps us keep your account secure. We've sent a verification link to:
+							{$_('auth.signUp.verifyEmailDescription')}
 						</p>
 					</div>
 
@@ -1465,12 +1486,12 @@ const signUpWithGoogle = async () => {
 							disabled={otpSyncInProgress}
 							onclick={goToAccountDetailsStep}
 						>
-							Change
+							{$_('common.change')}
 						</Button>
 					</div>
 
 					<div class="flex flex-col gap-3">
-						<p class="text-sm leading-6 text-gray-500">Please enter your code below:</p>
+						<p class="text-sm leading-6 text-gray-500">{$_('auth.signUp.codePrompt')}</p>
 						<InputOtp
 							bind:value={otpCode}
 							maxlength={OTP_LENGTH}
@@ -1480,7 +1501,7 @@ const signUpWithGoogle = async () => {
 					</div>
 
 					<div class="flex items-center gap-1 text-sm leading-6 text-gray-500">
-						<span>Didn't receive your code?</span>
+						<span>{$_('auth.signUp.didntReceiveCode')}</span>
 						<Button
 							variant="ghost"
 							class="h-auto px-0 py-0 text-sm leading-6 font-bold hover:bg-transparent active:bg-transparent"
@@ -1488,9 +1509,9 @@ const signUpWithGoogle = async () => {
 							onclick={() => void resendVerificationOtp()}
 						>
 							{#if resendCooldownSeconds > 0}
-								<span class="text-gray-400">Resend ({resendCooldownSeconds}s)</span>
+								<span class="text-gray-400">{$_('common.resend')} ({resendCooldownSeconds}s)</span>
 							{:else}
-								<span class="text-orange-500 hover:text-orange-600">Resend</span>
+								<span class="text-orange-500 hover:text-orange-600">{$_('common.resend')}</span>
 							{/if}
 						</Button>
 					</div>
@@ -1503,10 +1524,10 @@ const signUpWithGoogle = async () => {
 				{/if}
 
 				{#if errorMessage}
-					<Alert variant="destructive">
-						<AlertTitle>Verification failed</AlertTitle>
-						<AlertDescription>{errorMessage}</AlertDescription>
-					</Alert>
+						<Alert variant="destructive">
+							<AlertTitle>{$_('auth.signUp.verificationErrorTitle')}</AlertTitle>
+							<AlertDescription>{errorMessage}</AlertDescription>
+						</Alert>
 				{/if}
 
 				<div class="mt-auto pb-2 sm:pb-6">
@@ -1519,9 +1540,9 @@ const signUpWithGoogle = async () => {
 					>
 						{#if otpSyncInProgress}
 							<LoaderCircleIcon class="size-4 animate-spin" />
-							{awaitingEmailPostVerify || completingEmailPostVerify ? 'Finalizing' : 'Verifying'}
+							{awaitingEmailPostVerify || completingEmailPostVerify ? $_('auth.signUp.finalizing') : $_('auth.signUp.verifying')}
 						{:else}
-							Verify
+							{$_('common.verify')}
 						{/if}
 					</Button>
 				</div>

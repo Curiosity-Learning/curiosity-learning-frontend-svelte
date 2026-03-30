@@ -11,6 +11,7 @@
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
+	import { _, t } from '$lib/i18n';
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
 	import { formatWeeklyMeetingLabel } from '$lib/domain/date';
@@ -85,7 +86,7 @@
 		errorMessage = '';
 		try {
 			if (auth.isLoading) {
-				errorMessage = 'Checking your session. Please try again.';
+				errorMessage = t('onboarding.joinClubDetails.checkingSession');
 				return;
 			}
 			if (auth.isAuthenticated) {
@@ -104,7 +105,7 @@
 			}
 			await goto(getSignUpPath());
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Unable to continue right now.';
+			const message = error instanceof Error ? error.message : t('onboarding.joinClubDetails.continueFailure');
 			if (message.toLowerCase().includes('already a member')) {
 				if (club?.id) {
 					await goto(`/club/${club.id}`);
@@ -124,7 +125,7 @@
 			<a
 				href="/onboarding/join-club"
 				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label="Go back"
+				aria-label={$_('common.goBack')}
 			>
 				<ChevronLeftIcon class="size-7" />
 			</a>
@@ -134,21 +135,21 @@
 
 		{#if preview.isLoading}
 			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
-				<p class="text-base text-gray-600">Loading club details...</p>
+				<p class="text-base text-gray-600">{$_('onboarding.joinClubDetails.loading')}</p>
 			</div>
 		{:else if !club}
 			<div class="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-5">
-				<h1 class="text-2xl font-bold text-gray-900">Invalid club code</h1>
-				<p class="text-base text-red-700">This invite code is invalid or has expired.</p>
+				<h1 class="text-2xl font-bold text-gray-900">{$_('onboarding.joinClubDetails.invalidTitle')}</h1>
+				<p class="text-base text-red-700">{$_('onboarding.joinClubDetails.invalidDescription')}</p>
 				<Button href="/onboarding/join-club" variant="outline" size="xl" class="h-12 w-full">
-					Enter another code
+					{$_('onboarding.joinClubDetails.enterAnother')}
 				</Button>
 			</div>
 		{:else if forcedGoogleSignupRecoveryPending}
 			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
-				<h1 class="text-2xl font-bold text-gray-900">Checking your account…</h1>
+				<h1 class="text-2xl font-bold text-gray-900">{$_('onboarding.joinClubDetails.checkingAccountTitle')}</h1>
 				<p class="text-base text-gray-600">
-					We&apos;re returning you to sign up so you can continue from the same step.
+					{$_('onboarding.joinClubDetails.checkingAccountDescription')}
 				</p>
 			</div>
 		{:else}
@@ -157,7 +158,7 @@
 					<h1 class="type-step-title text-gray-900">{club.name}</h1>
 					<p class="text-[1.125rem] leading-8 text-gray-600">
 						{club.description ??
-							'Join this Curiosity Club to learn, collaborate, and build projects with a local learning community.'}
+							$_('onboarding.joinClubDetails.defaultDescription')}
 					</p>
 				</div>
 
@@ -210,7 +211,7 @@
 					disabled={pending || auth.isLoading}
 					onclick={() => void joinClub()}
 				>
-					{pending ? 'Continuing...' : 'Join as a learner'}
+					{pending ? $_('onboarding.joinClubDetails.continuing') : $_('onboarding.joinClubDetails.joinAsLearner')}
 				</Button>
 			</div>
 		{/if}

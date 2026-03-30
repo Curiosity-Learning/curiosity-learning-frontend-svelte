@@ -7,6 +7,7 @@
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { createSvelteAuthClient } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { authClient } from '$lib/auth-client';
+	import { initI18n } from '$lib/i18n';
 	import type { LayoutData } from './$types';
 
 	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
@@ -19,11 +20,16 @@
 	let isAuthenticatedFromServer = $derived(Boolean(data.authState?.isAuthenticated));
 	let launcherFinished = $state(false);
 	let showLauncher = $derived(!isAuthenticatedFromServer && !launcherFinished);
+	let localeCleanup: (() => void) | null = null;
 
 	onMount(() => {
+		localeCleanup = initI18n();
+
 		if (isAuthenticatedFromServer) {
 			launcherFinished = true;
-			return;
+			return () => {
+				localeCleanup?.();
+			};
 		}
 
 		const timer = setTimeout(() => {
@@ -32,6 +38,7 @@
 
 		return () => {
 			clearTimeout(timer);
+			localeCleanup?.();
 		};
 	});
 </script>
