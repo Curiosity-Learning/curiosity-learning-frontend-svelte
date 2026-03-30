@@ -10,8 +10,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
-	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
 	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
+	import { createMediaField } from '$lib/media/media-field.svelte';
 	import {
 		DropdownField,
 		InputField,
@@ -27,24 +27,19 @@
 	} from '$lib/maps/mapbox';
 	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
-	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
+	const clubVideoField = createMediaField(convexClient, 'clubVideo', {
+		mode: 'deferred'
+	});
 	const PUBLIC_MAPBOX_ACCESS_TOKEN = env.PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
 	const LOCATION_AUTOCOMPLETE_MIN_CHARS = 2;
 	const ABOUT_CHARACTER_LIMIT = 500;
 	const LOCATION_AUTOCOMPLETE_DEBOUNCE_MS = 280;
 	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
-	const CLUB_VIDEO_ACCEPTED_CONTENT_TYPES = [
-		'video/mp4',
-		'video/quicktime',
-		'video/webm',
-		'video/x-m4v'
-	];
-	const CLUB_VIDEO_MAX_BYTES = 100 * FileDropZone.MEGABYTE;
 
 	type StartClubDraft = {
 		location: string;
@@ -69,14 +64,11 @@
 	let about = $state('');
 	let referralSource = $state('');
 	let referralOther = $state('');
-	let videoFileName = $state('');
-	let videoMediaAssetId = $state<Id<'mediaAssets'> | null>(null);
-	let videoUploadPending = $state(false);
-	let localVideoPreviewUrl = $state<string | null>(null);
 	let previewVideoLoadFailed = $state(false);
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let hydratedDraft = $state(false);
+	let authRedirected = $state(false);
 	const rememberedLocationCoordinates = new SvelteMap<string, MapboxCoordinates>();
 
 	const ROLE_VALUE_ALIASES: Record<string, string> = {
@@ -219,14 +211,8 @@
 		await goto('/onboarding/start-club?step=2');
 	};
 
-	const revokeLocalVideoPreview = () => {
-		if (!localVideoPreviewUrl) return;
-		URL.revokeObjectURL(localVideoPreviewUrl);
-		localVideoPreviewUrl = null;
-	};
-
 	let hasValidUploadedVideo = $derived(
-		Boolean(videoMediaAssetId && localVideoPreviewUrl && !previewVideoLoadFailed)
+		Boolean(clubVideoField.localPreviewUrl && !previewVideoLoadFailed)
 	);
 
 	let locationLookupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -245,8 +231,17 @@
 	};
 
 	onDestroy(() => {
-		revokeLocalVideoPreview();
+		clubVideoField.destroy();
 		clearLocationLookupResources();
+	});
+
+	$effect(() => {
+		if (authRedirected || auth.isLoading || auth.isAuthenticated) return;
+		authRedirected = true;
+		const params = new SvelteURLSearchParams();
+		params.set('next', '/onboarding/start-club');
+		params.set('forceSignup', '1');
+		void goto(`/auth/sign-up?${params.toString()}`, { replaceState: true });
 	});
 
 	$effect(() => {
@@ -374,39 +369,12 @@
 	});
 
 	const uploadClubVideo = async (files: File[]) => {
-		const file = files[0];
-		if (!file) return;
-
-		videoFileName = file.name;
-		videoMediaAssetId = null;
 		previewVideoLoadFailed = false;
-		revokeLocalVideoPreview();
-		localVideoPreviewUrl = URL.createObjectURL(file);
-
-		if (!auth.isAuthenticated) {
-			errorMessage = t('onboarding.startClub.signInFirstUpload');
-			revokeLocalVideoPreview();
-			videoFileName = '';
-			return;
-		}
-
-		videoUploadPending = true;
 		errorMessage = '';
 		try {
-			const uploadedAsset = await uploadMediaAsset(convexClient, file, {
-				acceptedContentTypes: CLUB_VIDEO_ACCEPTED_CONTENT_TYPES,
-				maxBytes: CLUB_VIDEO_MAX_BYTES,
-				enableCompression: true,
-				enableSafetyScreening: true
-			});
-			videoMediaAssetId = uploadedAsset.assetId;
+			await clubVideoField.selectFiles(files);
 		} catch (error) {
-			videoMediaAssetId = null;
-			revokeLocalVideoPreview();
-			videoFileName = '';
 			errorMessage = error instanceof Error ? error.message : t('onboarding.startClub.videoUploadFailure');
-		} finally {
-			videoUploadPending = false;
 		}
 	};
 
@@ -419,31 +387,38 @@
 		}
 
 		if (!auth.isAuthenticated) {
-			const params = new SvelteURLSearchParams();
-			params.set('next', '/onboarding/start-club?step=2');
-			params.set('forceSignup', '1');
-			await goto(`/auth/sign-up?${params.toString()}`);
 			return;
 		}
 
 		pending = true;
 		try {
+			await clubVideoField.ensureUploaded();
+			if (clubVideoField.hasUploadedAsset && !clubVideoField.isReady) {
+				throw new Error(
+					clubVideoField.errorMessage || t('onboarding.startClub.videoUploadFailure')
+				);
+			}
 			const normalizedLocation = location.trim();
 			const generatedName = normalizedLocation
 				? `${normalizedLocation} Curiosity Club`
 				: 'Curiosity Club';
-			const result = await convexClient.mutation(api.clubs.createClub, {
-				name: generatedName.slice(0, 100),
-				description: about.trim() || undefined,
-				location: normalizedLocation || undefined,
-				locationLatitude: selectedLocationCoordinates?.latitude,
-				locationLongitude: selectedLocationCoordinates?.longitude,
-				videoMediaAssetId: videoMediaAssetId ?? undefined,
-				meetingDay: undefined,
-				meetingTime: undefined
-			});
+			const result = await clubVideoField.persistAttached((assetId) =>
+				convexClient.mutation(api.clubs.createClub, {
+					name: generatedName.slice(0, 100),
+					description: about.trim() || undefined,
+					location: normalizedLocation || undefined,
+					locationLatitude: selectedLocationCoordinates?.latitude,
+					locationLongitude: selectedLocationCoordinates?.longitude,
+					videoMediaAssetId: assetId ?? undefined,
+					meetingDay: undefined,
+					meetingTime: undefined
+				})
+			);
+			if (!result) {
+				throw new Error(t('onboarding.startClub.submitFailure'));
+			}
 			clearStartClubDraft();
-			await goto(result?.clubId ? routes.clubHome(result.clubId) : '/');
+			await goto(routes.clubHome(result.clubId));
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : t('onboarding.startClub.submitFailure');
 		} finally {
@@ -583,11 +558,11 @@
 				<div class="flex flex-col gap-3">
 					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">{$_('onboarding.startClub.videoUploadTitle')}</p>
 					<FileDropZone.Root
-						accept={CLUB_VIDEO_ACCEPTED_CONTENT_TYPES.join(',')}
+						accept={clubVideoField.accept}
 						maxFiles={1}
 						fileCount={0}
-						maxFileSize={CLUB_VIDEO_MAX_BYTES}
-						disabled={videoUploadPending || pending || auth.isLoading}
+						maxFileSize={clubVideoField.maxBytes}
+						disabled={clubVideoField.isBusy || pending || auth.isLoading}
 						onUpload={uploadClubVideo}
 					>
 						<FileDropZone.Trigger class="contents">
@@ -595,18 +570,18 @@
 									class="grid min-h-36 place-items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
 								>
 									<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
-										{videoUploadPending ? $_('onboarding.startClub.uploading') : $_('common.browse')}
+										{clubVideoField.isBusy ? $_('onboarding.startClub.uploading') : $_('common.browse')}
 									</div>
 									<p class="text-base leading-7 font-medium text-gray-700">
-										{videoUploadPending ? $_('onboarding.startClub.videoUploading') : $_('onboarding.startClub.videoDropPrompt')}
+										{clubVideoField.isBusy ? $_('onboarding.startClub.videoUploading') : $_('onboarding.startClub.videoDropPrompt')}
 									</p>
 									<p class="text-sm text-gray-500">{$_('onboarding.startClub.videoRequirements')}</p>
-									{#if videoFileName}
-										<p class="max-w-full truncate text-sm text-gray-500">{videoFileName}</p>
+									{#if clubVideoField.selectedFileName}
+										<p class="max-w-full truncate text-sm text-gray-500">{clubVideoField.selectedFileName}</p>
 									{/if}
-									{#if videoUploadPending}
+									{#if clubVideoField.isBusy}
 										<p class="text-xs font-semibold text-primary">{$_('onboarding.startClub.videoUploadingStatus')}</p>
-									{:else if videoMediaAssetId}
+									{:else if clubVideoField.hasUploadedAsset}
 										<p class="text-xs font-semibold text-emerald-600">{$_('onboarding.startClub.videoUploadedStatus')}</p>
 									{/if}
 								</div>
@@ -615,7 +590,7 @@
 					{#if hasValidUploadedVideo}
 						<!-- svelte-ignore a11y_media_has_caption -->
 						<video
-							src={localVideoPreviewUrl}
+							src={clubVideoField.localPreviewUrl ?? undefined}
 							controls
 							preload="metadata"
 							class="h-44 w-full rounded-lg border border-gray-200 bg-black object-cover"
@@ -636,16 +611,14 @@
 					variant="default"
 					size="xl"
 					class="h-12 w-full"
-					disabled={pending || videoUploadPending || auth.isLoading}
+					disabled={pending || clubVideoField.isBusy || auth.isLoading}
 					onclick={() => void submitStartClub()}
 				>
 					{pending
 						? $_('onboarding.startClub.submitting')
-						: videoUploadPending
+						: clubVideoField.isBusy
 							? $_('onboarding.startClub.videoUploadingStatus')
-							: auth.isAuthenticated
-								? $_('onboarding.startClub.submitApplication')
-								: $_('onboarding.startClub.proceedToSignUp')}
+							: $_('onboarding.startClub.submitApplication')}
 				</Button>
 			</div>
 		{/if}

@@ -626,8 +626,8 @@
 											{#if run.assetId}
 												<Badge variant="outline">{run.assetId}</Badge>
 											{/if}
-											{#if run.status === 'completed'}
-												<Badge>Ready to use</Badge>
+											{#if run.status === 'processing'}
+												<Badge>Queued for processing</Badge>
 											{/if}
 										</div>
 										{#if run.previewUrl && run.previewKind}

@@ -29,7 +29,8 @@ export default defineSchema({
 	})
 		.index('by_user_id', ['userId'])
 		.index('by_email', ['email'])
-		.index('by_username', ['username']),
+		.index('by_username', ['username'])
+		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
 
 	clubRoles: defineTable({
 		name: v.string(),
@@ -56,7 +57,8 @@ export default defineSchema({
 		updatedAt: v.number()
 	})
 		.index('by_created_by', ['createdByUserId'])
-		.index('by_club_code', ['clubCode']),
+		.index('by_club_code', ['clubCode'])
+		.index('by_video_media_asset', ['videoMediaAssetId']),
 
 	clubMembers: defineTable({
 		clubId: v.id('clubs'),

@@ -1,61 +1,29 @@
-import { browser } from '$app/environment';
 import { api } from '$convex/_generated/api';
 import type { Id } from '$convex/_generated/dataModel';
 import type { ConvexClient } from 'convex/browser';
-import type { FunctionReturnType } from 'convex/server';
+import {
+	beginMediaUpload,
+	createLocalPreviewUrl,
+	createMediaUploadConstraintsFromPreset,
+	describeMediaUploadConstraints,
+	finalizeMediaUpload,
+	getLocalPreviewKind,
+	mediaUploadPresets,
+	normalizeUploadErrorMessage,
+	revokePreviewUrl,
+	uploadFileToDescriptor,
+	type MediaUploadConstraintsInput,
+	type MediaUploadPreset,
+	type MediaUploadUiConstraints
+} from './upload-core';
 
-const mb = (value: number) => value * 1024 * 1024;
-
-export const IMAGE_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-export const VIDEO_CONTENT_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'];
-
-export const mediaUploadPresets = {
-	images: {
-		label: 'Images',
-		acceptedContentTypes: IMAGE_CONTENT_TYPES,
-		maxBytesMb: 20
-	},
-	videos: {
-		label: 'Videos',
-		acceptedContentTypes: VIDEO_CONTENT_TYPES,
-		maxBytesMb: 250
-	},
-	mixed: {
-		label: 'Mixed media',
-		acceptedContentTypes: [...IMAGE_CONTENT_TYPES, ...VIDEO_CONTENT_TYPES],
-		maxBytesMb: 250
-	}
-} as const;
-
-export type MediaUploadPreset = keyof typeof mediaUploadPresets;
-
-export type MediaUploadConstraintsInput = {
-	acceptedContentTypes: string[];
-	maxBytes: number;
-	enableCompression?: boolean;
-	enableSafetyScreening?: boolean;
-};
-
-export type MediaUploadConstraints = {
-	acceptedContentTypes: string[];
-	maxBytes: number;
-	enableCompression: boolean;
-	enableSafetyScreening: boolean;
-};
-
-// Keep backend request constraints separate from UI-only helpers like `accept`.
-export type MediaUploadUiConstraints = MediaUploadConstraints & {
-	accept: string;
-};
-
-export type MediaUploadDescriptor = {
-	provider: string;
-	method: 'PUT' | 'POST';
-	url: string;
-	headers?: Record<string, string>;
-	fields?: Record<string, string>;
-	objectKey: string;
-	uploadToken?: string;
+export {
+	createMediaUploadConstraintsFromPreset,
+	describeMediaUploadConstraints,
+	mediaUploadPresets,
+	type MediaUploadConstraintsInput,
+	type MediaUploadPreset,
+	type MediaUploadUiConstraints
 };
 
 export type MediaUploadRun = {
@@ -64,191 +32,15 @@ export type MediaUploadRun = {
 	assetId?: Id<'mediaAssets'>;
 	previewKind?: 'image' | 'video';
 	previewUrl?: string;
-	status:
-		| 'starting'
-		| 'uploading'
-		| 'waiting_to_finalize'
-		| 'finalizing'
-		| 'completed'
-		| 'failed';
+	status: 'starting' | 'uploading' | 'waiting_to_finalize' | 'finalizing' | 'processing' | 'failed';
 	message: string;
 	objectKey?: string;
-};
-
-type ResolvedMediaAsset = FunctionReturnType<typeof api.media.getUpload>;
-
-type MediaBeginUploadResult = {
-	asset: ResolvedMediaAsset;
-	upload: MediaUploadDescriptor;
 };
 
 type UploadFilesOptions = {
 	constraints: MediaUploadConstraintsInput;
 	autoFinalize?: boolean;
 	onAssetSelected?: (assetId: Id<'mediaAssets'>) => void;
-};
-
-const normalizeAcceptedContentTypes = (acceptedContentTypes: string[]) =>
-	[...new Set(acceptedContentTypes.map((entry) => entry.trim().toLowerCase()).filter(Boolean))];
-
-export const describeMediaUploadConstraints = (
-	input: MediaUploadConstraintsInput
-): MediaUploadUiConstraints => {
-	const acceptedContentTypes = normalizeAcceptedContentTypes(input.acceptedContentTypes);
-
-	return {
-		acceptedContentTypes,
-		maxBytes: Math.max(1, Math.floor(Number(input.maxBytes) || 1)),
-		enableCompression: input.enableCompression ?? false,
-		enableSafetyScreening: input.enableSafetyScreening ?? false,
-		accept: acceptedContentTypes.join(',')
-	};
-};
-
-const toMediaUploadRequestConstraints = (
-	constraints: MediaUploadUiConstraints
-): MediaUploadConstraints => ({
-	// Strip UI-only fields before sending constraints through Convex validators.
-	acceptedContentTypes: [...constraints.acceptedContentTypes],
-	maxBytes: constraints.maxBytes,
-	enableCompression: constraints.enableCompression,
-	enableSafetyScreening: constraints.enableSafetyScreening
-});
-
-export const createMediaUploadConstraintsFromPreset = (
-	preset: MediaUploadPreset,
-	options?: {
-		enableCompression?: boolean;
-		enableSafetyScreening?: boolean;
-	}
-) =>
-	describeMediaUploadConstraints({
-		acceptedContentTypes: [...mediaUploadPresets[preset].acceptedContentTypes],
-		maxBytes: mb(mediaUploadPresets[preset].maxBytesMb),
-		enableCompression: options?.enableCompression ?? false,
-		enableSafetyScreening: options?.enableSafetyScreening ?? false
-	});
-
-const compactWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
-
-const truncate = (value: string, maxLength = 240) =>
-	value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
-
-const buildUploadFailureMessage = async (response: Response) => {
-	const suffix = response.statusText ? ` ${response.statusText}` : '';
-	const rawBody = compactWhitespace(await response.text());
-	const xmlCode = rawBody.match(/<Code>([^<]+)<\/Code>/)?.[1];
-	const xmlMessage = rawBody.match(/<Message>([^<]+)<\/Message>/)?.[1];
-	const xmlRequestId = rawBody.match(/<RequestId>([^<]+)<\/RequestId>/)?.[1];
-	const detail =
-		[xmlCode, xmlMessage, xmlRequestId ? `RequestId ${xmlRequestId}` : null]
-			.filter(Boolean)
-			.join(' | ') || truncate(rawBody);
-
-	return detail
-		? `Upload failed (${response.status}${suffix}): ${detail}`
-		: `Upload failed (${response.status}${suffix})`;
-};
-
-const normalizeUploadErrorMessage = (error: unknown) => {
-	if (error instanceof Error) {
-		if (error instanceof TypeError) {
-			return `${error.message}. The browser did not get a usable S3 response. Check bucket CORS, the presigned URL region, and network access to S3.`;
-		}
-
-		return error.message;
-	}
-
-	return 'Upload failed.';
-};
-
-const getLocalPreviewKind = (file: File): MediaUploadRun['previewKind'] => {
-	if (file.type.startsWith('image/')) return 'image';
-	if (file.type.startsWith('video/')) return 'video';
-	return undefined;
-};
-
-const createLocalPreviewUrl = (file: File) => {
-	if (!browser) return undefined;
-	const previewKind = getLocalPreviewKind(file);
-	if (!previewKind) return undefined;
-	return URL.createObjectURL(file);
-};
-
-const readLocalMediaDurationSeconds = async (file: File) => {
-	if (!browser || !file.type.startsWith('video/')) {
-		return undefined;
-	}
-
-	const objectUrl = URL.createObjectURL(file);
-
-	try {
-		return await new Promise<number | undefined>((resolve) => {
-			const video = document.createElement('video');
-			video.preload = 'metadata';
-
-			const cleanup = () => {
-				video.removeAttribute('src');
-				video.load();
-				URL.revokeObjectURL(objectUrl);
-			};
-
-			video.onloadedmetadata = () => {
-				const duration = Number(video.duration);
-				cleanup();
-				resolve(Number.isFinite(duration) && duration > 0 ? duration : undefined);
-			};
-
-			video.onerror = () => {
-				cleanup();
-				resolve(undefined);
-			};
-
-			video.src = objectUrl;
-		});
-	} catch {
-		URL.revokeObjectURL(objectUrl);
-		return undefined;
-	}
-};
-
-const revokePreviewUrl = (previewUrl?: string) => {
-	if (!browser || !previewUrl) return;
-	URL.revokeObjectURL(previewUrl);
-};
-
-const uploadFileToDescriptor = async (file: File, upload: MediaUploadDescriptor) => {
-	if (upload.method === 'POST') {
-		const formData = new FormData();
-		for (const [key, value] of Object.entries(upload.fields ?? {})) {
-			formData.append(key, value);
-		}
-		formData.append('file', file);
-
-		const response = await fetch(upload.url, {
-			method: 'POST',
-			body: formData
-		});
-
-		if (!response.ok) {
-			throw new Error(await buildUploadFailureMessage(response));
-		}
-
-		return;
-	}
-
-	const response = await fetch(upload.url, {
-		method: upload.method,
-		headers: {
-			...(upload.headers ?? {}),
-			...(!upload.headers?.['content-type'] && file.type ? { 'content-type': file.type } : {})
-		},
-		body: file
-	});
-
-	if (!response.ok) {
-		throw new Error(await buildUploadFailureMessage(response));
-	}
 };
 
 export const createMediaUploadManager = (
@@ -317,14 +109,7 @@ export const createMediaUploadManager = (
 				});
 
 				try {
-					const clientDurationSeconds = await readLocalMediaDurationSeconds(file);
-					const beginResult = (await convexClient.action(api.media.beginUpload, {
-						constraints: toMediaUploadRequestConstraints(constraints),
-						originalFilename: file.name,
-						clientContentType: file.type || undefined,
-						clientSizeBytes: file.size,
-						clientDurationSeconds
-					})) as MediaBeginUploadResult;
+					const beginResult = await beginMediaUpload(convexClient, file, constraints);
 
 					patchRun(runId, {
 						assetId: beginResult.asset.assetId,
@@ -344,12 +129,10 @@ export const createMediaUploadManager = (
 							status: 'finalizing',
 							message: 'Upload complete. Finalizing asset...'
 						});
-						await convexClient.action(api.media.finalizeUpload, {
-							assetId: beginResult.asset.assetId
-						});
+						await finalizeMediaUpload(convexClient, beginResult.asset.assetId);
 						patchRun(runId, {
-							status: 'completed',
-							message: 'Upload finalized, processed, and ready.'
+							status: 'processing',
+							message: 'Upload finalized and queued for processing.'
 						});
 					} else {
 						patchRun(runId, {
@@ -371,7 +154,7 @@ export const createMediaUploadManager = (
 			if (files.length && failureCount === 0) {
 				successMessage =
 					uploadOptions.autoFinalize ?? true
-						? 'Upload batch completed. Review processing state below.'
+						? 'Upload batch finalized. Review processing state below.'
 						: 'Upload batch sent. Finalize pending uploads when you are ready.';
 			} else if (files.length && failureCount < files.length) {
 				successMessage = 'Upload batch finished with some failures. Review the recent attempts below.';
@@ -387,7 +170,7 @@ export const createMediaUploadManager = (
 		clearFeedback();
 		lastUploadedAssetId = assetId;
 		try {
-			await convexClient.action(api.media.finalizeUpload, { assetId });
+			await finalizeMediaUpload(convexClient, assetId);
 			successMessage = 'Upload finalized and queued for processing.';
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Unable to finalize upload.';

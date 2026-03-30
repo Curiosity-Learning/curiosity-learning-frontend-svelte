@@ -158,6 +158,32 @@
 
 ## 2026-02-18
 
+## 2026-03-30
+
+### Refactor: Shared Media Field Controller
+
+- Added `src/lib/media/upload-core.ts` as the shared transport/lifecycle layer for begin-upload, direct S3 upload, finalize, polling, and cleanup.
+- Added `src/lib/media/media-field.svelte.ts` with `createMediaField(...)` so product pages now consume a shared field controller instead of hand-rolling file preview/upload/persistence logic.
+- Reworked `src/lib/media/upload-manager.svelte.ts` to consume the shared core while remaining the developer/debug upload surface.
+
+### Product Flows: Settings + Onboarding
+
+- Migrated settings profile image upload to `FileDropZone` + the shared `profileImage` media field in immediate mode.
+- Migrated post-signup profile image selection to the shared `profileImage` field in deferred mode so the asset uploads only on continue.
+- Migrated start-club video selection to the shared `clubVideo` field in deferred mode and removed the old submit-time unauthenticated upload branch.
+- Added an authenticated entry gate for `/onboarding/start-club`, keeping club application media entirely post-auth.
+
+### Backend: Media Cleanup
+
+- Added server-enforced deletion for unattached media assets, including ready assets.
+- Deletion now verifies the asset is not referenced by `profiles.profileImageMediaAssetId` or `clubs.videoMediaAssetId` before removing storage and the `mediaAssets` row.
+- Added supporting indexes on `profiles.profileImageMediaAssetId` and `clubs.videoMediaAssetId`.
+
+### Run: Type Check
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅
+
 ### Feature: Inline Activity Card Editing Expansion
 
 - Session activity cards now support inline title editing via a single-line input (blur-save), fixing caret/cursor instability seen with contenteditable title editing.

@@ -4,7 +4,7 @@ import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, S3Client } fr
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
-import type { Doc } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { internalAction } from './_generated/server';
 import {
 	loadMediaStorageConfig,
@@ -469,6 +469,72 @@ export const cancelUpload = internalAction({
 		});
 
 		return toResolvedAsset(updated);
+	}
+});
+
+export const deleteUpload: ReturnType<typeof internalAction> = internalAction({
+	args: {
+		assetId: v.id('mediaAssets'),
+		userId: v.string()
+	},
+	handler: async (
+		ctx,
+		args
+	): Promise<{
+		assetId: Id<'mediaAssets'>;
+		deleted: true;
+	}> => {
+		const asset: Doc<'mediaAssets'> = await ctx.runQuery(internal.media.getOwnedAsset, {
+			assetId: args.assetId,
+			userId: args.userId
+		});
+		const attachmentUsage: {
+			profileId: Id<'profiles'> | null;
+			clubId: Id<'clubs'> | null;
+		} = await ctx.runQuery(internal.media.getAssetAttachmentUsage, {
+			assetId: args.assetId
+		});
+
+		if (attachmentUsage.profileId || attachmentUsage.clubId) {
+			throw new ConvexError('Attached uploads cannot be deleted');
+		}
+
+		console.info('media:deleteUpload:start', {
+			assetId: asset._id,
+			status: asset.status,
+			sourceBucket: asset.sourceBucket ?? null,
+			sourceObjectKey: asset.sourceObjectKey ?? null,
+			processedBucket: asset.processedBucket ?? null,
+			processedObjectKey: asset.processedObjectKey ?? null
+		});
+
+		const config = loadMediaStorageConfig();
+		const client = createS3Client(config);
+		await deleteObjectIfPresent({
+			client,
+			bucket: asset.sourceBucket ?? null,
+			objectKey: asset.sourceObjectKey ?? null
+		});
+		if (asset.processedObjectKey && asset.processedObjectKey !== asset.sourceObjectKey) {
+			await deleteObjectIfPresent({
+				client,
+				bucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+				objectKey: asset.processedObjectKey
+			});
+		}
+
+		const deleted: {
+			assetId: Id<'mediaAssets'>;
+			deleted: true;
+		} = await ctx.runMutation(internal.media.deleteUploadRecord, {
+			assetId: args.assetId,
+			ownerUserId: args.userId
+		});
+		console.info('media:deleteUpload:completed', {
+			assetId: deleted.assetId
+		});
+
+		return deleted;
 	}
 });
 

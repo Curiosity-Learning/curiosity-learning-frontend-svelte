@@ -76,9 +76,7 @@ const nl = {
 		openPrivacyPolicy: 'Open privacybeleid',
 		openTerms: 'Open algemene voorwaarden',
 		openCookies: 'Open cookiebeleid',
-		profileImageFinalizeFailure: 'Het uploaden van de profielafbeelding kon niet worden afgerond.',
-		profileImageUploaded:
-			'Profielafbeelding geüpload. Klik op Profiel opslaan om de wijzigingen toe te passen.',
+		profileImageUploaded: 'Profielafbeelding geüpload.',
 		profileImageUploadFailure: 'Kan profielafbeelding niet uploaden.',
 		profileUpdated: 'Profiel bijgewerkt.',
 		saveProfileFailure: 'Kan profiel niet opslaan.',
@@ -280,7 +278,6 @@ const nl = {
 			continueFailure: 'Kan nu niet doorgaan.'
 		},
 		startClub: {
-			signInFirstUpload: 'Log eerst in en upload daarna de clubvideo.',
 			videoFinalizeFailure: 'Het uploaden van de video kon niet worden afgerond.',
 			videoUploadFailure: 'Kan video nu niet uploaden.',
 			checkingSession: 'Je sessie wordt gecontroleerd. Probeer het opnieuw.',
@@ -316,7 +313,6 @@ const nl = {
 			videoUploadedStatus: 'Video geüpload',
 			submitting: 'Verzenden...',
 			submitApplication: 'Aanmelding verzenden',
-			proceedToSignUp: 'Verder naar aanmelden',
 			roles: {
 				teacher: 'Leraar',
 				parent: 'Ouder',
@@ -349,11 +345,8 @@ const nl = {
 			dropOrChooseImage: 'Sleep of kies een afbeelding',
 			imageRequirements: 'PNG, JPG of WEBP tot 10 MB.',
 			uploading: 'Uploaden',
-			profileImageUploadedTitle: 'Profielafbeelding geüpload',
 			profileImageUploadFailedTitle: 'Kon profielafbeelding niet uploaden',
 			profileImageUploadFailedDescription: 'Probeer het opnieuw.',
-			profileImageFinalizeFailure:
-				'Het uploaden van de profielafbeelding kon niet worden afgerond.',
 			usernameRequiredTitle: 'Gebruikersnaam is verplicht',
 			saveProfileFailedTitle: 'Kon profielgegevens niet opslaan',
 			saveProfileFailedDescription: 'Probeer het opnieuw.',

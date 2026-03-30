@@ -13,19 +13,19 @@
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { InputField } from '$lib/components/app/form';
 	import { _, t } from '$lib/i18n';
-	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
+	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
-	import type { Id } from '$convex/_generated/dataModel';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
+	const profileImageField = createMediaField(convexClient, 'profileImage', {
+		mode: 'deferred'
+	});
 	const profileResponse = useStableQuery(api.profiles.getMe, () => (auth.isAuthenticated ? {} : 'skip'));
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
-	const PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-	const PROFILE_IMAGE_MAX_BYTES = 10 * FileDropZone.MEGABYTE;
 
 	const parseStep = (value: string | null): 1 | 2 => (value === '2' ? 2 : 1);
 	const resolveCompletionNextPath = (path: string) => {
@@ -45,9 +45,6 @@
 	let step = $state<1 | 2>(parseStep(page.url.searchParams.get('step')));
 	let username = $state('');
 	let agreedAll = $state(false);
-	let profileImageMediaAssetId = $state<Id<'mediaAssets'> | null>(null);
-	let localProfilePreviewUrl = $state<string | null>(null);
-	let profileImageUploading = $state(false);
 	let pending = $state(false);
 	let usernamePrefilled = $state(false);
 	let completionRedirected = $state(false);
@@ -86,12 +83,6 @@
 		}
 	};
 
-	const revokeProfilePreview = () => {
-		if (!localProfilePreviewUrl) return;
-		URL.revokeObjectURL(localProfilePreviewUrl);
-		localProfilePreviewUrl = null;
-	};
-
 	const clearPostSignupPending = () => {
 		if (!browser) return;
 		try {
@@ -112,7 +103,7 @@
 	let awaitingSignupSession = $derived(!auth.isLoading && !auth.isAuthenticated && isPostSignupPending());
 
 	onDestroy(() => {
-		revokeProfilePreview();
+		profileImageField.destroy();
 	});
 
 	$effect(() => {
@@ -166,33 +157,13 @@
 	const normalizeUsername = (value: string) => value.trim().toLowerCase();
 
 	const uploadProfileImage = async (files: File[]) => {
-		const file = files[0];
-		if (!file) return;
-
-		revokeProfilePreview();
-		localProfilePreviewUrl = URL.createObjectURL(file);
-		profileImageUploading = true;
-
 		try {
-			const uploadedAsset = await uploadMediaAsset(convexClient, file, {
-				acceptedContentTypes: PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES,
-				maxBytes: PROFILE_IMAGE_MAX_BYTES,
-				enableCompression: true,
-				enableSafetyScreening: true
-			});
-			profileImageMediaAssetId = uploadedAsset.assetId;
-			showGlobalSnackbar({
-				title: t('onboarding.postSignup.profileImageUploadedTitle')
-			});
+			await profileImageField.selectFiles(files);
 		} catch (error) {
-			profileImageMediaAssetId = null;
-			revokeProfilePreview();
 			showGlobalSnackbar({
 				title: t('onboarding.postSignup.profileImageUploadFailedTitle'),
 				description: error instanceof Error ? error.message : t('onboarding.postSignup.profileImageUploadFailedDescription')
 			});
-		} finally {
-			profileImageUploading = false;
 		}
 	};
 
@@ -207,9 +178,17 @@
 
 		pending = true;
 		try {
-			await convexClient.mutation(api.profiles.updateMe, {
-				username: normalizedUsername,
-				profileImageMediaAssetId: profileImageMediaAssetId ?? undefined
+			await profileImageField.ensureUploaded();
+			if (profileImageField.hasUploadedAsset && !profileImageField.isReady) {
+				throw new Error(
+					profileImageField.errorMessage || t('onboarding.postSignup.profileImageUploadFailedDescription')
+				);
+			}
+			await profileImageField.persistAttached(async (assetId) => {
+				await convexClient.mutation(api.profiles.updateMe, {
+					username: normalizedUsername,
+					profileImageMediaAssetId: assetId ?? undefined
+				});
 			});
 			step = 2;
 			syncStepInUrl(2);
@@ -306,19 +285,19 @@
 				<div class="flex flex-col gap-3">
 					<p class="type-field-label text-gray-900">{$_('onboarding.postSignup.profileImageLabel')}</p>
 					<FileDropZone.Root
-						accept={PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES.join(',')}
+						accept={profileImageField.accept}
 						maxFiles={1}
 						fileCount={0}
-						maxFileSize={PROFILE_IMAGE_MAX_BYTES}
-						disabled={profileImageUploading || pending}
+						maxFileSize={profileImageField.maxBytes}
+						disabled={profileImageField.isBusy || pending}
 						onUpload={uploadProfileImage}
 					>
 						<div class="flex items-center gap-3">
 							<div
 								class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gray-100"
 							>
-								{#if localProfilePreviewUrl}
-									<img src={localProfilePreviewUrl} alt={$_('onboarding.postSignup.profilePreviewAlt')} class="size-full object-cover" />
+								{#if profileImageField.localPreviewUrl}
+									<img src={profileImageField.localPreviewUrl} alt={$_('onboarding.postSignup.profilePreviewAlt')} class="size-full object-cover" />
 								{:else if profileResponse.data?.coverPhotoUrl}
 									<img
 										src={profileResponse.data.coverPhotoUrl}
@@ -336,12 +315,12 @@
 										>
 											<div class="flex min-w-0 flex-col gap-1">
 												<p class="text-sm font-semibold text-gray-900">
-													{profileImageUploading ? $_('onboarding.postSignup.uploadingImage') : $_('onboarding.postSignup.dropOrChooseImage')}
+													{profileImageField.isBusy ? $_('onboarding.postSignup.uploadingImage') : $_('onboarding.postSignup.dropOrChooseImage')}
 												</p>
 												<p class="text-xs text-gray-500">{$_('onboarding.postSignup.imageRequirements')}</p>
 											</div>
 											<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
-												{profileImageUploading ? $_('onboarding.postSignup.uploading') : $_('common.browse')}
+												{profileImageField.isBusy ? $_('onboarding.postSignup.uploading') : $_('common.browse')}
 											</div>
 										</div>
 								</FileDropZone.Trigger>
@@ -407,7 +386,7 @@
 						variant="default"
 						size="xl"
 						class="h-12 w-full"
-						disabled={pending || profileImageUploading || !username.trim()}
+						disabled={pending || profileImageField.isBusy || !username.trim()}
 						onclick={() => void saveProfileAndContinue()}
 					>
 						{pending ? $_('common.saving') : $_('common.next')}

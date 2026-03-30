@@ -76,8 +76,7 @@ const en = {
 		openPrivacyPolicy: 'Open Privacy Policy',
 		openTerms: 'Open Terms and Conditions',
 		openCookies: 'Open Cookie Policy',
-		profileImageFinalizeFailure: 'Profile image upload could not be finalized.',
-		profileImageUploaded: 'Profile image uploaded. Click Save profile to apply changes.',
+		profileImageUploaded: 'Profile image uploaded.',
 		profileImageUploadFailure: 'Unable to upload profile image.',
 		profileUpdated: 'Profile updated.',
 		saveProfileFailure: 'Unable to save profile.',
@@ -279,7 +278,6 @@ const en = {
 			continueFailure: 'Unable to continue right now.'
 		},
 		startClub: {
-			signInFirstUpload: 'Please sign in first, then upload the club video.',
 			videoFinalizeFailure: 'Video upload could not be finalized.',
 			videoUploadFailure: 'Unable to upload video right now.',
 			checkingSession: 'Checking your session. Please try again.',
@@ -315,7 +313,6 @@ const en = {
 			videoUploadedStatus: 'Video uploaded',
 			submitting: 'Submitting...',
 			submitApplication: 'Submit application',
-			proceedToSignUp: 'Proceed to sign up',
 			roles: {
 				teacher: 'Teacher',
 				parent: 'Parent',
@@ -348,10 +345,8 @@ const en = {
 			dropOrChooseImage: 'Drop or choose an image',
 			imageRequirements: 'PNG, JPG, or WEBP up to 10 MB.',
 			uploading: 'Uploading',
-			profileImageUploadedTitle: 'Profile image uploaded',
 			profileImageUploadFailedTitle: 'Unable to upload profile image',
 			profileImageUploadFailedDescription: 'Please try again.',
-			profileImageFinalizeFailure: 'Profile image upload could not be finalized.',
 			usernameRequiredTitle: 'Username is required',
 			saveProfileFailedTitle: 'Unable to save profile details',
 			saveProfileFailedDescription: 'Please try again.',

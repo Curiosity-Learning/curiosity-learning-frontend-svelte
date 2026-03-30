@@ -60,6 +60,31 @@ export const getAssetRecord = internalQuery({
 	}
 });
 
+export const getAssetAttachmentUsage = internalQuery({
+	args: {
+		assetId: v.id('mediaAssets')
+	},
+	handler: async (ctx, args) => {
+		const [profile, club] = await Promise.all([
+			ctx.db
+				.query('profiles')
+				.withIndex('by_profile_image_media_asset', (q) =>
+					q.eq('profileImageMediaAssetId', args.assetId)
+				)
+				.first(),
+			ctx.db
+				.query('clubs')
+				.withIndex('by_video_media_asset', (q) => q.eq('videoMediaAssetId', args.assetId))
+				.first()
+		]);
+
+		return {
+			profileId: profile?._id ?? null,
+			clubId: club?._id ?? null
+		};
+	}
+});
+
 export const createUploadDraft = internalMutation({
 	args: {
 		ownerUserId: v.string(),
@@ -186,6 +211,21 @@ export const markUploadCanceled = internalMutation({
 		}
 
 		return updated;
+	}
+});
+
+export const deleteUploadRecord = internalMutation({
+	args: {
+		assetId: v.id('mediaAssets'),
+		ownerUserId: v.string()
+	},
+	handler: async (ctx, args) => {
+		const asset = await assertOwner(ctx, args.assetId, args.ownerUserId);
+		await ctx.db.delete(asset._id);
+		return {
+			assetId: asset._id,
+			deleted: true as const
+		};
 	}
 });
 
@@ -345,6 +385,19 @@ export const cancelUpload: ReturnType<typeof action> = action({
 			assetId: args.assetId,
 			userId: identity.subject,
 			deleteStorage: args.deleteStorage
+		});
+	}
+});
+
+export const deleteUpload: ReturnType<typeof action> = action({
+	args: {
+		assetId: v.id('mediaAssets')
+	},
+	handler: async (ctx, args): Promise<unknown> => {
+		const identity = await requireIdentity(ctx);
+		return await ctx.runAction(internal.mediaNode.deleteUpload, {
+			assetId: args.assetId,
+			userId: identity.subject
 		});
 	}
 });

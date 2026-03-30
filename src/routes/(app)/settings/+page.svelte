@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import { goto, preloadCode } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
@@ -18,8 +19,8 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { uploadMediaAsset, waitForMediaAssetReady } from '$lib/auth/upload-media-asset';
 	import { _, t } from '$lib/i18n';
+	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -36,9 +37,9 @@
 	);
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, {});
-
-	const PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-	const PROFILE_IMAGE_MAX_BYTES = 10 * 1000 * 1000;
+	const profileImageField = createMediaField(convexClient, 'profileImage', {
+		mode: 'immediate'
+	});
 
 	const legalDocumentOrder = {
 		privacy_policy: 0,
@@ -56,9 +57,6 @@
 	let preferencesInitialized = $state(false);
 	let checkingUsername = $state(false);
 	let usernameAvailable = $state<boolean | null>(null);
-	let profileImageMediaAssetId = $state<Id<'mediaAssets'> | null>(null);
-	let profileImageUploading = $state(false);
-	let localProfilePreviewUrl = $state<string | null>(null);
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let successMessage = $state('');
@@ -141,18 +139,12 @@
 		}
 	};
 
-	const revokeProfilePreview = () => {
-		if (!localProfilePreviewUrl) return;
-		URL.revokeObjectURL(localProfilePreviewUrl);
-		localProfilePreviewUrl = null;
-	};
-
 	onDestroy(() => {
-		revokeProfilePreview();
+		profileImageField.destroy();
 	});
 
 	let displayProfileImageUrl = $derived(
-		localProfilePreviewUrl ?? profileResponse.data?.coverPhotoUrl ?? null
+		profileImageField.localPreviewUrl ?? profileResponse.data?.coverPhotoUrl ?? null
 	);
 
 	let profileInitials = $derived(
@@ -162,40 +154,30 @@
 		).toUpperCase()
 	);
 
-	const handleProfileImageInput = async (event: Event) => {
-		const input = event.currentTarget as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file) return;
-
-		revokeProfilePreview();
-		localProfilePreviewUrl = URL.createObjectURL(file);
-		profileImageUploading = true;
+	const handleProfileImageUpload = async (files: File[]) => {
 		pending = true;
 		errorMessage = '';
 		successMessage = '';
 
 		try {
-			const uploadedAsset = await uploadMediaAsset(convexClient, file, {
-				acceptedContentTypes: PROFILE_IMAGE_ACCEPTED_CONTENT_TYPES,
-				maxBytes: PROFILE_IMAGE_MAX_BYTES,
-				enableCompression: true,
-				enableSafetyScreening: true
+			await profileImageField.selectFiles(files);
+			if (!profileImageField.isReady || !profileImageField.assetId) {
+				throw new Error(
+					profileImageField.errorMessage || t('settingsPage.profileImageUploadFailure')
+				);
+			}
+			await profileImageField.persistAttached(async (assetId) => {
+				if (!assetId) return;
+				await convexClient.mutation(api.profiles.updateMe, {
+					profileImageMediaAssetId: assetId
+				});
 			});
-			await waitForMediaAssetReady(convexClient, uploadedAsset.assetId);
-			await convexClient.mutation(api.profiles.updateMe, {
-				profileImageMediaAssetId: uploadedAsset.assetId
-			});
-			profileImageMediaAssetId = null;
 			successMessage = t('settingsPage.profileImageUploaded');
 		} catch (error) {
-			profileImageMediaAssetId = null;
-			revokeProfilePreview();
 			errorMessage =
 				error instanceof Error ? error.message : t('settingsPage.profileImageUploadFailure');
 		} finally {
-			profileImageUploading = false;
 			pending = false;
-			input.value = '';
 		}
 	};
 
@@ -208,14 +190,11 @@
 				firstName: profileForm.firstName.trim() || undefined,
 				lastName: profileForm.lastName.trim() || undefined,
 				username: profileForm.username.trim().toLowerCase() || undefined,
-				profileImageMediaAssetId: profileImageMediaAssetId ?? undefined,
 				about: profileForm.about.trim() || undefined,
 				howDidYouFindUs: profileForm.howDidYouFindUs.trim() || undefined,
 				identity: profileForm.identity.trim() || undefined,
 				locationAddress: profileForm.locationAddress.trim() || undefined
 			});
-			profileImageMediaAssetId = null;
-			revokeProfilePreview();
 			successMessage = t('settingsPage.profileUpdated');
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : t('settingsPage.saveProfileFailure');
@@ -300,23 +279,22 @@
 				</Avatar>
 				<div class="flex flex-1 flex-col gap-2">
 					<p class="text-sm font-medium">Profile image</p>
-					<div class="flex flex-wrap gap-2">
-						<label for="profile-image-upload">
-							<input
-								id="profile-image-upload"
-								type="file"
-								accept="image/*"
-								class="hidden"
-								onchange={(event) => void handleProfileImageInput(event)}
-								disabled={profileImageUploading || pending}
-							/>
-							<span
+					<FileDropZone.Root
+						accept={profileImageField.accept}
+						maxFiles={1}
+						fileCount={0}
+						maxFileSize={profileImageField.maxBytes}
+						disabled={pending || profileImageField.isBusy}
+						onUpload={handleProfileImageUpload}
+					>
+						<FileDropZone.Trigger>
+							<div
 								class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
 							>
-								{profileImageUploading ? 'Uploading...' : 'Upload image'}
-							</span>
-						</label>
-					</div>
+								{profileImageField.isBusy ? 'Uploading...' : 'Upload image'}
+							</div>
+						</FileDropZone.Trigger>
+					</FileDropZone.Root>
 				</div>
 			</div>
 			<div class="flex flex-col gap-2">
