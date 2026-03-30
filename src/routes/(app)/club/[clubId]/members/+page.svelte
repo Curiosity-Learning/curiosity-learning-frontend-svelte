@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -17,6 +18,9 @@
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/auth-client';
+	import type { PageProps } from './$types';
+
+	let { data }: PageProps = $props();
 
 	const convexClient = useConvexClient();
 	const session = authClient.useSession();
@@ -52,6 +56,40 @@
 			return haystack.includes(filter.trim().toLowerCase());
 		})
 	);
+
+	let initialMemberImageUrls = $derived.by(() => {
+		return new Map(
+			(data.initialMemberImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
+
+	const memberImageUrl = (member: {
+		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
+		coverPhotoUrl?: string | null;
+	}) => {
+		if (member.profileImageMediaAssetId) {
+			return initialMemberImageUrls.get(member.profileImageMediaAssetId) ?? null;
+		}
+
+		return member.coverPhotoUrl ?? null;
+	};
+
+	const initialsFor = (member: {
+		firstName?: string | null;
+		lastName?: string | null;
+		username?: string | null;
+		email?: string | null;
+		userId: string;
+	}) => {
+		const label =
+			[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+			member.username ||
+			member.email ||
+			member.userId;
+		const parts = label.split(/\s+/).filter(Boolean);
+		const initials = [parts[0]?.[0] ?? '', parts.at(-1)?.[0] ?? ''].join('').toUpperCase();
+		return initials || label.slice(0, 2).toUpperCase();
+	};
 
 	const kickMember = async (clubMemberId: Id<'clubMembers'>) => {
 		if (!window.confirm('Remove this member from the club?')) return;
@@ -104,11 +142,20 @@
 				<div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
 					{#each filteredMembers as member (member.clubMemberId)}
 						<div class="flex flex-col gap-3 rounded-md border border-border p-4">
-							<div class="flex flex-wrap items-center justify-between gap-2">
-								<p class="font-medium">
-									{member.firstName ?? ''}
-									{member.lastName ?? ''}
-								</p>
+							<div class="flex items-start justify-between gap-3">
+								<div class="flex items-center gap-3">
+									<Avatar class="size-10">
+										{#if memberImageUrl(member)}
+											<AvatarImage src={memberImageUrl(member) ?? undefined} alt={member.email ?? member.userId} />
+										{/if}
+										<AvatarFallback>{initialsFor(member)}</AvatarFallback>
+									</Avatar>
+									<p class="font-medium">
+										{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+											member.email ||
+											member.userId}
+									</p>
+								</div>
 								{#if member.roleName}
 									<Badge variant="outline">{member.roleName}</Badge>
 								{/if}

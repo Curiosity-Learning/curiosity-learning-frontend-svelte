@@ -146,12 +146,28 @@
 				member.username ||
 				member.email ||
 				member.profileId,
+			imageAssetId: member.profileImageMediaAssetId ?? null,
 			imageUrl: member.coverPhotoUrl ?? null,
 			email: member.email ?? null,
 			username: member.username ?? null,
 			roleName: member.roleName ?? null
 		}))
 	);
+	let initialProjectMemberImageUrls = $derived.by(() => {
+		return new Map(
+			((page.data.initialProjectMemberImages as Array<{ assetId: Id<'mediaAssets'>; signedUrl: string }> | undefined) ?? []).map(
+				(asset) => [asset.assetId, asset.signedUrl] as const
+			)
+		);
+	});
+
+	const memberImageUrl = (member: (typeof memberSummaries)[number]) => {
+		if (member.imageAssetId) {
+			return initialProjectMemberImageUrls.get(member.imageAssetId) ?? null;
+		}
+
+		return member.imageUrl ?? null;
+	};
 	let orderedUpdates = $derived([...(updatesResponse.data ?? [])].reverse());
 	let updateMediaAssetIds = $derived.by(() =>
 		view === 'overview'
@@ -419,8 +435,8 @@
 							<Item variant="outline" size="sm">
 								<ItemMedia>
 									<Avatar class="size-8">
-										{#if member.imageUrl}
-											<AvatarImage src={member.imageUrl} alt={member.name} />
+										{#if memberImageUrl(member)}
+											<AvatarImage src={memberImageUrl(member) ?? undefined} alt={member.name} />
 										{/if}
 										<AvatarFallback class="type-caption-bold"
 											>{initialsFor(member.name)}</AvatarFallback

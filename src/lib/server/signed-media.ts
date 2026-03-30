@@ -128,3 +128,22 @@ export const getSignedClubMemberProfileAssets = async (
 
 	return signDeliveryAssets(deliveryAssets, config);
 };
+
+export const getSignedProjectMemberProfileAssets = async (
+	convex: ConvexServerClient,
+	projectId: Id<'projects'>,
+	assetIds: Id<'mediaAssets'>[],
+	config?: MediaDeliveryConfig | null
+) => {
+	const uniqueAssetIds = [...new Set(assetIds)];
+	if (!uniqueAssetIds.length) {
+		return [] as SignedDeliveryAsset[];
+	}
+
+	const deliveryAssets = await convex.query(api.projects.getMemberProfileDeliveryAssets, {
+		projectId,
+		assetIds: uniqueAssetIds
+	});
+
+	return signDeliveryAssets(deliveryAssets, config);
+};
