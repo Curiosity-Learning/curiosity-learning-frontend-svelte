@@ -130,3 +130,35 @@ export async function uploadMediaAsset(
 		status: finalized.status
 	};
 }
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function waitForMediaAssetReady(
+	convexClient: ConvexClient,
+	assetId: Id<'mediaAssets'>,
+	options?: {
+		timeoutMs?: number;
+		intervalMs?: number;
+	}
+) {
+	const timeoutMs = options?.timeoutMs ?? 15000;
+	const intervalMs = options?.intervalMs ?? 500;
+	const startedAt = Date.now();
+
+	while (Date.now() - startedAt < timeoutMs) {
+		const asset = await convexClient.query(api.media.getUpload, { assetId });
+		if (asset.status === 'ready') {
+			return asset;
+		}
+		if (asset.status === 'failed') {
+			throw new Error(asset.lastFailure?.message ?? 'Media processing failed.');
+		}
+		if (asset.status === 'canceled') {
+			throw new Error('Media upload was canceled.');
+		}
+
+		await delay(intervalMs);
+	}
+
+	throw new Error('Media processing timed out before the asset became ready.');
+}

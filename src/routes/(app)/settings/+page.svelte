@@ -18,7 +18,7 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
+	import { uploadMediaAsset, waitForMediaAssetReady } from '$lib/auth/upload-media-asset';
 	import { _, t } from '$lib/i18n';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -181,6 +181,7 @@
 				enableCompression: true,
 				enableSafetyScreening: true
 			});
+			await waitForMediaAssetReady(convexClient, uploadedAsset.assetId);
 			await convexClient.mutation(api.profiles.updateMe, {
 				profileImageMediaAssetId: uploadedAsset.assetId
 			});
