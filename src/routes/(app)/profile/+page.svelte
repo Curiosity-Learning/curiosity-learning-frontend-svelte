@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { authClient } from '$lib/auth-client';
@@ -17,10 +18,14 @@
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { api } from '$convex/_generated/api';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { createMediaView } from '$lib/media/media-view.svelte';
 
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 	const activeContext = useStableQuery(api.clubs.getActiveClubContext, {});
+	const profileImageView = createMediaView({
+		context: { kind: 'owned' }
+	});
 
 	let activeClubItem = $derived(
 		(clubsResponse.data ?? []).find((club) => club.clubId === activeContext.data?.activeClubId) ??
@@ -44,8 +49,21 @@
 			? routes.clubHome(activeContext.data.activeClubId)
 			: routes.onboardingGetStarted
 	);
+	const profileImageUrl = $derived(
+		profileResponse.data?.profileImageMediaAssetId
+			? profileImageView.url
+			: profileResponse.data?.coverPhotoUrl ?? null
+	);
 
 	const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+
+	$effect(() => {
+		profileImageView.setAssetId(profileResponse.data?.profileImageMediaAssetId ?? null);
+	});
+
+	onDestroy(() => {
+		profileImageView.destroy();
+	});
 
 	const signOut = async () => {
 		clearClientSessionArtifacts();
@@ -75,7 +93,7 @@
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="flex items-center gap-4">
 					<Avatar class="size-14">
-						<AvatarImage src={profileResponse.data?.coverPhotoUrl ?? undefined} alt="Profile" />
+						<AvatarImage src={profileImageUrl ?? undefined} alt="Profile" />
 						<AvatarFallback>{fallback.toUpperCase()}</AvatarFallback>
 					</Avatar>
 					<div class="flex flex-col gap-1">

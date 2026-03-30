@@ -21,6 +21,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
+	import { createMediaView } from '$lib/media/media-view.svelte';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -39,6 +40,9 @@
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, {});
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
 		mode: 'immediate'
+	});
+	const profileImageView = createMediaView({
+		context: { kind: 'owned' }
 	});
 
 	const legalDocumentOrder = {
@@ -141,10 +145,21 @@
 
 	onDestroy(() => {
 		profileImageField.destroy();
+		profileImageView.destroy();
 	});
 
+	$effect(() => {
+		profileImageView.setAssetId(profileResponse.data?.profileImageMediaAssetId ?? null);
+	});
+
+	let persistedProfileImageUrl = $derived(
+		profileResponse.data?.profileImageMediaAssetId
+			? profileImageView.url
+			: profileResponse.data?.coverPhotoUrl ?? null
+	);
+
 	let displayProfileImageUrl = $derived(
-		profileImageField.localPreviewUrl ?? profileResponse.data?.coverPhotoUrl ?? null
+		profileImageField.localPreviewUrl ?? persistedProfileImageUrl ?? null
 	);
 
 	let profileInitials = $derived(

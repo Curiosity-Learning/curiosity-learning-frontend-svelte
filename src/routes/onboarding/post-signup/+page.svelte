@@ -14,6 +14,7 @@
 	import { InputField } from '$lib/components/app/form';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
+	import { createMediaView } from '$lib/media/media-view.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
@@ -23,6 +24,9 @@
 	const convexClient = useConvexClient();
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
 		mode: 'deferred'
+	});
+	const profileImageView = createMediaView({
+		context: { kind: 'owned' }
 	});
 	const profileResponse = useStableQuery(api.profiles.getMe, () => (auth.isAuthenticated ? {} : 'skip'));
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
@@ -104,7 +108,18 @@
 
 	onDestroy(() => {
 		profileImageField.destroy();
+		profileImageView.destroy();
 	});
+
+	$effect(() => {
+		profileImageView.setAssetId(profileResponse.data?.profileImageMediaAssetId ?? null);
+	});
+
+	let persistedProfileImageUrl = $derived(
+		profileResponse.data?.profileImageMediaAssetId
+			? profileImageView.url
+			: profileResponse.data?.coverPhotoUrl ?? null
+	);
 
 	$effect(() => {
 		if (usernamePrefilled) return;
@@ -298,9 +313,9 @@
 							>
 								{#if profileImageField.localPreviewUrl}
 									<img src={profileImageField.localPreviewUrl} alt={$_('onboarding.postSignup.profilePreviewAlt')} class="size-full object-cover" />
-								{:else if profileResponse.data?.coverPhotoUrl}
+								{:else if persistedProfileImageUrl}
 									<img
-										src={profileResponse.data.coverPhotoUrl}
+										src={persistedProfileImageUrl}
 										alt={$_('onboarding.postSignup.profilePreviewAlt')}
 										class="size-full object-cover"
 									/>
