@@ -170,6 +170,7 @@
 		revokeProfilePreview();
 		localProfilePreviewUrl = URL.createObjectURL(file);
 		profileImageUploading = true;
+		pending = true;
 		errorMessage = '';
 		successMessage = '';
 
@@ -180,7 +181,10 @@
 				enableCompression: true,
 				enableSafetyScreening: true
 			});
-			profileImageMediaAssetId = uploadedAsset.assetId;
+			await convexClient.mutation(api.profiles.updateMe, {
+				profileImageMediaAssetId: uploadedAsset.assetId
+			});
+			profileImageMediaAssetId = null;
 			successMessage = t('settingsPage.profileImageUploaded');
 		} catch (error) {
 			profileImageMediaAssetId = null;
@@ -189,6 +193,7 @@
 				error instanceof Error ? error.message : t('settingsPage.profileImageUploadFailure');
 		} finally {
 			profileImageUploading = false;
+			pending = false;
 			input.value = '';
 		}
 	};
