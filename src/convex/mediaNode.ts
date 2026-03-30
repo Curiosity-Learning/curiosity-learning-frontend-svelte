@@ -12,8 +12,6 @@ import {
 	type MediaUploadDescriptor
 } from './mediaStorage';
 import {
-	mediaFailureValidator,
-	mediaPipelineStepResultValidator,
 	mediaUploadConstraintsValidator
 } from './mediaModel';
 import {

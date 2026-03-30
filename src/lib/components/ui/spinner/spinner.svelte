@@ -8,7 +8,7 @@
 		role?: HTMLAttributes<HTMLElement>['role'];
 		color?: string | null;
 		stroke?: string | null;
-		'aria-label'?: string;
+		ariaLabel?: string;
 	};
 
 	let {
@@ -16,7 +16,7 @@
 		role = 'status',
 		color,
 		stroke,
-		'aria-label': ariaLabel = 'Loading'
+		ariaLabel = 'Loading'
 	}: Props = $props();
 </script>
 

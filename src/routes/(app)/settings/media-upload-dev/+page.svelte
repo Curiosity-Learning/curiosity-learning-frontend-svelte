@@ -55,7 +55,7 @@
 	const uploadsResponse = useStableQuery(api.media.listMyUploads, {});
 
 	let filter = $state<UploadFilter>('all');
-	let manualSelectedAssetId = $state<Id<'mediaAssets'> | null>(null);
+	let manualSelectedAssetId = $derived(data.selectedAssetId ?? null as Id<'mediaAssets'> | null);
 	let autoFinalize = $state(true);
 	let deleteStorageOnCancel = $state(true);
 	let pageErrorMessage = $state('');
@@ -224,10 +224,6 @@
 
 	onDestroy(() => {
 		uploadManager.destroy();
-	});
-
-	$effect(() => {
-		manualSelectedAssetId = data.selectedAssetId ?? null;
 	});
 
 	const beginAndUploadFiles = async (files: File[]) => {
@@ -596,7 +592,6 @@
 														class="aspect-video w-full bg-background object-contain"
 													/>
 												{:else if run.previewKind === 'video'}
-													<!-- svelte-ignore a11y_media_has_caption -->
 													<video
 														src={run.previewUrl}
 														controls

@@ -1,5 +1,4 @@
 import { error, json } from '@sveltejs/kit';
-import { api } from '$convex/_generated/api';
 import type { Id } from '$convex/_generated/dataModel';
 import { getConvexServerClient } from '$lib/server/convex';
 import { loadMediaDeliveryConfigOrNull } from '$lib/server/media-delivery';
