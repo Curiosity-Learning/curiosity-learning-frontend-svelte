@@ -290,6 +290,10 @@ const nl = {
 			locationPlaceholder: 'Zoek naar een locatie...',
 			locationEmptyFound: 'Geen locaties gevonden.',
 			locationEmptyTypeMore: 'Typ minimaal 2 tekens.',
+			locationHintEnabled: 'Zoek naar een stad, plaats of adres met Mapbox-geocodering.',
+			locationHintMissingToken:
+				'Voeg PUBLIC_MAPBOX_ACCESS_TOKEN toe aan .env.local om Mapbox-geocodering en de kaartweergave in te schakelen.',
+			locationLookupFailure: 'Kan locatiesuggesties niet ophalen.',
 			roleLabel: 'Ik ben een...',
 			rolePlaceholder: 'Selecteer een optie',
 			aboutLabel: 'Wie ben je?',

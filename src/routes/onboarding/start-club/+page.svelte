@@ -1,21 +1,30 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { env } from '$env/dynamic/public';
 	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { SvelteSet, SvelteURLSearchParams } from 'svelte/reactivity';
+	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import { uploadMediaAsset } from '$lib/auth/upload-media-asset';
+	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
 	import {
 		DropdownField,
 		InputField,
 		TextareaField,
 		type DropdownOption
 	} from '$lib/components/app/form';
+	import {
+		MAPBOX_GEOCODING_LIMIT,
+		MAPBOX_STYLE_URL,
+		fetchMapboxLocationSuggestions,
+		type MapboxCoordinates,
+		type MapboxLocationOption
+	} from '$lib/maps/mapbox';
 	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -24,10 +33,10 @@
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
+	const PUBLIC_MAPBOX_ACCESS_TOKEN = env.PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
 	const LOCATION_AUTOCOMPLETE_MIN_CHARS = 2;
 	const ABOUT_CHARACTER_LIMIT = 500;
 	const LOCATION_AUTOCOMPLETE_DEBOUNCE_MS = 280;
-	const LOCATION_AUTOCOMPLETE_LIMIT = 6;
 	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
 	const CLUB_VIDEO_ACCEPTED_CONTENT_TYPES = [
 		'video/mp4',
@@ -37,22 +46,10 @@
 	];
 	const CLUB_VIDEO_MAX_BYTES = 100 * FileDropZone.MEGABYTE;
 
-	type PhotonFeature = {
-		properties?: {
-			name?: string;
-			city?: string;
-			district?: string;
-			state?: string;
-			country?: string;
-		};
-	};
-
-	type PhotonResponse = {
-		features?: PhotonFeature[];
-	};
-
 	type StartClubDraft = {
 		location: string;
+		locationLongitude: number | null;
+		locationLatitude: number | null;
 		userRole: string;
 		about: string;
 		referralSource: string;
@@ -64,8 +61,10 @@
 	let step = $derived<1 | 2>(page.url.searchParams.get('step') === '2' ? 2 : 1);
 
 	let location = $state('');
-	let locationSuggestions = $state<DropdownOption[]>([]);
+	let locationSuggestions = $state<MapboxLocationOption[]>([]);
 	let locationLookupPending = $state(false);
+	let locationLookupError = $state('');
+	let selectedLocationCoordinates = $state<MapboxCoordinates | null>(null);
 	let userRole = $state('');
 	let about = $state('');
 	let referralSource = $state('');
@@ -78,6 +77,7 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let hydratedDraft = $state(false);
+	const rememberedLocationCoordinates = new SvelteMap<string, MapboxCoordinates>();
 
 	const ROLE_VALUE_ALIASES: Record<string, string> = {
 		teacher: 'teacher',
@@ -146,6 +146,14 @@
 			if (!parsed || typeof parsed !== 'object') return null;
 			return {
 				location: typeof parsed.location === 'string' ? parsed.location : '',
+				locationLongitude:
+					typeof parsed.locationLongitude === 'number' && Number.isFinite(parsed.locationLongitude)
+						? parsed.locationLongitude
+						: null,
+				locationLatitude:
+					typeof parsed.locationLatitude === 'number' && Number.isFinite(parsed.locationLatitude)
+						? parsed.locationLatitude
+						: null,
 				userRole:
 					typeof parsed.userRole === 'string'
 						? normalizeOptionValue(parsed.userRole, ROLE_VALUE_ALIASES)
@@ -168,6 +176,8 @@
 		if (!browser) return;
 		const draft: StartClubDraft = {
 			location,
+			locationLongitude: selectedLocationCoordinates?.longitude ?? null,
+			locationLatitude: selectedLocationCoordinates?.latitude ?? null,
 			userRole,
 			about,
 			referralSource,
@@ -223,45 +233,6 @@
 	let locationLookupAbortController: AbortController | null = null;
 	let locationLookupVersion = 0;
 
-	const normalizeLocationParts = (parts: Array<string | undefined>) => {
-		const cleaned = parts
-			.map((part) => part?.trim())
-			.filter((part): part is string => Boolean(part));
-		return cleaned.filter(
-			(part, index) => cleaned.findIndex((value) => value.toLowerCase() === part.toLowerCase()) === index
-		);
-	};
-
-	const buildLocationSuggestion = (feature: PhotonFeature): DropdownOption | null => {
-		const properties = feature.properties ?? {};
-		const parts = normalizeLocationParts([
-			properties.name ?? properties.city,
-			properties.city,
-			properties.district,
-			properties.state,
-			properties.country
-		]);
-		if (parts.length === 0) return null;
-		const label = parts.join(', ');
-		return { label, value: label };
-	};
-
-	const parsePhotonSuggestions = (payload: PhotonResponse) => {
-		const suggestions: DropdownOption[] = [];
-		const seen = new SvelteSet<string>();
-		const features = Array.isArray(payload.features) ? payload.features : [];
-		for (const feature of features) {
-			const suggestion = buildLocationSuggestion(feature);
-			if (!suggestion) continue;
-			const key = suggestion.value.toLowerCase();
-			if (seen.has(key)) continue;
-			seen.add(key);
-			suggestions.push(suggestion);
-			if (suggestions.length >= LOCATION_AUTOCOMPLETE_LIMIT) break;
-		}
-		return suggestions;
-	};
-
 	const clearLocationLookupResources = () => {
 		if (locationLookupTimer) {
 			clearTimeout(locationLookupTimer);
@@ -285,6 +256,19 @@
 		if (!draft) return;
 		if (!location.trim() && draft.location) {
 			location = draft.location;
+		}
+		if (
+			selectedLocationCoordinates === null &&
+			typeof draft.locationLongitude === 'number' &&
+			typeof draft.locationLatitude === 'number'
+		) {
+			selectedLocationCoordinates = {
+				longitude: draft.locationLongitude,
+				latitude: draft.locationLatitude
+			};
+			if (draft.location.trim()) {
+				rememberedLocationCoordinates.set(draft.location.trim().toLowerCase(), selectedLocationCoordinates);
+			}
 		}
 		if (!userRole.trim() && draft.userRole) {
 			userRole = draft.userRole;
@@ -315,11 +299,13 @@
 			clearLocationLookupResources();
 			locationSuggestions = [];
 			locationLookupPending = false;
+			locationLookupError = '';
 			return;
 		}
 
 		const query = location.trim();
 		clearLocationLookupResources();
+		locationLookupError = '';
 
 		if (query.length < LOCATION_AUTOCOMPLETE_MIN_CHARS) {
 			locationSuggestions = [];
@@ -330,31 +316,61 @@
 		const nextVersion = ++locationLookupVersion;
 		locationLookupPending = true;
 		locationLookupTimer = setTimeout(async () => {
+			if (!PUBLIC_MAPBOX_ACCESS_TOKEN) {
+				if (nextVersion === locationLookupVersion) {
+					locationSuggestions = [];
+					locationLookupPending = false;
+				}
+				return;
+			}
+
 			const controller = new AbortController();
 			locationLookupAbortController = controller;
 
 			try {
-				const url = new URL('https://photon.komoot.io/api/');
-				url.searchParams.set('q', query);
-				url.searchParams.set('lang', 'en');
-				url.searchParams.set('limit', String(LOCATION_AUTOCOMPLETE_LIMIT));
-				const response = await fetch(url.toString(), { signal: controller.signal });
-				if (!response.ok) {
-					throw new Error('Unable to fetch location suggestions');
-				}
-				const payload = (await response.json()) as PhotonResponse;
+				const payload = await fetchMapboxLocationSuggestions({
+					query,
+					accessToken: PUBLIC_MAPBOX_ACCESS_TOKEN,
+					signal: controller.signal,
+					language: browser ? navigator.language.split('-')[0] ?? 'en' : 'en',
+					limit: MAPBOX_GEOCODING_LIMIT
+				});
 				if (nextVersion !== locationLookupVersion) return;
-				locationSuggestions = parsePhotonSuggestions(payload);
+				locationSuggestions = payload;
+				locationLookupError = '';
+				for (const suggestion of payload) {
+					rememberedLocationCoordinates.set(suggestion.value.trim().toLowerCase(), {
+						longitude: suggestion.longitude,
+						latitude: suggestion.latitude
+					});
+				}
 			} catch (error) {
 				if (nextVersion !== locationLookupVersion) return;
 				if (error instanceof DOMException && error.name === 'AbortError') return;
 				locationSuggestions = [];
+				locationLookupError = t('onboarding.startClub.locationLookupFailure');
 			} finally {
 				if (nextVersion === locationLookupVersion) {
 					locationLookupPending = false;
 				}
 			}
 		}, LOCATION_AUTOCOMPLETE_DEBOUNCE_MS);
+	});
+
+	$effect(() => {
+		const normalizedLocation = location.trim().toLowerCase();
+		if (!normalizedLocation) {
+			selectedLocationCoordinates = null;
+			return;
+		}
+
+		const remembered = rememberedLocationCoordinates.get(normalizedLocation);
+		if (remembered) {
+			selectedLocationCoordinates = remembered;
+			return;
+		}
+
+		selectedLocationCoordinates = null;
 	});
 
 	const uploadClubVideo = async (files: File[]) => {
@@ -424,6 +440,8 @@
 				name: generatedName.slice(0, 100),
 				description: about.trim() || undefined,
 				location: normalizedLocation || undefined,
+				locationLatitude: selectedLocationCoordinates?.latitude,
+				locationLongitude: selectedLocationCoordinates?.longitude,
 				videoStorageId: videoStorageId ?? undefined,
 				meetingDay: undefined,
 				meetingTime: undefined
@@ -469,14 +487,32 @@
 					label={$_('onboarding.startClub.locationLabel')}
 					required={true}
 					bind:value={location}
-					options={locationSuggestions}
+					options={locationSuggestions.map(({ label, value }) => ({ label, value }))}
 					loading={locationLookupPending}
 					placeholder={$_('onboarding.startClub.locationPlaceholder')}
 					filterOptions={false}
 					emptyMessage={location.trim().length >= LOCATION_AUTOCOMPLETE_MIN_CHARS
 						? $_('onboarding.startClub.locationEmptyFound')
 						: $_('onboarding.startClub.locationEmptyTypeMore')}
+					hint={PUBLIC_MAPBOX_ACCESS_TOKEN
+						? $_('onboarding.startClub.locationHintEnabled')
+						: $_('onboarding.startClub.locationHintMissingToken')}
 				/>
+
+				{#if locationLookupError}
+					<p class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+						{locationLookupError}
+					</p>
+				{/if}
+
+				{#if PUBLIC_MAPBOX_ACCESS_TOKEN && selectedLocationCoordinates}
+					<MapboxLocationPreview
+						accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
+						coordinates={selectedLocationCoordinates}
+						label={location.trim()}
+						styleUrl={MAPBOX_STYLE_URL}
+					/>
+				{/if}
 
 				<DropdownField
 					id="role"

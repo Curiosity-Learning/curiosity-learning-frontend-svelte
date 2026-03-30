@@ -6,6 +6,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
+	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
 
@@ -132,6 +133,10 @@
 		}
 	};
 
+	const viewPublicClubs = async () => {
+		await goto(routes.onboardingPublicClubs);
+	};
+
 	onMount(() => {
 		const storedCode = readStoredCode();
 		if (storedCode) {
@@ -187,12 +192,16 @@
 				{/each}
 			</div>
 
-			<p class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-base leading-7 text-gray-600">
+			<div class="relative z-20 flex flex-wrap items-center gap-x-2 gap-y-1 text-base leading-7 text-gray-600">
 				<span>{$_('onboarding.joinClub.noCode')}</span>
-				<button type="button" class="min-w-0 text-left font-bold text-orange-500">
+				<button
+					type="button"
+					class="pointer-events-auto inline-flex cursor-pointer items-center font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600"
+					onclick={() => void viewPublicClubs()}
+				>
 					{$_('onboarding.joinClub.publicClubs')}
 				</button>
-			</p>
+			</div>
 		</section>
 
 		{#if codeError}

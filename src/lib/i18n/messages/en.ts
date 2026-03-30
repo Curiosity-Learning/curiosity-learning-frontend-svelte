@@ -289,6 +289,10 @@ const en = {
 			locationPlaceholder: 'Search for location...',
 			locationEmptyFound: 'No locations found.',
 			locationEmptyTypeMore: 'Type at least 2 characters.',
+			locationHintEnabled: 'Search for a city, town, or address with Mapbox geocoding.',
+			locationHintMissingToken:
+				'Add PUBLIC_MAPBOX_ACCESS_TOKEN to .env.local to enable Mapbox geocoding and map preview.',
+			locationLookupFailure: 'Unable to fetch location suggestions.',
 			roleLabel: 'I am a...',
 			rolePlaceholder: 'Select an option',
 			aboutLabel: 'Who are you?',

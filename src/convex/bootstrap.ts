@@ -256,6 +256,88 @@ export const seedDefaults = mutation({
 });
 
 const FIXED_TEST_CLUB_CODE = '84NPWT';
+const NETHERLANDS_TEST_CLUBS = [
+	{
+		name: 'Vondelpark Curiosity Club',
+		clubCode: 'AMS101',
+		description: 'A public Amsterdam test club inspired by park learning circles and creative city walks.',
+		location: 'Vondelpark, Amsterdam, Netherlands',
+		locationLatitude: 52.357994,
+		locationLongitude: 4.868648,
+		meetingDay: 'Wednesday',
+		meetingTime: '4:00 pm'
+	},
+	{
+		name: 'Leiden Hortus Explorers Club',
+		clubCode: 'LDN202',
+		description: 'A public Leiden test club for science, nature journaling, and mini research projects.',
+		location: 'Hortus Botanicus Leiden, Leiden, Netherlands',
+		locationLatitude: 52.158989,
+		locationLongitude: 4.485993,
+		meetingDay: 'Thursday',
+		meetingTime: '4:30 pm'
+	},
+	{
+		name: 'Utrecht Science Garden Club',
+		clubCode: 'UTC303',
+		description: 'A public Utrecht test club built around experiments, design challenges, and maker sessions.',
+		location: 'Utrecht Science Park, Utrecht, Netherlands',
+		locationLatitude: 52.085312,
+		locationLongitude: 5.174207,
+		meetingDay: 'Tuesday',
+		meetingTime: '5:00 pm'
+	},
+	{
+		name: 'Rotterdam Garden Bridge Club',
+		clubCode: 'RTD404',
+		description: 'A public Rotterdam test club blending urban nature, teamwork, and community project ideas.',
+		location: 'Trompenburg Tuinen, Rotterdam, Netherlands',
+		locationLatitude: 51.918236,
+		locationLongitude: 4.510173,
+		meetingDay: 'Saturday',
+		meetingTime: '11:00 am'
+	},
+	{
+		name: 'Eindhoven Schoolyard Makers Club',
+		clubCode: 'EHV505',
+		description: 'A public Eindhoven test club focused on prototyping, robotics, and collaborative builds.',
+		location: 'TU Eindhoven Campus, Eindhoven, Netherlands',
+		locationLatitude: 51.448214,
+		locationLongitude: 5.489609,
+		meetingDay: 'Monday',
+		meetingTime: '4:15 pm'
+	},
+	{
+		name: 'The Hague Peace Garden Club',
+		clubCode: 'HAG606',
+		description: 'A public Hague test club for storytelling, civic curiosity, and reflective learning projects.',
+		location: 'Westbroekpark, The Hague, Netherlands',
+		locationLatitude: 52.097522,
+		locationLongitude: 4.311856,
+		meetingDay: 'Friday',
+		meetingTime: '4:45 pm'
+	},
+	{
+		name: 'Groningen Greenhouse Club',
+		clubCode: 'GRN707',
+		description: 'A public Groningen test club for ecology, climate ideas, and hands-on exploration.',
+		location: 'Prinsentuin, Groningen, Netherlands',
+		locationLatitude: 53.221428,
+		locationLongitude: 6.573156,
+		meetingDay: 'Wednesday',
+		meetingTime: '3:45 pm'
+	},
+	{
+		name: 'Maastricht River Garden Club',
+		clubCode: 'MST808',
+		description: 'A public Maastricht test club mixing local history, design prompts, and group discovery.',
+		location: 'Stadspark Maastricht, Maastricht, Netherlands',
+		locationLatitude: 50.844954,
+		locationLongitude: 5.692029,
+		meetingDay: 'Sunday',
+		meetingTime: '10:30 am'
+	}
+] as const;
 
 export const seedClubCode84NPWT = mutation({
 	args: {},
@@ -292,6 +374,64 @@ export const seedClubCode84NPWT = mutation({
 			created: true,
 			clubId,
 			code: FIXED_TEST_CLUB_CODE
+		};
+	}
+});
+
+export const seedNetherlandsMapClubs = mutation({
+	args: {},
+	handler: async (ctx) => {
+		const now = Date.now();
+		const seededClubIds: string[] = [];
+		let createdCount = 0;
+		let updatedCount = 0;
+
+		for (const seed of NETHERLANDS_TEST_CLUBS) {
+			const existing = await ctx.db
+				.query('clubs')
+				.withIndex('by_club_code', (q) => q.eq('clubCode', seed.clubCode))
+				.first();
+
+			if (existing) {
+				await ctx.db.patch(existing._id, {
+					name: seed.name,
+					description: seed.description,
+					location: seed.location,
+					locationLatitude: seed.locationLatitude,
+					locationLongitude: seed.locationLongitude,
+					meetingDay: seed.meetingDay,
+					meetingTime: seed.meetingTime,
+					updatedAt: now
+				});
+				seededClubIds.push(existing._id);
+				updatedCount += 1;
+				continue;
+			}
+
+			const clubId = await ctx.db.insert('clubs', {
+				name: seed.name,
+				clubCode: seed.clubCode,
+				description: seed.description,
+				location: seed.location,
+				locationLatitude: seed.locationLatitude,
+				locationLongitude: seed.locationLongitude,
+				meetingDay: seed.meetingDay,
+				meetingTime: seed.meetingTime,
+				createdByUserId: 'seed-script',
+				createdAt: now,
+				updatedAt: now
+			});
+
+			seededClubIds.push(clubId);
+			createdCount += 1;
+		}
+
+		return {
+			success: true,
+			createdCount,
+			updatedCount,
+			total: NETHERLANDS_TEST_CLUBS.length,
+			clubIds: seededClubIds
 		};
 	}
 });

@@ -7,6 +7,7 @@
 - SvelteKit (Svelte 5, TypeScript)
 - SvelteKit Node runtime via `@sveltejs/adapter-node`
 - Tailwind v4 + shadcn-svelte
+- Mapbox GL JS for web map rendering and place search previews
 - Convex backend
 - Better Auth (`@convex-dev/better-auth`)
 - Vitest + Playwright
@@ -15,6 +16,7 @@
 
 - `/auth/*`: sign in/up/reset
 - `/onboarding/*`: get started, join club, start club
+- `/onboarding/join-club/public-clubs`: public club browser with geolocation-aware nearby sorting and Mapbox markers
 - `/app/*`: authenticated app area
 - `/privacy`, `/terms`, `/cookies`: public legal document pages
 - Club-scoped routes are canonical under `/club/[clubId]/*` and should be built via `$lib/routes` helpers (`routes.clubHome`, `routes.clubSessions`, etc.) rather than ad-hoc string paths.
@@ -80,6 +82,8 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - `SPA: true` because the backend is Convex, not SvelteKit form actions.
 - `Field.Label` supports a `required` prop for red asterisk indicators.
 - Non-Superforms onboarding/auth screens should reuse shared app-level form primitives in `src/lib/components/app/form/` (`InputField`, `TextareaField`, `SelectField`, `DateSelectField`) for consistent field spacing, label styles, and control states.
+- Start-club location search uses Mapbox forward geocoding in `src/routes/onboarding/start-club/+page.svelte` and renders the selected place on a live Mapbox GL map preview via `src/lib/components/app/mapbox-location-preview.svelte`. The web client reads its token from `PUBLIC_MAPBOX_ACCESS_TOKEN`, and the current map style is fixed to `mapbox://styles/ronberlinski/clwx2eugd019n01qxfzhw4yjg`.
+- The join-club browse path (`/onboarding/join-club/public-clubs`) requests the browser’s current location, sorts public clubs by distance when available, falls back to showing all clubs otherwise, and routes club-marker/card selection directly into `/onboarding/join-club/[code]`.
 
 ## UI Patterns
 
