@@ -8,6 +8,7 @@ type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
 	name: string;
 	imageUrl: string | null;
+	imageAssetId: Id<'mediaAssets'> | null;
 };
 
 const listUpdateMediaAssetIds = async (ctx: Ctx, updateId: Id<'updates'>) => {
@@ -27,7 +28,8 @@ const resolveAuthorSummary = async (
 	if (!userId) {
 		return {
 			name: 'Unknown',
-			imageUrl: null
+			imageUrl: null,
+			imageAssetId: null
 		};
 	}
 
@@ -51,7 +53,8 @@ const resolveAuthorSummary = async (
 		userId;
 	const summary = {
 		name,
-		imageUrl: profile?.coverPhotoUrl ?? null
+		imageUrl: profile?.coverPhotoUrl ?? null,
+		imageAssetId: profile?.profileImageMediaAssetId ?? null
 	};
 
 	cache.set(userId, summary);
@@ -231,6 +234,7 @@ export const listForViewer = query({
 			questionContent: string | null;
 			authorName: string;
 			authorImageUrl: string | null;
+			authorImageMediaAssetId: Id<'mediaAssets'> | null;
 			content: string;
 			createdAt: number;
 			createdByUserId: string;
@@ -277,6 +281,7 @@ export const listForViewer = query({
 				questionContent,
 				authorName: author.name,
 				authorImageUrl: author.imageUrl,
+				authorImageMediaAssetId: author.imageAssetId,
 				content: update.content,
 				createdAt: update.createdAt,
 				createdByUserId: update.createdByUserId
@@ -284,6 +289,103 @@ export const listForViewer = query({
 		}
 
 		return items;
+	}
+});
+
+export const getViewerAuthorDeliveryAssets = query({
+	args: {
+		assetIds: v.array(v.id('mediaAssets')),
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+		const requestedAssetIdSet = new Set(requestedAssetIds);
+
+		const limit = args.limit ?? 50;
+
+		const memberships = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		if (!activeMemberships.length) {
+			return [];
+		}
+
+		const readableClubIdSet = new Set<Id<'clubs'>>();
+		for (const membership of activeMemberships) {
+			const role = await ctx.db.get(membership.roleId);
+			if (role?.permissions.includes('project:read')) {
+				readableClubIdSet.add(membership.clubId);
+			}
+		}
+
+		const readableClubIds = [...readableClubIdSet];
+		if (!readableClubIds.length) {
+			return [];
+		}
+
+		const takePerClub = Math.min(limit, Math.ceil((limit * 2) / readableClubIds.length));
+		const rowsByClub = await Promise.all(
+			readableClubIds.map((clubId) =>
+				ctx.db
+					.query('updateClubs')
+					.withIndex('by_club_and_created', (q) => q.eq('clubId', clubId))
+					.order('desc')
+					.take(takePerClub)
+			)
+		);
+
+		const rows = rowsByClub.flat().sort((a, b) => b.createdAt - a.createdAt);
+		const seen = new Set<Id<'updates'>>();
+		const authorCache = new Map<string, AuthorSummary>();
+		const deliveryAssets: Array<{
+			assetId: Id<'mediaAssets'>;
+			storageProvider: 's3';
+			deliveryBucket: string | null;
+			deliveryObjectKey: string | null;
+			mediaKind: 'image' | 'video' | null;
+			contentType: string | null;
+			durationSeconds: number | null;
+		}> = [];
+		const delivered = new Set<Id<'mediaAssets'>>();
+
+		for (const row of rows) {
+			if (deliveryAssets.length >= requestedAssetIds.length || seen.size >= limit) break;
+			if (seen.has(row.updateId)) continue;
+			seen.add(row.updateId);
+
+			const update = await ctx.db.get(row.updateId);
+			if (!update) continue;
+
+			const author = await resolveAuthorSummary(ctx, update.createdByUserId, authorCache);
+			const assetId = author.imageAssetId;
+			if (!assetId || !requestedAssetIdSet.has(assetId) || delivered.has(assetId)) {
+				continue;
+			}
+
+			const asset = await ctx.db.get(assetId);
+			if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') {
+				continue;
+			}
+
+			deliveryAssets.push({
+				assetId: asset._id,
+				storageProvider: asset.storageProvider,
+				deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+				deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+				mediaKind: asset.mediaKind ?? null,
+				contentType: asset.contentType ?? null,
+				durationSeconds: asset.durationSeconds ?? null
+			});
+			delivered.add(assetId);
+		}
+
+		return deliveryAssets;
 	}
 });
 

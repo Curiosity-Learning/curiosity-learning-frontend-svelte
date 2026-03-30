@@ -190,6 +190,16 @@
 			(data.initialLearnerImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
 		);
 	});
+	let initialProjectPreviewImageUrls = $derived.by(() => {
+		return new Map(
+			(data.initialProjectPreviewImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
+	let initialSessionAttendeeImageUrls = $derived.by(() => {
+		return new Map(
+			(data.initialSessionAttendeeImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
 
 	const learnerImageUrl = (learner: {
 		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
@@ -201,6 +211,45 @@
 
 		return learner.coverPhotoUrl ?? null;
 	};
+	const previewMemberImageUrl = (member: {
+		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
+		imageUrl?: string | null;
+	}) => {
+		if (member.profileImageMediaAssetId) {
+			return initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? member.imageUrl ?? null;
+		}
+
+		return member.imageUrl ?? null;
+	};
+	const attendeeImageUrl = (attendee: {
+		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
+		imageUrl?: string | null;
+	}) => {
+		if (attendee.profileImageMediaAssetId) {
+			return initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? attendee.imageUrl ?? null;
+		}
+
+		return attendee.imageUrl ?? null;
+	};
+	let nextSessionCardWithSignedAttendees = $derived.by(() => {
+		if (!nextSessionCard) return null;
+		return {
+			...nextSessionCard,
+			attendees: nextSessionCard.attendees.map((attendee) => ({
+				name: attendee.name,
+				imageUrl: attendeeImageUrl(attendee)
+			}))
+		};
+	});
+	let visibleProjectsWithSignedMembers = $derived(
+		visibleProjects.map((entry) => ({
+			...entry,
+			members: entry.members.map((member) => ({
+				name: member.name,
+				imageUrl: previewMemberImageUrl(member)
+			}))
+		}))
+	);
 
 	const getProjectRailScrollKey = () => (clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null);
 
@@ -313,7 +362,7 @@
 			<ClubSessionCard
 				session={nextSession}
 				sessionHref={routes.sessionDetail(nextSession._id)}
-				prefetchedCardData={nextSessionCard}
+				prefetchedCardData={nextSessionCardWithSignedAttendees}
 				{canReadMembers}
 				canDelete={canDeleteSession}
 				showAttendeesSection={false}
@@ -400,7 +449,7 @@
 		{:else}
 			<div class="flex flex-col gap-3">
 				<div class="flex gap-4 overflow-x-auto pb-2" use:mountProjectRail>
-					{#each visibleProjects as entry (entry.project._id)}
+					{#each visibleProjectsWithSignedMembers as entry (entry.project._id)}
 						<ClubProjectCard
 							project={entry.project}
 							memberPreview={entry.members}

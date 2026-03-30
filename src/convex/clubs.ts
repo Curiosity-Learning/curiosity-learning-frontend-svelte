@@ -726,6 +726,68 @@ export const getMemberProfileDeliveryAssets = query({
 	}
 });
 
+export const getProfileDeliveryAssets = query({
+	args: {
+		clubId: v.id('clubs'),
+		assetIds: v.array(v.id('mediaAssets'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await hasPermission(ctx, args.clubId, identity.subject, 'club:read');
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+
+		const members = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
+			.collect();
+		const activeMembers = members.filter((member) => !member.leftAt);
+		const profiles = await Promise.all(
+			activeMembers.map((member) =>
+				ctx.db
+					.query('profiles')
+					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
+					.first()
+			)
+		);
+
+		const allowedAssetIds = new Set(
+			profiles
+				.map((profile) => profile?.profileImageMediaAssetId ?? null)
+				.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null)
+		);
+
+		const deliveryAssets = await Promise.all(
+			requestedAssetIds
+				.filter((assetId) => allowedAssetIds.has(assetId))
+				.map(async (assetId) => {
+					const asset = await ctx.db.get(assetId);
+					if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') {
+						return null;
+					}
+
+					return {
+						assetId: asset._id,
+						storageProvider: asset.storageProvider,
+						deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+						deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+						mediaKind: asset.mediaKind ?? null,
+						contentType: asset.contentType ?? null,
+						durationSeconds: asset.durationSeconds ?? null
+					};
+				})
+		);
+
+		return deliveryAssets.filter(Boolean);
+	}
+});
+
 export const kickMember = mutation({
 	args: {
 		clubMemberId: v.id('clubMembers')

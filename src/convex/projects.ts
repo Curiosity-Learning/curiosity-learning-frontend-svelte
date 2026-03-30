@@ -83,7 +83,11 @@ export const listPreviewsByClub = query({
 
 		const result: Array<{
 			project: (typeof limited)[number];
-			members: Array<{ name: string; imageUrl: string | null }>;
+			members: Array<{
+				name: string;
+				imageUrl: string | null;
+				profileImageMediaAssetId: Id<'mediaAssets'> | null;
+			}>;
 		}> = [];
 
 		for (const project of limited) {
@@ -93,11 +97,24 @@ export const listPreviewsByClub = query({
 				.collect();
 			const activeMemberships = memberships.filter((membership) => !membership.leftAt).slice(0, 3);
 
-			const members = activeMemberships.map((membership) => {
-				const fullName = [membership.firstName, membership.lastName].filter(Boolean).join(' ').trim();
-				const name = fullName || membership.username || membership.email || membership.userId;
-				return { name, imageUrl: membership.coverPhotoUrl ?? null };
-			});
+			const members = await Promise.all(
+				activeMemberships.map(async (membership) => {
+					const profile = await ctx.db
+						.query('profiles')
+						.withIndex('by_user_id', (q) => q.eq('userId', membership.userId))
+						.first();
+					const fullName = [membership.firstName, membership.lastName]
+						.filter(Boolean)
+						.join(' ')
+						.trim();
+					const name = fullName || membership.username || membership.email || membership.userId;
+					return {
+						name,
+						imageUrl: membership.coverPhotoUrl ?? profile?.coverPhotoUrl ?? null,
+						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
+					};
+				})
+			);
 
 			result.push({ project, members });
 		}

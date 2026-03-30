@@ -232,7 +232,11 @@ export const getSessionCardData = query({
 			.filter((name): name is string => Boolean(name))
 			.slice(0, 3);
 
-		const attendees: Array<{ name: string; imageUrl: string | null }> = [];
+		const attendees: Array<{
+			name: string;
+			imageUrl: string | null;
+			profileImageMediaAssetId: Id<'mediaAssets'> | null;
+		}> = [];
 		if (args.includeAttendees) {
 			const canReadAttendance = await hasPermission(
 				ctx,
@@ -259,7 +263,11 @@ export const getSessionCardData = query({
 						.first();
 					const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
 					const name = fullName || profile?.username || profile?.email || userId;
-					attendees.push({ name, imageUrl: profile?.coverPhotoUrl ?? null });
+					attendees.push({
+						name,
+						imageUrl: profile?.coverPhotoUrl ?? null,
+						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
+					});
 				}
 			}
 		}
@@ -316,7 +324,11 @@ export const listCardPreviewsByClub = query({
 		const entries: Array<{
 			session: (typeof sessions)[number];
 			tagNames: string[];
-			attendees: Array<{ name: string; imageUrl: string | null }>;
+			attendees: Array<{
+				name: string;
+				imageUrl: string | null;
+				profileImageMediaAssetId: Id<'mediaAssets'> | null;
+			}>;
 			activityItems: Array<{ id: string; title: string; description: string | null }>;
 			hiddenActivitiesCount: number;
 		}> = [];
@@ -349,7 +361,11 @@ export const listCardPreviewsByClub = query({
 				.filter((name): name is string => Boolean(name))
 				.slice(0, 3);
 
-			const attendees: Array<{ name: string; imageUrl: string | null }> = [];
+			const attendees: Array<{
+				name: string;
+				imageUrl: string | null;
+				profileImageMediaAssetId: Id<'mediaAssets'> | null;
+			}> = [];
 			if (includeAttendees && canReadAttendance && canReadMembers) {
 				const attendanceRows = await ctx.db
 					.query('attendances')
@@ -363,7 +379,11 @@ export const listCardPreviewsByClub = query({
 						.first();
 					const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
 					const name = fullName || profile?.username || profile?.email || userId;
-					attendees.push({ name, imageUrl: profile?.coverPhotoUrl ?? null });
+					attendees.push({
+						name,
+						imageUrl: profile?.coverPhotoUrl ?? null,
+						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
+					});
 				}
 			}
 

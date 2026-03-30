@@ -130,6 +130,26 @@
 				? 'No completed projects yet.'
 				: 'No current projects yet.'
 	);
+
+	let initialProjectPreviewImageUrls = $derived.by(() => {
+		return new Map(
+			((page.data.initialProjectPreviewImages as Array<{ assetId: Id<'mediaAssets'>; signedUrl: string }> | undefined) ?? []).map(
+				(asset) => [asset.assetId, asset.signedUrl] as const
+			)
+		);
+	});
+
+	let visibleProjectCardsWithSignedMembers = $derived(
+		visibleProjectCards.map((entry) => ({
+			...entry,
+			members: entry.members.map((member) => ({
+				name: member.name,
+				imageUrl: member.profileImageMediaAssetId
+					? (initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? member.imageUrl ?? null)
+					: (member.imageUrl ?? null)
+			}))
+		}))
+	);
 </script>
 
 <PageHeaderBackButton fallbackHref={clubId ? `/club/${clubId}` : '/onboarding/get-started'} />
@@ -180,7 +200,7 @@
 			<p class="type-sm text-muted-foreground">{emptyLabel}</p>
 		{:else}
 			<AutoFitCardGrid minColumnWidth="17rem" maxColumns={3}>
-				{#each visibleProjectCards as entry (entry.project._id)}
+				{#each visibleProjectCardsWithSignedMembers as entry (entry.project._id)}
 					<ClubProjectCard
 						project={entry.project}
 						{status}
