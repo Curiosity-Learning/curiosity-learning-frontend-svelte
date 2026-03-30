@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-import { SvelteURLSearchParams } from 'svelte/reactivity';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import Icon from '@iconify/svelte';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
@@ -639,7 +639,7 @@ type ExistingAccountStatus = {
 		const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 		const next = `${url.pathname}${url.search}${url.hash}`;
 		if (current !== next) {
-			history.replaceState(history.state, '', next);
+			replaceState(next, page.state);
 		}
 	};
 
@@ -652,14 +652,14 @@ type ExistingAccountStatus = {
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.searchParams.delete('postSocial');
-		history.replaceState(history.state, '', sanitizeUrlForHistory(url));
+		replaceState(sanitizeUrlForHistory(url), page.state);
 	};
 
 	const clearExistingGoogleAccountFromUrl = () => {
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.searchParams.delete('existingGoogleAccount');
-		history.replaceState(history.state, '', sanitizeUrlForHistory(url));
+		replaceState(sanitizeUrlForHistory(url), page.state);
 	};
 
 	const showSuccessAndContinue = () => {

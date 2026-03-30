@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -82,7 +82,7 @@
 		const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 		const next = `${url.pathname}${url.search}${url.hash}`;
 		if (current !== next) {
-			history.replaceState(history.state, '', next);
+			replaceState(next, page.state);
 		}
 	};
 
@@ -104,6 +104,12 @@
 		}
 	};
 	let awaitingSignupSession = $derived(!auth.isLoading && !auth.isAuthenticated && isPostSignupPending());
+
+	const redirectAfterCompletion = async (targetPath: string) => {
+		completionRedirected = true;
+		clearPostSignupPending();
+		await goto(targetPath, { replaceState: true });
+	};
 
 	onDestroy(() => {
 		profileImageField.destroy();
@@ -147,11 +153,10 @@
 
 	$effect(() => {
 		if (completionRedirected) return;
+		if (pending) return;
 		if (isPostSignupPending()) return;
 		if (!profileResponse.data?.firstLoginCompleted) return;
-		completionRedirected = true;
-		clearPostSignupPending();
-		void goto(completionNextPath, { replaceState: true });
+		void redirectAfterCompletion(completionNextPath);
 	});
 
 	$effect(() => {
@@ -263,16 +268,14 @@
 						// Ignore storage errors.
 					}
 				}
-				clearPostSignupPending();
-				await goto(`/club/${result.clubId}`, { replaceState: true });
+				await redirectAfterCompletion(`/club/${result.clubId}`);
 				return;
 			}
 
 			await convexClient.mutation(api.profiles.updateMe, {
 				firstLoginCompleted: true
 			});
-			clearPostSignupPending();
-			await goto(completionNextPath, { replaceState: true });
+			await redirectAfterCompletion(completionNextPath);
 		} catch (error) {
 			showGlobalSnackbar({
 				title: t('onboarding.postSignup.finishOnboardingFailedTitle'),
