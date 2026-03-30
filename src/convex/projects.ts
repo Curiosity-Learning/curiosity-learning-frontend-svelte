@@ -110,7 +110,7 @@ export const listPreviewsByClub = query({
 					const name = fullName || membership.username || membership.email || membership.userId;
 					return {
 						name,
-						imageUrl: membership.coverPhotoUrl ?? profile?.coverPhotoUrl ?? null,
+						imageUrl: null,
 						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
 					};
 				})
@@ -274,7 +274,7 @@ export const listMembers = query({
 				lastName: membership.lastName ?? profile?.lastName ?? null,
 				username: membership.username ?? profile?.username ?? null,
 				email: membership.email ?? profile?.email ?? null,
-				coverPhotoUrl: membership.coverPhotoUrl ?? profile?.coverPhotoUrl ?? null,
+				coverPhotoUrl: null,
 				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
 				roleId: membership.roleId,
 				roleName: role?.name ?? 'Contributor',

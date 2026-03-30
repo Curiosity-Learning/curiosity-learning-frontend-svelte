@@ -54,7 +54,7 @@
 					member.username ||
 					member.email ||
 					member.profileId,
-				imageUrl: member.coverPhotoUrl ?? null
+				imageUrl: null
 			}))
 	);
 

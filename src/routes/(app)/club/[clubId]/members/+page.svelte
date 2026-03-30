@@ -65,13 +65,12 @@
 
 	const memberImageUrl = (member: {
 		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
-		coverPhotoUrl?: string | null;
 	}) => {
 		if (member.profileImageMediaAssetId) {
 			return initialMemberImageUrls.get(member.profileImageMediaAssetId) ?? null;
 		}
 
-		return member.coverPhotoUrl ?? null;
+		return null;
 	};
 
 	const initialsFor = (member: {

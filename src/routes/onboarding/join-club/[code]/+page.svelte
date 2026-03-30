@@ -30,16 +30,6 @@
 	let videoLoadFailed = $state(false);
 	let forcedGoogleSignupRecoveryPending = $state(false);
 
-	const isValidVideoUrl = (value: string | null | undefined) => {
-		if (!value) return false;
-		try {
-			const parsed = new URL(value);
-			return parsed.protocol === 'https:' || parsed.protocol === 'http:';
-		} catch {
-			return false;
-		}
-	};
-
 	let club = $derived(preview.data);
 	let meetingLabel = $derived(formatWeeklyMeetingLabel(club?.meetingDay ?? null, club?.meetingTime ?? null));
 	let clubVideoUrl = $derived.by(() => {
@@ -52,7 +42,7 @@
 			return null;
 		}
 
-		return isValidVideoUrl(club?.videoUrl ?? null) ? club?.videoUrl ?? null : null;
+		return null;
 	});
 
 	$effect(() => {

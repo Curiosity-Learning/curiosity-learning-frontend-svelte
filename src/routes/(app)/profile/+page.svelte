@@ -60,7 +60,7 @@
 			return null;
 		}
 
-		return profileResponse.data?.coverPhotoUrl ?? null;
+		return null;
 	});
 
 	const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));

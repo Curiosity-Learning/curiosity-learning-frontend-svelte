@@ -203,33 +203,30 @@
 
 	const learnerImageUrl = (learner: {
 		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
-		coverPhotoUrl?: string | null;
 	}) => {
 		if (learner.profileImageMediaAssetId) {
 			return initialLearnerImageUrls.get(learner.profileImageMediaAssetId) ?? null;
 		}
 
-		return learner.coverPhotoUrl ?? null;
+		return null;
 	};
 	const previewMemberImageUrl = (member: {
 		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
-		imageUrl?: string | null;
 	}) => {
 		if (member.profileImageMediaAssetId) {
-			return initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? member.imageUrl ?? null;
+			return initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? null;
 		}
 
-		return member.imageUrl ?? null;
+		return null;
 	};
 	const attendeeImageUrl = (attendee: {
 		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
-		imageUrl?: string | null;
 	}) => {
 		if (attendee.profileImageMediaAssetId) {
-			return initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? attendee.imageUrl ?? null;
+			return initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? null;
 		}
 
-		return attendee.imageUrl ?? null;
+		return null;
 	};
 	let nextSessionCardWithSignedAttendees = $derived.by(() => {
 		if (!nextSessionCard) return null;

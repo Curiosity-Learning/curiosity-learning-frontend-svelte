@@ -9,20 +9,19 @@ type Ctx = QueryCtx | MutationCtx;
 const resolveProfileImageUrl = async (
 	ctx: Ctx,
 	profile: {
-		coverPhotoUrl?: string;
 		profileImageMediaAssetId?: Id<'mediaAssets'>;
 	}
 ) => {
 	if (!profile.profileImageMediaAssetId) {
-		return profile.coverPhotoUrl ?? null;
+		return null;
 	}
 
 	const asset = await ctx.db.get(profile.profileImageMediaAssetId);
 	if (!asset || asset.status !== 'ready' || asset.mediaKind === 'video') {
-		return profile.coverPhotoUrl ?? null;
+		return null;
 	}
 
-	return resolveMediaAssetFileUrl(asset) ?? profile.coverPhotoUrl ?? null;
+	return resolveMediaAssetFileUrl(asset) ?? null;
 };
 
 const requireOwnedReadyProfileImage = async (

@@ -53,7 +53,7 @@ const resolveAuthorSummary = async (
 		userId;
 	const summary = {
 		name,
-		imageUrl: profile?.coverPhotoUrl ?? null,
+		imageUrl: null,
 		imageAssetId: profile?.profileImageMediaAssetId ?? null
 	};
 

@@ -147,7 +147,7 @@
 				member.email ||
 				member.profileId,
 			imageAssetId: member.profileImageMediaAssetId ?? null,
-			imageUrl: member.coverPhotoUrl ?? null,
+			imageUrl: null,
 			email: member.email ?? null,
 			username: member.username ?? null,
 			roleName: member.roleName ?? null
@@ -166,7 +166,7 @@
 			return initialProjectMemberImageUrls.get(member.imageAssetId) ?? null;
 		}
 
-		return member.imageUrl ?? null;
+		return null;
 	};
 	let orderedUpdates = $derived([...(updatesResponse.data ?? [])].reverse());
 	let updateMediaAssetIds = $derived.by(() =>

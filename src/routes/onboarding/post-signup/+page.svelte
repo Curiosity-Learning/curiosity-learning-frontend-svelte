@@ -122,7 +122,7 @@
 			return null;
 		}
 
-		return profileResponse.data?.coverPhotoUrl ?? null;
+		return null;
 	});
 	let profileImageNeedsReady = $derived(
 		profileImageField.hasUploadedAsset && !profileImageField.isReady

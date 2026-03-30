@@ -159,7 +159,7 @@
 			return null;
 		}
 
-		return profileResponse.data?.coverPhotoUrl ?? null;
+		return null;
 	});
 
 	let displayProfileImageUrl = $derived(

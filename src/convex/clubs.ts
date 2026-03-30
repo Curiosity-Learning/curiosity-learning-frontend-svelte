@@ -631,13 +631,12 @@ export const getMembers = query({
 				.first();
 
 			// Fall back to the profiles table when denormalized fields are missing
-			let { firstName, lastName, username, email, coverPhotoUrl } = member;
+			let { firstName, lastName, username, email } = member;
 			if (profile) {
 				firstName = firstName ?? profile.firstName;
 				lastName = lastName ?? profile.lastName;
 				username = username ?? profile.username;
 				email = email ?? profile.email;
-				coverPhotoUrl = coverPhotoUrl ?? profile.coverPhotoUrl;
 			}
 
 			output.push({
@@ -650,7 +649,7 @@ export const getMembers = query({
 				lastName: lastName ?? null,
 				username: username ?? null,
 				email: email ?? null,
-				coverPhotoUrl: coverPhotoUrl ?? null,
+				coverPhotoUrl: null,
 				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
 			});
 		}

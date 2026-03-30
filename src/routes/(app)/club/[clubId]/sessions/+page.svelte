@@ -114,8 +114,8 @@
 			attendees: entry.attendees.map((attendee) => ({
 				name: attendee.name,
 				imageUrl: attendee.profileImageMediaAssetId
-					? (initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? attendee.imageUrl ?? null)
-					: (attendee.imageUrl ?? null)
+					? (initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? null)
+					: null
 			}))
 		}))
 	);

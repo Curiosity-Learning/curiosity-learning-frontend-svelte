@@ -265,7 +265,7 @@ export const getSessionCardData = query({
 					const name = fullName || profile?.username || profile?.email || userId;
 					attendees.push({
 						name,
-						imageUrl: profile?.coverPhotoUrl ?? null,
+						imageUrl: null,
 						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
 					});
 				}
@@ -381,7 +381,7 @@ export const listCardPreviewsByClub = query({
 					const name = fullName || profile?.username || profile?.email || userId;
 					attendees.push({
 						name,
-						imageUrl: profile?.coverPhotoUrl ?? null,
+						imageUrl: null,
 						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
 					});
 				}

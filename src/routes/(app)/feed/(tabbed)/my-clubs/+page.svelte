@@ -23,7 +23,7 @@
 			...item,
 			authorImageUrl: item.authorImageMediaAssetId
 				? (initialAuthorImageUrls.get(item.authorImageMediaAssetId as Id<'mediaAssets'>) ?? null)
-				: (item.authorImageUrl ?? null)
+				: null
 		}));
 	});
 </script>

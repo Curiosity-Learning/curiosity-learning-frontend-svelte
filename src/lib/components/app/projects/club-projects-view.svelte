@@ -145,8 +145,8 @@
 			members: entry.members.map((member) => ({
 				name: member.name,
 				imageUrl: member.profileImageMediaAssetId
-					? (initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? member.imageUrl ?? null)
-					: (member.imageUrl ?? null)
+					? (initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? null)
+					: null
 			}))
 		}))
 	);
