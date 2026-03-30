@@ -60,7 +60,10 @@ export const signDeliveryAsset = (
 export const signDeliveryAssets = (
 	assets: Array<DeliveryAssetRecord | null | undefined>,
 	config: MediaDeliveryConfig | null = loadMediaDeliveryConfigOrNull()
-) => assets.map((asset) => signDeliveryAsset(asset, config)).filter(Boolean);
+): SignedDeliveryAsset[] =>
+	assets
+		.map((asset) => signDeliveryAsset(asset, config))
+		.filter((asset): asset is SignedDeliveryAsset => asset !== null);
 
 export const getSignedOwnedMediaAsset = async (
 	convex: ConvexServerClient,
@@ -101,6 +104,25 @@ export const getSignedProjectMediaAssets = async (
 
 	const deliveryAssets = await convex.query(api.updates.getProjectDeliveryAssets, {
 		projectId,
+		assetIds: uniqueAssetIds
+	});
+
+	return signDeliveryAssets(deliveryAssets, config);
+};
+
+export const getSignedClubMemberProfileAssets = async (
+	convex: ConvexServerClient,
+	clubId: Id<'clubs'>,
+	assetIds: Id<'mediaAssets'>[],
+	config?: MediaDeliveryConfig | null
+) => {
+	const uniqueAssetIds = [...new Set(assetIds)];
+	if (!uniqueAssetIds.length) {
+		return [] as SignedDeliveryAsset[];
+	}
+
+	const deliveryAssets = await convex.query(api.clubs.getMemberProfileDeliveryAssets, {
+		clubId,
 		assetIds: uniqueAssetIds
 	});
 

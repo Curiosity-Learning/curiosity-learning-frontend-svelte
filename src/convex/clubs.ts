@@ -616,6 +616,7 @@ export const getMembers = query({
 			username: string | null;
 			email: string | null;
 			coverPhotoUrl: string | null;
+			profileImageMediaAssetId: Id<'mediaAssets'> | null;
 		}> = [];
 
 		for (const member of activeMembers) {
@@ -624,20 +625,19 @@ export const getMembers = query({
 				continue;
 			}
 
+			const profile = await ctx.db
+				.query('profiles')
+				.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
+				.first();
+
 			// Fall back to the profiles table when denormalized fields are missing
 			let { firstName, lastName, username, email, coverPhotoUrl } = member;
-			if (!firstName && !lastName && !email) {
-				const profile = await ctx.db
-					.query('profiles')
-					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
-					.first();
-				if (profile) {
-					firstName = firstName ?? profile.firstName;
-					lastName = lastName ?? profile.lastName;
-					username = username ?? profile.username;
-					email = email ?? profile.email;
-					coverPhotoUrl = coverPhotoUrl ?? profile.coverPhotoUrl;
-				}
+			if (profile) {
+				firstName = firstName ?? profile.firstName;
+				lastName = lastName ?? profile.lastName;
+				username = username ?? profile.username;
+				email = email ?? profile.email;
+				coverPhotoUrl = coverPhotoUrl ?? profile.coverPhotoUrl;
 			}
 
 			output.push({
@@ -650,11 +650,79 @@ export const getMembers = query({
 				lastName: lastName ?? null,
 				username: username ?? null,
 				email: email ?? null,
-				coverPhotoUrl: coverPhotoUrl ?? null
+				coverPhotoUrl: coverPhotoUrl ?? null,
+				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
 			});
 		}
 
 		return output;
+	}
+});
+
+export const getMemberProfileDeliveryAssets = query({
+	args: {
+		clubId: v.id('clubs'),
+		assetIds: v.array(v.id('mediaAssets'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await hasPermission(
+			ctx,
+			args.clubId,
+			identity.subject,
+			'club_member:read_active'
+		);
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+
+		const members = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
+			.collect();
+		const activeMembers = members.filter((member) => !member.leftAt);
+		const profiles = await Promise.all(
+			activeMembers.map((member) =>
+				ctx.db
+					.query('profiles')
+					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
+					.first()
+			)
+		);
+
+		const allowedAssetIds = new Set(
+			profiles
+				.map((profile) => profile?.profileImageMediaAssetId ?? null)
+				.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null)
+		);
+
+		const deliveryAssets = await Promise.all(
+			requestedAssetIds
+				.filter((assetId) => allowedAssetIds.has(assetId))
+				.map(async (assetId) => {
+					const asset = await ctx.db.get(assetId);
+					if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') {
+						return null;
+					}
+
+					return {
+						assetId: asset._id,
+						storageProvider: asset.storageProvider,
+						deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+						deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+						mediaKind: asset.mediaKind ?? null,
+						contentType: asset.contentType ?? null,
+						durationSeconds: asset.durationSeconds ?? null
+					};
+				})
+		);
+
+		return deliveryAssets.filter(Boolean);
 	}
 });
 

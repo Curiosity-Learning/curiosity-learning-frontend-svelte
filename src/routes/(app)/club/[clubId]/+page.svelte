@@ -34,6 +34,9 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { page } from '$app/state';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import type { PageProps } from './$types';
+
+	let { data }: PageProps = $props();
 
 	const convexClient = useConvexClient();
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
@@ -180,6 +183,23 @@
 		const parts = cleaned.split(/\s+/g).filter(Boolean);
 		const letters = [parts[0]?.[0] ?? '', parts.at(-1)?.[0] ?? ''].join('').toUpperCase();
 		return letters || cleaned.slice(0, 2).toUpperCase();
+	};
+
+	let initialLearnerImageUrls = $derived.by(() => {
+		return new Map(
+			(data.initialLearnerImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
+
+	const learnerImageUrl = (learner: {
+		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
+		coverPhotoUrl?: string | null;
+	}) => {
+		if (learner.profileImageMediaAssetId) {
+			return initialLearnerImageUrls.get(learner.profileImageMediaAssetId) ?? null;
+		}
+
+		return learner.coverPhotoUrl ?? null;
 	};
 
 	const getProjectRailScrollKey = () => (clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null);
@@ -411,8 +431,8 @@
 					<Card class="gap-0 py-0">
 						<CardContent class="flex items-center gap-4 p-5">
 							<Avatar class="size-12">
-								{#if learner.coverPhotoUrl}
-									<AvatarImage src={learner.coverPhotoUrl} alt={learner.email ?? learner.userId} />
+								{#if learnerImageUrl(learner)}
+									<AvatarImage src={learnerImageUrl(learner) ?? undefined} alt={learner.email ?? learner.userId} />
 								{/if}
 								<AvatarFallback class="text-sm font-semibold">
 									{initialsFor(
