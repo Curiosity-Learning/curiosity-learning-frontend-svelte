@@ -10,8 +10,6 @@ export default defineSchema({
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
-		// Legacy dev-data compatibility while old local deployments still contain Convex storage ids.
-		profileImageStorageId: v.optional(v.id('_storage')),
 		profileImageMediaAssetId: v.optional(v.id('mediaAssets')),
 		dateOfBirth: v.optional(v.string()),
 		isVerified: v.boolean(),
@@ -50,8 +48,6 @@ export default defineSchema({
 		locationLongitude: v.optional(v.number()),
 		description: v.optional(v.string()),
 		time: v.optional(v.number()),
-		// Legacy dev-data compatibility while old local deployments still contain Convex storage ids.
-		videoStorageId: v.optional(v.id('_storage')),
 		videoMediaAssetId: v.optional(v.id('mediaAssets')),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string()),
