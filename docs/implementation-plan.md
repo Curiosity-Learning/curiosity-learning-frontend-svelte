@@ -39,4 +39,6 @@ Playwright screenshots saved in `docs/screenshots/`.
 ## Open Follow-ups
 
 - Authenticated visual captures for full `/app/*` pages require a verified test account/session bootstrap in CI-like runs.
-- Feature-level media surfaces should attach domain records to `mediaAssets` instead of storing raw file URLs or ad-hoc storage IDs.
+- Feature-level media surfaces should attach domain records to `mediaAssets` via `mediaAssetId`, not raw file URLs, S3 object keys, or legacy storage IDs.
+- Compression and moderation work should now layer on top of the shared S3-backed upload foundation instead of changing storage plumbing again.
+- Secure media delivery now builds on CloudFront + OAC + signed URLs minted by SvelteKit server code. Feature/domain reads should keep returning `mediaAssetId`-level references, and the app should resolve short-lived delivery URLs through server enrichment or `/api/media/refresh` rather than reintroducing a shared `/media/[assetId]` route.

@@ -10,7 +10,7 @@ Several user-facing media features are planned next: pledges, session photos, pr
 
 - authoritative metadata validation,
 - explicit processing states,
-- retry/restart behavior,
+- retry/cancel behavior,
 - or a shared place to add future compression and safety screening.
 
 That would force each feature to rebuild upload, validation, and recovery logic independently.
@@ -59,7 +59,7 @@ Each `mediaAssets` record stores:
 - One upload contract for all upcoming media features.
 - The shared uploader stays generic instead of growing a new backend `purpose` enum value for every feature surface.
 - Failure states are explicit and queryable.
-- Users can restart or retry uploads without inventing feature-specific recovery paths.
+- Users can retry or cancel uploads without inventing feature-specific recovery paths.
 - Future compression/safety processors can plug into the same pipeline contract.
 - Feature ownership remains explicit in domain tables instead of being inferred from optional context metadata on the upload row.
 

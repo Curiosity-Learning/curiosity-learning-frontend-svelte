@@ -1,20 +1,56 @@
 import { ConvexError, v } from 'convex/values';
-import { mutation, query } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
+import { resolveMediaAssetFileUrl } from './mediaStorage';
 import { requireIdentity, requireProfile } from './permissions';
+
+type Ctx = QueryCtx | MutationCtx;
+
+const resolveProfileImageUrl = async (
+	ctx: Ctx,
+	profile: {
+		profileImageMediaAssetId?: Id<'mediaAssets'>;
+	}
+) => {
+	if (!profile.profileImageMediaAssetId) {
+		return null;
+	}
+
+	const asset = await ctx.db.get(profile.profileImageMediaAssetId);
+	if (!asset || asset.status !== 'ready' || asset.mediaKind === 'video') {
+		return null;
+	}
+
+	return resolveMediaAssetFileUrl(asset) ?? null;
+};
+
+const requireOwnedReadyProfileImage = async (
+	ctx: MutationCtx,
+	userId: string,
+	assetId: Id<'mediaAssets'>
+) => {
+	const asset = await ctx.db.get(assetId);
+	if (!asset || asset.ownerUserId !== userId) {
+		throw new ConvexError('Profile image not found');
+	}
+	if (asset.status !== 'ready') {
+		throw new ConvexError('Profile image is not ready');
+	}
+	if (asset.mediaKind === 'video') {
+		throw new ConvexError('Profile image must be an image');
+	}
+
+	return asset;
+};
 
 export const getMe = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		if (!profile.profileImageStorageId) {
-			return profile;
-		}
-
-		const profileImageUrl = await ctx.storage.getUrl(profile.profileImageStorageId);
 		return {
 			...profile,
-			coverPhotoUrl: profileImageUrl ?? profile.coverPhotoUrl
+			coverPhotoUrl: await resolveProfileImageUrl(ctx, profile)
 		};
 	}
 });
@@ -25,7 +61,7 @@ export const updateMe = mutation({
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
-		profileImageStorageId: v.optional(v.id('_storage')),
+		profileImageMediaAssetId: v.optional(v.id('mediaAssets')),
 		dateOfBirth: v.optional(v.string()),
 		about: v.optional(v.string()),
 		howDidYouFindUs: v.optional(v.string()),
@@ -51,9 +87,14 @@ export const updateMe = mutation({
 			}
 		}
 
-		let nextCoverPhotoUrl = args.coverPhotoUrl;
-		if (args.profileImageStorageId) {
-			nextCoverPhotoUrl = await ctx.storage.getUrl(args.profileImageStorageId) ?? undefined;
+		let nextCoverPhotoUrl = args.coverPhotoUrl ?? profile.coverPhotoUrl;
+		if (args.profileImageMediaAssetId) {
+			const asset = await requireOwnedReadyProfileImage(
+				ctx,
+				identity.subject,
+				args.profileImageMediaAssetId
+			);
+			nextCoverPhotoUrl = resolveMediaAssetFileUrl(asset) ?? undefined;
 		}
 
 		await ctx.db.patch(profile._id, {
@@ -67,9 +108,8 @@ export const updateMe = mutation({
 			throw new ConvexError('Profile not found');
 		}
 
-		const resolvedCoverPhotoUrl = updated.profileImageStorageId
-			? (await ctx.storage.getUrl(updated.profileImageStorageId)) ?? updated.coverPhotoUrl
-			: updated.coverPhotoUrl;
+		const resolvedCoverPhotoUrl = await resolveProfileImageUrl(ctx, updated);
+		const denormalizedCoverPhotoUrl = resolvedCoverPhotoUrl ?? undefined;
 
 		const displayName =
 			updated.username ||
@@ -89,7 +129,7 @@ export const updateMe = mutation({
 				lastName: updated.lastName,
 				username: updated.username,
 				email: updated.email,
-				coverPhotoUrl: resolvedCoverPhotoUrl
+				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
 
@@ -104,7 +144,7 @@ export const updateMe = mutation({
 				lastName: updated.lastName,
 				username: updated.username,
 				email: updated.email,
-				coverPhotoUrl: resolvedCoverPhotoUrl
+				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
 
@@ -115,13 +155,13 @@ export const updateMe = mutation({
 		for (const participant of participantRows) {
 			await ctx.db.patch(participant._id, {
 				displayName,
-				coverPhotoUrl: resolvedCoverPhotoUrl
+				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
 
 		return {
 			...updated,
-			coverPhotoUrl: resolvedCoverPhotoUrl
+			coverPhotoUrl: resolvedCoverPhotoUrl ?? undefined
 		};
 	}
 });

@@ -10,7 +10,7 @@ export default defineSchema({
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
-		profileImageStorageId: v.optional(v.id('_storage')),
+		profileImageMediaAssetId: v.optional(v.id('mediaAssets')),
 		dateOfBirth: v.optional(v.string()),
 		isVerified: v.boolean(),
 		activeClubId: v.optional(v.id('clubs')),
@@ -29,7 +29,8 @@ export default defineSchema({
 	})
 		.index('by_user_id', ['userId'])
 		.index('by_email', ['email'])
-		.index('by_username', ['username']),
+		.index('by_username', ['username'])
+		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
 
 	clubRoles: defineTable({
 		name: v.string(),
@@ -48,7 +49,7 @@ export default defineSchema({
 		locationLongitude: v.optional(v.number()),
 		description: v.optional(v.string()),
 		time: v.optional(v.number()),
-		videoStorageId: v.optional(v.id('_storage')),
+		videoMediaAssetId: v.optional(v.id('mediaAssets')),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string()),
 		createdByUserId: v.string(),
@@ -56,7 +57,8 @@ export default defineSchema({
 		updatedAt: v.number()
 	})
 		.index('by_created_by', ['createdByUserId'])
-		.index('by_club_code', ['clubCode']),
+		.index('by_club_code', ['clubCode'])
+		.index('by_video_media_asset', ['videoMediaAssetId']),
 
 	clubMembers: defineTable({
 		clubId: v.id('clubs'),
@@ -216,14 +218,16 @@ export default defineSchema({
 
 	updateFiles: defineTable({
 		updateId: v.id('updates'),
-		storageId: v.string(),
+		mediaAssetId: v.id('mediaAssets'),
 		createdAt: v.number()
-	}).index('by_update', ['updateId']),
+	})
+		.index('by_update', ['updateId'])
+		.index('by_media_asset', ['mediaAssetId']),
 
 	mediaAssets: defineTable(mediaAssetFields)
 		.index('by_owner', ['ownerUserId'])
 		.index('by_owner_and_status', ['ownerUserId', 'status'])
-		.index('by_storage_id', ['storageId']),
+		.index('by_source_object_key', ['sourceObjectKey']),
 
 	notifications: defineTable({
 		userId: v.string(),

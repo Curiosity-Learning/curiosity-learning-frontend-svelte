@@ -42,6 +42,13 @@
 		view: 'overview' | 'members';
 	};
 
+	type SignedProjectUpdateMedia = {
+		assetId: Id<'mediaAssets'>;
+		signedUrl: string;
+		mediaKind: 'image' | 'video' | null;
+		contentType: string | null;
+	};
+
 	let { view }: Props = $props();
 
 	const convexClient = useConvexClient();
@@ -144,12 +151,40 @@
 				member.username ||
 				member.email ||
 				member.profileId,
-			imageUrl: member.coverPhotoUrl ?? null,
+			imageAssetId: member.profileImageMediaAssetId ?? null,
+			imageUrl: null,
 			email: member.email ?? null,
 			username: member.username ?? null,
 			roleName: member.roleName ?? null
 		}))
 	);
+	let initialProjectMemberImageUrls = $derived.by(() => {
+		return new Map(
+			((page.data.initialProjectMemberImages as Array<{ assetId: Id<'mediaAssets'>; signedUrl: string }> | undefined) ?? []).map(
+				(asset) => [asset.assetId, asset.signedUrl] as const
+			)
+		);
+	});
+
+	const memberImageUrl = (member: (typeof memberSummaries)[number]) => {
+		if (member.imageAssetId) {
+			return initialProjectMemberImageUrls.get(member.imageAssetId) ?? null;
+		}
+
+		return null;
+	};
+	let orderedUpdates = $derived([...(updatesResponse.data ?? [])].reverse());
+	let initialProjectUpdateMedia = $derived(
+		(page.data.initialProjectUpdateMedia as Array<SignedProjectUpdateMedia> | undefined) ?? []
+	);
+	let initialProjectUpdateMediaById = $derived.by(() => {
+		return new Map(initialProjectUpdateMedia.map((asset) => [asset.assetId, asset] as const));
+	});
+
+	const isVideoAsset = (
+		asset: SignedProjectUpdateMedia | null | undefined
+	): asset is SignedProjectUpdateMedia =>
+		Boolean(asset && (asset.mediaKind === 'video' || asset.contentType?.startsWith('video/')));
 
 	const memberSubtitleFor = (member: (typeof memberSummaries)[number]) => {
 		if (member.username) return `@${member.username}`;
@@ -244,6 +279,7 @@
 			onSelect: () => void toggleDone()
 		}
 	]);
+
 </script>
 
 <PageHeaderBackButton fallbackHref={routes.feed} />
@@ -323,10 +359,43 @@
 					<p class="type-sm text-muted-foreground">No updates yet.</p>
 				{:else}
 					<div class="flex flex-col gap-3">
-						{#each [...(updatesResponse.data ?? [])].reverse() as update (update._id)}
+						{#each orderedUpdates as update (update._id)}
 							<Card class="gap-0 py-0">
 								<CardContent class="flex flex-col gap-2 p-4">
 									<p class="type-body whitespace-pre-wrap">{update.content}</p>
+									{#if update.mediaAssetIds?.length}
+										<div class="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-2">
+											{#each update.mediaAssetIds as mediaAssetId (mediaAssetId)}
+												{@const mediaAsset = initialProjectUpdateMediaById.get(mediaAssetId) ?? null}
+												{@const mediaUrl = mediaAsset?.signedUrl ?? null}
+												<div class="overflow-hidden rounded-xl border border-border bg-muted/20">
+													{#if mediaUrl}
+														{#if isVideoAsset(mediaAsset)}
+															<!-- svelte-ignore a11y_media_has_caption -->
+															<video
+																src={mediaUrl}
+																controls
+																preload="metadata"
+																class="aspect-video w-full bg-black object-cover"
+															></video>
+														{:else}
+															<img
+																src={mediaUrl}
+																alt="Project update attachment"
+																class="aspect-video w-full object-cover"
+															/>
+														{/if}
+													{:else}
+														<div class="flex aspect-video items-center justify-center p-4">
+															<p class="text-sm text-muted-foreground">
+																Preparing media...
+															</p>
+														</div>
+													{/if}
+												</div>
+											{/each}
+										</div>
+									{/if}
 									<p class="type-sm text-muted-foreground">
 										{formatRelativeTime(update.createdAt)}
 									</p>
@@ -335,6 +404,7 @@
 						{/each}
 					</div>
 				{/if}
+
 			</div>
 		{:else}
 			<div class="flex flex-col gap-4">
@@ -348,8 +418,8 @@
 							<Item variant="outline" size="sm">
 								<ItemMedia>
 									<Avatar class="size-8">
-										{#if member.imageUrl}
-											<AvatarImage src={member.imageUrl} alt={member.name} />
+										{#if memberImageUrl(member)}
+											<AvatarImage src={memberImageUrl(member) ?? undefined} alt={member.name} />
 										{/if}
 										<AvatarFallback class="type-caption-bold"
 											>{initialsFor(member.name)}</AvatarFallback

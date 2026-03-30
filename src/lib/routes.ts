@@ -8,6 +8,7 @@ export const routes = {
 	chat: '/chat',
 	profile: '/profile',
 	settings: '/settings',
+	settingsMediaUploadDev: '/settings/media-upload-dev',
 	notifications: '/notifications',
 
 	clubHome: (clubId: string) => `/club/${clubId}`,

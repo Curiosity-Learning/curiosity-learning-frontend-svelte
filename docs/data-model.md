@@ -8,16 +8,15 @@ Schema source: `src/convex/schema.ts`
 
 | Table             | Purpose                                 | Key Fields                                                              | Indexes                              |
 | ----------------- | --------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------ |
-| `profiles`        | Per-user profile and onboarding state   | `userId`, `email`, `username?`, `profileImageStorageId?`, `activeClubId?`, `isVerified`, `firstLoginCompleted`, `pendingClubCode?`, `pendingRole?` | `by_user_id`, `by_email`, `by_username` |
+| `profiles`        | Per-user profile and onboarding state   | `userId`, `email`, `username?`, `profileImageMediaAssetId?`, `activeClubId?`, `isVerified`, `firstLoginCompleted`, `pendingClubCode?`, `pendingRole?` | `by_user_id`, `by_email`, `by_username` |
 | `userPreferences` | Theme + notification settings           | `userId`, `activeClubId?`                                               | `by_user`                            |
 
 ## Clubs / Membership / Permissions
 
 | Table         | Purpose                            | Key Fields                                      | Indexes                                |
 | ------------- | ---------------------------------- | ----------------------------------------------- | -------------------------------------- |
-| `clubRoles`   | Role definitions with permissions  | `name`, `permissions[]`, `order`                 | `by_name`                              |
-| `clubs`       | Club record                        | `name`, `description?`, `location?`, `createdByUserId` | `by_created_by`                 |
-| `clubCodes`   | Invite codes                       | `clubId`, `code`                                 | `by_code`, `by_club`                   |
+| `clubRoles`   | Role definitions with permissions  | `name`, `permissions[]`, `order`                | `by_name`                              |
+| `clubs`       | Club record                        | `name`, `clubCode?`, `description?`, `location?`, `videoMediaAssetId?`, `createdByUserId` | `by_created_by`, `by_club_code` |
 | `clubMembers` | User-club membership with role     | `clubId`, `userId`, `roleId`, `leftAt?`          | `by_club`, `by_user`, `by_club_and_user` |
 
 ## Sessions / Activities / Attendance
@@ -42,13 +41,13 @@ Schema source: `src/convex/schema.ts`
 | `projectMembers` | User membership in a project           | `projectId`, `userId`, `roleId`, `leftAt?`            | `by_project`, `by_user`, `by_project_and_user` |
 | `questions`      | Question prompts for updates           | (minimal)                                             |                                            |
 | `updates`        | Update posts on projects               | `projectId?`, `questionId?`, `content`, `createdByUserId` | `by_project`, `by_project_and_created` |
-| `updateFiles`    | Files attached to updates              | `updateId`, `storageId`                               | `by_update`                                |
+| `updateFiles`    | Files attached to updates              | `updateId`, `mediaAssetId`                            | `by_update`, `by_media_asset`              |
 
 ## Media Pipeline
 
 | Table         | Purpose                                   | Key Fields                                                                 | Indexes                                             |
 | ------------- | ----------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
-| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `acceptedContentTypes[]`, `maxBytes`, `enableCompression`, `enableSafetyScreening`, `storageId?`, `mediaKind?`, `contentType?`, `sizeBytes?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_storage_id` |
+| `mediaAssets` | Shared upload pipeline records for user-facing media | `ownerUserId`, `status`, `acceptedContentTypes[]`, `maxBytes`, `enableCompression`, `enableSafetyScreening`, `storageProvider`, `sourceObjectKey?`, `processedObjectKey?`, `mediaKind?`, `contentType?`, `sizeBytes?`, `durationSeconds?`, `sha256?`, `lastFailure?` | `by_owner`, `by_owner_and_status`, `by_source_object_key` |
 
 ## Notifications / Privacy
 

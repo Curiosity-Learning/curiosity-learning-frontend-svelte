@@ -34,6 +34,9 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { page } from '$app/state';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import type { PageProps } from './$types';
+
+	let { data }: PageProps = $props();
 
 	const convexClient = useConvexClient();
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
@@ -182,6 +185,69 @@
 		return letters || cleaned.slice(0, 2).toUpperCase();
 	};
 
+	let initialLearnerImageUrls = $derived.by(() => {
+		return new Map(
+			(data.initialLearnerImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
+	let initialProjectPreviewImageUrls = $derived.by(() => {
+		return new Map(
+			(data.initialProjectPreviewImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
+	let initialSessionAttendeeImageUrls = $derived.by(() => {
+		return new Map(
+			(data.initialSessionAttendeeImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
+
+	const learnerImageUrl = (learner: {
+		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
+	}) => {
+		if (learner.profileImageMediaAssetId) {
+			return initialLearnerImageUrls.get(learner.profileImageMediaAssetId) ?? null;
+		}
+
+		return null;
+	};
+	const previewMemberImageUrl = (member: {
+		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
+	}) => {
+		if (member.profileImageMediaAssetId) {
+			return initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? null;
+		}
+
+		return null;
+	};
+	const attendeeImageUrl = (attendee: {
+		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
+	}) => {
+		if (attendee.profileImageMediaAssetId) {
+			return initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? null;
+		}
+
+		return null;
+	};
+	let nextSessionCardWithSignedAttendees = $derived.by(() => {
+		if (!nextSessionCard) return null;
+		return {
+			...nextSessionCard,
+			attendees: nextSessionCard.attendees.map((attendee) => ({
+				name: attendee.name,
+				imageUrl: attendeeImageUrl(attendee)
+			}))
+		};
+	});
+	let visibleProjectsWithSignedMembers = $derived(
+		visibleProjects.map((entry) => ({
+			...entry,
+			members: entry.members.map((member) => ({
+				name: member.name,
+				imageUrl: previewMemberImageUrl(member)
+			}))
+		}))
+	);
+
 	const getProjectRailScrollKey = () => (clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null);
 
 	const restoreProjectRailScroll = (node: HTMLDivElement) => {
@@ -293,7 +359,7 @@
 			<ClubSessionCard
 				session={nextSession}
 				sessionHref={routes.sessionDetail(nextSession._id)}
-				prefetchedCardData={nextSessionCard}
+				prefetchedCardData={nextSessionCardWithSignedAttendees}
 				{canReadMembers}
 				canDelete={canDeleteSession}
 				showAttendeesSection={false}
@@ -380,7 +446,7 @@
 		{:else}
 			<div class="flex flex-col gap-3">
 				<div class="flex gap-4 overflow-x-auto pb-2" use:mountProjectRail>
-					{#each visibleProjects as entry (entry.project._id)}
+					{#each visibleProjectsWithSignedMembers as entry (entry.project._id)}
 						<ClubProjectCard
 							project={entry.project}
 							memberPreview={entry.members}
@@ -411,8 +477,8 @@
 					<Card class="gap-0 py-0">
 						<CardContent class="flex items-center gap-4 p-5">
 							<Avatar class="size-12">
-								{#if learner.coverPhotoUrl}
-									<AvatarImage src={learner.coverPhotoUrl} alt={learner.email ?? learner.userId} />
+								{#if learnerImageUrl(learner)}
+									<AvatarImage src={learnerImageUrl(learner) ?? undefined} alt={learner.email ?? learner.userId} />
 								{/if}
 								<AvatarFallback class="text-sm font-semibold">
 									{initialsFor(

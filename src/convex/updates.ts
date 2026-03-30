@@ -8,6 +8,16 @@ type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
 	name: string;
 	imageUrl: string | null;
+	imageAssetId: Id<'mediaAssets'> | null;
+};
+
+const listUpdateMediaAssetIds = async (ctx: Ctx, updateId: Id<'updates'>) => {
+	const files = await ctx.db
+		.query('updateFiles')
+		.withIndex('by_update', (q) => q.eq('updateId', updateId))
+		.collect();
+
+	return files.map((file) => file.mediaAssetId);
 };
 
 const resolveAuthorSummary = async (
@@ -18,7 +28,8 @@ const resolveAuthorSummary = async (
 	if (!userId) {
 		return {
 			name: 'Unknown',
-			imageUrl: null
+			imageUrl: null,
+			imageAssetId: null
 		};
 	}
 
@@ -42,7 +53,8 @@ const resolveAuthorSummary = async (
 		userId;
 	const summary = {
 		name,
-		imageUrl: profile?.coverPhotoUrl ?? null
+		imageUrl: null,
+		imageAssetId: profile?.profileImageMediaAssetId ?? null
 	};
 
 	cache.set(userId, summary);
@@ -92,10 +104,22 @@ export const listByProject = query({
 		if (args.limit) {
 			// Keep chronological ordering (oldest -> newest) while limiting.
 			const newestFirst = await queryBuilder.order('desc').take(args.limit);
-			return newestFirst.reverse();
+			const chronological = newestFirst.reverse();
+			return await Promise.all(
+				chronological.map(async (update) => ({
+					...update,
+					mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
+				}))
+			);
 		}
 
-		return await queryBuilder.collect();
+		const updates = await queryBuilder.collect();
+		return await Promise.all(
+			updates.map(async (update) => ({
+				...update,
+				mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
+			}))
+		);
 	}
 });
 
@@ -210,6 +234,7 @@ export const listForViewer = query({
 			questionContent: string | null;
 			authorName: string;
 			authorImageUrl: string | null;
+			authorImageMediaAssetId: Id<'mediaAssets'> | null;
 			content: string;
 			createdAt: number;
 			createdByUserId: string;
@@ -256,6 +281,7 @@ export const listForViewer = query({
 				questionContent,
 				authorName: author.name,
 				authorImageUrl: author.imageUrl,
+				authorImageMediaAssetId: author.imageAssetId,
 				content: update.content,
 				createdAt: update.createdAt,
 				createdByUserId: update.createdByUserId
@@ -263,6 +289,103 @@ export const listForViewer = query({
 		}
 
 		return items;
+	}
+});
+
+export const getViewerAuthorDeliveryAssets = query({
+	args: {
+		assetIds: v.array(v.id('mediaAssets')),
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+		const requestedAssetIdSet = new Set(requestedAssetIds);
+
+		const limit = args.limit ?? 50;
+
+		const memberships = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		if (!activeMemberships.length) {
+			return [];
+		}
+
+		const readableClubIdSet = new Set<Id<'clubs'>>();
+		for (const membership of activeMemberships) {
+			const role = await ctx.db.get(membership.roleId);
+			if (role?.permissions.includes('project:read')) {
+				readableClubIdSet.add(membership.clubId);
+			}
+		}
+
+		const readableClubIds = [...readableClubIdSet];
+		if (!readableClubIds.length) {
+			return [];
+		}
+
+		const takePerClub = Math.min(limit, Math.ceil((limit * 2) / readableClubIds.length));
+		const rowsByClub = await Promise.all(
+			readableClubIds.map((clubId) =>
+				ctx.db
+					.query('updateClubs')
+					.withIndex('by_club_and_created', (q) => q.eq('clubId', clubId))
+					.order('desc')
+					.take(takePerClub)
+			)
+		);
+
+		const rows = rowsByClub.flat().sort((a, b) => b.createdAt - a.createdAt);
+		const seen = new Set<Id<'updates'>>();
+		const authorCache = new Map<string, AuthorSummary>();
+		const deliveryAssets: Array<{
+			assetId: Id<'mediaAssets'>;
+			storageProvider: 's3';
+			deliveryBucket: string | null;
+			deliveryObjectKey: string | null;
+			mediaKind: 'image' | 'video' | null;
+			contentType: string | null;
+			durationSeconds: number | null;
+		}> = [];
+		const delivered = new Set<Id<'mediaAssets'>>();
+
+		for (const row of rows) {
+			if (deliveryAssets.length >= requestedAssetIds.length || seen.size >= limit) break;
+			if (seen.has(row.updateId)) continue;
+			seen.add(row.updateId);
+
+			const update = await ctx.db.get(row.updateId);
+			if (!update) continue;
+
+			const author = await resolveAuthorSummary(ctx, update.createdByUserId, authorCache);
+			const assetId = author.imageAssetId;
+			if (!assetId || !requestedAssetIdSet.has(assetId) || delivered.has(assetId)) {
+				continue;
+			}
+
+			const asset = await ctx.db.get(assetId);
+			if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') {
+				continue;
+			}
+
+			deliveryAssets.push({
+				assetId: asset._id,
+				storageProvider: asset.storageProvider,
+				deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+				deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+				mediaKind: asset.mediaKind ?? null,
+				contentType: asset.contentType ?? null,
+				durationSeconds: asset.durationSeconds ?? null
+			});
+			delivered.add(assetId);
+		}
+
+		return deliveryAssets;
 	}
 });
 
@@ -338,7 +461,7 @@ export const update = mutation({
 export const attachFiles = mutation({
 	args: {
 		updateId: v.id('updates'),
-		storageIds: v.array(v.string())
+		mediaAssetIds: v.array(v.id('mediaAssets'))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -353,10 +476,18 @@ export const attachFiles = mutation({
 		}
 
 		const inserted = [];
-		for (const storageId of args.storageIds) {
+		for (const mediaAssetId of args.mediaAssetIds) {
+			const asset = await ctx.db.get(mediaAssetId);
+			if (!asset || asset.ownerUserId !== identity.subject) {
+				throw new ConvexError('Media asset not found');
+			}
+			if (asset.status !== 'ready') {
+				throw new ConvexError('Only ready media assets can be attached');
+			}
+
 			const id = await ctx.db.insert('updateFiles', {
 				updateId: args.updateId,
-				storageId,
+				mediaAssetId,
 				createdAt: Date.now()
 			});
 			inserted.push(id);
@@ -376,5 +507,58 @@ export const listFiles = query({
 			.query('updateFiles')
 			.withIndex('by_update', (q) => q.eq('updateId', args.updateId))
 			.collect();
+	}
+});
+
+export const getProjectDeliveryAssets = query({
+	args: {
+		projectId: v.id('projects'),
+		assetIds: v.array(v.id('mediaAssets'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const allowed = await canManageProject(ctx, args.projectId, identity.subject);
+		if (!allowed) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const uniqueAssetIds = [...new Set(args.assetIds)];
+		const assets = await Promise.all(
+			uniqueAssetIds.map(async (assetId) => {
+				const fileLinks = await ctx.db
+					.query('updateFiles')
+					.withIndex('by_media_asset', (q) => q.eq('mediaAssetId', assetId))
+					.collect();
+				if (!fileLinks.length) {
+					return null;
+				}
+
+				for (const link of fileLinks) {
+					const update = await ctx.db.get(link.updateId);
+					if (!update || update.projectId !== args.projectId) {
+						continue;
+					}
+
+					const asset = await ctx.db.get(assetId);
+					if (!asset || asset.status !== 'ready') {
+						return null;
+					}
+
+					return {
+						assetId: asset._id,
+						storageProvider: asset.storageProvider,
+						deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+						deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+						mediaKind: asset.mediaKind ?? null,
+						contentType: asset.contentType ?? null,
+						durationSeconds: asset.durationSeconds ?? null
+					};
+				}
+
+				return null;
+			})
+		);
+
+		return assets.filter(Boolean);
 	}
 });

@@ -158,6 +158,45 @@
 
 ## 2026-02-18
 
+## 2026-03-30
+
+### Refactor: Inline Signed Media Delivery
+
+- Added `src/lib/server/signed-media.ts` as the server-only helper for composing short-lived CloudFront URLs into page data.
+- Updated `/settings/media-upload-dev` to load the selected asset preview from `+page.server.ts` instead of calling `/api/media/refresh` just to render the embedded preview panel.
+- Migrated settings, profile, and post-signup avatars to read initial signed image URLs from route server loads rather than the removed `src/lib/media/media-view.svelte.ts` client helper.
+- Updated join-club club preview to receive `videoMediaAssetId` plus a server-composed signed intro video URL on initial load.
+- Kept `/api/media/refresh` for explicit renewal/debug flows only, which avoids the repeated per-component refresh churn that previously froze pages.
+
+### Run: Type Check
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅
+
+### Refactor: Shared Media Field Controller
+
+- Added `src/lib/media/upload-core.ts` as the shared transport/lifecycle layer for begin-upload, direct S3 upload, finalize, polling, and cleanup.
+- Added `src/lib/media/media-field.svelte.ts` with `createMediaField(...)` so product pages now consume a shared field controller instead of hand-rolling file preview/upload/persistence logic.
+- Reworked `src/lib/media/upload-manager.svelte.ts` to consume the shared core while remaining the developer/debug upload surface.
+
+### Product Flows: Settings + Onboarding
+
+- Migrated settings profile image upload to `FileDropZone` + the shared `profileImage` media field in immediate mode.
+- Migrated post-signup profile image selection to the shared `profileImage` field in deferred mode so the asset uploads only on continue.
+- Migrated start-club video selection to the shared `clubVideo` field in deferred mode and removed the old submit-time unauthenticated upload branch.
+- Added an authenticated entry gate for `/onboarding/start-club`, keeping club application media entirely post-auth.
+
+### Backend: Media Cleanup
+
+- Added server-enforced deletion for unattached media assets, including ready assets.
+- Deletion now verifies the asset is not referenced by `profiles.profileImageMediaAssetId` or `clubs.videoMediaAssetId` before removing storage and the `mediaAssets` row.
+- Added supporting indexes on `profiles.profileImageMediaAssetId` and `clubs.videoMediaAssetId`.
+
+### Run: Type Check
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅
+
 ### Feature: Inline Activity Card Editing Expansion
 
 - Session activity cards now support inline title editing via a single-line input (blur-save), fixing caret/cursor instability seen with contenteditable title editing.
@@ -218,6 +257,20 @@
 - Removed experimental external-remove-button layout from active implementation to keep MVP behavior predictable and maintainable.
 - Added inline code comments in multi-select for two non-obvious behaviors:
   - optimistic selected-chip sync during async saves,
+
+## 2026-03-29
+
+### Bug Fix: Media Upload Pipeline Hardening
+
+- Prevented in-flight processors from reviving uploads after a user cancels them by guarding terminal media mutations behind the current `processing` state.
+- Persisted video duration through the upload path by probing local video metadata, signing it into S3 object metadata, and carrying it through the Convex media pipeline so CloudFront TTLs can scale with video length.
+- Made signed-media refreshes generation-aware so stale refresh responses cannot overwrite newer signed URL state.
+- Switched direct S3 uploads from presigned `PUT` to presigned `POST` with a `content-length-range` policy, so oversized uploads are rejected by S3 before they are stored.
+- Hardened media validation to inspect object signatures from S3 byte ranges instead of trusting filename extensions or claimed MIME types.
+
+### Run: Type Check
+
+- `npm run check` ✅ (0 errors, existing upstream warnings remain in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
   - delayed blur-close logic for intra-control focus movement.
 - Added ADR-006 documenting the `Badge` (primitive) + `TagChip` (token/interactions) split and updated docs references.
 
@@ -2508,6 +2561,166 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
+### Fix: Separate UI Upload Constraints From Convex Request Constraints
+
+- Root cause of the Convex upload validation failure was a contract mix-up in `src/lib/media/upload-manager.svelte.ts`.
+- The shared manager was building one constraint object for both:
+  - UI/drop-zone metadata (`accept`)
+  - backend `media.beginUpload` request args
+- Added an explicit split between:
+  - backend-safe request constraints
+  - UI constraints enriched with `accept`
+- `media.beginUpload` now receives only the fields covered by the Convex validator, while `FileDropZone` still uses the derived `accept` string for browser-side filtering.
+- Added small boundary comments in the shared upload manager and `FileDropZone` internals so this contract does not drift again.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Refactor: Shared Client Media Upload Manager
+
+- Added `src/lib/media/upload-manager.svelte.ts` as the reusable client-side orchestration layer for the shared media pipeline.
+- The manager now owns:
+  - upload constraint normalization for drop zones,
+  - `beginUpload -> direct upload -> finalizeUpload`,
+  - retry and cancel helpers,
+  - local preview lifecycle,
+  - recent upload run state for debug or feature UI.
+- Updated `src/routes/(app)/settings/media-upload-dev/+page.svelte` to use the shared manager instead of a page-local upload state machine, so the dev page now acts as the reference integration.
+- Hardened `src/lib/components/ui/file-drop-zone/file-drop-zone.svelte.ts` so failed consumer uploads do not leave the control stuck in an uploading state, and pasted files now respect the same disabled/capacity gate as drag/drop.
+- Clarified `src/lib/components/ui/file-drop-zone/types.ts` docs so `onUpload(files)` is documented as accepted-file handoff, not completed upload behavior.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+ 
+## 2026-03-29
+ 
+### Dev Media: Manual Debug Console
+ 
+- Extended `src/routes/(app)/settings/media-upload-dev/+page.svelte` with a debug console for manual validation.
+- The page now exposes:
+  - auth readiness state,
+  - live `listMyUploads` / `getUpload` query state,
+  - manual snapshot probes for uploads, selected asset detail, and signed delivery,
+  - probe history rendered as JSON for quick inspection during browser testing.
+- This keeps the media verification workflow manual-first without requiring automated test scaffolding.
+ 
+## 2026-03-29
+ 
+### Dev Media: On-Demand Embedded Delivery Preview
+ 
+- Extended `src/routes/(app)/settings/media-upload-dev/+page.svelte` with a safer delivery-verification path for ready assets.
+- The page still uses immediate local browser previews during upload attempts, but processed private media is now embedded only on demand through `Load embedded preview`.
+- The embedded preview fetches a signed URL only when explicitly requested for the selected ready asset, then renders:
+  - `<img>` for images
+  - `<video controls>` for videos
+  - `<iframe>` for PDF/text/JSON-like assets
+- The page now shows the signed delivery expiry timestamp next to the embedded preview so short-lived URL behavior can be checked manually without reintroducing the earlier reactive preview regression.
+ 
+## 2026-03-29
+ 
+### Dev Media: Local Preview + Ready-State Test Flow
+ 
+- Updated `src/routes/(app)/settings/media-upload-dev/+page.svelte` to show an immediate local preview for dropped image/video files using browser object URLs.
+- Kept the private processed asset out of the page body after the earlier inline signed-preview regression.
+- Recent upload attempts now make the intended flow clearer:
+  - local preview appears immediately,
+  - upload/finalize progress remains visible,
+  - `Ready to use` appears once processing is complete.
+- Kept signed delivery verification on explicit `Open file` / `Open ready file` actions instead of auto-embedding the processed private asset.
+
+### Secure Media Delivery Pivot: CloudFront Signed URLs
+
+- Replaced the CloudFront signed-cookie delivery scaffolding with server-minted CloudFront signed URLs.
+- Added `src/routes/api/media/refresh/+server.ts` as the shared signed URL refresh endpoint for authorized media contexts.
+- Added `src/lib/media/signed-media.svelte.ts` to centralize client-side signed URL refresh timing and reuse.
+- Removed the canonical `/media/[assetId]` redirect route and the `routes.mediaAsset(...)` helper.
+- Updated the media upload dev page to open ready assets through signed URL refresh instead of the old route contract.
+- Added owner-scoped and project-scoped delivery resolvers so signed URLs are minted only after context-specific checks.
+- Added `mediaAssetIds` to project updates and rendered project update attachments through short-lived signed URLs with automatic refresh.
+- Extended media asset metadata with optional `durationSeconds` so video delivery TTL can become duration-aware without changing the public asset identifier contract.
+
+## 2026-03-29
+
+### Feature: App-Level Media Read Route
+
+- Added `/media/[assetId]` as the canonical app-level media fetch path.
+- The current implementation requires an authenticated app session, resolves the requested asset through Convex, and redirects ready assets to the resolved file URL.
+- This keeps feature UI code off raw S3 URLs so secure cookie-checked media delivery can be added later behind the same route.
+- Updated the settings media upload dev page to open ready files through the app route instead of binding directly to the storage URL.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Feature: Secure Media Delivery Scaffolding
+
+- Added server-side secure media delivery scaffolding around the canonical `/media/[assetId]` route.
+- `src/lib/server/media-delivery.ts` now loads CloudFront delivery env, generates signed-cookie values, and builds CDN object URLs.
+- Added `api.media.getDeliveryAsset` so authenticated server routes can resolve ready asset delivery metadata without going through the owner-only upload inspection query.
+- `/media/[assetId]` now prefers CloudFront signed-cookie delivery when secure media env is present, while keeping the existing resolved-file fallback for development until CDN setup is complete.
+- Current temporary access rule is intentionally broad: any authenticated user can resolve a ready media asset by id. Feature-specific authorization is deferred to later work.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-03-28
+
+### Infra: Shared Media Storage Migrated to S3
+
+- Replaced Convex file-storage coupling in the shared upload pipeline with S3-backed object storage.
+- `src/convex/media.ts` now treats Convex as the control plane and S3 as the canonical blob store:
+  - `beginUpload` returns a provider-neutral upload descriptor instead of a bare Convex upload URL,
+  - `finalizeUpload` verifies the S3 object and no longer accepts a Convex `storageId`,
+  - `restartUpload` and `cancelUpload` clean up S3 objects before resetting lifecycle state.
+- Added `src/convex/mediaStorage.ts` for S3 config, object-key generation, and ready-asset URL resolution.
+- Updated `mediaAssets` to store provider-neutral references (`storageProvider`, `sourceObjectKey`, `processedObjectKey`, optional bucket fields) instead of Convex `_storage` ids.
+- Updated `updateFiles` to attach `mediaAssetId` rather than raw storage ids, keeping feature-level references on the shared media contract.
+
+### Documentation
+
+- Added ADR-013 for the S3-backed media storage decision.
+- Updated architecture, data model, and implementation plan docs to describe the S3-backed upload contract.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Simplification: Remove Restart From Shared Media Contract
+
+- Removed `restartUpload` from the active shared media API and from the developer test page.
+- Reason: it does not match the intended product workflow, where replacing an attachment should create a new upload/asset selection in feature UI rather than preserving and mutating an existing ready asset.
+- The active shared media contract is now:
+  - `beginUpload`
+  - direct upload to S3
+  - `finalizeUpload`
+  - `retryProcessing`
+  - `cancelUpload`
+- Updated docs and the settings media test page to reflect the leaner flow.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Restart Upload Uses Replacement File Metadata
+
+- Fixed a restart/finalize mismatch in the media test flow.
+- Root cause: `restartUpload` reused the original asset metadata (`originalFilename`, `clientContentType`, `clientSizeBytes`), so replacing a file with a different size caused finalize-time S3 verification to fail with `Uploaded file size does not match the expected size`.
+- Updated the Convex restart path so replacement file metadata is supplied when the replacement file is actually chosen.
+- Updated the settings media test page so `Restart` now arms an asset for replacement, and the actual restart action runs when the replacement file is dropped.
+- Result: restart now preserves the same `mediaAssetId` while issuing a fresh raw object revision that matches the replacement file being uploaded.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+- `npm run test:quick -- src/convex/mediaStorage.spec.ts src/convex/mediaPipeline.spec.ts` ✅
+
 ### 2026-03-22: Media Upload Dev Test Surface
 
 - Added a temporary authenticated route at `src/routes/(app)/settings/media-upload-dev/+page.svelte` to exercise the shared `mediaAssets` pipeline without using the Convex dashboard.
@@ -2562,6 +2775,41 @@
 
 ### Run: Validation
 
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+## 2026-03-28
+
+### Feature: Settings Media Upload Test Page
+
+- Added `/settings/media-upload-dev` as a manual test surface for the shared media pipeline.
+- The page uses existing UI primitives only and covers:
+  - constraint preset editing,
+  - direct upload via returned upload descriptor,
+  - finalize,
+  - retry,
+  - restart with replacement upload,
+  - cancel,
+  - upload detail inspection and ready-file links.
+- Added a `Developer tools` card on `/settings` linking to the new page.
+- Added `routes.settingsMediaUploadDev` in `src/lib/routes.ts` so the route stays discoverable and avoids ad-hoc path strings.
+
+### Run: Validation
+
+- `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
+
+### Bug Fix: Media S3 Actions Split Out Of Mixed Convex Module
+
+- Fixed Convex deploy/runtime failures introduced by the S3-backed media migration.
+- Root cause:
+  - adding `"use node"` directly to `src/convex/media.ts` fixed AWS SDK runtime issues,
+  - but Convex then rejected the module because Node-only files may export actions only, while `media.ts` also contains queries and mutations.
+- Moved S3/AWS SDK work into `src/convex/mediaNode.ts` as internal Node actions.
+- Kept the public API stable in `src/convex/media.ts` by turning `beginUpload`, `finalizeUpload`, `restartUpload`, and `cancelUpload` into thin wrapper actions that delegate to `internal.mediaNode.*`.
+- Added `src/convex/mediaShared.ts` for the resolved-asset mapper used by both modules.
+
+### Run: Validation
+
+- `npm run convex:codegen` ✅
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
 ### Bug Fix: Club Dashboard Create-Session “Open” Could Stay on Dashboard
@@ -2693,8 +2941,6 @@
 
 - `npm run check` ✅ (0 errors, existing 3 warnings unchanged in `src/lib/components/ui/toggle-group/toggle-group.svelte`)
 
-- 2026-03-24: Refactored auth/onboarding media uploads to reuse the shared FileDropZone and media begin/finalize flow in post-signup profile setup and start-club video upload. Kept profile and club domain mutations unchanged by continuing to persist profileImageStorageId and videoStorageId from the finalized media asset.
-
 - 2026-03-28: Made Google sign-in authenticate-only by setting `disableSignUp: true` on the Better Auth Google provider, so `/auth/sign-in` no longer provisions new Google accounts implicitly.
 - 2026-03-28: Updated `/auth/sign-in` to show a clear “No account found for this Google email. Create an account first to continue.” message for Google signup-disabled cases, while keeping a separate linked-account mismatch message.
 - 2026-03-28: Normalized post-login redirects so `next=/profile` falls back to `/`, which sends signed-in users to the main club dashboard/home flow instead of the profile page.
@@ -2711,3 +2957,10 @@
 - 2026-03-29: Replaced the start-club Photon location lookup with Mapbox forward geocoding, added a live Mapbox GL location preview on the onboarding form, and documented `PUBLIC_MAPBOX_ACCESS_TOKEN` plus Ron’s shared style URI for local web setup.
 - 2026-03-29: Added a public-clubs browse screen from join-club that asks for browser location, sorts clubs by distance when available, falls back to all clubs otherwise, and opens the existing club detail/join step when a club marker or card is selected.
 - 2026-03-29: Added an idempotent `seedNetherlandsMapClubs` bootstrap mutation with Netherlands-based public demo clubs, valid city/garden locations, and saved coordinates so the public-clubs map/carousel flow has realistic nearby data for testing.
+- 2026-03-30: Merged the S3 media migration branch with `main` and moved the remaining auth/profile/club media flows off Convex `_storage`. Profile setup, settings avatar uploads, and start-club video uploads now persist `mediaAssetId` references (`profiles.profileImageMediaAssetId`, `clubs.videoMediaAssetId`) while existing UI reads keep receiving resolved `coverPhotoUrl` / `videoUrl` values from the S3-backed asset records.
+- 2026-03-30: Added `src/lib/media/media-view.svelte.ts` as the shared owned-media read helper on top of signed URL refresh, and migrated settings, profile, and post-signup profile image rendering to use `profileImageMediaAssetId` plus signed delivery instead of raw S3-backed `coverPhotoUrl` values. This fixes the “avatar looks saved until refresh, then disappears with 403” regression on private media objects.
+- 2026-03-30: Migrated the club dashboard's “Active learners” avatars to inline signed delivery on initial page load, using page-level signed URLs for member `profileImageMediaAssetId` values instead of raw `coverPhotoUrl` reads. This keeps learner avatars visible on refresh without reintroducing the client-side refresh storm from the earlier shared media-view experiment.
+- 2026-03-30: Migrated the club members page and project detail member views to inline signed avatar delivery on initial load. Both now sign visible `profileImageMediaAssetId` values at the route level and render from those URLs instead of relying on raw `coverPhotoUrl` values for private media.
+- 2026-03-30: Extended inline signed media delivery to the remaining route-scoped avatar stacks and feed authors. Club dashboard project rails, club projects tabs, club sessions attendee stacks, and the My Clubs feed now sign visible `profileImageMediaAssetId` values in route/layout server loads and pass those signed URLs into the existing avatar components, avoiding both raw private object URLs and client-side refresh storms.
+- 2026-03-30: Removed the remaining UI-level `coverPhotoUrl` / `videoUrl` fallbacks from active media reads. Asset-backed surfaces now render media only when a `profileImageMediaAssetId` or `videoMediaAssetId` exists, keeping signed delivery as the single source of truth instead of silently falling back to legacy URLs.
+- 2026-03-31: Migrated project detail update attachments off the client refresh-context path. The project tabbed layout now signs visible update `mediaAssetIds` inline for the overview tab and `project-detail-view` renders those URLs directly, keeping media access anchored to the authorized project load instead of the media layer.

@@ -28,7 +28,7 @@
 		"@eslint/compat": "^2.0.2",
 		"@eslint/js": "^9.39.2",
 		"@internationalized/date": "^3.11.0",
-		"@lucide/svelte": "^0.577.0",
+		"@lucide/svelte": "^1.7.0",
 		"@playwright/test": "^1.58.1",
 		"@sveltejs/adapter-node": "^5.5.4",
 		"@sveltejs/kit": "^2.50.2",
@@ -68,6 +68,9 @@
 		"vitest-browser-svelte": "^2.0.2"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.940.0",
+		"@aws-sdk/s3-presigned-post": "^3.1019.0",
+		"@aws-sdk/s3-request-presigner": "^3.940.0",
 		"@convex-dev/better-auth": "^0.10.10",
 		"@fontsource/bevan": "^5.2.7",
 		"@fontsource/dm-sans": "^5.2.8",

@@ -83,7 +83,11 @@ export const listPreviewsByClub = query({
 
 		const result: Array<{
 			project: (typeof limited)[number];
-			members: Array<{ name: string; imageUrl: string | null }>;
+			members: Array<{
+				name: string;
+				imageUrl: string | null;
+				profileImageMediaAssetId: Id<'mediaAssets'> | null;
+			}>;
 		}> = [];
 
 		for (const project of limited) {
@@ -93,11 +97,24 @@ export const listPreviewsByClub = query({
 				.collect();
 			const activeMemberships = memberships.filter((membership) => !membership.leftAt).slice(0, 3);
 
-			const members = activeMemberships.map((membership) => {
-				const fullName = [membership.firstName, membership.lastName].filter(Boolean).join(' ').trim();
-				const name = fullName || membership.username || membership.email || membership.userId;
-				return { name, imageUrl: membership.coverPhotoUrl ?? null };
-			});
+			const members = await Promise.all(
+				activeMemberships.map(async (membership) => {
+					const profile = await ctx.db
+						.query('profiles')
+						.withIndex('by_user_id', (q) => q.eq('userId', membership.userId))
+						.first();
+					const fullName = [membership.firstName, membership.lastName]
+						.filter(Boolean)
+						.join(' ')
+						.trim();
+					const name = fullName || membership.username || membership.email || membership.userId;
+					return {
+						name,
+						imageUrl: null,
+						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
+					};
+				})
+			);
 
 			result.push({ project, members });
 		}
@@ -246,14 +263,19 @@ export const listMembers = query({
 		const result = [];
 		for (const membership of activeMemberships) {
 			const role = await ctx.db.get(membership.roleId);
+			const profile = await ctx.db
+				.query('profiles')
+				.withIndex('by_user_id', (q) => q.eq('userId', membership.userId))
+				.first();
 			result.push({
 				projectMemberId: membership._id,
 				profileId: membership.userId,
-				firstName: membership.firstName ?? '',
-				lastName: membership.lastName ?? null,
-				username: membership.username ?? null,
-				email: membership.email ?? null,
-				coverPhotoUrl: membership.coverPhotoUrl ?? null,
+				firstName: membership.firstName ?? profile?.firstName ?? '',
+				lastName: membership.lastName ?? profile?.lastName ?? null,
+				username: membership.username ?? profile?.username ?? null,
+				email: membership.email ?? profile?.email ?? null,
+				coverPhotoUrl: null,
+				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
 				roleId: membership.roleId,
 				roleName: role?.name ?? 'Contributor',
 				leftAt: membership.leftAt ?? null
@@ -261,6 +283,73 @@ export const listMembers = query({
 		}
 
 		return result;
+	}
+});
+
+export const getMemberProfileDeliveryAssets = query({
+	args: {
+		projectId: v.id('projects'),
+		assetIds: v.array(v.id('mediaAssets'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await isProjectPermissionAllowed(
+			ctx,
+			args.projectId,
+			identity.subject,
+			'project:read'
+		);
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+
+		const memberships = await ctx.db
+			.query('projectMembers')
+			.withIndex('by_project', (q) => q.eq('projectId', args.projectId))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		const profiles = await Promise.all(
+			activeMemberships.map((membership) =>
+				ctx.db
+					.query('profiles')
+					.withIndex('by_user_id', (q) => q.eq('userId', membership.userId))
+					.first()
+			)
+		);
+
+		const allowedAssetIds = new Set(
+			profiles
+				.map((profile) => profile?.profileImageMediaAssetId ?? null)
+				.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null)
+		);
+
+		const deliveryAssets = await Promise.all(
+			requestedAssetIds
+				.filter((assetId) => allowedAssetIds.has(assetId))
+				.map(async (assetId) => {
+					const asset = await ctx.db.get(assetId);
+					if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') {
+						return null;
+					}
+
+					return {
+						assetId: asset._id,
+						storageProvider: asset.storageProvider,
+						deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+						deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+						mediaKind: asset.mediaKind ?? null,
+						contentType: asset.contentType ?? null,
+						durationSeconds: asset.durationSeconds ?? null
+					};
+				})
+		);
+
+		return deliveryAssets.filter(Boolean);
 	}
 });
 

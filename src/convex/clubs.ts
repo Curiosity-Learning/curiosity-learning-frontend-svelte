@@ -4,6 +4,7 @@ import type { GenericDataModel } from 'convex/server';
 import { mutation, query } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
+import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	hasPermission,
 	getMembership,
@@ -72,16 +73,36 @@ const getRoleByName = async (ctx: Ctx, name: 'Guide' | 'Learner') => {
 	return role;
 };
 
+const requireOwnedReadyClubVideo = async (
+	ctx: MutationCtx,
+	userId: string,
+	assetId: Id<'mediaAssets'>
+) => {
+	const asset = await ctx.db.get(assetId);
+	if (!asset || asset.ownerUserId !== userId) {
+		throw new ConvexError('Club video not found');
+	}
+	if (asset.status !== 'ready') {
+		throw new ConvexError('Club video is not ready');
+	}
+	if (asset.mediaKind !== 'video') {
+		throw new ConvexError('Club video must be a video');
+	}
+
+	return asset;
+};
+
 const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
-	if (!club.videoStorageId) {
+	if (!club.videoMediaAssetId) {
 		return null;
 	}
 
-	try {
-		return await ctx.storage.getUrl(club.videoStorageId);
-	} catch {
+	const asset = await ctx.db.get(club.videoMediaAssetId);
+	if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'video') {
 		return null;
 	}
+
+	return resolveMediaAssetFileUrl(asset);
 };
 
 const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'clubMembers'>) => {
@@ -244,6 +265,7 @@ export const getClubPreviewByCode = query({
 			id: club._id,
 			name: club.name,
 			description: club.description ?? null,
+			videoMediaAssetId: club.videoMediaAssetId ?? null,
 			videoUrl: await resolveClubVideoUrl(ctx, club),
 			location: club.location ?? null,
 			locationLatitude: club.locationLatitude ?? null,
@@ -253,6 +275,38 @@ export const getClubPreviewByCode = query({
 			memberCount: members.filter((member) => !member.leftAt).length,
 			createdAt: club.createdAt,
 			code
+		};
+	}
+});
+
+export const getClubPreviewDeliveryAssetByCode = query({
+	args: {
+		code: v.string()
+	},
+	handler: async (ctx, args) => {
+		const normalizedCode = normalizeInviteCode(args.code);
+		if (!INVITE_CODE_PATTERN.test(normalizedCode)) {
+			return null;
+		}
+
+		const resolved = await resolveClubByCode(ctx, normalizedCode);
+		if (!resolved?.club.videoMediaAssetId) {
+			return null;
+		}
+
+		const asset = await ctx.db.get(resolved.club.videoMediaAssetId);
+		if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'video') {
+			return null;
+		}
+
+		return {
+			assetId: asset._id,
+			storageProvider: asset.storageProvider,
+			deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+			deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+			mediaKind: asset.mediaKind ?? null,
+			contentType: asset.contentType ?? null,
+			durationSeconds: asset.durationSeconds ?? null
 		};
 	}
 });
@@ -298,7 +352,7 @@ export const createClub = mutation({
 		locationLongitude: v.optional(v.number()),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string()),
-		videoStorageId: v.optional(v.id('_storage'))
+		videoMediaAssetId: v.optional(v.id('mediaAssets'))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -307,6 +361,10 @@ export const createClub = mutation({
 		const profile = await getOrCreateProfile(ctx, identity.subject);
 		const inviteCode = await createInviteCode(ctx);
 
+		if (args.videoMediaAssetId) {
+			await requireOwnedReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
+		}
+
 		const clubId = await ctx.db.insert('clubs', {
 			name: args.name,
 			clubCode: inviteCode,
@@ -314,7 +372,7 @@ export const createClub = mutation({
 			location: args.location,
 			locationLatitude: args.locationLatitude,
 			locationLongitude: args.locationLongitude,
-			videoStorageId: args.videoStorageId,
+			videoMediaAssetId: args.videoMediaAssetId,
 			meetingDay: args.meetingDay,
 			meetingTime: args.meetingTime,
 			createdByUserId: identity.subject,
@@ -491,7 +549,7 @@ export const updateClub = mutation({
 		location: v.optional(v.string()),
 		locationLatitude: v.optional(v.number()),
 		locationLongitude: v.optional(v.number()),
-		videoStorageId: v.optional(v.id('_storage')),
+		videoMediaAssetId: v.optional(v.id('mediaAssets')),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string())
 	},
@@ -504,13 +562,17 @@ export const updateClub = mutation({
 			throw new ConvexError('Club not found');
 		}
 
+		if (args.videoMediaAssetId) {
+			await requireOwnedReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
+		}
+
 		await ctx.db.patch(args.clubId, {
 			name: args.name ?? club.name,
 			description: args.description ?? club.description,
 			location: args.location ?? club.location,
 			locationLatitude: args.locationLatitude ?? club.locationLatitude,
 			locationLongitude: args.locationLongitude ?? club.locationLongitude,
-			videoStorageId: args.videoStorageId ?? club.videoStorageId,
+			videoMediaAssetId: args.videoMediaAssetId ?? club.videoMediaAssetId,
 			meetingDay: args.meetingDay ?? club.meetingDay,
 			meetingTime: args.meetingTime ?? club.meetingTime,
 			updatedAt: Date.now()
@@ -554,6 +616,7 @@ export const getMembers = query({
 			username: string | null;
 			email: string | null;
 			coverPhotoUrl: string | null;
+			profileImageMediaAssetId: Id<'mediaAssets'> | null;
 		}> = [];
 
 		for (const member of activeMembers) {
@@ -562,20 +625,18 @@ export const getMembers = query({
 				continue;
 			}
 
+			const profile = await ctx.db
+				.query('profiles')
+				.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
+				.first();
+
 			// Fall back to the profiles table when denormalized fields are missing
-			let { firstName, lastName, username, email, coverPhotoUrl } = member;
-			if (!firstName && !lastName && !email) {
-				const profile = await ctx.db
-					.query('profiles')
-					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
-					.first();
-				if (profile) {
-					firstName = firstName ?? profile.firstName;
-					lastName = lastName ?? profile.lastName;
-					username = username ?? profile.username;
-					email = email ?? profile.email;
-					coverPhotoUrl = coverPhotoUrl ?? profile.coverPhotoUrl;
-				}
+			let { firstName, lastName, username, email } = member;
+			if (profile) {
+				firstName = firstName ?? profile.firstName;
+				lastName = lastName ?? profile.lastName;
+				username = username ?? profile.username;
+				email = email ?? profile.email;
 			}
 
 			output.push({
@@ -588,11 +649,141 @@ export const getMembers = query({
 				lastName: lastName ?? null,
 				username: username ?? null,
 				email: email ?? null,
-				coverPhotoUrl: coverPhotoUrl ?? null
+				coverPhotoUrl: null,
+				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
 			});
 		}
 
 		return output;
+	}
+});
+
+export const getMemberProfileDeliveryAssets = query({
+	args: {
+		clubId: v.id('clubs'),
+		assetIds: v.array(v.id('mediaAssets'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await hasPermission(
+			ctx,
+			args.clubId,
+			identity.subject,
+			'club_member:read_active'
+		);
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+
+		const members = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
+			.collect();
+		const activeMembers = members.filter((member) => !member.leftAt);
+		const profiles = await Promise.all(
+			activeMembers.map((member) =>
+				ctx.db
+					.query('profiles')
+					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
+					.first()
+			)
+		);
+
+		const allowedAssetIds = new Set(
+			profiles
+				.map((profile) => profile?.profileImageMediaAssetId ?? null)
+				.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null)
+		);
+
+		const deliveryAssets = await Promise.all(
+			requestedAssetIds
+				.filter((assetId) => allowedAssetIds.has(assetId))
+				.map(async (assetId) => {
+					const asset = await ctx.db.get(assetId);
+					if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') {
+						return null;
+					}
+
+					return {
+						assetId: asset._id,
+						storageProvider: asset.storageProvider,
+						deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+						deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+						mediaKind: asset.mediaKind ?? null,
+						contentType: asset.contentType ?? null,
+						durationSeconds: asset.durationSeconds ?? null
+					};
+				})
+		);
+
+		return deliveryAssets.filter(Boolean);
+	}
+});
+
+export const getProfileDeliveryAssets = query({
+	args: {
+		clubId: v.id('clubs'),
+		assetIds: v.array(v.id('mediaAssets'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await hasPermission(ctx, args.clubId, identity.subject, 'club:read');
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+
+		const members = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
+			.collect();
+		const activeMembers = members.filter((member) => !member.leftAt);
+		const profiles = await Promise.all(
+			activeMembers.map((member) =>
+				ctx.db
+					.query('profiles')
+					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
+					.first()
+			)
+		);
+
+		const allowedAssetIds = new Set(
+			profiles
+				.map((profile) => profile?.profileImageMediaAssetId ?? null)
+				.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null)
+		);
+
+		const deliveryAssets = await Promise.all(
+			requestedAssetIds
+				.filter((assetId) => allowedAssetIds.has(assetId))
+				.map(async (assetId) => {
+					const asset = await ctx.db.get(assetId);
+					if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') {
+						return null;
+					}
+
+					return {
+						assetId: asset._id,
+						storageProvider: asset.storageProvider,
+						deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+						deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+						mediaKind: asset.mediaKind ?? null,
+						contentType: asset.contentType ?? null,
+						durationSeconds: asset.durationSeconds ?? null
+					};
+				})
+		);
+
+		return deliveryAssets.filter(Boolean);
 	}
 });
 

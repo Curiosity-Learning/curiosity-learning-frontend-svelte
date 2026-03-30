@@ -22,12 +22,12 @@ class FileDropZoneState {
 	uploading = $state(false);
 	dragDepth = $state(0);
 
-		constructor(readonly opts: FileDropZoneStateOptions) {
-			if (this.opts.maxFiles !== undefined && this.opts.fileCount === undefined) {
-				console.warn(
-					'Make sure to provide FileDropZone with `fileCount` when using the `maxFiles` prop'
-				);
-			}
+	constructor(readonly opts: FileDropZoneStateOptions) {
+		if (this.opts.maxFiles !== undefined && this.opts.fileCount === undefined) {
+			console.warn(
+				'Make sure to provide FileDropZone with `fileCount` when using the `maxFiles` prop'
+			);
+		}
 
 		this.onchange = this.onchange.bind(this);
 		this.ondrop = this.ondrop.bind(this);
@@ -61,8 +61,8 @@ class FileDropZoneState {
 
 		await this.upload(Array.from(selectedFiles));
 
-			// Reset the input so selecting the same file again still triggers change feedback.
-			(e.target as HTMLInputElement).value = '';
+		// Reset the input so selecting the same file again still triggers change feedback.
+		(e.target as HTMLInputElement).value = '';
 	}
 
 	ondragenter(e: DragEvent) {
@@ -163,45 +163,46 @@ class FileDropZoneState {
 
 	upload = async (uploadFiles: File[]) => {
 		this.uploading = true;
-
-		const existingFileCount = this.opts.fileCount?.current ?? 0;
-		if (
-			this.opts.maxFiles.current !== undefined &&
-			existingFileCount + uploadFiles.length > this.opts.maxFiles.current
-		) {
-			// Reject the whole attempted batch when it would exceed the configured limit.
-			// This keeps selection behavior predictable for multi-file pickers instead of
-			// silently accepting the first few files and dropping the rest.
-			this.reportRejections(
-				uploadFiles.map((file) => ({ file, reason: 'Maximum files uploaded' as const }))
-			);
-			this.uploading = false;
-			return;
-		}
-
-		const validFiles: File[] = [];
-		const rejections: Array<{ file: File; reason: FileRejectedReason }> = [];
-
-		for (let i = 0; i < uploadFiles.length; i++) {
-			const file = uploadFiles[i];
-
-			const rejectedReason = this.shouldAcceptFile(file);
-
-			if (rejectedReason) {
-				rejections.push({ file, reason: rejectedReason });
-				continue;
+		try {
+			const existingFileCount = this.opts.fileCount?.current ?? 0;
+			if (
+				this.opts.maxFiles.current !== undefined &&
+				existingFileCount + uploadFiles.length > this.opts.maxFiles.current
+			) {
+				// Reject the whole attempted batch when it would exceed the configured limit.
+				// This keeps selection behavior predictable for multi-file pickers instead of
+				// silently accepting the first few files and dropping the rest.
+				this.reportRejections(
+					uploadFiles.map((file) => ({ file, reason: 'Maximum files uploaded' as const }))
+				);
+				return;
 			}
 
-			validFiles.push(file);
+			const validFiles: File[] = [];
+			const rejections: Array<{ file: File; reason: FileRejectedReason }> = [];
+
+			for (let i = 0; i < uploadFiles.length; i++) {
+				const file = uploadFiles[i];
+
+				const rejectedReason = this.shouldAcceptFile(file);
+
+				if (rejectedReason) {
+					rejections.push({ file, reason: rejectedReason });
+					continue;
+				}
+
+				validFiles.push(file);
+			}
+
+			this.reportRejections(rejections);
+
+			if (validFiles.length) {
+				// Feature-level upload handlers can fail; always release the disabled state.
+				await this.opts.onUpload.current?.(validFiles);
+			}
+		} finally {
+			this.uploading = false;
 		}
-
-		this.reportRejections(rejections);
-
-		if (validFiles.length) {
-			await this.opts.onUpload.current?.(validFiles);
-		}
-
-		this.uploading = false;
 	};
 
 	canUploadFiles = $derived.by(() => {
@@ -293,11 +294,16 @@ class FileDropZoneTextareaState {
 			return;
 		}
 
+		if (this.rootState.opts.disabled.current || !this.rootState.canUploadFiles) {
+			this.opts.onpaste.current?.(e);
+			return;
+		}
+
 		const files = Array.from(clipboardData.items)
 			.map((item) => item.getAsFile())
 			.filter((file) => file !== null);
 
-		this.rootState.upload(files);
+		void this.rootState.upload(files);
 
 		this.opts.onpaste.current?.(e);
 	}

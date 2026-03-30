@@ -1,4 +1,5 @@
 import { v } from 'convex/values';
+import { mediaStorageProviderValidatorLiteral } from './mediaStorage';
 
 export const MEDIA_PIPELINE_VERSION = 1;
 
@@ -24,6 +25,7 @@ export const MEDIA_PIPELINE_STEP_STATUSES = ['passed', 'failed', 'skipped'] as c
 export type MediaPipelineStepStatus = (typeof MEDIA_PIPELINE_STEP_STATUSES)[number];
 
 export const mediaKindValidator = v.union(v.literal('image'), v.literal('video'));
+export const mediaStorageProviderValidator = v.literal(mediaStorageProviderValidatorLiteral);
 
 export const mediaUploadStatusValidator = v.union(
 	v.literal('pending_upload'),
@@ -83,9 +85,15 @@ export const mediaAssetFields = {
 	maxBytes: v.number(),
 	enableCompression: v.boolean(),
 	enableSafetyScreening: v.boolean(),
-	storageId: v.optional(v.id('_storage')),
+	storageProvider: mediaStorageProviderValidator,
+	sourceBucket: v.optional(v.string()),
+	sourceObjectKey: v.optional(v.string()),
+	sourceObjectRevision: v.number(),
+	processedBucket: v.optional(v.string()),
+	processedObjectKey: v.optional(v.string()),
 	contentType: v.optional(v.string()),
 	sizeBytes: v.optional(v.number()),
+	durationSeconds: v.optional(v.number()),
 	sha256: v.optional(v.string()),
 	pipelineVersion: v.number(),
 	attemptCount: v.number(),

@@ -15,8 +15,10 @@
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
 	import { formatWeeklyMeetingLabel } from '$lib/domain/date';
+	import type { SignedDeliveryAsset } from '$lib/server/signed-media';
 
-	let { data }: PageProps = $props();
+	let { data }: { data: PageProps['data'] & { initialClubVideo: SignedDeliveryAsset | null } } =
+		$props();
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
@@ -28,19 +30,20 @@
 	let videoLoadFailed = $state(false);
 	let forcedGoogleSignupRecoveryPending = $state(false);
 
-	const isValidVideoUrl = (value: string | null | undefined) => {
-		if (!value) return false;
-		try {
-			const parsed = new URL(value);
-			return parsed.protocol === 'https:' || parsed.protocol === 'http:';
-		} catch {
-			return false;
-		}
-	};
-
 	let club = $derived(preview.data);
 	let meetingLabel = $derived(formatWeeklyMeetingLabel(club?.meetingDay ?? null, club?.meetingTime ?? null));
-	let clubVideoUrl = $derived(isValidVideoUrl(club?.videoUrl ?? null) ? club?.videoUrl ?? null : null);
+	let clubVideoUrl = $derived.by(() => {
+		const clubVideoAssetId = club?.videoMediaAssetId ?? null;
+		if (clubVideoAssetId && data.initialClubVideo?.assetId === clubVideoAssetId) {
+			return data.initialClubVideo.signedUrl;
+		}
+
+		if (clubVideoAssetId) {
+			return null;
+		}
+
+		return null;
+	});
 
 	$effect(() => {
 		void clubVideoUrl;

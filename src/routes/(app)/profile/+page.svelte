@@ -17,6 +17,9 @@
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { api } from '$convex/_generated/api';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import type { PageProps } from './$types';
+
+	let { data }: PageProps = $props();
 
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
@@ -44,6 +47,21 @@
 			? routes.clubHome(activeContext.data.activeClubId)
 			: routes.onboardingGetStarted
 	);
+	const profileImageUrl = $derived.by(() => {
+		const profileImageAssetId = profileResponse.data?.profileImageMediaAssetId ?? null;
+		if (
+			profileImageAssetId &&
+			data.initialProfileImage?.assetId === profileImageAssetId
+		) {
+			return data.initialProfileImage.signedUrl;
+		}
+
+		if (profileImageAssetId) {
+			return null;
+		}
+
+		return null;
+	});
 
 	const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
@@ -75,7 +93,7 @@
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="flex items-center gap-4">
 					<Avatar class="size-14">
-						<AvatarImage src={profileResponse.data?.coverPhotoUrl ?? undefined} alt="Profile" />
+						<AvatarImage src={profileImageUrl ?? undefined} alt="Profile" />
 						<AvatarFallback>{fallback.toUpperCase()}</AvatarFallback>
 					</Avatar>
 					<div class="flex flex-col gap-1">

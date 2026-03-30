@@ -1,10 +1,11 @@
 import { ConvexError } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
-import type { QueryCtx, MutationCtx } from './_generated/server';
+import type { ActionCtx, QueryCtx, MutationCtx } from './_generated/server';
 
-export type ConvexCtx = QueryCtx | MutationCtx;
+type AuthCtx = QueryCtx | MutationCtx | ActionCtx;
+type DbCtx = QueryCtx | MutationCtx;
 
-export const requireIdentity = async (ctx: ConvexCtx) => {
+export const requireIdentity = async (ctx: AuthCtx) => {
 	const identity = await ctx.auth.getUserIdentity();
 	if (!identity) {
 		throw new ConvexError('Unauthenticated');
@@ -12,7 +13,7 @@ export const requireIdentity = async (ctx: ConvexCtx) => {
 	return identity;
 };
 
-export const requireProfile = async (ctx: ConvexCtx, userId: string) => {
+export const requireProfile = async (ctx: DbCtx, userId: string) => {
 	const profile = await ctx.db
 		.query('profiles')
 		.withIndex('by_user_id', (q) => q.eq('userId', userId))
@@ -23,7 +24,7 @@ export const requireProfile = async (ctx: ConvexCtx, userId: string) => {
 	return profile;
 };
 
-export const getMembership = async (ctx: ConvexCtx, clubId: Id<'clubs'>, userId: string) => {
+export const getMembership = async (ctx: DbCtx, clubId: Id<'clubs'>, userId: string) => {
 	const memberships = await ctx.db
 		.query('clubMembers')
 		.withIndex('by_club_and_user', (q) => q.eq('clubId', clubId).eq('userId', userId))
@@ -32,7 +33,7 @@ export const getMembership = async (ctx: ConvexCtx, clubId: Id<'clubs'>, userId:
 };
 
 export const hasPermission = async (
-	ctx: ConvexCtx,
+	ctx: DbCtx,
 	clubId: Id<'clubs'>,
 	userId: string,
 	permission: string
@@ -51,7 +52,7 @@ export const hasPermission = async (
 };
 
 export const requirePermission = async (
-	ctx: ConvexCtx,
+	ctx: DbCtx,
 	clubId: Id<'clubs'>,
 	userId: string,
 	permission: string

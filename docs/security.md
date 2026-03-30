@@ -69,6 +69,18 @@ All require auth + club permission via `requirePermission`:
 | `updates.attachFiles`  | Yes  | `project:update`  |                                                 |
 | `updates.listFiles`    | Yes  | —                 | **Gap:** only checks auth, not project scope    |
 
+### Media Delivery
+
+| Endpoint                          | Auth | Permission        | Notes                                                        |
+| --------------------------------- | ---- | ----------------- | ------------------------------------------------------------ |
+| `media.beginUpload/finalize/cancel/retry/getUpload/listMyUploads` | Yes | owner-scoped | Upload control plane is always scoped to the asset owner     |
+| `POST /api/media/refresh` (`owned`)   | Yes | owner-scoped       | Mints signed URLs only for caller-owned ready assets         |
+| `POST /api/media/refresh` (`project`) | Yes | `project:update`   | Uses `updates.getProjectDeliveryAssets`; currently manager-scoped |
+
+Notes:
+- Client upload constraints sent to Convex must stay limited to the backend validator shape (`acceptedContentTypes`, `maxBytes`, processing flags). UI helpers such as HTML `accept` strings are client-only metadata and must not be forwarded through `media.beginUpload`.
+- Signed delivery is URL-based via `/api/media/refresh`; the app no longer relies on a shared `/media/[assetId]` route or CloudFront signed cookies.
+
 ### Preferences / Notifications / Legal Documents
 
 | Endpoint                     | Auth | Permission | Notes                                     |
@@ -99,7 +111,6 @@ All require auth + club permission via `requirePermission`:
 
 4. **Chat rooms unrestricted** — `getOrCreateDirectRoom` doesn't enforce shared club membership.
 5. **Permission string drift** — Roles have `updates:*` but code checks `project:*`. `updates.listByProject` requires `project:update` (not `project:read`), inconsistent with `listByClub`.
-6. **Storage IDs typed as `string`** — Should use `Id<'_storage'>` for Convex file storage.
 
 ## Hardening Plan
 
@@ -107,5 +118,4 @@ All require auth + club permission via `requirePermission`:
 2. Fix high-priority gaps (policy write, file listing, bootstrap).
 3. Resolve permission string drift (pick `updates:*` or `project:*`).
 4. Decide and enforce chat scope.
-5. Tighten storage ID types.
-6. Add focused tests for security boundaries.
+5. Add focused tests for security boundaries.

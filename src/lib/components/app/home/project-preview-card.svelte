@@ -36,7 +36,7 @@
 					m.username ||
 					m.email ||
 					m.profileId,
-				imageUrl: m.coverPhotoUrl ?? null
+				imageUrl: null
 			}))
 	);
 </script>

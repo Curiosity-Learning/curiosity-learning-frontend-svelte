@@ -23,6 +23,9 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { fromStore } from 'svelte/store';
+	import type { PageProps } from './$types';
+
+	let { data }: PageProps = $props();
 
 	const convexClient = useConvexClient();
 	const canMutateOnlineState = fromStore(canMutateOnlineStore);
@@ -97,6 +100,24 @@
 			});
 			return [session.description, dateLabel].join(' ').toLowerCase().includes(query);
 		})
+	);
+
+	let initialSessionAttendeeImageUrls = $derived.by(() => {
+		return new Map(
+			(data.initialSessionAttendeeImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
+
+	let visibleSessionCardsWithSignedAttendees = $derived(
+		visibleSessionCards.map((entry) => ({
+			...entry,
+			attendees: entry.attendees.map((attendee) => ({
+				name: attendee.name,
+				imageUrl: attendee.profileImageMediaAssetId
+					? (initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? null)
+					: null
+			}))
+		}))
 	);
 
 	const openCreateSession = () => {
@@ -216,7 +237,7 @@
 			</p>
 		{:else}
 			<div class="flex flex-col gap-4">
-				{#each visibleSessionCards as entry (entry.session._id)}
+				{#each visibleSessionCardsWithSignedAttendees as entry (entry.session._id)}
 					<ClubSessionCard
 						session={entry.session}
 						sessionHref={routes.sessionDetail(entry.session._id)}

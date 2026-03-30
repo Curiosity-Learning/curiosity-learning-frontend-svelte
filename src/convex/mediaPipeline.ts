@@ -1,10 +1,10 @@
-import type { Id } from './_generated/dataModel';
 import {
 	type MediaFailureStage,
 	type MediaKind,
 	type MediaPipelineStage,
 	type MediaPipelineStepStatus
 } from './mediaModel';
+import type { MediaStorageProvider } from './mediaStorage';
 
 const mb = (value: number) => value * 1024 * 1024;
 
@@ -71,30 +71,22 @@ const normalizeContentType = (value?: string | null) => {
 	return rawType || null;
 };
 
-const getFileExtension = (filename?: string | null) => {
-	if (!filename) {
-		return null;
-	}
-
-	const normalized = filename.trim().toLowerCase();
-	const lastDot = normalized.lastIndexOf('.');
-	if (lastDot < 0) {
-		return null;
-	}
-
-	return normalized.slice(lastDot);
-};
-
 const isGenericContentType = (contentType: string | null) =>
 	Boolean(contentType && GENERIC_CONTENT_TYPES.has(contentType));
 
 const getEffectiveContentType = ({
+	detectedContentType,
 	storedContentType,
 	clientContentType
 }: {
+	detectedContentType?: SupportedContentType | null;
 	storedContentType?: string | null;
 	clientContentType?: string | null;
 }) => {
+	if (detectedContentType) {
+		return detectedContentType;
+	}
+
 	const normalizedStored = normalizeContentType(storedContentType);
 	if (normalizedStored && !isGenericContentType(normalizedStored)) {
 		return normalizedStored;
@@ -103,6 +95,9 @@ const getEffectiveContentType = ({
 	const normalizedClient = normalizeContentType(clientContentType);
 	return normalizedClient;
 };
+
+const normalizeDurationSeconds = (value?: number | null) =>
+	typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 
 const SUPPORTED_CONTENT_TYPE_SET = new Set<string>(SUPPORTED_CONTENT_TYPES);
 
@@ -117,11 +112,16 @@ const buildAcceptedFileExtensions = (acceptedContentTypes: readonly SupportedCon
 	];
 
 export type StoredMediaMetadata = {
-	_id: Id<'_storage'>;
-	_creationTime: number;
-	contentType?: string;
-	sha256: string;
+	storageProvider: MediaStorageProvider;
+	bucket: string;
+	objectKey: string;
+	detectedContentType?: SupportedContentType | null;
+	contentType?: string | null;
+	sha256?: string | null;
 	size: number;
+	durationSeconds?: number | null;
+	eTag?: string | null;
+	lastModified?: number | null;
 };
 
 export type MediaPipelineFailure = {
@@ -140,11 +140,15 @@ export type MediaPipelineStepResult = {
 };
 
 type MediaPipelineDescriptor = {
-	storageId: Id<'_storage'>;
+	storageProvider: MediaStorageProvider;
+	bucket: string;
+	objectKey: string;
 	mediaKind: MediaKind | null;
+	detectedContentType: SupportedContentType | null;
 	contentType: string | null;
 	sizeBytes: number;
-	sha256: string;
+	durationSeconds: number | null;
+	sha256: string | null;
 };
 
 export type MediaPipelineAssetSnapshot = NormalizedUploadConstraints & {
@@ -269,22 +273,15 @@ const buildPipelinePlugins = (constraints: NormalizedUploadConstraints): MediaPi
 
 const detectMediaKind = ({
 	contentType,
-	fileExtension,
 	acceptedContentTypes
 }: {
 	contentType: string | null;
-	fileExtension: string | null;
 	acceptedContentTypes: readonly SupportedContentType[];
 }) => {
 	for (const acceptedContentType of acceptedContentTypes) {
 		const mediaKind = getMediaKindForContentType(acceptedContentType);
-		const extensions = getFileExtensionsForContentType(acceptedContentType);
 
 		if (contentType && acceptedContentType === contentType) {
-			return mediaKind;
-		}
-
-		if (fileExtension && (extensions as readonly string[]).includes(fileExtension)) {
 			return mediaKind;
 		}
 	}
@@ -297,7 +294,7 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 		name: 'validate-storage-metadata',
 		stage: 'validation',
 		run: async ({ descriptor }) => {
-			if (!descriptor.sha256 || descriptor.sizeBytes < 0) {
+			if (!descriptor.objectKey || descriptor.sizeBytes < 0) {
 				return {
 					status: 'failed',
 					message: 'Stored file metadata is incomplete.',
@@ -318,14 +315,24 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 		name: 'validate-media-type',
 		stage: 'validation',
 		run: async ({ asset, config, descriptor }) => {
-			const extension = getFileExtension(asset.originalFilename);
+			if (!descriptor.detectedContentType) {
+				return {
+					status: 'failed',
+					message: 'The uploaded file signature does not match a supported media format.',
+					failure: buildValidationFailure(
+						'unsupported_media_signature',
+						'The uploaded file could not be verified as a supported image or video format.'
+					)
+				};
+			}
+
 			const contentType = getEffectiveContentType({
+				detectedContentType: descriptor.detectedContentType,
 				storedContentType: descriptor.contentType,
 				clientContentType: asset.clientContentType
 			});
 			const mediaKind = detectMediaKind({
 				contentType,
-				fileExtension: extension,
 				acceptedContentTypes: config.acceptedContentTypes
 			});
 
@@ -346,9 +353,7 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 					mediaKind,
 					contentType
 				},
-				message: contentType
-					? `Accepted ${MEDIA_KIND_DEFINITIONS[mediaKind].label.toLowerCase()} upload (${contentType}).`
-					: 'Accepted upload using filename extension fallback.'
+				message: `Accepted ${MEDIA_KIND_DEFINITIONS[mediaKind].label.toLowerCase()} upload via file signature (${contentType}).`
 			};
 		}
 	},
@@ -461,14 +466,19 @@ export const runMediaPipeline = async ({
 
 	const config = describeUploadConstraints(asset);
 	let descriptor: MediaPipelineDescriptor = {
-		storageId: storageMetadata._id,
+		storageProvider: storageMetadata.storageProvider,
+		bucket: storageMetadata.bucket,
+		objectKey: storageMetadata.objectKey,
 		mediaKind: null,
+		detectedContentType: storageMetadata.detectedContentType ?? null,
 		contentType: getEffectiveContentType({
+			detectedContentType: storageMetadata.detectedContentType ?? null,
 			storedContentType: storageMetadata.contentType ?? null,
 			clientContentType: asset.clientContentType
 		}),
 		sizeBytes: storageMetadata.size,
-		sha256: storageMetadata.sha256
+		durationSeconds: normalizeDurationSeconds(storageMetadata.durationSeconds ?? null),
+		sha256: storageMetadata.sha256 ?? null
 	};
 
 	const steps: MediaPipelineStepResult[] = [];
