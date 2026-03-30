@@ -92,7 +92,7 @@
 				{#if isCompleted}
 					<CheckIcon class="size-5 text-chart-2" />
 				{:else}
-					<CalendarIcon class="size-5 text-primary" />
+					<CalendarIcon class="size-5 text-orange-500" />
 				{/if}
 				<p class="line-clamp-1">{statusLabel}</p>
 			</div>

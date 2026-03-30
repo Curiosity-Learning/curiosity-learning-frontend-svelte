@@ -1,15 +1,18 @@
 import { ConvexError, v } from 'convex/values';
+import type { GenericCtx } from '@convex-dev/better-auth';
+import type { GenericDataModel } from 'convex/server';
 import { mutation, query } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
+import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	hasPermission,
 	getMembership,
 	requireIdentity,
 	requirePermission,
-	requireProfile,
 	roleFromPermissions
 } from './permissions';
+import { authComponent } from './auth';
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -33,15 +36,30 @@ const createInviteCodeCandidate = () => {
 const createInviteCode = async (ctx: Ctx) => {
 	for (let attempt = 0; attempt < 20; attempt += 1) {
 		const code = createInviteCodeCandidate();
-		const existing = await ctx.db
-			.query('clubCodes')
-			.withIndex('by_code', (q) => q.eq('code', code))
+		const existingInClubs = await ctx.db
+			.query('clubs')
+			.withIndex('by_club_code', (q) => q.eq('clubCode', code))
 			.first();
-		if (!existing) {
+		if (!existingInClubs) {
 			return code;
 		}
 	}
 	throw new ConvexError('Failed to generate unique invite code');
+};
+
+const resolveClubByCode = async (ctx: Ctx, normalizedCode: string) => {
+	const club = await ctx.db
+		.query('clubs')
+		.withIndex('by_club_code', (q) => q.eq('clubCode', normalizedCode))
+		.first();
+	if (!club) {
+		return null;
+	}
+
+	return {
+		club,
+		code: normalizedCode
+	};
 };
 
 const getRoleByName = async (ctx: Ctx, name: 'Guide' | 'Learner') => {
@@ -55,12 +73,41 @@ const getRoleByName = async (ctx: Ctx, name: 'Guide' | 'Learner') => {
 	return role;
 };
 
+const requireOwnedReadyClubVideo = async (
+	ctx: MutationCtx,
+	userId: string,
+	assetId: Id<'mediaAssets'>
+) => {
+	const asset = await ctx.db.get(assetId);
+	if (!asset || asset.ownerUserId !== userId) {
+		throw new ConvexError('Club video not found');
+	}
+	if (asset.status !== 'ready') {
+		throw new ConvexError('Club video is not ready');
+	}
+	if (asset.mediaKind !== 'video') {
+		throw new ConvexError('Club video must be a video');
+	}
+
+	return asset;
+};
+
+const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
+	if (!club.videoMediaAssetId) {
+		return null;
+	}
+
+	const asset = await ctx.db.get(club.videoMediaAssetId);
+	if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'video') {
+		return null;
+	}
+
+	return resolveMediaAssetFileUrl(asset);
+};
+
 const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'clubMembers'>) => {
 	const role = await ctx.db.get(membership.roleId);
-	const code = await ctx.db
-		.query('clubCodes')
-		.withIndex('by_club', (q) => q.eq('clubId', club._id))
-		.first();
+	const clubVideoUrl = await resolveClubVideoUrl(ctx, club);
 
 	return {
 		clubId: club._id,
@@ -69,10 +116,10 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubDescription: club.description ?? null,
 		clubLocation: club.location ?? null,
 		clubTime: club.time ?? null,
-		clubVideoUrl: club.videoUrl ?? null,
+		clubVideoUrl,
 		clubMeetingDay: club.meetingDay ?? null,
 		clubMeetingTime: club.meetingTime ?? null,
-		clubCode: code?.code ?? null,
+		clubCode: club.clubCode ?? null,
 		memberId: membership._id,
 		memberProfileId: membership.userId,
 		memberLeftAt: membership.leftAt ?? null,
@@ -82,6 +129,87 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		roleColor: role?.color ?? null,
 		rolePermissions: role?.permissions ?? []
 	};
+};
+
+const splitNameParts = (name?: string | null) => {
+	if (!name) {
+		return { firstName: undefined, lastName: undefined };
+	}
+	const normalized = name.trim();
+	if (!normalized) {
+		return { firstName: undefined, lastName: undefined };
+	}
+	const [first, ...rest] = normalized.split(/\s+/);
+	const last = rest.join(' ').trim();
+	return {
+		firstName: first || undefined,
+		lastName: last || undefined
+	};
+};
+
+const resolveUniqueUsername = async (
+	ctx: MutationCtx,
+	userId: string,
+	email: string
+): Promise<string | undefined> => {
+	const preferred = email.split('@')[0]?.trim().toLowerCase() ?? '';
+	if (!preferred) return undefined;
+
+	const firstMatch = await ctx.db
+		.query('profiles')
+		.withIndex('by_username', (q) => q.eq('username', preferred))
+		.first();
+	if (!firstMatch || firstMatch.userId === userId) {
+		return preferred;
+	}
+
+	for (let suffix = 2; suffix <= 99; suffix += 1) {
+		const candidate = `${preferred}${suffix}`;
+		const match = await ctx.db
+			.query('profiles')
+			.withIndex('by_username', (q) => q.eq('username', candidate))
+			.first();
+		if (!match || match.userId === userId) {
+			return candidate;
+		}
+	}
+
+	return undefined;
+};
+
+const getOrCreateProfile = async (ctx: MutationCtx, userId: string) => {
+	const existing = await ctx.db
+		.query('profiles')
+		.withIndex('by_user_id', (q) => q.eq('userId', userId))
+		.first();
+	if (existing) {
+		return existing;
+	}
+
+	const authUser = await authComponent.getAuthUser(
+		ctx as unknown as GenericCtx<GenericDataModel>
+	);
+	const now = Date.now();
+	const username = await resolveUniqueUsername(ctx, authUser._id, authUser.email);
+	const { firstName, lastName } = splitNameParts(authUser.name);
+
+	const profileId = await ctx.db.insert('profiles', {
+		userId: authUser._id,
+		email: authUser.email,
+		firstName,
+		lastName,
+		username,
+		coverPhotoUrl: authUser.image ?? undefined,
+		isVerified: authUser.emailVerified,
+		firstLoginCompleted: false,
+		updatedAt: now
+	});
+
+	const created = await ctx.db.get(profileId);
+	if (!created) {
+		throw new ConvexError('Profile not found');
+	}
+	return created;
 };
 
 export const getMyClubs = query({
@@ -121,18 +249,11 @@ export const getClubPreviewByCode = query({
 			return null;
 		}
 
-		const clubCode = await ctx.db
-			.query('clubCodes')
-			.withIndex('by_code', (q) => q.eq('code', normalizedCode))
-			.first();
-		if (!clubCode) {
+		const resolved = await resolveClubByCode(ctx, normalizedCode);
+		if (!resolved) {
 			return null;
 		}
-
-		const club = await ctx.db.get(clubCode.clubId);
-		if (!club) {
-			return null;
-		}
+		const { club, code } = resolved;
 
 		const members = await ctx.db
 			.query('clubMembers')
@@ -144,13 +265,48 @@ export const getClubPreviewByCode = query({
 			id: club._id,
 			name: club.name,
 			description: club.description ?? null,
+			videoUrl: await resolveClubVideoUrl(ctx, club),
 			location: club.location ?? null,
+			locationLatitude: club.locationLatitude ?? null,
+			locationLongitude: club.locationLongitude ?? null,
 			meetingDay: club.meetingDay ?? null,
 			meetingTime: club.meetingTime ?? null,
 			memberCount: members.filter((member) => !member.leftAt).length,
 			createdAt: club.createdAt,
-			code: clubCode.code
+			code
 		};
+	}
+});
+
+export const listPublicClubs = query({
+	args: {},
+	handler: async (ctx) => {
+		const clubs = await ctx.db.query('clubs').collect();
+		const publicClubs = clubs.filter((club) => Boolean(club.clubCode));
+
+		return await Promise.all(
+			publicClubs.map(async (club) => {
+				const members = await ctx.db
+					.query('clubMembers')
+					.withIndex('by_club', (q) => q.eq('clubId', club._id))
+					.collect();
+
+				return {
+					id: club._id,
+					code: club.clubCode ?? null,
+					name: club.name,
+					description: club.description ?? null,
+					location: club.location ?? null,
+					locationLatitude: club.locationLatitude ?? null,
+					locationLongitude: club.locationLongitude ?? null,
+					meetingDay: club.meetingDay ?? null,
+					meetingTime: club.meetingTime ?? null,
+					memberCount: members.filter((member) => !member.leftAt).length,
+					videoUrl: await resolveClubVideoUrl(ctx, club),
+					createdAt: club.createdAt
+				};
+			})
+		);
 	}
 });
 
@@ -159,19 +315,31 @@ export const createClub = mutation({
 		name: v.string(),
 		description: v.optional(v.string()),
 		location: v.optional(v.string()),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number()),
 		meetingDay: v.optional(v.string()),
-		meetingTime: v.optional(v.string())
+		meetingTime: v.optional(v.string()),
+		videoMediaAssetId: v.optional(v.id('mediaAssets'))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const now = Date.now();
 
-		const profile = await requireProfile(ctx, identity.subject);
+		const profile = await getOrCreateProfile(ctx, identity.subject);
+		const inviteCode = await createInviteCode(ctx);
+
+		if (args.videoMediaAssetId) {
+			await requireOwnedReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
+		}
 
 		const clubId = await ctx.db.insert('clubs', {
 			name: args.name,
+			clubCode: inviteCode,
 			description: args.description,
 			location: args.location,
+			locationLatitude: args.locationLatitude,
+			locationLongitude: args.locationLongitude,
+			videoMediaAssetId: args.videoMediaAssetId,
 			meetingDay: args.meetingDay,
 			meetingTime: args.meetingTime,
 			createdByUserId: identity.subject,
@@ -189,13 +357,6 @@ export const createClub = mutation({
 			username: profile.username,
 			email: profile.email,
 			coverPhotoUrl: profile.coverPhotoUrl,
-			createdAt: now
-		});
-
-		const inviteCode = await createInviteCode(ctx);
-		await ctx.db.insert('clubCodes', {
-			clubId,
-			code: inviteCode,
 			createdAt: now
 		});
 
@@ -220,24 +381,22 @@ export const joinClubWithCode = mutation({
 			throw new ConvexError('Invalid invite code');
 		}
 
-		const clubCode = await ctx.db
-			.query('clubCodes')
-			.withIndex('by_code', (q) => q.eq('code', normalizedCode))
-			.first();
-		if (!clubCode) {
+		const resolved = await resolveClubByCode(ctx, normalizedCode);
+		if (!resolved) {
 			throw new ConvexError('Invalid invite code');
 		}
+		const { club } = resolved;
 
-		const existingMembership = await getMembership(ctx, clubCode.clubId, identity.subject);
+		const existingMembership = await getMembership(ctx, club._id, identity.subject);
 		if (existingMembership) {
 			throw new ConvexError('You are already a member of this club');
 		}
 
-		const profile = await requireProfile(ctx, identity.subject);
+		const profile = await getOrCreateProfile(ctx, identity.subject);
 
 		const learnerRole = await getRoleByName(ctx, 'Learner');
 		await ctx.db.insert('clubMembers', {
-			clubId: clubCode.clubId,
+			clubId: club._id,
 			userId: identity.subject,
 			roleId: learnerRole._id,
 			firstName: profile.firstName,
@@ -248,7 +407,7 @@ export const joinClubWithCode = mutation({
 			createdAt: Date.now()
 		});
 		await ctx.db.patch(profile._id, {
-			activeClubId: clubCode.clubId,
+			activeClubId: club._id,
 			firstLoginCompleted: true,
 			pendingClubCode: undefined,
 			pendingRole: undefined,
@@ -257,7 +416,7 @@ export const joinClubWithCode = mutation({
 
 		return {
 			success: true,
-			clubId: clubCode.clubId
+			clubId: club._id
 		};
 	}
 });
@@ -273,7 +432,7 @@ export const switchActiveClub = mutation({
 			throw new ConvexError('You are not a member of this club');
 		}
 
-		const profile = await requireProfile(ctx, identity.subject);
+		const profile = await getOrCreateProfile(ctx, identity.subject);
 		await ctx.db.patch(profile._id, {
 			activeClubId: args.clubId,
 			updatedAt: Date.now()
@@ -287,7 +446,17 @@ export const getActiveClubContext = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const profile = await requireProfile(ctx, identity.subject);
+		const profile = await ctx.db
+			.query('profiles')
+			.withIndex('by_user_id', (q) => q.eq('userId', identity.subject))
+			.first();
+		if (!profile) {
+			return {
+				activeClubId: null,
+				role: null,
+				permissions: []
+			} satisfies ActiveClubContext;
+		}
 
 		if (!profile.activeClubId) {
 			return {
@@ -331,14 +500,10 @@ export const getClubById = query({
 			throw new ConvexError('Club not found');
 		}
 
-		const code = await ctx.db
-			.query('clubCodes')
-			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
-			.first();
-
 		return {
 			...club,
-			clubCode: code?.code ?? null
+			videoUrl: await resolveClubVideoUrl(ctx, club),
+			clubCode: club.clubCode ?? null
 		};
 	}
 });
@@ -349,6 +514,9 @@ export const updateClub = mutation({
 		name: v.optional(v.string()),
 		description: v.optional(v.string()),
 		location: v.optional(v.string()),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number()),
+		videoMediaAssetId: v.optional(v.id('mediaAssets')),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string())
 	},
@@ -361,10 +529,17 @@ export const updateClub = mutation({
 			throw new ConvexError('Club not found');
 		}
 
+		if (args.videoMediaAssetId) {
+			await requireOwnedReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
+		}
+
 		await ctx.db.patch(args.clubId, {
 			name: args.name ?? club.name,
 			description: args.description ?? club.description,
 			location: args.location ?? club.location,
+			locationLatitude: args.locationLatitude ?? club.locationLatitude,
+			locationLongitude: args.locationLongitude ?? club.locationLongitude,
+			videoMediaAssetId: args.videoMediaAssetId ?? club.videoMediaAssetId,
 			meetingDay: args.meetingDay ?? club.meetingDay,
 			meetingTime: args.meetingTime ?? club.meetingTime,
 			updatedAt: Date.now()

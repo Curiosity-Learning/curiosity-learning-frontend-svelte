@@ -4,7 +4,7 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import SearchIcon from '@lucide/svelte/icons/search';
-	import logoIconAndText from '$lib/assets/Icon and Text.svg';
+	import favicon from '$lib/assets/svg/favicon.svg';
 	import type { Attachment } from 'svelte/attachments';
 	import type { HeaderBackConfig, HeaderSearchConfig, HeaderSearchMode } from '$lib/app/page-header';
 	import { Button } from '$lib/components/ui/button';
@@ -178,7 +178,7 @@
 			class="hidden w-72 flex-col border-r border-border/70 bg-background/70 backdrop-blur lg:flex lg:sticky lg:top-0 lg:h-screen lg:self-start"
 		>
 			<div class="px-5 py-5">
-				<img src={logoIconAndText} alt="Curiosity Learning" class="h-8 w-auto" />
+				<img src={favicon} alt="Curiosity Learning" class="h-8 w-8" />
 			</div>
 
 			<div class="flex flex-1 flex-col gap-3 px-3 py-3">

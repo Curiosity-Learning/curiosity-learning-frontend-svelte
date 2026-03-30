@@ -7,33 +7,21 @@
 - SvelteKit (Svelte 5, TypeScript)
 - SvelteKit Node runtime via `@sveltejs/adapter-node`
 - Tailwind v4 + shadcn-svelte
+- Mapbox GL JS for web map rendering and place search previews
 - Convex backend
 - Better Auth (`@convex-dev/better-auth`)
 - Vitest + Playwright
-
-## Deployment Topology
-
-- The frontend deploy target is a Render `Web Service`, not a static site build.
-- SvelteKit server hooks, `+server.ts` routes, and server loads require a Node runtime in production.
-- Convex environments should be separated into:
-  - developer-specific dev deployments for day-to-day work,
-  - a shared staging deployment for integration/QA,
-  - a separate production deployment for live traffic.
-- Environment variable names stay constant across environments; only values change.
-
-## Delivery Gate
-
-- GitHub Actions runs the baseline PR gate on `pull_request` plus direct pushes to `main` and `development`.
-- The fast gate is intentionally limited to `npm ci`, `npm run check`, `npm run lint:ci`, and `npm run build` so obvious breakage is caught before deploy without turning every PR into a full test run.
-- Full lint (`npm run lint`) and test suites remain milestone gates rather than default-on-every-PR checks.
 
 ## Route Layout
 
 - `/auth/*`: sign in/up/reset
 - `/onboarding/*`: get started, join club, start club
+- `/onboarding/join-club/public-clubs`: public club browser with geolocation-aware nearby sorting and Mapbox markers
 - `/app/*`: authenticated app area
 - `/settings/media-upload-dev`: authenticated developer-facing upload test surface for the shared media pipeline. It now acts as the reference integration for `FileDropZone` + `upload-manager`, so upload mutations, direct-to-S3 descriptors, finalize/retry/cancel actions, and signed delivery can be exercised manually without adding one-off UI components elsewhere in the product.
+- `/privacy`, `/terms`, `/cookies`: public legal document pages
 - Club-scoped routes are canonical under `/club/[clubId]/*` and should be built via `$lib/routes` helpers (`routes.clubHome`, `routes.clubSessions`, etc.) rather than ad-hoc string paths.
+- Signup verification is OTP-based: `/auth/sign-up` includes step `5/5` for email OTP verification (`authClient.emailOtp.verifyEmail`) after account creation.
 
 ### Layout Groups
 
@@ -79,6 +67,7 @@ feed/
 - `src/convex/*.ts` modules expose queries/mutations/actions.
 - Client uses generated `api` with `convex-svelte` and authenticated token from hooks.
 - **Shared media upload pipeline**: `src/convex/media.ts`, `src/convex/mediaPipeline.ts`, and `src/convex/mediaStorage.ts` define a constraint-based upload state machine with Convex as control plane and S3 as canonical blob storage. Each upload session stores its own accepted content types, max file size, and processing flags in `mediaAssets`, so feature code can choose upload rules without registering new backend enum values. Clients create a draft upload, upload directly to the returned S3 descriptor, then finalize with only the `mediaAssetId`. The asset stores provider-neutral storage references (`storageProvider`, `sourceObjectKey`, `processedObjectKey`, optional bucket fields) plus delivery metadata like `mediaKind`, `contentType`, `sizeBytes`, and optional `durationSeconds`. Client-side upload orchestration should go through `src/lib/media/upload-manager.svelte.ts`, which wraps begin/upload/finalize/retry/cancel behavior, local previews, and drop-zone-friendly constraints so feature code does not reimplement the transport loop. UI code should bind to short-lived CloudFront signed URLs that are minted by SvelteKit server code after authorization, not to raw storage URLs or a shared redirect route. Signed URL refresh is centralized at `/api/media/refresh`, and the default TTL policy is media-aware: short-lived for images and duration-aware with a longer minimum for videos. Compression and media safety screening remain pluggable pipeline steps on top of the same asset contract. Ownership/attachment relationships should be modeled by feature tables via `mediaAssetId`, not object keys. See [ADR-012](adr/012-shared-media-upload-pipeline.md), [ADR-013](adr/013-s3-backed-media-storage.md), and [ADR-014](adr/014-cloudfront-signed-url-media-delivery.md).
+- Profile avatars and club intro videos also attach through `mediaAssets` (`profiles.profileImageMediaAssetId`, `clubs.videoMediaAssetId`). Current read paths keep exposing resolved `coverPhotoUrl` / `videoUrl` values so existing UI components remain simple while the underlying storage moves off Convex file blobs.
 - Client query convention: import `useStableQuery` from `src/lib/convex/use-stable-query.svelte.ts` instead of `useQuery` directly. Default mode is stale-first (`keepPreviousData: true`) for content continuity during route and param transitions. Pass `{ mode: 'gate' }` for auth/permission gates that should not reuse stale results. Remount cache is opt-in per query via `{ cache: 'memory' }` (default is `'off'`) so only non-sensitive content queries keep last successful data across remounts.
 - Club projects tabs (`/club/[clubId]/projects/current` and `/club/[clubId]/projects/completed`) opt into remount caching on `api.projects.listPreviewsByClub` in `src/lib/components/app/projects/club-projects-view.svelte` so project cards (including avatar preview data) stay visible on back-navigation while live data refreshes.
 - Auth in `hooks.server.ts` + Better Auth cookie/token integration.
@@ -94,6 +83,9 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - `validators: zod4Client(schema)` for client-side validation (client adapter).
 - `SPA: true` because the backend is Convex, not SvelteKit form actions.
 - `Field.Label` supports a `required` prop for red asterisk indicators.
+- Non-Superforms onboarding/auth screens should reuse shared app-level form primitives in `src/lib/components/app/form/` (`InputField`, `TextareaField`, `SelectField`, `DateSelectField`) for consistent field spacing, label styles, and control states.
+- Start-club location search uses Mapbox forward geocoding in `src/routes/onboarding/start-club/+page.svelte` and renders the selected place on a live Mapbox GL map preview via `src/lib/components/app/mapbox-location-preview.svelte`. The web client reads its token from `PUBLIC_MAPBOX_ACCESS_TOKEN`, and the current map style is fixed to `mapbox://styles/ronberlinski/clwx2eugd019n01qxfzhw4yjg`.
+- The join-club browse path (`/onboarding/join-club/public-clubs`) requests the browser’s current location, sorts public clubs by distance when available, falls back to showing all clubs otherwise, and routes club-marker/card selection directly into `/onboarding/join-club/[code]`.
 
 ## UI Patterns
 
@@ -124,5 +116,7 @@ Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no For
 - **Token chips**: Keep `Badge` as a primitive status component and use `TagChip` for accent/muted pill chips and removable chip interactions. See [ADR-006](adr/006-badge-and-tag-chip-split.md).
 - **Mobile pressed behavior**: Interactive primitives should express visual interaction with `hover:*` utilities at the component level. In `src/routes/layout.css`, the global `hover` variant is configured so on coarse-pointer mobile devices those same styles are applied on `:active`, keeping touch pressed feedback aligned with desktop hover without per-instance overrides.
 - **Button typography contract**: Shared `Button` size variants map to design-system text tokens in `src/lib/components/ui/button/button.svelte` (`default` → `type-btn`, `sm` → `type-btn-sm`, `lg` → `type-btn-lg`). Feature code should select button `size` instead of attaching ad-hoc text-size/font-weight classes.
+- **Lightweight public-page i18n**: The public auth/onboarding shell initializes a small client locale store from `src/lib/i18n/`, persists the chosen locale in `localStorage` key `cl_locale`, and exposes a shared top-right globe dropdown across public auth/onboarding pages for English and Dutch. New public copy should use the shared translation lookup instead of hard-coded strings when added to this flow.
 - **Inline activity editing**: Session activity cards support inline blur-save editing for title, description, minutes, and building blocks. Building block edits use a reusable searchable inline multi-select (combobox + listbox) at `src/lib/components/ui/multi-select/inline-multi-select.svelte`, composed from shadcn primitives (`Input`) plus reusable token chips (`TagChip`) and accessible listbox roles. Immediate inline-save feedback is driven by Convex mutation `optimisticUpdate` in `session-detail-view`.
 - **Connectivity gating (global)**: Mutation-capable surfaces consume `$lib/app/connectivity.ts` (`canMutateOnline`, `connectivityMessage`, `reportMutationSuccess`, `reportMutationFailure`) so editing can be disabled consistently during offline/network-loss states. AppShell renders a persistent reconnect overlay with spinner while disconnected. This is intentionally centralized so a future offline queue/replay mode can be introduced without rewriting each screen.
+- **Accessibility baseline (global)**: Root layout provides a keyboard skip link (`#main-content`) and semantic `<main>` landmark. Global CSS defines visible `:focus-visible` rings and a `prefers-reduced-motion` fallback that minimizes animation and transition effects.

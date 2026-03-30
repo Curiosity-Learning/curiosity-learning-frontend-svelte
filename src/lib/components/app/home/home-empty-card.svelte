@@ -30,7 +30,7 @@
 <Card class="gap-0 py-0">
 	<CardContent class={cn('flex flex-col justify-center gap-4 p-6', minHeightClass)}>
 		{#if Icon}
-			<div class="flex size-11 items-center justify-center rounded-xl bg-accent text-primary">
+			<div class="flex size-11 items-center justify-center rounded-xl bg-orange-50 text-orange-500">
 				<Icon class="size-5" />
 			</div>
 		{/if}

@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { authClient } from '$lib/auth-client';
+	import { clearClientSessionArtifacts } from '$lib/auth/onboarding-state';
 	import { routes } from '$lib/routes';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -44,9 +45,23 @@
 			: routes.onboardingGetStarted
 	);
 
+	const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+
 	const signOut = async () => {
+		clearClientSessionArtifacts();
 		await authClient.signOut();
-		await goto(resolve('/auth/sign-in'));
+		for (let attempt = 0; attempt < 5; attempt += 1) {
+			try {
+				const session = await authClient.getSession({
+					query: { disableCookieCache: true }
+				});
+				if (!session.data) break;
+			} catch {
+				break;
+			}
+			await delay(150);
+		}
+		await goto(resolve('/auth/sign-in'), { replaceState: true, invalidateAll: true });
 	};
 </script>
 

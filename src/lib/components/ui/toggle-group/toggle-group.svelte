@@ -9,12 +9,18 @@
 		spacing?: number;
 	}
 
-	export function setToggleGroupCtx(props: ToggleGroupContext) {
+	interface ToggleGroupContextValue {
+		variant: () => ToggleGroupContext["variant"];
+		size: () => ToggleGroupContext["size"];
+		spacing: () => ToggleGroupContext["spacing"];
+	}
+
+	export function setToggleGroupCtx(props: ToggleGroupContextValue) {
 		setContext("toggleGroup", props);
 	}
 
 	export function getToggleGroupCtx() {
-		return getContext<Required<ToggleGroupContext>>("toggleGroup");
+		return getContext<ToggleGroupContextValue>("toggleGroup");
 	}
 </script>
 
@@ -33,9 +39,9 @@
 	}: ToggleGroupPrimitive.RootProps & ToggleVariants & { spacing?: number } = $props();
 
 	setToggleGroupCtx({
-		variant,
-		size,
-		spacing,
+		variant: () => variant,
+		size: () => size,
+		spacing: () => spacing,
 	});
 </script>
 

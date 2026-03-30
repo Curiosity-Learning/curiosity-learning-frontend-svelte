@@ -39,17 +39,26 @@ npm install
 - `PUBLIC_CONVEX_SITE_URL`
 - `BETTER_AUTH_SECRET` (non-default, high entropy)
 - `BETTER_AUTH_URL` (typically `http://localhost:5173`)
+- `GOOGLE_CLIENT_ID` (for Google OAuth sign-up/sign-in)
+- `GOOGLE_CLIENT_SECRET` (for Google OAuth sign-up/sign-in)
+
+Google OAuth callback URL for local setup:
+- `http://localhost:5173/api/auth/callback/google`
 
 3. Set Convex deployment env values (server-side runtime):
 
 - `BETTER_AUTH_SECRET` (match local value)
 - `BETTER_AUTH_URL` (match local value)
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
 - `RESEND_API_KEY`
 - `RESEND_FROM` (optional override; default exists in code)
 
 ```sh
 npx convex env set BETTER_AUTH_SECRET <same-secret-as-env-local>
 npx convex env set BETTER_AUTH_URL http://localhost:5173
+npx convex env set GOOGLE_CLIENT_ID <google-client-id>
+npx convex env set GOOGLE_CLIENT_SECRET <google-client-secret>
 npx convex env set RESEND_API_KEY <key>
 npx convex env set RESEND_FROM "Curiosity Learning <your-verified-from@domain.com>"
 ```

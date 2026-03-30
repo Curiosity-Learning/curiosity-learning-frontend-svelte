@@ -65,7 +65,7 @@
 			<div
 				class={cn(
 					sizeClass,
-					'flex items-center justify-center rounded-full bg-accent type-sm-bold text-primary ring-2 ring-background'
+					'flex items-center justify-center rounded-full bg-orange-50 type-sm-bold text-orange-500 ring-2 ring-background'
 				)}
 			>
 				+{remaining}

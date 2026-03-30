@@ -81,14 +81,15 @@ Notes:
 - Client upload constraints sent to Convex must stay limited to the backend validator shape (`acceptedContentTypes`, `maxBytes`, processing flags). UI helpers such as HTML `accept` strings are client-only metadata and must not be forwarded through `media.beginUpload`.
 - Signed delivery is URL-based via `/api/media/refresh`; the app no longer relies on a shared `/media/[assetId]` route or CloudFront signed cookies.
 
-### Preferences / Notifications / Privacy
+### Preferences / Notifications / Legal Documents
 
 | Endpoint                     | Auth | Permission | Notes                                     |
 | ---------------------------- | ---- | ---------- | ----------------------------------------- |
 | `preferences.get/upsert`    | Yes  | —          |                                           |
 | `notifications.list/markRead`| Yes  | —          | `markRead` enforces ownership             |
-| `privacyPolicy.getActive`   | No   | —          | Public                                    |
-| `privacyPolicy.upsertActive`| Yes  | —          | **Gap:** any auth user can edit policy    |
+| `legalDocuments.getActiveByKey/listActive` | No | —   | Public                                    |
+| `legalDocuments.upsertActive`| Yes | —          | **Gap:** any auth user can edit legal docs |
+| `privacyPolicy.getActive/upsertActive` | Yes/No | — | Legacy alias behavior backed by `legalDocuments` |
 
 ### Chat
 
@@ -102,7 +103,7 @@ Notes:
 
 ### High Priority
 
-1. **Privacy policy write is too broad** — `privacyPolicy.upsertActive` callable by any auth user. Should restrict to admin.
+1. **Legal document write is too broad** — `legalDocuments.upsertActive` is callable by any auth user. Should restrict to admin.
 2. **Update file listing is too broad** — `updates.listFiles(updateId)` only checks auth. Any user who knows an `updateId` can list its files.
 3. **Bootstrap is unauthenticated** — `bootstrap.seedDefaults` should be `internalMutation` or require auth.
 
@@ -110,7 +111,6 @@ Notes:
 
 4. **Chat rooms unrestricted** — `getOrCreateDirectRoom` doesn't enforce shared club membership.
 5. **Permission string drift** — Roles have `updates:*` but code checks `project:*`. `updates.listByProject` requires `project:update` (not `project:read`), inconsistent with `listByClub`.
-6. **Storage IDs typed as `string`** — Should use `Id<'_storage'>` for Convex file storage.
 
 ## Hardening Plan
 
@@ -118,5 +118,4 @@ Notes:
 2. Fix high-priority gaps (policy write, file listing, bootstrap).
 3. Resolve permission string drift (pick `updates:*` or `project:*`).
 4. Decide and enforce chat scope.
-5. Tighten storage ID types.
-6. Add focused tests for security boundaries.
+5. Add focused tests for security boundaries.

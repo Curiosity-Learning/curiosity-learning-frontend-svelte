@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -52,7 +53,7 @@
 		const clubId = pickClubId();
 		if (!clubId) {
 			redirected = true;
-			void goto('/onboarding/get-started');
+			void goto(routes.profile);
 			return;
 		}
 

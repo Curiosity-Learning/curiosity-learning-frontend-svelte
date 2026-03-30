@@ -1,12 +1,58 @@
 import { ConvexError, v } from 'convex/values';
-import { mutation, query } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
+import { resolveMediaAssetFileUrl } from './mediaStorage';
 import { requireIdentity, requireProfile } from './permissions';
+
+type Ctx = QueryCtx | MutationCtx;
+
+const resolveProfileImageUrl = async (
+	ctx: Ctx,
+	profile: {
+		coverPhotoUrl?: string;
+		profileImageMediaAssetId?: Id<'mediaAssets'>;
+	}
+) => {
+	if (!profile.profileImageMediaAssetId) {
+		return profile.coverPhotoUrl ?? null;
+	}
+
+	const asset = await ctx.db.get(profile.profileImageMediaAssetId);
+	if (!asset || asset.status !== 'ready' || asset.mediaKind === 'video') {
+		return profile.coverPhotoUrl ?? null;
+	}
+
+	return resolveMediaAssetFileUrl(asset) ?? profile.coverPhotoUrl ?? null;
+};
+
+const requireOwnedReadyProfileImage = async (
+	ctx: MutationCtx,
+	userId: string,
+	assetId: Id<'mediaAssets'>
+) => {
+	const asset = await ctx.db.get(assetId);
+	if (!asset || asset.ownerUserId !== userId) {
+		throw new ConvexError('Profile image not found');
+	}
+	if (asset.status !== 'ready') {
+		throw new ConvexError('Profile image is not ready');
+	}
+	if (asset.mediaKind === 'video') {
+		throw new ConvexError('Profile image must be an image');
+	}
+
+	return asset;
+};
 
 export const getMe = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		return requireProfile(ctx, identity.subject);
+		const profile = await requireProfile(ctx, identity.subject);
+		return {
+			...profile,
+			coverPhotoUrl: await resolveProfileImageUrl(ctx, profile)
+		};
 	}
 });
 
@@ -16,6 +62,7 @@ export const updateMe = mutation({
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
+		profileImageMediaAssetId: v.optional(v.id('mediaAssets')),
 		dateOfBirth: v.optional(v.string()),
 		about: v.optional(v.string()),
 		howDidYouFindUs: v.optional(v.string()),
@@ -41,8 +88,19 @@ export const updateMe = mutation({
 			}
 		}
 
+		let nextCoverPhotoUrl = args.coverPhotoUrl ?? profile.coverPhotoUrl;
+		if (args.profileImageMediaAssetId) {
+			const asset = await requireOwnedReadyProfileImage(
+				ctx,
+				identity.subject,
+				args.profileImageMediaAssetId
+			);
+			nextCoverPhotoUrl = resolveMediaAssetFileUrl(asset) ?? undefined;
+		}
+
 		await ctx.db.patch(profile._id, {
 			...args,
+			coverPhotoUrl: nextCoverPhotoUrl,
 			updatedAt: Date.now()
 		});
 
@@ -50,6 +108,9 @@ export const updateMe = mutation({
 		if (!updated) {
 			throw new ConvexError('Profile not found');
 		}
+
+		const resolvedCoverPhotoUrl = await resolveProfileImageUrl(ctx, updated);
+		const denormalizedCoverPhotoUrl = resolvedCoverPhotoUrl ?? undefined;
 
 		const displayName =
 			updated.username ||
@@ -69,7 +130,7 @@ export const updateMe = mutation({
 				lastName: updated.lastName,
 				username: updated.username,
 				email: updated.email,
-				coverPhotoUrl: updated.coverPhotoUrl
+				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
 
@@ -84,7 +145,7 @@ export const updateMe = mutation({
 				lastName: updated.lastName,
 				username: updated.username,
 				email: updated.email,
-				coverPhotoUrl: updated.coverPhotoUrl
+				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
 
@@ -95,11 +156,14 @@ export const updateMe = mutation({
 		for (const participant of participantRows) {
 			await ctx.db.patch(participant._id, {
 				displayName,
-				coverPhotoUrl: updated.coverPhotoUrl
+				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
 
-		return updated;
+		return {
+			...updated,
+			coverPhotoUrl: resolvedCoverPhotoUrl ?? undefined
+		};
 	}
 });
 
