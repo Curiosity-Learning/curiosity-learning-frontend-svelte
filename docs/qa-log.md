@@ -160,6 +160,19 @@
 
 ## 2026-03-30
 
+### Refactor: Inline Signed Media Delivery
+
+- Added `src/lib/server/signed-media.ts` as the server-only helper for composing short-lived CloudFront URLs into page data.
+- Updated `/settings/media-upload-dev` to load the selected asset preview from `+page.server.ts` instead of calling `/api/media/refresh` just to render the embedded preview panel.
+- Migrated settings, profile, and post-signup avatars to read initial signed image URLs from route server loads rather than the removed `src/lib/media/media-view.svelte.ts` client helper.
+- Updated join-club club preview to receive `videoMediaAssetId` plus a server-composed signed intro video URL on initial load.
+- Kept `/api/media/refresh` for explicit renewal/debug flows only, which avoids the repeated per-component refresh churn that previously froze pages.
+
+### Run: Type Check
+
+- `npm run convex:codegen` ✅
+- `npm run check` ✅
+
 ### Refactor: Shared Media Field Controller
 
 - Added `src/lib/media/upload-core.ts` as the shared transport/lifecycle layer for begin-upload, direct S3 upload, finalize, polling, and cleanup.

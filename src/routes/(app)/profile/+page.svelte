@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { authClient } from '$lib/auth-client';
@@ -18,14 +17,13 @@
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { api } from '$convex/_generated/api';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
-	import { createMediaView } from '$lib/media/media-view.svelte';
+	import type { PageProps } from './$types';
+
+	let { data }: PageProps = $props();
 
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 	const activeContext = useStableQuery(api.clubs.getActiveClubContext, {});
-	const profileImageView = createMediaView({
-		context: { kind: 'owned' }
-	});
 
 	let activeClubItem = $derived(
 		(clubsResponse.data ?? []).find((club) => club.clubId === activeContext.data?.activeClubId) ??
@@ -49,21 +47,23 @@
 			? routes.clubHome(activeContext.data.activeClubId)
 			: routes.onboardingGetStarted
 	);
-	const profileImageUrl = $derived(
-		profileResponse.data?.profileImageMediaAssetId
-			? profileImageView.url
-			: profileResponse.data?.coverPhotoUrl ?? null
-	);
+	const profileImageUrl = $derived.by(() => {
+		const profileImageAssetId = profileResponse.data?.profileImageMediaAssetId ?? null;
+		if (
+			profileImageAssetId &&
+			data.initialProfileImage?.assetId === profileImageAssetId
+		) {
+			return data.initialProfileImage.signedUrl;
+		}
+
+		if (profileImageAssetId) {
+			return null;
+		}
+
+		return profileResponse.data?.coverPhotoUrl ?? null;
+	});
 
 	const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
-
-	$effect(() => {
-		profileImageView.setAssetId(profileResponse.data?.profileImageMediaAssetId ?? null);
-	});
-
-	onDestroy(() => {
-		profileImageView.destroy();
-	});
 
 	const signOut = async () => {
 		clearClientSessionArtifacts();

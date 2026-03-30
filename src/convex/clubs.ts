@@ -265,6 +265,7 @@ export const getClubPreviewByCode = query({
 			id: club._id,
 			name: club.name,
 			description: club.description ?? null,
+			videoMediaAssetId: club.videoMediaAssetId ?? null,
 			videoUrl: await resolveClubVideoUrl(ctx, club),
 			location: club.location ?? null,
 			locationLatitude: club.locationLatitude ?? null,
@@ -274,6 +275,38 @@ export const getClubPreviewByCode = query({
 			memberCount: members.filter((member) => !member.leftAt).length,
 			createdAt: club.createdAt,
 			code
+		};
+	}
+});
+
+export const getClubPreviewDeliveryAssetByCode = query({
+	args: {
+		code: v.string()
+	},
+	handler: async (ctx, args) => {
+		const normalizedCode = normalizeInviteCode(args.code);
+		if (!INVITE_CODE_PATTERN.test(normalizedCode)) {
+			return null;
+		}
+
+		const resolved = await resolveClubByCode(ctx, normalizedCode);
+		if (!resolved?.club.videoMediaAssetId) {
+			return null;
+		}
+
+		const asset = await ctx.db.get(resolved.club.videoMediaAssetId);
+		if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'video') {
+			return null;
+		}
+
+		return {
+			assetId: asset._id,
+			storageProvider: asset.storageProvider,
+			deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+			deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+			mediaKind: asset.mediaKind ?? null,
+			contentType: asset.contentType ?? null,
+			durationSeconds: asset.durationSeconds ?? null
 		};
 	}
 });

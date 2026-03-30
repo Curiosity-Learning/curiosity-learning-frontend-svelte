@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
@@ -31,17 +33,10 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { onDestroy } from 'svelte';
+	import type { PageProps } from './$types';
 
 	type UploadStatus = 'pending_upload' | 'processing' | 'ready' | 'failed' | 'canceled';
 	type UploadFilter = 'all' | UploadStatus;
-
-	type DeliveryPreview = {
-		assetId: Id<'mediaAssets'>;
-		signedUrl: string;
-		contentType: string | null;
-		mediaKind: string | null;
-		expiresAt: number;
-	};
 
 	type DebugProbe = {
 		label: string;
@@ -55,6 +50,7 @@
 	const uploadManager = createMediaUploadManager(convexClient, {
 		maxRecentRuns: 10
 	});
+	let { data }: PageProps = $props();
 
 	const uploadsResponse = useStableQuery(api.media.listMyUploads, {});
 
@@ -64,10 +60,6 @@
 	let deleteStorageOnCancel = $state(true);
 	let pageErrorMessage = $state('');
 	let pageSuccessMessage = $state('');
-	let deliveryPreviewAssetId = $state<Id<'mediaAssets'> | null>(null);
-	let deliveryPreview = $state<DeliveryPreview | null>(null);
-	let deliveryPreviewPending = $state(false);
-	let deliveryPreviewError = $state('');
 	let debugProbePending = $state<string | null>(null);
 	let debugProbes = $state<DebugProbe[]>([]);
 
@@ -107,26 +99,7 @@
 		return new Date(value).toLocaleString();
 	};
 
-	const formatSignedExpiry = (value?: number | null) =>
-		value ? new Date(value * 1000).toLocaleString() : 'Not recorded';
-
 	const formatDebugPayload = (value: unknown) => JSON.stringify(value, null, 2);
-
-	const isDeliveryVideo = (preview: DeliveryPreview | null) =>
-		Boolean(preview && (preview.mediaKind === 'video' || preview.contentType?.startsWith('video/')));
-
-	const isDeliveryImage = (preview: DeliveryPreview | null) =>
-		Boolean(preview && (preview.mediaKind === 'image' || preview.contentType?.startsWith('image/')));
-
-	const supportsInlineDeliveryFrame = (preview: DeliveryPreview | null) => {
-		const contentType = preview?.contentType?.toLowerCase() ?? '';
-		return (
-			contentType === 'application/pdf' ||
-			contentType.startsWith('text/') ||
-			contentType.endsWith('+json') ||
-			contentType === 'application/json'
-		);
-	};
 
 	const clearFeedback = () => {
 		pageErrorMessage = '';
@@ -198,14 +171,9 @@
 			(selectedAssetId ? uploads.find((upload) => upload.assetId === selectedAssetId) ?? null : null)
 	);
 	const selectedDeliveryPreview = $derived(
-		selectedAsset && deliveryPreview?.assetId === selectedAsset.assetId ? deliveryPreview : null
+		selectedAsset && data.selectedDelivery?.assetId === selectedAsset.assetId ? data.selectedDelivery : null
 	);
-	const selectedDeliveryPreviewPending = $derived(
-		Boolean(selectedAsset && deliveryPreviewAssetId === selectedAsset.assetId && deliveryPreviewPending)
-	);
-	const selectedDeliveryPreviewError = $derived(
-		selectedAsset && deliveryPreviewAssetId === selectedAsset.assetId ? deliveryPreviewError : ''
-	);
+	const selectedDeliveryPreviewPending = $derived(false);
 	const liveDebugState = $derived.by(() => ({
 		auth: {
 			isLoading: auth.isLoading,
@@ -235,9 +203,9 @@
 		},
 		deliveryPreview: {
 			pending: selectedDeliveryPreviewPending,
-			error: selectedDeliveryPreviewError || null,
 			assetId: selectedDeliveryPreview?.assetId ?? null,
-			expiresAt: selectedDeliveryPreview?.expiresAt ?? null
+			expiresAt: selectedDeliveryPreview?.expiresAt ?? null,
+			source: data.selectedDelivery ? 'page.server' : null
 		}
 	}));
 
@@ -256,6 +224,10 @@
 
 	onDestroy(() => {
 		uploadManager.destroy();
+	});
+
+	$effect(() => {
+		manualSelectedAssetId = data.selectedAssetId ?? null;
 	});
 
 	const beginAndUploadFiles = async (files: File[]) => {
@@ -289,8 +261,28 @@
 		});
 	};
 
-	const openSignedAsset = async (assetId: Id<'mediaAssets'>) => {
+	const selectAsset = async (assetId: Id<'mediaAssets'>) => {
+		manualSelectedAssetId = assetId;
+		if (!browser) {
+			return;
+		}
+
+		const url = new URL(window.location.href);
+		url.searchParams.set('selected', assetId);
+		await goto(`${url.pathname}${url.search}${url.hash}`, {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true,
+			invalidateAll: true
+		});
+	};
+
+	const openSignedAsset = async (assetId: Id<'mediaAssets'>, preloadedUrl?: string | null) => {
 		clearFeedback();
+		if (preloadedUrl) {
+			window.open(preloadedUrl, '_blank', 'noopener,noreferrer');
+			return;
+		}
 
 		try {
 			const assets = await requestSignedMediaUrls({
@@ -307,41 +299,6 @@
 			window.open(asset.signedUrl, '_blank', 'noopener,noreferrer');
 		} catch (error) {
 			pageErrorMessage = error instanceof Error ? error.message : 'Unable to open media asset.';
-		}
-	};
-
-	const loadDeliveryPreview = async (assetId: Id<'mediaAssets'>) => {
-		clearFeedback();
-		deliveryPreviewAssetId = assetId;
-		deliveryPreview = null;
-		deliveryPreviewPending = true;
-		deliveryPreviewError = '';
-
-		try {
-			const assets = await requestSignedMediaUrls({
-				assetIds: [assetId],
-				context: {
-					kind: 'owned'
-				}
-			});
-			const asset = assets[0];
-			if (!asset) {
-				throw new Error('No signed URL is available for this asset yet.');
-			}
-
-			deliveryPreview = {
-				assetId,
-				signedUrl: asset.signedUrl,
-				contentType: asset.contentType,
-				mediaKind: asset.mediaKind,
-				expiresAt: asset.expiresAt
-			};
-		} catch (error) {
-			deliveryPreview = null;
-			deliveryPreviewError =
-				error instanceof Error ? error.message : 'Unable to load embedded delivery preview.';
-		} finally {
-			deliveryPreviewPending = false;
 		}
 	};
 
@@ -721,7 +678,7 @@
 									</div>
 
 									<div class="flex flex-wrap gap-2">
-										<Button size="sm" variant="outline" onclick={() => (manualSelectedAssetId = upload.assetId)}>
+										<Button size="sm" variant="outline" onclick={() => void selectAsset(upload.assetId)}>
 											View detail
 										</Button>
 										{#if upload.actions.canFinalize}
@@ -802,22 +759,15 @@
 									<Button
 										size="sm"
 										variant="outline"
-										onclick={() => void openSignedAsset(selectedAsset.assetId)}
-									>
+										onclick={() =>
+											void openSignedAsset(
+												selectedAsset.assetId,
+												selectedDeliveryPreview?.signedUrl ?? null
+											)}
+										>
 										Open ready file
 									</Button>
-									<Button
-										size="sm"
-										variant="secondary"
-										onclick={() => void loadDeliveryPreview(selectedAsset.assetId)}
-										disabled={selectedDeliveryPreviewPending}
-									>
-										{selectedDeliveryPreviewPending && selectedAsset.assetId !== selectedDeliveryPreview?.assetId
-											? 'Loading preview...'
-											: selectedDeliveryPreview
-												? 'Refresh embedded preview'
-												: 'Load embedded preview'}
-									</Button>
+									<Badge variant="outline">Preview comes from page load</Badge>
 								</div>
 							{/if}
 						</div>
@@ -838,12 +788,8 @@
 						<div class="flex flex-col gap-3">
 							<p class="text-sm font-medium">Embedded delivery preview</p>
 							<div class="overflow-hidden rounded-md border border-border bg-muted/20">
-								{#if selectedDeliveryPreviewPending && !selectedDeliveryPreview}
-									<div class="flex aspect-video items-center justify-center p-4">
-										<p class="text-sm text-muted-foreground">Loading signed delivery preview...</p>
-									</div>
-								{:else if selectedDeliveryPreview}
-									{#if isDeliveryVideo(selectedDeliveryPreview)}
+								{#if selectedDeliveryPreview}
+									{#if selectedDeliveryPreview.mediaKind === 'video' || selectedDeliveryPreview.contentType?.startsWith('video/')}
 										<!-- svelte-ignore a11y_media_has_caption -->
 										<video
 											src={selectedDeliveryPreview.signedUrl}
@@ -851,53 +797,57 @@
 											preload="metadata"
 											class="aspect-video w-full bg-black object-contain"
 										></video>
-									{:else if isDeliveryImage(selectedDeliveryPreview)}
+									{:else if selectedDeliveryPreview.mediaKind === 'image' || selectedDeliveryPreview.contentType?.startsWith('image/')}
 										<img
 											src={selectedDeliveryPreview.signedUrl}
 											alt={selectedAsset.originalFilename ?? 'Delivered media asset'}
 											class="aspect-video w-full bg-background object-contain"
 										/>
-									{:else if supportsInlineDeliveryFrame(selectedDeliveryPreview)}
-										<iframe
-											src={selectedDeliveryPreview.signedUrl}
-											title={selectedAsset.originalFilename ?? 'Delivered media asset'}
-											class="aspect-video w-full bg-background"
-										></iframe>
 									{:else}
 										<div class="flex aspect-video flex-col items-center justify-center gap-3 p-4 text-center">
 											<p class="text-sm text-muted-foreground">
-												Inline delivery preview is not configured for
-												{selectedDeliveryPreview.contentType ?? 'this file type'}.
+												Inline preview is not configured for
+												{selectedDeliveryPreview.contentType ?? 'this file type'}
+												on this page.
 											</p>
 											<Button
 												size="sm"
 												variant="outline"
-												onclick={() => void openSignedAsset(selectedAsset.assetId)}
-											>
+												onclick={() =>
+													void openSignedAsset(
+														selectedAsset.assetId,
+														selectedDeliveryPreview.signedUrl
+													)}
+												>
 												Open file in new tab
 											</Button>
 										</div>
 									{/if}
 								{:else}
-									<div class="flex aspect-video items-center justify-center p-4">
+									<div class="flex aspect-video flex-col items-center justify-center gap-3 p-4 text-center">
 										<p class="text-sm text-muted-foreground">
-											Load an embedded preview to verify signed delivery in-page.
+											No signed preview was returned with the current page data for this asset.
 										</p>
+										{#if selectedAsset.status === 'ready'}
+											<Button
+												size="sm"
+												variant="outline"
+												onclick={() => void selectAsset(selectedAsset.assetId)}
+											>
+												Reload preview from server
+											</Button>
+										{/if}
 									</div>
 								{/if}
 							</div>
 
 							{#if selectedDeliveryPreview}
 								<div class="flex flex-wrap gap-2">
-									<Badge variant="outline">Signed delivery loaded</Badge>
+									<Badge variant="outline">Signed delivery from page load</Badge>
 									<Badge variant="outline">
-										Expires: {formatSignedExpiry(selectedDeliveryPreview.expiresAt)}
+										Expires: {new Date(selectedDeliveryPreview.expiresAt * 1000).toLocaleString()}
 									</Badge>
 								</div>
-							{/if}
-
-							{#if selectedDeliveryPreviewError}
-								<p class="text-sm text-destructive">{selectedDeliveryPreviewError}</p>
 							{/if}
 						</div>
 

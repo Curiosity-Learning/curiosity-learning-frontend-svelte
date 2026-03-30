@@ -14,19 +14,18 @@
 	import { InputField } from '$lib/components/app/form';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
-	import { createMediaView } from '$lib/media/media-view.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
+	import type { PageProps } from './$types';
+
+	let { data }: PageProps = $props();
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
-		mode: 'deferred'
-	});
-	const profileImageView = createMediaView({
-		context: { kind: 'owned' }
+		mode: 'immediate'
 	});
 	const profileResponse = useStableQuery(api.profiles.getMe, () => (auth.isAuthenticated ? {} : 'skip'));
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
@@ -108,17 +107,33 @@
 
 	onDestroy(() => {
 		profileImageField.destroy();
-		profileImageView.destroy();
 	});
 
-	$effect(() => {
-		profileImageView.setAssetId(profileResponse.data?.profileImageMediaAssetId ?? null);
-	});
+	let persistedProfileImageUrl = $derived.by(() => {
+		const profileImageAssetId = profileResponse.data?.profileImageMediaAssetId ?? null;
+		if (
+			profileImageAssetId &&
+			data.initialProfileImage?.assetId === profileImageAssetId
+		) {
+			return data.initialProfileImage.signedUrl;
+		}
 
-	let persistedProfileImageUrl = $derived(
-		profileResponse.data?.profileImageMediaAssetId
-			? profileImageView.url
-			: profileResponse.data?.coverPhotoUrl ?? null
+		if (profileImageAssetId) {
+			return null;
+		}
+
+		return profileResponse.data?.coverPhotoUrl ?? null;
+	});
+	let profileImageNeedsReady = $derived(
+		profileImageField.hasUploadedAsset && !profileImageField.isReady
+	);
+	let profileImageError = $derived(profileImageField.phase === 'failed' ? profileImageField.errorMessage : '');
+	let nextDisabled = $derived(
+		pending ||
+			profileImageField.isBusy ||
+			profileImageNeedsReady ||
+			!username.trim() ||
+			Boolean(profileImageError)
 	);
 
 	$effect(() => {
@@ -174,6 +189,12 @@
 	const uploadProfileImage = async (files: File[]) => {
 		try {
 			await profileImageField.selectFiles(files);
+			if (profileImageField.phase === 'failed' && profileImageField.errorMessage) {
+				showGlobalSnackbar({
+					title: t('onboarding.postSignup.profileImageUploadFailedTitle'),
+					description: profileImageField.errorMessage
+				});
+			}
 		} catch (error) {
 			showGlobalSnackbar({
 				title: t('onboarding.postSignup.profileImageUploadFailedTitle'),
@@ -330,18 +351,54 @@
 										>
 											<div class="flex min-w-0 flex-col gap-1">
 												<p class="text-sm font-semibold text-gray-900">
-													{profileImageField.isBusy ? $_('onboarding.postSignup.uploadingImage') : $_('onboarding.postSignup.dropOrChooseImage')}
+													{#if profileImageField.phase === 'processing'}
+														Processing image...
+													{:else if profileImageField.isBusy}
+														{$_('onboarding.postSignup.uploadingImage')}
+													{:else if profileImageField.isReady}
+														Image uploaded
+													{:else}
+														{$_('onboarding.postSignup.dropOrChooseImage')}
+													{/if}
 												</p>
-												<p class="text-xs text-gray-500">{$_('onboarding.postSignup.imageRequirements')}</p>
+												<p class="text-xs text-gray-500">
+													{#if profileImageField.phase === 'processing'}
+														Hang tight while we finish preparing your profile picture.
+													{:else if profileImageField.isReady}
+														Your profile picture is ready.
+													{:else}
+														{$_('onboarding.postSignup.imageRequirements')}
+													{/if}
+												</p>
 											</div>
-											<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
-												{profileImageField.isBusy ? $_('onboarding.postSignup.uploading') : $_('common.browse')}
+											<div class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
+												{#if profileImageField.isBusy}
+													<LoaderCircleIcon class="size-3.5 animate-spin" />
+												{/if}
+												<span>
+													{#if profileImageField.phase === 'processing'}
+														Processing
+													{:else if profileImageField.isBusy}
+														{$_('onboarding.postSignup.uploading')}
+													{:else if profileImageField.isReady}
+														Ready
+													{:else}
+														{$_('common.browse')}
+													{/if}
+												</span>
 											</div>
 										</div>
 								</FileDropZone.Trigger>
 							</div>
 						</div>
 					</FileDropZone.Root>
+					{#if profileImageError}
+						<p class="text-sm text-red-700">{profileImageError}</p>
+					{:else if profileImageField.phase === 'processing'}
+						<p class="text-sm text-gray-600">Processing your image before you can continue.</p>
+					{:else if profileImageField.isReady}
+						<p class="text-sm text-emerald-700">Profile picture uploaded and ready.</p>
+					{/if}
 				</div>
 			</div>
 		{:else}
@@ -401,7 +458,7 @@
 						variant="default"
 						size="xl"
 						class="h-12 w-full"
-						disabled={pending || profileImageField.isBusy || !username.trim()}
+						disabled={nextDisabled}
 						onclick={() => void saveProfileAndContinue()}
 					>
 						{pending ? $_('common.saving') : $_('common.next')}

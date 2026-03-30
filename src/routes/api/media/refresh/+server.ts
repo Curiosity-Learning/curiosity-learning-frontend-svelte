@@ -2,10 +2,11 @@ import { error, json } from '@sveltejs/kit';
 import { api } from '$convex/_generated/api';
 import type { Id } from '$convex/_generated/dataModel';
 import { getConvexServerClient } from '$lib/server/convex';
+import { loadMediaDeliveryConfigOrNull } from '$lib/server/media-delivery';
 import {
-	createCloudFrontSignedUrl,
-	loadMediaDeliveryConfigOrNull
-} from '$lib/server/media-delivery';
+	getSignedOwnedMediaAssets,
+	getSignedProjectMediaAssets
+} from '$lib/server/signed-media';
 import type { RequestHandler } from './$types';
 
 type RefreshContext =
@@ -17,21 +18,8 @@ type RefreshContext =
 			projectId: string;
 	  };
 
-type DeliveryAsset = {
-	assetId: Id<'mediaAssets'>;
-	storageProvider: 's3';
-	deliveryBucket: string | null;
-	deliveryObjectKey: string | null;
-	mediaKind: 'image' | 'video' | null;
-	contentType: string | null;
-	durationSeconds: number | null;
-};
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
-
-const hasDeliveryObjectKey = (asset: DeliveryAsset | null): asset is DeliveryAsset & { deliveryObjectKey: string } =>
-	Boolean(asset?.deliveryObjectKey);
 
 const parseContext = (value: unknown): RefreshContext | null => {
 	if (!isRecord(value) || typeof value.kind !== 'string') {
@@ -84,35 +72,17 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 
 	const convex = getConvexServerClient(locals.token);
-	const deliveryAssets =
+	const assets =
 		context.kind === 'owned'
-			? await convex.query(api.media.getOwnedDeliveryAssets, {
-					assetIds: assetIds as Id<'mediaAssets'>[]
-				})
-			: await convex.query(api.updates.getProjectDeliveryAssets, {
-					projectId: context.projectId as Id<'projects'>,
-					assetIds: assetIds as Id<'mediaAssets'>[]
-				});
+			? await getSignedOwnedMediaAssets(convex, assetIds as Id<'mediaAssets'>[], deliveryConfig)
+			: await getSignedProjectMediaAssets(
+					convex,
+					context.projectId as Id<'projects'>,
+					assetIds as Id<'mediaAssets'>[],
+					deliveryConfig
+				);
 
 	return json({
-		assets: deliveryAssets
-			.filter(hasDeliveryObjectKey)
-			.map((asset) => {
-				const delivery = createCloudFrontSignedUrl(deliveryConfig, {
-					objectKey: asset.deliveryObjectKey,
-					mediaKind: asset.mediaKind,
-					contentType: asset.contentType,
-					durationSeconds: asset.durationSeconds
-				});
-
-				return {
-					assetId: asset.assetId,
-					mediaKind: asset.mediaKind,
-					contentType: asset.contentType,
-					durationSeconds: asset.durationSeconds,
-					signedUrl: delivery.signedUrl,
-					expiresAt: delivery.expiresAt
-				};
-			})
+		assets
 	});
 };
