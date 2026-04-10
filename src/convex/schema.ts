@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from 'convex/server';
-import { mediaAssetFields } from './mediaModel';
 import { v } from 'convex/values';
+import { mediaAssetFields } from './mediaModel';
 
 export default defineSchema({
 	profiles: defineTable({

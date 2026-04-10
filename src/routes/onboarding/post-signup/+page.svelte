@@ -27,7 +27,9 @@
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
 		mode: 'immediate'
 	});
-	const profileResponse = useStableQuery(api.profiles.getMe, () => (auth.isAuthenticated ? {} : 'skip'));
+	const profileResponse = useStableQuery(api.profiles.getMe, () =>
+		auth.isAuthenticated ? {} : 'skip'
+	);
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
 
 	const parseStep = (value: string | null): 1 | 2 => (value === '2' ? 2 : 1);
@@ -57,7 +59,9 @@
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
 	let completionNextPath = $derived(resolveCompletionNextPath(nextPath));
-	const pledgesResponse = useStableQuery(api.pledges.listActive, () => (auth.isAuthenticated ? {} : 'skip'));
+	const pledgesResponse = useStableQuery(api.pledges.listActive, () =>
+		auth.isAuthenticated ? {} : 'skip'
+	);
 	const pledgeItems = $derived(pledgesResponse.data ?? []);
 	let selfPath = $derived.by(() => {
 		const params = new SvelteURLSearchParams();
@@ -103,7 +107,9 @@
 			return false;
 		}
 	};
-	let awaitingSignupSession = $derived(!auth.isLoading && !auth.isAuthenticated && isPostSignupPending());
+	let awaitingSignupSession = $derived(
+		!auth.isLoading && !auth.isAuthenticated && isPostSignupPending()
+	);
 
 	onDestroy(() => {
 		profileImageField.destroy();
@@ -111,10 +117,7 @@
 
 	let persistedProfileImageUrl = $derived.by(() => {
 		const profileImageAssetId = profileResponse.data?.profileImageMediaAssetId ?? null;
-		if (
-			profileImageAssetId &&
-			data.initialProfileImage?.assetId === profileImageAssetId
-		) {
+		if (profileImageAssetId && data.initialProfileImage?.assetId === profileImageAssetId) {
 			return data.initialProfileImage.signedUrl;
 		}
 
@@ -127,7 +130,9 @@
 	let profileImageNeedsReady = $derived(
 		profileImageField.hasUploadedAsset && !profileImageField.isReady
 	);
-	let profileImageError = $derived(profileImageField.phase === 'failed' ? profileImageField.errorMessage : '');
+	let profileImageError = $derived(
+		profileImageField.phase === 'failed' ? profileImageField.errorMessage : ''
+	);
 	let nextDisabled = $derived(
 		pending ||
 			profileImageField.isBusy ||
@@ -176,7 +181,10 @@
 			.catch((error) => {
 				showGlobalSnackbar({
 					title: t('onboarding.postSignup.loadPledgesFailedTitle'),
-					description: error instanceof Error ? error.message : t('onboarding.postSignup.loadPledgesFailedDescription')
+					description:
+						error instanceof Error
+							? error.message
+							: t('onboarding.postSignup.loadPledgesFailedDescription')
 				});
 			})
 			.finally(() => {
@@ -198,7 +206,10 @@
 		} catch (error) {
 			showGlobalSnackbar({
 				title: t('onboarding.postSignup.profileImageUploadFailedTitle'),
-				description: error instanceof Error ? error.message : t('onboarding.postSignup.profileImageUploadFailedDescription')
+				description:
+					error instanceof Error
+						? error.message
+						: t('onboarding.postSignup.profileImageUploadFailedDescription')
 			});
 		}
 	};
@@ -217,7 +228,8 @@
 			await profileImageField.ensureUploaded();
 			if (profileImageField.hasUploadedAsset && !profileImageField.isReady) {
 				throw new Error(
-					profileImageField.errorMessage || t('onboarding.postSignup.profileImageUploadFailedDescription')
+					profileImageField.errorMessage ||
+						t('onboarding.postSignup.profileImageUploadFailedDescription')
 				);
 			}
 			await profileImageField.persistAttached(async (assetId) => {
@@ -229,9 +241,16 @@
 			step = 2;
 			syncStepInUrl(2);
 		} catch (error) {
+			let errorMessage = t('onboarding.postSignup.saveProfileFailedDescription');
+			if (error instanceof Error) {
+				// Extract just the validation message from Convex errors
+				const message = error.message;
+				const match = message.match(/ConvexError:\s*(.+?)(?:\s+at\s+|$)/);
+				errorMessage = match ? match[1] : message;
+			}
 			showGlobalSnackbar({
 				title: t('onboarding.postSignup.saveProfileFailedTitle'),
-				description: error instanceof Error ? error.message : t('onboarding.postSignup.saveProfileFailedDescription')
+				description: errorMessage
 			});
 		} finally {
 			pending = false;
@@ -276,7 +295,10 @@
 		} catch (error) {
 			showGlobalSnackbar({
 				title: t('onboarding.postSignup.finishOnboardingFailedTitle'),
-				description: error instanceof Error ? error.message : t('onboarding.postSignup.finishOnboardingFailedDescription')
+				description:
+					error instanceof Error
+						? error.message
+						: t('onboarding.postSignup.finishOnboardingFailedDescription')
 			});
 		} finally {
 			pending = false;
@@ -287,10 +309,14 @@
 {#if awaitingSignupSession}
 	<div class="flex min-h-screen items-center justify-center bg-white px-4">
 		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-4 text-center">
-			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+			<div
+				class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500"
+			>
 				<LoaderCircleIcon class="size-7 animate-spin" />
 			</div>
-			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">{$_('onboarding.postSignup.restoringTitle')}</h1>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">
+				{$_('onboarding.postSignup.restoringTitle')}
+			</h1>
 			<p class="text-base leading-7 text-gray-600">
 				{$_('onboarding.postSignup.restoringDescription')}
 			</p>
@@ -298,7 +324,7 @@
 	</div>
 {:else}
 	<FlowShell
-		step={step}
+		{step}
 		total={2}
 		showAccountLink={false}
 		showProgressBar={false}
@@ -306,47 +332,53 @@
 	>
 		<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
 			{#if step === 1}
-			<div class="flex flex-col gap-5">
-				<h1 class="type-step-title text-gray-900">{$_('onboarding.postSignup.profileTitle')}</h1>
+				<div class="flex flex-col gap-5">
+					<h1 class="type-step-title text-gray-900">{$_('onboarding.postSignup.profileTitle')}</h1>
 
-				<InputField
-					id="username"
-					label={$_('onboarding.postSignup.usernameLabel')}
-					required={true}
-					bind:value={username}
-					autocomplete="username"
-					placeholder={$_('onboarding.postSignup.usernamePlaceholder')}
-				/>
+					<InputField
+						id="username"
+						label={$_('onboarding.postSignup.usernameLabel')}
+						required={true}
+						bind:value={username}
+						autocomplete="username"
+						placeholder={$_('onboarding.postSignup.usernamePlaceholder')}
+					/>
 
-				<div class="flex flex-col gap-3">
-					<p class="type-field-label text-gray-900">{$_('onboarding.postSignup.profileImageLabel')}</p>
-					<FileDropZone.Root
-						accept={profileImageField.accept}
-						maxFiles={1}
-						fileCount={0}
-						maxFileSize={profileImageField.maxBytes}
-						disabled={profileImageField.isBusy || pending}
-						onUpload={uploadProfileImage}
-					>
-						<div class="flex items-center gap-3">
-							<div
-								class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gray-100"
-							>
-								{#if profileImageField.localPreviewUrl}
-									<img src={profileImageField.localPreviewUrl} alt={$_('onboarding.postSignup.profilePreviewAlt')} class="size-full object-cover" />
-								{:else if persistedProfileImageUrl}
-									<img
-										src={persistedProfileImageUrl}
-										alt={$_('onboarding.postSignup.profilePreviewAlt')}
-										class="size-full object-cover"
-									/>
-								{:else}
-									<span class="text-xs font-semibold text-gray-500">{$_('common.noImage')}</span>
-								{/if}
-							</div>
-							<div class="flex min-w-0 flex-1 flex-col gap-2">
-								<FileDropZone.Trigger class="contents">
-									<div
+					<div class="flex flex-col gap-3">
+						<p class="type-field-label text-gray-900">
+							{$_('onboarding.postSignup.profileImageLabel')}
+						</p>
+						<FileDropZone.Root
+							accept={profileImageField.accept}
+							maxFiles={1}
+							fileCount={0}
+							maxFileSize={profileImageField.maxBytes}
+							disabled={profileImageField.isBusy || pending}
+							onUpload={uploadProfileImage}
+						>
+							<div class="flex items-center gap-3">
+								<div
+									class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gray-100"
+								>
+									{#if profileImageField.localPreviewUrl}
+										<img
+											src={profileImageField.localPreviewUrl}
+											alt={$_('onboarding.postSignup.profilePreviewAlt')}
+											class="size-full object-cover"
+										/>
+									{:else if persistedProfileImageUrl}
+										<img
+											src={persistedProfileImageUrl}
+											alt={$_('onboarding.postSignup.profilePreviewAlt')}
+											class="size-full object-cover"
+										/>
+									{:else}
+										<span class="text-xs font-semibold text-gray-500">{$_('common.noImage')}</span>
+									{/if}
+								</div>
+								<div class="flex min-w-0 flex-1 flex-col gap-2">
+									<FileDropZone.Trigger class="contents">
+										<div
 											class="flex min-h-20 items-center justify-between gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-left text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
 										>
 											<div class="flex min-w-0 flex-col gap-1">
@@ -371,7 +403,9 @@
 													{/if}
 												</p>
 											</div>
-											<div class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
+											<div
+												class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs"
+											>
 												{#if profileImageField.isBusy}
 													<LoaderCircleIcon class="size-3.5 animate-spin" />
 												{/if}
@@ -388,68 +422,75 @@
 												</span>
 											</div>
 										</div>
-								</FileDropZone.Trigger>
-							</div>
-						</div>
-					</FileDropZone.Root>
-					{#if profileImageError}
-						<p class="text-sm text-red-700">{profileImageError}</p>
-					{:else if profileImageField.phase === 'processing'}
-						<p class="text-sm text-gray-600">Processing your image before you can continue.</p>
-					{:else if profileImageField.isReady}
-						<p class="text-sm text-emerald-700">Profile picture uploaded and ready.</p>
-					{/if}
-				</div>
-			</div>
-		{:else}
-			<div class="flex flex-col gap-5">
-				<h1 class="type-step-title text-gray-900">{$_('onboarding.postSignup.pledgesTitle')}</h1>
-				<p class="text-sm leading-6 text-gray-600">
-					{$_('onboarding.postSignup.pledgesDescription')}
-				</p>
-
-				<div class="flex flex-col gap-3">
-					{#if pledgeItems.length > 0}
-						{#each pledgeItems as item (item._id)}
-							<details class="group rounded-lg border border-gray-200 bg-white">
-								<summary
-									class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3"
-								>
-									<span class="text-sm leading-6 font-bold text-gray-900">{item.title}</span>
-									<ChevronDownIcon
-										class="size-4 shrink-0 text-gray-500 transition-transform group-open:rotate-180"
-									/>
-								</summary>
-								<div class="flex flex-col gap-3 px-4 pb-4">
-									<p class="text-sm leading-6 text-gray-600">{item.description}</p>
-									{#if item.bullets.length > 0}
-										<ul class="list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
-											{#each item.bullets as bullet, bulletIndex (bulletIndex)}
-												<li>{bullet}</li>
-											{/each}
-										</ul>
-									{/if}
+									</FileDropZone.Trigger>
 								</div>
-							</details>
-						{/each}
-					{:else if pledgesSeeding || !pledgesResponse.data}
-						<div class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
-							{$_('onboarding.postSignup.pledgesLoading')}
-						</div>
-					{:else}
-						<div class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
-							{$_('onboarding.postSignup.pledgesEmpty')}
-						</div>
-					{/if}
+							</div>
+						</FileDropZone.Root>
+						{#if profileImageError}
+							<p class="text-sm text-red-700">{profileImageError}</p>
+						{:else if profileImageField.phase === 'processing'}
+							<p class="text-sm text-gray-600">Processing your image before you can continue.</p>
+						{:else if profileImageField.isReady}
+							<p class="text-sm text-emerald-700">Profile picture uploaded and ready.</p>
+						{/if}
+					</div>
 				</div>
+			{:else}
+				<div class="flex flex-col gap-5">
+					<h1 class="type-step-title text-gray-900">{$_('onboarding.postSignup.pledgesTitle')}</h1>
+					<p class="text-sm leading-6 text-gray-600">
+						{$_('onboarding.postSignup.pledgesDescription')}
+					</p>
 
-				<div class="flex items-center gap-2 pt-1">
-					<Checkbox bind:checked={agreedAll} id="agree-all-post-signup" />
-					<label for="agree-all-post-signup" class="cursor-pointer text-sm leading-6 text-gray-600">
-						{$_('onboarding.postSignup.agreeAll')}
-					</label>
+					<div class="flex flex-col gap-3">
+						{#if pledgeItems.length > 0}
+							{#each pledgeItems as item (item._id)}
+								<details class="group rounded-lg border border-gray-200 bg-white">
+									<summary
+										class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3"
+									>
+										<span class="text-sm leading-6 font-bold text-gray-900">{item.title}</span>
+										<ChevronDownIcon
+											class="size-4 shrink-0 text-gray-500 transition-transform group-open:rotate-180"
+										/>
+									</summary>
+									<div class="flex flex-col gap-3 px-4 pb-4">
+										<p class="text-sm leading-6 text-gray-600">{item.description}</p>
+										{#if item.bullets.length > 0}
+											<ul class="list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
+												{#each item.bullets as bullet, bulletIndex (bulletIndex)}
+													<li>{bullet}</li>
+												{/each}
+											</ul>
+										{/if}
+									</div>
+								</details>
+							{/each}
+						{:else if pledgesSeeding || !pledgesResponse.data}
+							<div
+								class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600"
+							>
+								{$_('onboarding.postSignup.pledgesLoading')}
+							</div>
+						{:else}
+							<div
+								class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600"
+							>
+								{$_('onboarding.postSignup.pledgesEmpty')}
+							</div>
+						{/if}
+					</div>
+
+					<div class="flex items-center gap-2 pt-1">
+						<Checkbox bind:checked={agreedAll} id="agree-all-post-signup" />
+						<label
+							for="agree-all-post-signup"
+							class="cursor-pointer text-sm leading-6 text-gray-600"
+						>
+							{$_('onboarding.postSignup.agreeAll')}
+						</label>
+					</div>
 				</div>
-			</div>
 			{/if}
 
 			<div class="mt-auto pb-2 sm:pb-6">

@@ -148,10 +148,7 @@
 
 	let persistedProfileImageUrl = $derived.by(() => {
 		const profileImageAssetId = profileResponse.data?.profileImageMediaAssetId ?? null;
-		if (
-			profileImageAssetId &&
-			data.initialProfileImage?.assetId === profileImageAssetId
-		) {
+		if (profileImageAssetId && data.initialProfileImage?.assetId === profileImageAssetId) {
 			return data.initialProfileImage.signedUrl;
 		}
 
@@ -193,8 +190,12 @@
 			});
 			successMessage = t('settingsPage.profileImageUploaded');
 		} catch (error) {
-			errorMessage =
-				error instanceof Error ? error.message : t('settingsPage.profileImageUploadFailure');
+			let message = t('settingsPage.profileImageUploadFailure');
+			if (error instanceof Error) {
+				const match = error.message.match(/ConvexError:\s*(.+?)(?:\s+at\s+|$)/);
+				message = match ? match[1] : error.message;
+			}
+			errorMessage = message;
 		} finally {
 			pending = false;
 		}
@@ -216,7 +217,12 @@
 			});
 			successMessage = t('settingsPage.profileUpdated');
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : t('settingsPage.saveProfileFailure');
+			let message = t('settingsPage.saveProfileFailure');
+			if (error instanceof Error) {
+				const match = error.message.match(/ConvexError:\s*(.+?)(?:\s+at\s+|$)/);
+				message = match ? match[1] : error.message;
+			}
+			errorMessage = message;
 		} finally {
 			pending = false;
 		}
@@ -481,8 +487,8 @@
 		</CardHeader>
 		<CardContent class="flex flex-col gap-3">
 			<p class="text-sm text-muted-foreground">
-				Use the media upload test page to exercise begin, upload, finalize, retry, and cancel
-				flows against the shared S3-backed pipeline.
+				Use the media upload test page to exercise begin, upload, finalize, retry, and cancel flows
+				against the shared S3-backed pipeline.
 			</p>
 			<Button href={routes.settingsMediaUploadDev} variant="outline">Open media upload test</Button>
 		</CardContent>

@@ -3,6 +3,7 @@ import type { Id } from './_generated/dataModel';
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import { requireIdentity, requireProfile } from './permissions';
+import { getUsernameValidationError } from './usernameValidator';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -78,6 +79,10 @@ export const updateMe = mutation({
 		const profile = await requireProfile(ctx, identity.subject);
 
 		if (args.username && args.username !== profile.username) {
+			const validationError = getUsernameValidationError(args.username);
+			if (validationError) {
+				throw new ConvexError(validationError);
+			}
 			const existing = await ctx.db
 				.query('profiles')
 				.withIndex('by_username', (q) => q.eq('username', args.username))
@@ -172,7 +177,8 @@ export const checkUsernameAvailability = query({
 	},
 	handler: async (ctx, args) => {
 		const normalized = args.username.trim().toLowerCase();
-		if (!normalized) {
+		const validationError = getUsernameValidationError(normalized);
+		if (validationError) {
 			return false;
 		}
 		const existing = await ctx.db
