@@ -23,6 +23,7 @@
 		navigation: AppNavItemType[];
 		headerBack?: HeaderBackConfig;
 		headerTitleContent?: import('svelte').Snippet;
+		hideBottomNav?: boolean;
 		headerActions?: import('svelte').Snippet;
 		headerSearch?: HeaderSearchConfig;
 		banner?: import('svelte').Snippet;
@@ -36,6 +37,7 @@
 		navigation,
 		headerBack,
 		headerTitleContent,
+		hideBottomNav = false,
 		headerActions,
 		headerSearch,
 		banner,
@@ -173,7 +175,13 @@
 <!-- --bottom-nav-h: height of the fixed mobile bottom nav. Used here for content
      clearance (pb) and by child components for sticky element offsets. On desktop
      (lg:) the sidebar replaces the bottom nav so the padding is removed. -->
-<div class="relative flex min-h-screen flex-col bg-white pb-[var(--bottom-nav-h)] lg:pb-0" style="--bottom-nav-h: 4.5rem;">
+<div
+	class={cn(
+		'relative flex min-h-screen flex-col bg-white lg:pb-0',
+		hideBottomNav ? 'pb-0' : 'pb-[var(--bottom-nav-h)]'
+	)}
+	style="--bottom-nav-h: 4.5rem;"
+>
 	<ConnectivityOverlay />
 	<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
 		<aside
@@ -298,7 +306,7 @@
 								{:else}
 									<h1
 										class={cn(
-											'min-w-0 truncate text-[1.25rem] leading-6 font-bold transition-opacity duration-200 sm:text-[1.5rem] sm:leading-8',
+											'min-w-0 truncate font-[var(--font-family-sans)] text-[1.25rem] leading-6 font-bold transition-opacity duration-200',
 											showOverlaySearchField ? 'opacity-0' : 'opacity-100'
 										)}
 									>
@@ -404,7 +412,10 @@
 				</main>
 
 				<footer
-					class="fixed inset-x-0 bottom-0 z-10 flex justify-center border-t border-border bg-white lg:hidden"
+					class={cn(
+						'fixed inset-x-0 bottom-0 z-10 justify-center border-t border-border bg-white lg:hidden',
+						hideBottomNav ? 'hidden' : 'flex'
+					)}
 				>
 				<div class="flex w-full max-w-6xl flex-col gap-2 px-2 py-2 sm:px-6 lg:px-8">
 					<nav class="grid w-full grid-cols-4 gap-1">

@@ -15,6 +15,7 @@
 	import { api } from '$convex/_generated/api';
 	import {
 		ActionMenu,
+		PageBottomNavVisibility,
 		PageHeaderActions,
 		PageHeaderBackButton,
 		PageHeaderTitle,
@@ -296,6 +297,7 @@
 		</div>
 	{/snippet}
 </PageHeaderTitleContent>
+<PageBottomNavVisibility hidden={isMobileDetailView} />
 <PageHeaderActions>
 	{#if !isDesktopViewport}
 		{#if isMobileDetailView}

@@ -18,6 +18,7 @@
 			type HeaderActionsOverride,
 			type HeaderBackConfig,
 			type HeaderBannerOverride,
+			type BottomNavHiddenOverride,
 			type HeaderSearchOverride,
 			type HeaderTitleContentOverride,
 			type HeaderTitleOverride,
@@ -124,6 +125,7 @@
 	let backConfigOverride: HeaderBackConfig = $state(null);
 	let titleOverride: HeaderTitleOverride = $state(null);
 	let titleContentOverride: HeaderTitleContentOverride = $state(null);
+	let bottomNavHiddenOverride: BottomNavHiddenOverride = $state(null);
 
 	setContext(PAGE_HEADER_CTX, {
 		setActions: (value) => {
@@ -161,6 +163,12 @@
 			},
 			clearTitleContent: () => {
 				titleContentOverride = null;
+			},
+			setBottomNavHidden: (value) => {
+				bottomNavHiddenOverride = value;
+			},
+			clearBottomNavHidden: () => {
+				bottomNavHiddenOverride = null;
 			}
 		} satisfies PageHeaderController);
 </script>
@@ -172,6 +180,7 @@
 			{navigation}
 		headerBack={backConfigOverride ?? undefined}
 		headerTitleContent={titleContentOverride ?? undefined}
+		hideBottomNav={bottomNavHiddenOverride ?? undefined}
 		headerActions={actionsOverride === null || actionsOverride === false
 			? undefined
 			: actionsOverride}
