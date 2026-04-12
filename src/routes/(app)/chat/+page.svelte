@@ -11,6 +11,7 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import XIcon from '@lucide/svelte/icons/x';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { api } from '$convex/_generated/api';
 	import {
@@ -39,6 +40,7 @@
 	import { requestSignedMediaUrls } from '$lib/media/signed-media.svelte';
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
+	import { onDestroy } from 'svelte';
 
 	type RoomSummary = {
 		roomId: Id<'rooms'>;
@@ -48,6 +50,11 @@
 		participantDisplayNames: string[];
 		lastMessagePreview: string | null;
 		lastMessageAt: number;
+	};
+	type PendingAttachment = {
+		file: File;
+		previewUrl: string;
+		fileName: string;
 	};
 
 	const DESKTOP_BREAKPOINT = 1024;
@@ -71,6 +78,7 @@
 	let sendMessageSearchQuery = $state('');
 	let roomSearchQuery = $state('');
 	let isDesktopViewport = $state(false);
+	let pendingAttachment = $state<PendingAttachment | null>(null);
 	let cameraInputRef = $state<HTMLInputElement | null>(null);
 	let galleryInputRef = $state<HTMLInputElement | null>(null);
 
@@ -224,19 +232,79 @@
 	};
 
 	const sendMessage = async () => {
+		const targetRoomId = selectedRoomId;
 		const trimmedMessage = message.trim();
-		if (!selectedRoomId || !trimmedMessage) {
+		if (!targetRoomId || (!trimmedMessage && !pendingAttachment)) {
 			return;
 		}
 
 		pending = true;
 		errorMessage = '';
 		try {
+			let mediaUrl: string | undefined;
+			if (pendingAttachment) {
+				const attachmentFile = pendingAttachment.file;
+				const fallbackSizeLimitBytes = 2 * 1024 * 1024;
+				try {
+					const constraints = createMediaUploadConstraintsFromPreset('images', {
+						enableCompression: true,
+						enableSafetyScreening: false
+					});
+					const beginResult = await beginMediaUpload(convexClient, attachmentFile, constraints);
+					await uploadFileToDescriptor(attachmentFile, beginResult.upload);
+					await finalizeMediaUpload(convexClient, beginResult.asset.assetId);
+					const readyAsset = await waitForMediaUploadReady(convexClient, beginResult.asset.assetId, {
+						timeoutMs: 30_000,
+						intervalMs: 750
+					});
+					const signedAssets = await requestSignedMediaUrls({
+						assetIds: [readyAsset.assetId],
+						context: {
+							kind: 'owned'
+						}
+					});
+					const signedMedia = signedAssets[0];
+					if (!signedMedia?.signedUrl) {
+						throw new Error('Image upload finished but URL generation failed.');
+					}
+					mediaUrl = signedMedia.signedUrl;
+				} catch (uploadError) {
+					const uploadMessage =
+						uploadError instanceof Error ? uploadError.message : 'Failed to upload attachment.';
+					const missingMediaEnv = /MEDIA_S3_[A-Z_]+\s+is not set/.test(uploadMessage);
+					if (!missingMediaEnv) {
+						throw uploadError;
+					}
+					if (attachmentFile.size > fallbackSizeLimitBytes) {
+						throw new Error(
+							'Image uploads are not configured on the server. Add MEDIA_S3_* Convex env vars or use an image under 2 MB for local fallback.'
+						);
+					}
+					mediaUrl = await new Promise<string>((resolve, reject) => {
+						const reader = new FileReader();
+						reader.onload = () => {
+							if (typeof reader.result === 'string') {
+								resolve(reader.result);
+								return;
+							}
+							reject(new Error('Failed to read image file.'));
+						};
+						reader.onerror = () => reject(reader.error ?? new Error('Failed to read image file.'));
+						reader.readAsDataURL(attachmentFile);
+					});
+				}
+			}
+
 			await convexClient.mutation(api.chat.sendMessage, {
-				roomId: selectedRoomId,
-				content: trimmedMessage
+				roomId: targetRoomId,
+				content: trimmedMessage || undefined,
+				mediaUrl
 			});
 			message = '';
+			if (pendingAttachment?.previewUrl && browser) {
+				URL.revokeObjectURL(pendingAttachment.previewUrl);
+			}
+			pendingAttachment = null;
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to send message.';
 		} finally {
@@ -248,51 +316,36 @@
 		const input = event.currentTarget;
 		if (!(input instanceof HTMLInputElement)) return;
 
-		const targetRoomId = selectedRoomId;
 		const selectedFile = input.files?.[0] ?? null;
 		input.value = '';
-		if (!selectedFile || !targetRoomId) return;
+		if (!selectedFile || !selectedRoomId) return;
 
 		if (!selectedFile.type.startsWith('image/')) {
 			errorMessage = 'Please choose an image file.';
 			return;
 		}
-
-		pending = true;
-		errorMessage = '';
-		try {
-			const constraints = createMediaUploadConstraintsFromPreset('images', {
-				enableCompression: true,
-				enableSafetyScreening: false
-			});
-			const beginResult = await beginMediaUpload(convexClient, selectedFile, constraints);
-			await uploadFileToDescriptor(selectedFile, beginResult.upload);
-			await finalizeMediaUpload(convexClient, beginResult.asset.assetId);
-			const readyAsset = await waitForMediaUploadReady(convexClient, beginResult.asset.assetId, {
-				timeoutMs: 30_000,
-				intervalMs: 750
-			});
-			const signedAssets = await requestSignedMediaUrls({
-				assetIds: [readyAsset.assetId],
-				context: {
-					kind: 'owned'
-				}
-			});
-			const signedMedia = signedAssets[0];
-			if (!signedMedia?.signedUrl) {
-				throw new Error('Image upload finished but URL generation failed.');
-			}
-
-			await convexClient.mutation(api.chat.sendMessage, {
-				roomId: targetRoomId,
-				mediaUrl: signedMedia.signedUrl
-			});
-		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to send attachment.';
-		} finally {
-			pending = false;
+		if (pendingAttachment?.previewUrl && browser) {
+			URL.revokeObjectURL(pendingAttachment.previewUrl);
 		}
+		pendingAttachment = {
+			file: selectedFile,
+			previewUrl: URL.createObjectURL(selectedFile),
+			fileName: selectedFile.name
+		};
 	};
+
+	const clearPendingAttachment = () => {
+		if (pendingAttachment?.previewUrl && browser) {
+			URL.revokeObjectURL(pendingAttachment.previewUrl);
+		}
+		pendingAttachment = null;
+	};
+
+	onDestroy(() => {
+		if (pendingAttachment?.previewUrl && browser) {
+			URL.revokeObjectURL(pendingAttachment.previewUrl);
+		}
+	});
 
 	const handleMessageComposerKeydown = (event: KeyboardEvent) => {
 		if (event.key !== 'Enter' || event.shiftKey) return;
@@ -667,6 +720,25 @@
 					</div>
 
 					<div class={`border-t border-border/70 bg-white ${isDesktopViewport ? 'px-3 pb-3 pt-2 sm:px-4' : 'px-0 py-0'}`}>
+						{#if pendingAttachment}
+							<div class={isDesktopViewport ? 'mb-2 ml-0 mt-1' : 'px-4 pt-2'}>
+								<div class="relative inline-flex overflow-hidden rounded-xl border border-border/70 bg-[#f7f7f8] p-1">
+									<img
+										src={pendingAttachment.previewUrl}
+										alt={pendingAttachment.fileName}
+										class="size-16 rounded-lg object-cover"
+									/>
+									<button
+										type="button"
+										class="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/70"
+										aria-label="Remove selected image"
+										onclick={clearPendingAttachment}
+									>
+										<XIcon class="size-3.5" />
+									</button>
+								</div>
+							</div>
+						{/if}
 						<Input
 							bind:value={message}
 							placeholder="Send a message..."
@@ -702,7 +774,7 @@
 								class={`grid size-8 place-items-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
 									isDesktopViewport ? 'text-orange-500 hover:text-orange-600' : 'text-orange-400 hover:text-orange-500'
 								}`}
-								disabled={pending || !selectedRoomId || !message.trim()}
+								disabled={pending || !selectedRoomId || (!message.trim() && !pendingAttachment)}
 								onclick={() => void sendMessage()}
 								aria-label="Send message"
 							>
