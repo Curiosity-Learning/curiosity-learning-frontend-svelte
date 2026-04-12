@@ -10,7 +10,6 @@
 	} from '$lib/components/app/navigation';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
-	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -212,7 +211,6 @@ let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }))
 		sidebarProfileName={sidebarProfileName}
 		sidebarProfileImageUrl={sidebarProfileImageUrl}
 		sidebarProfileInitials={sidebarProfileInitials}
-		sidebarProfileSettingsHref={routes.settings}
 	>
 	{#if auth.isLoading}
 		<div class="px-4 py-6 text-sm text-muted-foreground">Loading account...</div>

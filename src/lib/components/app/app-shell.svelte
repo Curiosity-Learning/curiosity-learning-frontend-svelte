@@ -3,7 +3,6 @@
 	import { goto } from '$app/navigation';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
-	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import favicon from '$lib/assets/svg/favicon.svg';
 	import type { Attachment } from 'svelte/attachments';
@@ -31,7 +30,6 @@
 		sidebarProfileName?: string | null;
 		sidebarProfileImageUrl?: string | null;
 		sidebarProfileInitials?: string | null;
-		sidebarProfileSettingsHref?: string | null;
 		banner?: import('svelte').Snippet;
 		children: import('svelte').Snippet;
 	};
@@ -49,7 +47,6 @@
 		sidebarProfileName = null,
 		sidebarProfileImageUrl = null,
 		sidebarProfileInitials = null,
-		sidebarProfileSettingsHref = null,
 		banner,
 		children
 	}: Props = $props();
@@ -294,17 +291,6 @@
 											{sidebarProfileName ?? nav.label}
 										</p>
 									</a>
-									{#if sidebarProfileSettingsHref ?? nav.children?.find((child) => child.key === 'settings')?.href}
-										<Button
-											variant="ghost"
-											size="icon-sm"
-											class="text-[#747a8f] hover:bg-transparent hover:text-[#555a70]"
-											href={sidebarProfileSettingsHref ?? nav.children?.find((child) => child.key === 'settings')?.href}
-											aria-label="Open settings"
-										>
-											<SettingsIcon class="size-[18px]" />
-										</Button>
-									{/if}
 								</div>
 							</div>
 						{:else}
