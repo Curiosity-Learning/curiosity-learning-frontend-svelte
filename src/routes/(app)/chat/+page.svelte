@@ -29,6 +29,14 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Sheet, SheetContent, SheetHeader, SheetTitle } from '$lib/components/ui/sheet';
+	import {
+		beginMediaUpload,
+		createMediaUploadConstraintsFromPreset,
+		finalizeMediaUpload,
+		uploadFileToDescriptor,
+		waitForMediaUploadReady
+	} from '$lib/media/upload-core';
+	import { requestSignedMediaUrls } from '$lib/media/signed-media.svelte';
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
 
@@ -63,6 +71,8 @@
 	let sendMessageSearchQuery = $state('');
 	let roomSearchQuery = $state('');
 	let isDesktopViewport = $state(false);
+	let cameraInputRef = $state<HTMLInputElement | null>(null);
+	let galleryInputRef = $state<HTMLInputElement | null>(null);
 
 	$effect(() => {
 		if (!browser) return;
@@ -214,7 +224,8 @@
 	};
 
 	const sendMessage = async () => {
-		if (!selectedRoomId || !message.trim()) {
+		const trimmedMessage = message.trim();
+		if (!selectedRoomId || !trimmedMessage) {
 			return;
 		}
 
@@ -223,11 +234,61 @@
 		try {
 			await convexClient.mutation(api.chat.sendMessage, {
 				roomId: selectedRoomId,
-				content: message.trim()
+				content: trimmedMessage
 			});
 			message = '';
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to send message.';
+		} finally {
+			pending = false;
+		}
+	};
+
+	const handleAttachmentSelection = async (event: Event) => {
+		const input = event.currentTarget;
+		if (!(input instanceof HTMLInputElement)) return;
+
+		const targetRoomId = selectedRoomId;
+		const selectedFile = input.files?.[0] ?? null;
+		input.value = '';
+		if (!selectedFile || !targetRoomId) return;
+
+		if (!selectedFile.type.startsWith('image/')) {
+			errorMessage = 'Please choose an image file.';
+			return;
+		}
+
+		pending = true;
+		errorMessage = '';
+		try {
+			const constraints = createMediaUploadConstraintsFromPreset('images', {
+				enableCompression: true,
+				enableSafetyScreening: false
+			});
+			const beginResult = await beginMediaUpload(convexClient, selectedFile, constraints);
+			await uploadFileToDescriptor(selectedFile, beginResult.upload);
+			await finalizeMediaUpload(convexClient, beginResult.asset.assetId);
+			const readyAsset = await waitForMediaUploadReady(convexClient, beginResult.asset.assetId, {
+				timeoutMs: 30_000,
+				intervalMs: 750
+			});
+			const signedAssets = await requestSignedMediaUrls({
+				assetIds: [readyAsset.assetId],
+				context: {
+					kind: 'owned'
+				}
+			});
+			const signedMedia = signedAssets[0];
+			if (!signedMedia?.signedUrl) {
+				throw new Error('Image upload finished but URL generation failed.');
+			}
+
+			await convexClient.mutation(api.chat.sendMessage, {
+				roomId: targetRoomId,
+				mediaUrl: signedMedia.signedUrl
+			});
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to send attachment.';
 		} finally {
 			pending = false;
 		}
@@ -590,7 +651,11 @@
 													loading="lazy"
 												/>
 											{/if}
-											<p class={`${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}>{entry.content ?? '[Media message]'}</p>
+											{#if entry.content?.trim()}
+												<p class={`${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}>
+													{entry.content}
+												</p>
+											{/if}
 											<p class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}>
 												{formatClockTime(entry.createdAt)}
 											</p>
@@ -601,38 +666,64 @@
 						{/if}
 					</div>
 
-					<div class={`border-t border-border/70 bg-white ${isDesktopViewport ? 'px-3 pb-3 pt-2 sm:px-4' : 'px-0 pb-2 pt-0'}`}>
+					<div class={`border-t border-border/70 bg-white ${isDesktopViewport ? 'px-3 pb-3 pt-2 sm:px-4' : 'px-0 py-0'}`}>
 						<Input
 							bind:value={message}
 							placeholder="Send a message..."
 							class={`border-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
-								isDesktopViewport ? 'px-0' : 'h-12 px-4'
+								isDesktopViewport ? 'px-0' : 'h-11 px-4'
 							}`}
 							disabled={pending || !selectedRoomId}
 							onkeydown={handleMessageComposerKeydown}
 						/>
-						<div class={`flex items-center text-[#7b8090] ${isDesktopViewport ? 'mt-2 justify-between' : 'border-t border-transparent px-4 pt-2'}`}>
+						<div class={`flex items-center justify-between text-[#7b8090] ${isDesktopViewport ? 'mt-2' : 'px-4 pb-2 pt-1'}`}>
 							<div class="flex items-center gap-4">
-								<button type="button" class="transition-colors hover:text-orange-500" aria-label="Add camera">
+								<button
+									type="button"
+									class="transition-colors hover:text-orange-500 disabled:cursor-not-allowed disabled:opacity-40"
+									aria-label="Add camera"
+									disabled={pending || !selectedRoomId}
+									onclick={() => cameraInputRef?.click()}
+								>
 									<CameraIcon class="size-5" />
 								</button>
-								<button type="button" class="transition-colors hover:text-orange-500" aria-label="Add image">
+								<button
+									type="button"
+									class="transition-colors hover:text-orange-500 disabled:cursor-not-allowed disabled:opacity-40"
+									aria-label="Add image"
+									disabled={pending || !selectedRoomId}
+									onclick={() => galleryInputRef?.click()}
+								>
 									<ImageIcon class="size-5" />
 								</button>
 							</div>
-							{#if isDesktopViewport}
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									class="text-orange-500 hover:text-orange-600"
-									disabled={pending || !selectedRoomId || !message.trim()}
-									onclick={() => void sendMessage()}
-									aria-label="Send message"
-								>
-									<SendHorizontalIcon class="size-5" />
-								</Button>
-							{/if}
+							<button
+								type="button"
+								class={`grid size-8 place-items-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+									isDesktopViewport ? 'text-orange-500 hover:text-orange-600' : 'text-orange-400 hover:text-orange-500'
+								}`}
+								disabled={pending || !selectedRoomId || !message.trim()}
+								onclick={() => void sendMessage()}
+								aria-label="Send message"
+							>
+								<SendHorizontalIcon class={isDesktopViewport ? 'size-5' : 'size-[1.15rem]'} />
+							</button>
 						</div>
+						<input
+							bind:this={cameraInputRef}
+							type="file"
+							class="hidden"
+							accept="image/*"
+							capture="environment"
+							onchange={handleAttachmentSelection}
+						/>
+						<input
+							bind:this={galleryInputRef}
+							type="file"
+							class="hidden"
+							accept="image/*"
+							onchange={handleAttachmentSelection}
+						/>
 					</div>
 				</section>
 			{:else}
