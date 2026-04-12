@@ -436,7 +436,7 @@
 							class="size-28 object-contain"
 							loading="lazy"
 						/>
-						<p class="text-xl font-medium text-muted-foreground">No chats yet</p>
+							<p class="text-lg font-medium text-muted-foreground sm:text-xl">No chats yet</p>
 						<Button
 							variant="ghost"
 							class="gap-2 !text-orange-500"
@@ -481,13 +481,13 @@
 
 								<div class="min-w-0 flex-1">
 									<div class="flex items-start justify-between gap-2">
-										<p class="truncate text-[1.08rem] leading-tight font-bold text-[#242424]">
+										<p class="truncate text-[1rem] leading-tight font-bold text-[#242424] sm:text-[1.08rem]">
 											{roomDisplayName(room)}
 										</p>
 										<p class="shrink-0 text-xs text-gray-500">{formatRelativeTime(room.lastMessageAt)}</p>
 									</div>
 									<div class="mt-1 flex items-center gap-2">
-										<p class="min-w-0 flex-1 truncate text-sm text-gray-600">{roomPreviewText(room)}</p>
+											<p class="min-w-0 flex-1 truncate text-[0.82rem] text-gray-600 sm:text-sm">{roomPreviewText(room)}</p>
 										{#if index === 0}
 											<PinIcon class="size-3.5 text-gray-500" />
 										{/if}
