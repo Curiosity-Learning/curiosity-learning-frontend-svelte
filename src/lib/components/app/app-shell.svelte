@@ -306,7 +306,7 @@
 								{:else}
 									<h1
 										class={cn(
-											'min-w-0 truncate font-[var(--font-family-sans)] text-[1.25rem] leading-6 font-bold transition-opacity duration-200',
+											'min-w-0 truncate type-step-title text-[#262626] transition-opacity duration-200',
 											showOverlaySearchField ? 'opacity-0' : 'opacity-100'
 										)}
 									>
