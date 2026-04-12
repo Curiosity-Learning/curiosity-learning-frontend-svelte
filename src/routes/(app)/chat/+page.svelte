@@ -141,6 +141,23 @@
 			minute: '2-digit'
 		});
 
+	const roomDisplayName = (room: RoomSummary | null) => {
+		if (!room) return 'Chat';
+		if (room.isGroupChat) return room.roomName;
+
+		const viewerUserId = viewer.data?.userId;
+		if (!viewerUserId) {
+			return room.participantDisplayNames[0] ?? room.roomName;
+		}
+
+		for (let index = 0; index < room.participantUserIds.length; index += 1) {
+			if (room.participantUserIds[index] === viewerUserId) continue;
+			return room.participantDisplayNames[index] ?? room.roomName;
+		}
+
+		return room.participantDisplayNames[0] ?? room.roomName;
+	};
+
 	const roomPreviewText = (room: RoomSummary) => {
 		const preview = room.lastMessagePreview?.trim();
 		if (!preview) {
@@ -258,7 +275,7 @@
 </script>
 
 <PageHeaderBackButton enabled={isMobileDetailView} fallbackHref={routes.chat} />
-<PageHeaderTitle title={isMobileDetailView ? (activeRoom?.roomName ?? 'Chat') : 'Chat'} />
+<PageHeaderTitle title={isMobileDetailView ? roomDisplayName(activeRoom) : 'Chat'} />
 <PageHeaderActions>
 	{#if !isDesktopViewport}
 		{#if isMobileDetailView}
@@ -490,23 +507,23 @@
 			</section>
 
 			{#if isDetailView}
-				<section class="flex flex-1 flex-col">
-					<div class="hidden items-center justify-between border-b border-border/70 bg-white px-4 py-3 lg:flex">
-						<div class="flex min-w-0 items-center gap-3">
-							<Avatar class="size-10 shrink-0 bg-[#d8dbe5]">
-								<AvatarFallback class="text-sm font-bold text-slate-700">
-									{initialsFromName(activeRoom?.roomName ?? 'Chat')}
-								</AvatarFallback>
-							</Avatar>
-							<p class="truncate text-[2rem] leading-tight font-bold text-[#242424]">
-								{activeRoom?.roomName ?? 'Chat'}
-							</p>
+					<section class="flex flex-1 flex-col">
+						<div class="hidden items-center justify-between border-b border-border/70 bg-white px-4 py-2 lg:flex">
+							<div class="flex min-w-0 flex-1 items-center gap-4 pr-2">
+								<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
+									<AvatarFallback class="text-[0.72rem] font-bold text-slate-700">
+										{initialsFromName(roomDisplayName(activeRoom))}
+									</AvatarFallback>
+								</Avatar>
+								<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
+									{roomDisplayName(activeRoom)}
+								</p>
+							</div>
+							<ActionMenu
+								items={threadMenuItems}
+								contentClass="w-44 rounded-xl border border-border/80 p-1 shadow-lg"
+							/>
 						</div>
-						<ActionMenu
-							items={threadMenuItems}
-							contentClass="w-44 rounded-xl border border-border/80 p-1 shadow-lg"
-						/>
-					</div>
 
 					<div class="flex-1 overflow-y-auto bg-[#f7f7f8] px-3 py-4 sm:px-4">
 						{#if messagesResponse.isLoading}
