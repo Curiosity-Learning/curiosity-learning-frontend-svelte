@@ -23,8 +23,8 @@
 		nav === 'bottom'
 			? 'flex h-auto w-full flex-col items-center justify-center gap-1 rounded-md px-0 py-2 text-center'
 			: nav === 'side'
-				? 'flex h-auto w-full items-center justify-start gap-3 rounded-none px-5 py-2 text-left type-lead-medium'
-				: 'flex h-auto w-full items-center justify-start gap-2 rounded-none py-2 pr-3 pl-12 text-left type-label'
+				? 'flex h-auto w-full items-center justify-start gap-3 rounded-none px-5 py-2 text-left !text-[1.03rem] !leading-6 !font-medium'
+				: 'flex h-auto w-full items-center justify-start gap-2 rounded-none py-2 pr-3 pl-12 text-left !text-[0.94rem] !leading-5 !font-medium'
 	);
 
 	let tone = $derived(
@@ -34,11 +34,11 @@
 				: 'text-muted-foreground hover:text-foreground'
 			: nav === 'side'
 				? active
-					? 'bg-orange-50 text-orange-500'
-					: 'text-muted-foreground hover:bg-gray-50 hover:text-foreground'
+					? 'bg-[#f8ecdf] text-orange-500'
+					: 'text-[#5e637a] hover:bg-[#eef0f5] hover:text-[#44495f]'
 				: active
-					? 'bg-orange-50/70 text-foreground'
-					: 'text-muted-foreground hover:bg-gray-50 hover:text-foreground'
+					? 'bg-[#f8ecdf] text-orange-500'
+					: 'text-[#6d7286] hover:bg-[#eef0f5] hover:text-[#4f556a]'
 	);
 </script>
 
@@ -53,7 +53,7 @@
 	data-sveltekit-preload-data="hover"
 >
 	{#if active && nav !== 'bottom'}
-		<span class="bg-orange-500 absolute inset-y-0 left-0 w-0.5 rounded-r-full" aria-hidden="true"></span>
+		<span class="bg-orange-500 absolute inset-y-0 left-0 w-1 rounded-r-sm" aria-hidden="true"></span>
 	{/if}
 	{#if nav === 'bottom'}
 		<div class="relative">
@@ -62,7 +62,7 @@
 			{/if}
 			{#if hasBadge}
 				<span
-					class="absolute -right-2 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] leading-4 font-bold text-white"
+					class="absolute -right-2 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-[#5f6297] px-1 text-[10px] leading-4 font-bold text-white"
 					aria-label={`${badgeLabel} unread chats`}
 				>
 					{badgeLabel}
@@ -79,7 +79,7 @@
 		</div>
 		{#if hasBadge}
 			<span
-				class="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-orange-500 px-1.5 text-[11px] leading-5 font-bold text-white"
+				class="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-[#5f6297] px-1.5 text-[11px] leading-5 font-bold text-white"
 				aria-label={`${badgeLabel} unread chats`}
 			>
 				{badgeLabel}

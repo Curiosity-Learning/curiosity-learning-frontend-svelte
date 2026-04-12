@@ -10,6 +10,7 @@
 	} from '$lib/components/app/navigation';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
+	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -32,14 +33,32 @@
 	let ensuredProfileForSession = $state(false);
 
 	const convexClient = useConvexClient();
-const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
-const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
-	isAuthReady ? {} : 'skip'
-);
-const unreadSummaryResponse = useStableQuery(api.chat.getUnreadSummary, () =>
-	isAuthReady ? {} : 'skip'
-);
-let clubs = $derived(clubsResponse.data ?? []);
+	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
+	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
+		isAuthReady ? {} : 'skip'
+	);
+	const unreadSummaryResponse = useStableQuery(api.chat.getUnreadSummary, () =>
+		isAuthReady ? {} : 'skip'
+	);
+	const profileResponse = useStableQuery(api.profiles.getMe, () => (isAuthReady ? {} : 'skip'));
+	let clubs = $derived(clubsResponse.data ?? []);
+	let sidebarProfileName = $derived.by(() => {
+		const profile = profileResponse.data;
+		if (!profile) return 'Profile';
+		const fullName = [profile.firstName ?? '', profile.lastName ?? ''].join(' ').trim();
+		return profile.username || fullName || profile.email || 'Profile';
+	});
+	let sidebarProfileInitials = $derived.by(() => {
+		const name = sidebarProfileName.trim();
+		if (!name) return 'PR';
+		return name
+			.split(' ')
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase() ?? '')
+			.join('');
+	});
+	let sidebarProfileImageUrl = $derived(profileResponse.data?.coverPhotoUrl ?? null);
 
 	$effect(() => {
 		if (!browser) return;
@@ -178,19 +197,23 @@ let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }))
 </script>
 
 	<AppShell
-			title={titleOverride ?? hintedTitle ?? title}
-			{activeNav}
-			{activePath}
-			{navigation}
+		title={titleOverride ?? hintedTitle ?? title}
+		{activeNav}
+		{activePath}
+		{navigation}
 		headerBack={backConfigOverride ?? undefined}
 		headerTitleContent={titleContentOverride ?? undefined}
 		hideBottomNav={bottomNavHiddenOverride ?? undefined}
 		headerActions={actionsOverride === null || actionsOverride === false
 			? undefined
 			: actionsOverride}
-	headerSearch={searchOverride ?? undefined}
-	banner={bannerOverride ?? undefined}
->
+		headerSearch={searchOverride ?? undefined}
+		banner={bannerOverride ?? undefined}
+		sidebarProfileName={sidebarProfileName}
+		sidebarProfileImageUrl={sidebarProfileImageUrl}
+		sidebarProfileInitials={sidebarProfileInitials}
+		sidebarProfileSettingsHref={routes.settings}
+	>
 	{#if auth.isLoading}
 		<div class="px-4 py-6 text-sm text-muted-foreground">Loading account...</div>
 	{:else if !auth.isAuthenticated}

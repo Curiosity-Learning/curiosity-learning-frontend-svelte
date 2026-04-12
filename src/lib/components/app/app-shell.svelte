@@ -3,11 +3,13 @@
 	import { goto } from '$app/navigation';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import favicon from '$lib/assets/svg/favicon.svg';
 	import type { Attachment } from 'svelte/attachments';
 	import type { HeaderBackConfig, HeaderSearchConfig, HeaderSearchMode } from '$lib/app/page-header';
 	import { Button } from '$lib/components/ui/button';
+	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils.js';
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '$lib/components/ui/collapsible';
@@ -26,6 +28,10 @@
 		hideBottomNav?: boolean;
 		headerActions?: import('svelte').Snippet;
 		headerSearch?: HeaderSearchConfig;
+		sidebarProfileName?: string | null;
+		sidebarProfileImageUrl?: string | null;
+		sidebarProfileInitials?: string | null;
+		sidebarProfileSettingsHref?: string | null;
 		banner?: import('svelte').Snippet;
 		children: import('svelte').Snippet;
 	};
@@ -40,6 +46,10 @@
 		hideBottomNav = false,
 		headerActions,
 		headerSearch,
+		sidebarProfileName = null,
+		sidebarProfileImageUrl = null,
+		sidebarProfileInitials = null,
+		sidebarProfileSettingsHref = null,
 		banner,
 		children
 	}: Props = $props();
@@ -185,7 +195,7 @@
 	<ConnectivityOverlay />
 	<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
 		<aside
-			class="hidden w-60 flex-col border-r border-border bg-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
+			class="hidden w-60 flex-col border-r border-border bg-[#f6f7f9] lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
 		>
 			<div class="border-b border-border px-5 py-6">
 				<div class="flex items-center gap-3">
@@ -206,16 +216,16 @@
 									class={cn(
 										'relative flex w-full items-center gap-1 overflow-hidden rounded-none',
 										activeNav === nav.key
-											? 'bg-orange-50 text-orange-500'
-											: 'text-muted-foreground hover:bg-gray-50 hover:text-foreground'
+											? 'bg-[#f8ecdf] text-orange-500'
+											: 'text-[#5e637a] hover:bg-[#eef0f5] hover:text-[#44495f]'
 									)}
 								>
 									{#if activeNav === nav.key}
-										<span class="bg-orange-500 absolute inset-y-0 left-0 w-0.5 rounded-r-full" aria-hidden="true"></span>
+										<span class="bg-orange-500 absolute inset-y-0 left-0 w-1 rounded-r-sm" aria-hidden="true"></span>
 									{/if}
 									<a
 										href={nav.href}
-										class="flex flex-1 items-center gap-3 px-5 py-2 text-left type-lead-medium"
+										class="flex flex-1 items-center gap-3 px-5 py-2 text-left text-[1.03rem] leading-6 font-medium"
 										data-sveltekit-preload-code="hover"
 										data-sveltekit-preload-data="hover"
 									>
@@ -223,11 +233,11 @@
 										<span>{nav.label}</span>
 									</a>
 									<CollapsibleTrigger
-										class="flex size-9 items-center justify-center rounded-md hover:bg-gray-100"
+										class="flex size-9 items-center justify-center rounded-md hover:bg-[#e8ebf2]"
 										aria-label={clubNavOpen ? `Collapse ${nav.label}` : `Expand ${nav.label}`}
 									>
 										<ChevronDownIcon
-											class={cn('size-4 transition-transform', clubNavOpen ? 'rotate-180' : '')}
+											class={cn('size-4 transition-transform', activeNav === nav.key ? 'text-orange-500' : 'text-[#7a8093]', clubNavOpen ? 'rotate-180' : '')}
 										/>
 									</CollapsibleTrigger>
 								</div>
@@ -260,14 +270,53 @@
 
 				<nav class="flex flex-col gap-1">
 					{#each bottomNavItems as nav (nav.key)}
-						<AppNavItem
-							nav="side"
-							href={nav.href}
-							label={nav.label}
-							active={activeNav === nav.key}
-							Icon={nav.icon}
-							badgeCount={nav.badgeCount}
-						/>
+						{#if nav.key === 'profile'}
+							<div class="px-4 py-2">
+								<div class={cn(
+									'flex items-center justify-between rounded-lg px-2 py-2',
+									activeNav === nav.key ? 'bg-[#f8ecdf]' : 'hover:bg-[#eef0f5]'
+								)}>
+									<a
+										href={nav.href}
+										class="min-w-0 flex flex-1 items-center gap-3"
+										data-sveltekit-preload-code="hover"
+										data-sveltekit-preload-data="hover"
+									>
+										<Avatar class="size-9 shrink-0 border border-border/80 bg-[#d8dbe5]">
+											{#if sidebarProfileImageUrl}
+												<AvatarImage src={sidebarProfileImageUrl} alt={sidebarProfileName ?? nav.label} />
+											{/if}
+											<AvatarFallback class="text-xs font-bold text-[#4c5167]">
+												{sidebarProfileInitials ?? 'PR'}
+											</AvatarFallback>
+										</Avatar>
+										<p class="truncate text-[1.03rem] leading-6 font-medium text-[#3e414c]">
+											{sidebarProfileName ?? nav.label}
+										</p>
+									</a>
+									{#if sidebarProfileSettingsHref ?? nav.children?.find((child) => child.key === 'settings')?.href}
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											class="text-[#747a8f] hover:bg-transparent hover:text-[#555a70]"
+											href={sidebarProfileSettingsHref ?? nav.children?.find((child) => child.key === 'settings')?.href}
+											aria-label="Open settings"
+										>
+											<SettingsIcon class="size-[18px]" />
+										</Button>
+									{/if}
+								</div>
+							</div>
+						{:else}
+							<AppNavItem
+								nav="side"
+								href={nav.href}
+								label={nav.label}
+								active={activeNav === nav.key}
+								Icon={nav.icon}
+								badgeCount={nav.badgeCount}
+							/>
+						{/if}
 						{/each}
 					</nav>
 				</div>

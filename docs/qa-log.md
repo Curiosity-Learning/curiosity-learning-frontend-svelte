@@ -2972,3 +2972,4 @@
 - 2026-04-13: Run `npm run check` (pass, 0 errors / 0 warnings).
 - 2026-04-13: Added chat unread tracking for incoming messages using participant-level unread counters (`participants.unreadCount`), surfaced unread badges in chat room rows and app navigation, and auto-cleared unread state when a room is opened/read.
 - 2026-04-13: Fixed learner section “+ N others” alignment on `/club/[clubId]` so the action stays left-aligned in the learners block.
+- 2026-04-13: Updated desktop sidebar navigation styling to match the latest Figma side-navigation treatment (thicker orange active rail, beige selected row, tuned icon/text colors, purple count badges), and replaced the bottom profile nav item with an avatar + name + settings strip.
