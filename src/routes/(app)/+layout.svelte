@@ -15,13 +15,14 @@
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import {
 		PAGE_HEADER_CTX,
-		type HeaderActionsOverride,
-		type HeaderBackConfig,
-		type HeaderBannerOverride,
-		type HeaderSearchOverride,
-		type HeaderTitleOverride,
-		type PageHeaderController
-	} from '$lib/app/page-header';
+			type HeaderActionsOverride,
+			type HeaderBackConfig,
+			type HeaderBannerOverride,
+			type HeaderSearchOverride,
+			type HeaderTitleContentOverride,
+			type HeaderTitleOverride,
+			type PageHeaderController
+		} from '$lib/app/page-header';
 
 	let { children } = $props();
 
@@ -122,6 +123,7 @@
 	let bannerOverride: HeaderBannerOverride = $state(null);
 	let backConfigOverride: HeaderBackConfig = $state(null);
 	let titleOverride: HeaderTitleOverride = $state(null);
+	let titleContentOverride: HeaderTitleContentOverride = $state(null);
 
 	setContext(PAGE_HEADER_CTX, {
 		setActions: (value) => {
@@ -148,24 +150,31 @@
 		clearBackConfig: () => {
 			backConfigOverride = null;
 		},
-		setTitle: (value) => {
-			titleOverride = value;
-		},
-		clearTitle: () => {
-			titleOverride = null;
-		}
-	} satisfies PageHeaderController);
+			setTitle: (value) => {
+				titleOverride = value;
+			},
+			clearTitle: () => {
+				titleOverride = null;
+			},
+			setTitleContent: (value) => {
+				titleContentOverride = value;
+			},
+			clearTitleContent: () => {
+				titleContentOverride = null;
+			}
+		} satisfies PageHeaderController);
 </script>
 
 	<AppShell
-		title={titleOverride ?? hintedTitle ?? title}
-		{activeNav}
-		{activePath}
-		{navigation}
-	headerBack={backConfigOverride ?? undefined}
-	headerActions={actionsOverride === null || actionsOverride === false
-		? undefined
-		: actionsOverride}
+			title={titleOverride ?? hintedTitle ?? title}
+			{activeNav}
+			{activePath}
+			{navigation}
+		headerBack={backConfigOverride ?? undefined}
+		headerTitleContent={titleContentOverride ?? undefined}
+		headerActions={actionsOverride === null || actionsOverride === false
+			? undefined
+			: actionsOverride}
 	headerSearch={searchOverride ?? undefined}
 	banner={bannerOverride ?? undefined}
 >

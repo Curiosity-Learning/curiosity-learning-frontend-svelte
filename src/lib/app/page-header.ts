@@ -16,6 +16,7 @@ export type HeaderBackConfig = {
 	ariaLabel?: string;
 } | null;
 export type HeaderTitleOverride = string | null;
+export type HeaderTitleContentOverride = import('svelte').Snippet | null;
 
 export type PageHeaderController = {
 	setActions(value: HeaderActionsOverride): void;
@@ -28,4 +29,6 @@ export type PageHeaderController = {
 	clearBackConfig(): void;
 	setTitle(value: HeaderTitleOverride): void;
 	clearTitle(): void;
+	setTitleContent(value: HeaderTitleContentOverride): void;
+	clearTitleContent(): void;
 };

@@ -13,7 +13,13 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { api } from '$convex/_generated/api';
-	import { ActionMenu, PageHeaderActions, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import {
+		ActionMenu,
+		PageHeaderActions,
+		PageHeaderBackButton,
+		PageHeaderTitle,
+		PageHeaderTitleContent
+	} from '$lib/components/app';
 	import { authClient } from '$lib/auth-client';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
@@ -275,7 +281,21 @@
 </script>
 
 <PageHeaderBackButton enabled={isMobileDetailView} fallbackHref={routes.chat} />
-<PageHeaderTitle title={isMobileDetailView ? roomDisplayName(activeRoom) : 'Chat'} />
+<PageHeaderTitle title="Chat" />
+<PageHeaderTitleContent enabled={isMobileDetailView}>
+	{#snippet children()}
+		<div class="flex min-w-0 items-center gap-3">
+			<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
+				<AvatarFallback class="text-[0.68rem] font-bold text-slate-700">
+					{initialsFromName(roomDisplayName(activeRoom))}
+				</AvatarFallback>
+			</Avatar>
+			<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
+				{roomDisplayName(activeRoom)}
+			</p>
+		</div>
+	{/snippet}
+</PageHeaderTitleContent>
 <PageHeaderActions>
 	{#if !isDesktopViewport}
 		{#if isMobileDetailView}

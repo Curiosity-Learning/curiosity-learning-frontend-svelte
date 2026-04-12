@@ -22,6 +22,7 @@
 		activePath: string;
 		navigation: AppNavItemType[];
 		headerBack?: HeaderBackConfig;
+		headerTitleContent?: import('svelte').Snippet;
 		headerActions?: import('svelte').Snippet;
 		headerSearch?: HeaderSearchConfig;
 		banner?: import('svelte').Snippet;
@@ -34,6 +35,7 @@
 		activePath,
 		navigation,
 		headerBack,
+		headerTitleContent,
 		headerActions,
 		headerSearch,
 		banner,
@@ -284,14 +286,25 @@
 									<ArrowLeftIcon class="size-5" />
 								</Button>
 							{/if}
-								<h1
-									class={cn(
-										'min-w-0 truncate text-[1.25rem] leading-6 font-bold transition-opacity duration-200 sm:text-[1.5rem] sm:leading-8',
-										showOverlaySearchField ? 'opacity-0' : 'opacity-100'
-									)}
-								>
-									{title}
-								</h1>
+								{#if headerTitleContent}
+									<div
+										class={cn(
+											'min-w-0 flex-1 transition-opacity duration-200',
+											showOverlaySearchField ? 'opacity-0' : 'opacity-100'
+										)}
+									>
+										{@render headerTitleContent()}
+									</div>
+								{:else}
+									<h1
+										class={cn(
+											'min-w-0 truncate text-[1.25rem] leading-6 font-bold transition-opacity duration-200 sm:text-[1.5rem] sm:leading-8',
+											showOverlaySearchField ? 'opacity-0' : 'opacity-100'
+										)}
+									>
+										{title}
+									</h1>
+								{/if}
 
 							{#if showOverlaySearchField}
 								<div class="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center">
