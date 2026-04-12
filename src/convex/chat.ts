@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values';
-import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 import { requireIdentity, requireProfile } from './permissions';
 
 const sortUsers = (userIds: string[]) => [...new Set(userIds)].sort();
@@ -212,5 +212,124 @@ export const sendMessage = mutation({
 		});
 
 		return await ctx.db.get(messageId);
+	}
+});
+
+export const listUsersForMessaging = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const userIdSet = new Set<string>();
+		const users: Array<{
+			userId: string;
+			displayName: string;
+			email?: string;
+		}> = [];
+
+		// Get viewer's active club from profile
+		const viewerProfile = await ctx.db
+			.query('profiles')
+			.withIndex('by_user_id', (q) => q.eq('userId', identity.subject))
+			.first();
+
+		console.log('[chat] Viewer profile:', {
+			userId: identity.subject,
+			activeClubId: viewerProfile?.activeClubId
+		});
+
+		if (!viewerProfile?.activeClubId) {
+			console.log('[chat] No active club found');
+			return [];
+		}
+
+		const clubId = viewerProfile.activeClubId;
+
+		// Get all active club members (all members regardless of role)
+		const clubMembers = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', clubId))
+			.collect();
+
+		console.log('[chat] Club members found:', clubMembers.length);
+
+		// Add club members
+		for (const member of clubMembers) {
+			if (member.leftAt) continue; // Skip members who left
+			if (member.userId === identity.subject) continue; // Skip self
+
+			if (!userIdSet.has(member.userId)) {
+				userIdSet.add(member.userId);
+
+				const memberProfile = await ctx.db
+					.query('profiles')
+					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
+					.first();
+
+				const displayName =
+					memberProfile?.username ||
+					[memberProfile?.firstName, memberProfile?.lastName].filter(Boolean).join(' ').trim() ||
+					memberProfile?.email ||
+					member.userId;
+
+				users.push({
+					userId: member.userId,
+					displayName,
+					email: memberProfile?.email
+				});
+			}
+		}
+
+		console.log('[chat] Users after club members:', users.length);
+
+		// Get all projects in the club via projectClubs table
+		const projectLinks = await ctx.db
+			.query('projectClubs')
+			.withIndex('by_club', (q) => q.eq('clubId', clubId))
+			.collect();
+
+		console.log('[chat] Project links found:', projectLinks.length);
+
+		// Get all project members
+		for (const link of projectLinks) {
+			const project = await ctx.db.get(link.projectId);
+			if (!project) continue;
+
+			const projectMembers = await ctx.db
+				.query('projectMembers')
+				.withIndex('by_project', (q) => q.eq('projectId', project._id))
+				.collect();
+
+			for (const projectMember of projectMembers) {
+				if (projectMember.leftAt) continue; // Skip members who left
+				if (projectMember.userId === identity.subject) continue; // Skip self
+
+				if (!userIdSet.has(projectMember.userId)) {
+					userIdSet.add(projectMember.userId);
+
+					const memberProfile = await ctx.db
+						.query('profiles')
+						.withIndex('by_user_id', (q) => q.eq('userId', projectMember.userId))
+						.first();
+
+					const displayName =
+						memberProfile?.username ||
+						[memberProfile?.firstName, memberProfile?.lastName].filter(Boolean).join(' ').trim() ||
+						memberProfile?.email ||
+						projectMember.userId;
+
+					users.push({
+						userId: projectMember.userId,
+						displayName,
+						email: memberProfile?.email
+					});
+				}
+			}
+		}
+
+		console.log('[chat] Final users list:', users.length, users);
+
+		// Sort by display name
+		users.sort((a, b) => a.displayName.localeCompare(b.displayName));
+		return users;
 	}
 });
