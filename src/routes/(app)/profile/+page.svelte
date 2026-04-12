@@ -75,9 +75,14 @@
 	const meetingSchedule = $derived.by(() => {
 		if (!activeClubItem) return null;
 		if (activeClubItem.clubMeetingDay && activeClubItem.clubMeetingTime) {
-			return `${activeClubItem.clubMeetingDay}s at ${activeClubItem.clubMeetingTime}`;
+			return `${activeClubItem.clubMeetingDay} at ${activeClubItem.clubMeetingTime}`;
 		}
 		return activeClubItem.clubMeetingDay ?? activeClubItem.clubMeetingTime ?? null;
+	});
+	const clubLocationLabel = $derived.by(() => {
+		const location = activeClubItem?.clubLocation?.trim();
+		if (!location) return 'Location TBD';
+		return location.split(',')[0]?.trim() || location;
 	});
 	const joinedDateText = $derived.by(() => {
 		const source = profileResponse.data?._creationTime ?? profileResponse.data?.updatedAt ?? null;
@@ -157,28 +162,28 @@
 	<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20.5rem]">
 		<section class="rounded-2xl border border-border/70 bg-white p-4 sm:p-5">
 			<div class="space-y-4">
-				<div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
-					<div class="min-w-0">
+					<div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+						<div class="min-w-0">
 						<p class="truncate text-[2rem] leading-[2.2rem] font-bold text-[#262626]">{displayName}</p>
 						{#if handle}
 							<p class="truncate text-sm text-[#8b8fa0]">{handle}</p>
 						{/if}
 						<p class="mt-2 text-[1.03rem] leading-7 text-[#353535]">{aboutText}</p>
 					</div>
-					<div class="relative shrink-0">
-						<Avatar class="size-20 border border-border/70 sm:size-24">
-							<AvatarImage src={profileImageUrl ?? undefined} alt={displayName} />
-							<AvatarFallback class="bg-[#d8dbe5] text-lg font-bold text-[#3a3f50]">{fallback}</AvatarFallback>
-						</Avatar>
-						<button
-							type="button"
-							aria-label="Update profile picture"
-							class="absolute -right-1 bottom-0 grid size-8 place-items-center rounded-full border-2 border-white bg-orange-500 text-white shadow-sm"
-						>
-							<CameraIcon class="size-4" />
-						</button>
+						<div class="relative mt-1 size-20 shrink-0 sm:size-24">
+							<Avatar class="size-full border border-border/70">
+								<AvatarImage src={profileImageUrl ?? undefined} alt={displayName} />
+								<AvatarFallback class="bg-[#d8dbe5] text-lg font-bold text-[#3a3f50]">{fallback}</AvatarFallback>
+							</Avatar>
+							<button
+								type="button"
+								aria-label="Update profile picture"
+								class="absolute right-0 bottom-0 z-10 grid size-7 translate-x-1/4 translate-y-1/4 place-items-center rounded-full border-2 border-white bg-orange-500 text-white shadow-sm sm:size-8"
+							>
+								<CameraIcon class="size-3.5 sm:size-4" />
+							</button>
+						</div>
 					</div>
-				</div>
 
 				<Button
 					variant="outline"
@@ -187,30 +192,30 @@
 					Share profile
 				</Button>
 
-				<div class="rounded-2xl border border-[#f0decc] bg-[#f8ecdf] p-3 sm:p-4">
-					<div class="flex items-start justify-between gap-3">
-						<div class="min-w-0">
-							<p class="text-[2rem] leading-[2.2rem] font-bold text-orange-500">My club</p>
-							<div class="mt-3 flex flex-col gap-2">
-								<Badge class="w-fit gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white">
-									<MapPinIcon class="size-3.5" />
-									{activeClubItem?.clubLocation ?? 'Location TBD'}
-								</Badge>
-								{#if meetingSchedule}
-									<Badge class="w-fit gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white">
-										<Clock3Icon class="size-3.5" />
-										{meetingSchedule}
+					<div class="rounded-2xl border border-[#f0decc] bg-[#f8ecdf] p-3 sm:p-4">
+						<div class="grid grid-cols-[minmax(0,1fr)_5.25rem] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_7rem] sm:gap-3">
+							<div class="min-w-0">
+								<p class="text-[2rem] leading-[2.2rem] font-bold text-orange-500">My club</p>
+								<div class="mt-3 flex max-w-full flex-col gap-2 pr-1">
+									<Badge class="w-fit max-w-full gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white">
+										<MapPinIcon class="size-3.5" />
+										<span class="truncate">{clubLocationLabel}</span>
 									</Badge>
-								{/if}
+									{#if meetingSchedule}
+										<Badge class="w-fit max-w-full gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white">
+											<Clock3Icon class="size-3.5" />
+											<span class="truncate">{meetingSchedule}</span>
+										</Badge>
+									{/if}
+								</div>
 							</div>
+							<img
+								src={myClubImage}
+								alt="My club"
+								class="h-20 w-20 self-end rounded-2xl object-cover sm:h-28 sm:w-28"
+								loading="lazy"
+							/>
 						</div>
-						<img
-							src={myClubImage}
-							alt="My club"
-							class="h-24 w-24 rounded-2xl object-cover sm:h-28 sm:w-28"
-							loading="lazy"
-						/>
-					</div>
 				</div>
 
 				<div class="grid grid-cols-3 gap-2">
