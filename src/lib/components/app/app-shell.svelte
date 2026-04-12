@@ -48,7 +48,7 @@
 	const HISTORY_INDEX_KEY = 'sveltekit:history';
 
 	let clubOpen = $state(false);
-	let clubNavOpen = $derived(activeNav === 'club' ? true : clubOpen);
+	let clubNavOpen = $derived(clubOpen);
 	let headerRowWidth = $state(0);
 	let searchInputRef = $state<HTMLInputElement | null>(null);
 	let collapsibleSearchContainerRef = $state<HTMLDivElement | null>(null);
@@ -171,32 +171,41 @@
 <!-- --bottom-nav-h: height of the fixed mobile bottom nav. Used here for content
      clearance (pb) and by child components for sticky element offsets. On desktop
      (lg:) the sidebar replaces the bottom nav so the padding is removed. -->
-<div class="relative flex min-h-screen flex-col bg-purple-50 pb-[var(--bottom-nav-h)] lg:pb-0" style="--bottom-nav-h: 4.5rem;">
+<div class="relative flex min-h-screen flex-col bg-white pb-[var(--bottom-nav-h)] lg:pb-0" style="--bottom-nav-h: 4.5rem;">
 	<ConnectivityOverlay />
 	<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
 		<aside
-			class="hidden w-72 flex-col border-r border-border/70 bg-background/70 backdrop-blur lg:flex lg:sticky lg:top-0 lg:h-screen lg:self-start"
+			class="hidden w-60 flex-col border-r border-border bg-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
 		>
-			<div class="px-5 py-5">
-				<img src={favicon} alt="Curiosity Learning" class="h-8 w-8" />
+			<div class="border-b border-border px-5 py-6">
+				<div class="flex items-center gap-3">
+					<img src={favicon} alt="Curiosity Learning" class="h-10 w-10 shrink-0" />
+					<div class="leading-tight">
+						<p class="text-[1.05rem] font-bold text-foreground">Curiosity</p>
+						<p class="text-[1.05rem] font-bold text-foreground">Learning</p>
+					</div>
+				</div>
 			</div>
 
-			<div class="flex flex-1 flex-col gap-3 px-3 py-3">
+			<div class="flex flex-1 flex-col gap-3 px-0 py-3">
 				<nav class="flex flex-col gap-1">
 					{#each topNavItems as nav (nav.key)}
 						{#if nav.children?.length}
 							<Collapsible open={clubNavOpen} onOpenChange={(open) => (clubOpen = open)}>
 								<div
 									class={cn(
-										'flex w-full items-center gap-1 rounded-md',
+										'relative flex w-full items-center gap-1 overflow-hidden rounded-none',
 										activeNav === nav.key
-											? 'bg-primary/10 text-primary'
-											: 'text-muted-foreground hover:bg-accent hover:text-foreground'
+											? 'bg-orange-50 text-orange-500'
+											: 'text-muted-foreground hover:bg-gray-50 hover:text-foreground'
 									)}
 								>
+									{#if activeNav === nav.key}
+										<span class="bg-orange-500 absolute inset-y-0 left-0 w-0.5 rounded-r-full" aria-hidden="true"></span>
+									{/if}
 									<a
 										href={nav.href}
-										class="flex flex-1 items-center gap-3 rounded-md px-3 py-2 text-left type-lead-medium"
+										class="flex flex-1 items-center gap-3 px-5 py-2 text-left type-lead-medium"
 										data-sveltekit-preload-code="hover"
 										data-sveltekit-preload-data="hover"
 									>
@@ -204,7 +213,7 @@
 										<span>{nav.label}</span>
 									</a>
 									<CollapsibleTrigger
-										class="flex size-9 items-center justify-center rounded-md hover:bg-accent"
+										class="flex size-9 items-center justify-center rounded-md hover:bg-gray-100"
 										aria-label={clubNavOpen ? `Collapse ${nav.label}` : `Expand ${nav.label}`}
 									>
 										<ChevronDownIcon
@@ -252,10 +261,10 @@
 				</div>
 		</aside>
 
-		<div class="flex min-h-screen min-w-0 flex-1 flex-col">
-			<header
-				class="sticky top-0 z-20 flex justify-center border-b border-border/70 bg-background/80 backdrop-blur"
-			>
+			<div class="flex min-h-screen min-w-0 flex-1 flex-col bg-white">
+				<header
+					class="sticky top-0 z-20 flex justify-center border-b border-border bg-white"
+				>
 				<div
 					class={cn(
 						'flex w-full max-w-6xl flex-col gap-3 px-4 sm:px-6 lg:px-8',
@@ -375,15 +384,15 @@
 				</div>
 			</header>
 
-			<main class="flex w-full flex-1 justify-center">
-				<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
-					{@render children()}
-				</div>
-			</main>
+				<main class="flex w-full flex-1 justify-center bg-white">
+					<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 bg-white px-4 py-4 sm:px-6 lg:px-8">
+						{@render children()}
+					</div>
+				</main>
 
-			<footer
-				class="fixed inset-x-0 bottom-0 z-10 flex justify-center border-t border-border bg-background/95 backdrop-blur lg:hidden"
-			>
+				<footer
+					class="fixed inset-x-0 bottom-0 z-10 flex justify-center border-t border-border bg-white lg:hidden"
+				>
 				<div class="flex w-full max-w-6xl flex-col gap-2 px-2 py-2 sm:px-6 lg:px-8">
 					<nav class="grid w-full grid-cols-4 gap-1">
 						{#each topNavItems.concat(bottomNavItems) as nav (nav.key)}

@@ -20,22 +20,22 @@
 		nav === 'bottom'
 			? 'flex h-auto w-full flex-col items-center justify-center gap-1 rounded-md px-0 py-2 text-center'
 			: nav === 'side'
-				? 'flex h-auto w-full items-center justify-start gap-3 rounded-md px-3 py-2 text-left type-lead-medium'
-				: 'flex h-auto w-full items-center justify-start gap-2 rounded-md pr-3 pl-10 py-2 text-left type-label'
+				? 'flex h-auto w-full items-center justify-start gap-3 rounded-none px-5 py-2 text-left type-lead-medium'
+				: 'flex h-auto w-full items-center justify-start gap-2 rounded-none py-2 pr-3 pl-12 text-left type-label'
 	);
 
 	let tone = $derived(
 		nav === 'bottom'
 			? active
-				? 'bg-primary/10 text-primary'
+				? 'text-orange-500'
 				: 'text-muted-foreground hover:text-foreground'
 			: nav === 'side'
 				? active
-					? 'bg-primary/10 text-primary'
-					: 'text-muted-foreground hover:bg-accent hover:text-foreground'
+					? 'bg-orange-50 text-orange-500'
+					: 'text-muted-foreground hover:bg-gray-50 hover:text-foreground'
 				: active
-					? 'bg-accent text-foreground'
-					: 'text-muted-foreground hover:bg-accent hover:text-foreground'
+					? 'bg-orange-50/70 text-foreground'
+					: 'text-muted-foreground hover:bg-gray-50 hover:text-foreground'
 	);
 </script>
 
@@ -45,10 +45,13 @@
 	role={disabled ? 'link' : undefined}
 	tabindex={disabled ? -1 : undefined}
 	variant="ghost"
-	class={cn(base, tone, 'justify-self-stretch')}
+	class={cn(base, tone, 'relative justify-self-stretch overflow-hidden')}
 	data-sveltekit-preload-code="hover"
 	data-sveltekit-preload-data="hover"
 >
+	{#if active && nav !== 'bottom'}
+		<span class="bg-orange-500 absolute inset-y-0 left-0 w-0.5 rounded-r-full" aria-hidden="true"></span>
+	{/if}
 	{#if nav === 'bottom'}
 		{#if Icon}
 			<Icon class="size-6" />

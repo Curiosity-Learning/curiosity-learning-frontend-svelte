@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
-	import CalendarIcon from '@lucide/svelte/icons/calendar';
-	import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban';
-	import UsersIcon from '@lucide/svelte/icons/users';
+	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { api } from '$convex/_generated/api';
@@ -23,11 +21,13 @@
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import ClubProjectCard from '$lib/components/app/projects/club-project-card.svelte';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
+	import noSessionFoundImage from '$lib/assets/images/no_session_found.png';
+	import noProjectsFoundImage from '$lib/assets/images/no_projects_found.png';
+	import noLearnersFoundImage from '$lib/assets/images/no_learners_found.png';
 	import { routes } from '$lib/routes';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
-	import { Card, CardContent } from '$lib/components/ui/card';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { FieldLabel } from '$lib/components/ui/field';
@@ -50,14 +50,20 @@
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
+	let canReadAttendance = $derived(clubPermissions.includes('attendance:read'));
 	let canCreateSession = $derived(clubPermissions.includes('session:create'));
+	let canCreateProject = $derived(clubPermissions.includes('project:create'));
 	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
+	let canShowSessionAttendees = $derived(canReadMembers && canReadAttendance);
 
 	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 
 	const upcomingSessionCardsResponse = useStableQuery(
 		api.sessions.listCardPreviewsByClub,
-		() => (clubIdTyped ? { clubId: clubIdTyped, upcomingOnly: true, limit: 1 } : 'skip'),
+		() =>
+			clubIdTyped
+				? { clubId: clubIdTyped, upcomingOnly: true, limit: 6, includeAttendees: true }
+				: 'skip',
 		{ cache: 'memory' }
 	);
 	const projectsPreviewResponse = useStableQuery(
@@ -74,14 +80,14 @@
 		{ cache: 'memory' }
 	);
 
-	let nextSessionCard = $derived((upcomingSessionCardsResponse.data ?? [])[0] ?? null);
-	let nextSession = $derived(nextSessionCard?.session ?? null);
-	let noUpcomingSessionDescription = $derived(
-		canCreateSession ? 'Plan your next meeting to keep your club moving.' : ''
-	);
+	let visibleUpcomingSessionCards = $derived(upcomingSessionCardsResponse.data ?? []);
 	let canMutateOnline = $derived(canMutateOnlineState.current);
 
 	let visibleProjects = $derived(projectsPreviewResponse.data ?? []);
+	let visibleLearners = $derived((learnersResponse.data ?? []).slice(0, 8));
+	let hiddenLearnersCount = $derived(
+		Math.max((learnersResponse.data?.length ?? 0) - visibleLearners.length, 0)
+	);
 	let createSessionDialogOpen = $state(false);
 	let createSessionPending = $state(false);
 	let createSessionError = $state('');
@@ -228,16 +234,15 @@
 
 		return null;
 	};
-	let nextSessionCardWithSignedAttendees = $derived.by(() => {
-		if (!nextSessionCard) return null;
-		return {
-			...nextSessionCard,
-			attendees: nextSessionCard.attendees.map((attendee) => ({
+	let visibleUpcomingSessionCardsWithSignedAttendees = $derived(
+		visibleUpcomingSessionCards.map((entry) => ({
+			...entry,
+			attendees: entry.attendees.map((attendee) => ({
 				name: attendee.name,
 				imageUrl: attendeeImageUrl(attendee)
 			}))
-		};
-	});
+		}))
+	);
 	let visibleProjectsWithSignedMembers = $derived(
 		visibleProjects.map((entry) => ({
 			...entry,
@@ -299,72 +304,74 @@
 	};
 </script>
 
-<div class="flex flex-col gap-10">
+<div
+	class="-mx-4 flex min-h-full flex-col gap-8 bg-white px-4 py-4 sm:-mx-6 sm:px-6 sm:py-5 lg:-mx-8 lg:px-8 lg:py-6"
+>
 	<section class="flex flex-col gap-4">
-		<HomeSectionHeader title="Upcoming session">
+		<HomeSectionHeader title="Sessions">
 			{#snippet action()}
-				<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
+				{#if canCreateSession && !upcomingSessionCardsResponse.isLoading && visibleUpcomingSessionCards.length === 0}
+					<Button
+						variant="ghost"
+						size="sm"
+						class="hidden type-sm-bold text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
+						disabled={!canMutateOnline}
+						onclick={openCreateSessionDialog}
+					>
+						<PlusIcon class="size-4" />
+						<span>Add a session</span>
+					</Button>
+					<div class="sm:hidden">
+						<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
+					</div>
+				{:else}
+					<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
+				{/if}
 			{/snippet}
 		</HomeSectionHeader>
 
 		{#if !clubId}
-			{#if canCreateSession}
-				<HomeEmptyCard
-					title="No upcoming sessions"
-					description={noUpcomingSessionDescription}
-					Icon={CalendarIcon}
-				>
-					{#snippet action()}
-						<Button variant="outline" disabled={!canMutateOnline} onclick={openCreateSessionDialog}
-							>Plan a session</Button
-						>
-					{/snippet}
-				</HomeEmptyCard>
-			{:else}
-				<HomeEmptyCard
-					title="No upcoming sessions"
-					description={noUpcomingSessionDescription}
-					Icon={CalendarIcon}
-				/>
-			{/if}
-		{:else if upcomingSessionCardsResponse.isLoading}
 			<HomeEmptyCard
-				title="Loading upcoming sessions"
-				description="Checking the schedule for this club."
-				actionLabel="Loading..."
-				disabled={true}
-				Icon={CalendarIcon}
+				title="No sessions to attend"
+				illustrationSrc={noSessionFoundImage}
+				illustrationAlt="No sessions found"
+				centerContent={true}
+				variant="plain"
+				minHeightClass="min-h-44 sm:min-h-48"
 			/>
-		{:else if !nextSession}
-			{#if canCreateSession}
-				<HomeEmptyCard
-					title="No upcoming sessions"
-					description={noUpcomingSessionDescription}
-					Icon={CalendarIcon}
-				>
-					{#snippet action()}
-						<Button variant="outline" disabled={!canMutateOnline} onclick={openCreateSessionDialog}
-							>Plan a session</Button
-						>
-					{/snippet}
-				</HomeEmptyCard>
-			{:else}
-				<HomeEmptyCard
-					title="No upcoming sessions"
-					description={noUpcomingSessionDescription}
-					Icon={CalendarIcon}
-				/>
-			{/if}
+		{:else if upcomingSessionCardsResponse.isLoading}
+			<HomeEmptyCard title="Loading sessions..." minHeightClass="min-h-40 sm:min-h-44" />
+		{:else if visibleUpcomingSessionCardsWithSignedAttendees.length === 0}
+			<HomeEmptyCard
+				title="No sessions to attend"
+				illustrationSrc={noSessionFoundImage}
+				illustrationAlt="No sessions found"
+				centerContent={true}
+				variant="plain"
+				minHeightClass="min-h-44 sm:min-h-48"
+			/>
 		{:else}
-			<ClubSessionCard
-				session={nextSession}
-				sessionHref={routes.sessionDetail(nextSession._id)}
-				prefetchedCardData={nextSessionCardWithSignedAttendees}
-				{canReadMembers}
-				canDelete={canDeleteSession}
-				showAttendeesSection={false}
-				showActions={false}
-			/>
+			<div class="flex gap-4 overflow-x-auto pb-2">
+				{#each visibleUpcomingSessionCardsWithSignedAttendees as entry (entry.session._id)}
+					<ClubSessionCard
+						session={entry.session}
+						sessionHref={routes.sessionDetail(entry.session._id)}
+						prefetchedCardData={{
+							tagNames: entry.tagNames,
+							attendees: entry.attendees,
+							activityItems: entry.activityItems,
+							hiddenActivitiesCount: entry.hiddenActivitiesCount
+						}}
+						canReadMembers={canShowSessionAttendees}
+						canDelete={canDeleteSession}
+						showActivitiesSection={false}
+						showAttendeesSection={canShowSessionAttendees}
+						attendeesAvatarSizeClass="size-9"
+						showActions={false}
+						class="w-[20.25rem] shrink-0 sm:w-[21.5rem]"
+					/>
+				{/each}
+			</div>
 		{/if}
 
 		{#if canCreateSession}
@@ -413,69 +420,93 @@
 	</section>
 
 	<section class="flex flex-col gap-4">
-		<HomeSectionHeader title="Current projects">
+		<HomeSectionHeader title="Projects">
 			{#snippet action()}
-				<HomeActionLink href={`${clubPath}/projects`} label="View all" Icon={ArrowRightIcon} />
+				{#if canCreateProject && !projectsPreviewResponse.isLoading && visibleProjects.length === 0}
+					<Button
+						href={`${clubPath}/projects`}
+						variant="ghost"
+						size="sm"
+						class="hidden type-sm-bold text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
+					>
+						<PlusIcon class="size-4" />
+						<span>Add a project</span>
+					</Button>
+					<div class="sm:hidden">
+						<HomeActionLink href={`${clubPath}/projects`} label="View all" Icon={ArrowRightIcon} />
+					</div>
+				{:else}
+					<HomeActionLink href={`${clubPath}/projects`} label="View all" Icon={ArrowRightIcon} />
+				{/if}
 			{/snippet}
 		</HomeSectionHeader>
 
 		{#if !clubId}
 			<HomeEmptyCard
-				title="No active projects"
-				description="Start a project to track goals and progress."
-				actionLabel="Plan a project"
-				href={`${clubPath}/projects`}
-				Icon={FolderKanbanIcon}
+				title="No projects to complete"
+				illustrationSrc={noProjectsFoundImage}
+				illustrationAlt="No projects found"
+				centerContent={true}
+				variant="plain"
+				minHeightClass="min-h-44 sm:min-h-48"
 			/>
 		{:else if projectsPreviewResponse.isLoading}
+			<HomeEmptyCard title="Loading projects..." minHeightClass="min-h-40 sm:min-h-44" />
+		{:else if visibleProjectsWithSignedMembers.length === 0}
 			<HomeEmptyCard
-				title="Loading active projects"
-				description="Fetching project work in progress."
-				actionLabel="Loading..."
-				disabled={true}
-				Icon={FolderKanbanIcon}
-			/>
-		{:else if (projectsPreviewResponse.data?.length ?? 0) === 0}
-			<HomeEmptyCard
-				title="No active projects"
-				description="Start a project to track goals and progress."
-				actionLabel="Plan a project"
-				href={`${clubPath}/projects`}
-				Icon={FolderKanbanIcon}
+				title="No projects to complete"
+				illustrationSrc={noProjectsFoundImage}
+				illustrationAlt="No projects found"
+				centerContent={true}
+				variant="plain"
+				minHeightClass="min-h-44 sm:min-h-48"
 			/>
 		{:else}
-			<div class="flex flex-col gap-3">
-				<div class="flex gap-4 overflow-x-auto pb-2" use:mountProjectRail>
-					{#each visibleProjectsWithSignedMembers as entry (entry.project._id)}
-						<ClubProjectCard
-							project={entry.project}
-							memberPreview={entry.members}
-							status="current"
-							href={routes.projectDetail(entry.project._id)}
-							navigationState={{
-								headerTitleHint: entry.project.name,
-								headerTitleHintPath: `/project/${entry.project._id}`
-							}}
-							class="w-[18.5rem] shrink-0 sm:w-[20rem]"
-						/>
-					{/each}
-				</div>
+			<div class="flex gap-4 overflow-x-auto pb-2" use:mountProjectRail>
+				{#each visibleProjectsWithSignedMembers as entry (entry.project._id)}
+					<ClubProjectCard
+						project={entry.project}
+						memberPreview={entry.members}
+						status="current"
+						href={routes.projectDetail(entry.project._id)}
+						navigationState={{
+							headerTitleHint: entry.project.name,
+							headerTitleHintPath: `/project/${entry.project._id}`
+						}}
+						class="w-[18.5rem] shrink-0 sm:w-[20rem]"
+					/>
+				{/each}
 			</div>
 		{/if}
 	</section>
 
 	<section class="flex flex-col gap-4">
-		{#if clubId && canReadMembers && (learnersResponse.data?.length ?? 0) > 0}
-			<HomeSectionHeader title="Active learners">
-				{#snippet action()}
+		<HomeSectionHeader title="Learners">
+			{#snippet action()}
+				{#if clubId && canReadMembers && visibleLearners.length > 0}
 					<HomeActionLink href={`${clubPath}/members`} label="View all" Icon={ArrowRightIcon} />
-				{/snippet}
-			</HomeSectionHeader>
+				{:else}
+					<InviteLearnerDialog
+						clubCode={clubItem?.clubCode}
+						triggerStyle="link"
+						triggerLabel="Invite a learner"
+					/>
+				{/if}
+			{/snippet}
+		</HomeSectionHeader>
 
-			<div class="flex flex-col gap-3">
-				{#each (learnersResponse.data ?? []).slice(0, 4) as learner (learner.userId)}
-					<Card class="gap-0 py-0">
-						<CardContent class="flex items-center gap-4 p-5">
+		{#if clubId && canReadMembers && learnersResponse.isLoading}
+			<HomeEmptyCard title="Loading learners..." minHeightClass="min-h-32 sm:min-h-36" />
+		{:else if clubId && canReadMembers && visibleLearners.length > 0}
+			<div class="flex flex-col gap-4">
+				<div class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
+					{#each visibleLearners as learner (learner.userId)}
+						<a
+							href={`${clubPath}/members`}
+							class="flex items-center gap-3 rounded-xl px-1 py-1 transition-colors hover:bg-muted/50"
+							data-sveltekit-preload-code="hover"
+							data-sveltekit-preload-data="hover"
+						>
 							<Avatar class="size-12">
 								{#if learnerImageUrl(learner)}
 									<AvatarImage src={learnerImageUrl(learner) ?? undefined} alt={learner.email ?? learner.userId} />
@@ -488,34 +519,30 @@
 									)}
 								</AvatarFallback>
 							</Avatar>
-							<div class="flex flex-1 flex-col gap-1">
-								<p class="type-h6-bold">
+							<div class="min-w-0 flex-1">
+								<p class="type-h6-bold truncate">
 									{[learner.firstName ?? '', learner.lastName ?? ''].join(' ').trim() ||
-										learner.email}
+										learner.email ||
+										learner.userId}
 								</p>
-								<p class="type-sm text-muted-foreground">{learner.email ?? learner.userId}</p>
+								<p class="type-sm truncate text-muted-foreground">{learner.email ?? learner.userId}</p>
 							</div>
-						</CardContent>
-					</Card>
-				{/each}
+						</a>
+					{/each}
+				</div>
+				{#if hiddenLearnersCount > 0}
+					<HomeActionLink href={`${clubPath}/members`} label={`+ ${hiddenLearnersCount} others`} />
+				{/if}
 			</div>
 		{:else}
-			<HomeSectionHeader title="Active learners" />
-
 			<HomeEmptyCard
-				title="No active learners"
-				description="Invite a learner to get your next session started."
-				actionLabel="Invite a learner"
-				Icon={UsersIcon}
-			>
-				{#snippet action()}
-					<InviteLearnerDialog
-						clubCode={clubItem?.clubCode}
-						triggerStyle="button"
-						triggerLabel="Invite a learner"
-					/>
-				{/snippet}
-			</HomeEmptyCard>
+				title="No learners to interact with"
+				illustrationSrc={noLearnersFoundImage}
+				illustrationAlt="No learners found"
+				centerContent={true}
+				variant="plain"
+				minHeightClass="min-h-44 sm:min-h-48"
+			/>
 		{/if}
 	</section>
 </div>
