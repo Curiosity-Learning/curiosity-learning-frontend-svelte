@@ -10,6 +10,8 @@ export default defineSchema({
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
+		// Legacy Convex storage field kept optional for backward-compatibility with older records.
+		profileImageStorageId: v.optional(v.string()),
 		profileImageMediaAssetId: v.optional(v.id('mediaAssets')),
 		dateOfBirth: v.optional(v.string()),
 		isVerified: v.boolean(),
@@ -49,6 +51,8 @@ export default defineSchema({
 		locationLongitude: v.optional(v.number()),
 		description: v.optional(v.string()),
 		time: v.optional(v.number()),
+		// Legacy Convex storage field kept optional for backward-compatibility with older records.
+		videoStorageId: v.optional(v.string()),
 		videoMediaAssetId: v.optional(v.id('mediaAssets')),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string()),
