@@ -482,7 +482,7 @@
 								<div class="min-w-0 flex-1">
 									<div class="flex items-start justify-between gap-2">
 										<p class="truncate text-[1.08rem] leading-tight font-bold text-[#242424]">
-											{room.roomName}
+											{roomDisplayName(room)}
 										</p>
 										<p class="shrink-0 text-xs text-gray-500">{formatRelativeTime(room.lastMessageAt)}</p>
 									</div>
@@ -525,18 +525,34 @@
 							/>
 						</div>
 
-					<div class="flex-1 overflow-y-auto bg-[#f7f7f8] px-3 py-4 sm:px-4">
+					<div
+						class={`flex-1 overflow-y-auto ${
+							isDesktopViewport ? 'bg-[#f7f7f8] px-4 py-4' : 'bg-[#f5f5f5] px-4 py-0'
+						}`}
+					>
 						{#if messagesResponse.isLoading}
 							<p class="text-sm text-muted-foreground">Loading messages...</p>
 						{:else if (messagesResponse.data?.length ?? 0) === 0}
 							<p class="text-sm text-muted-foreground">No messages yet. Send the first one.</p>
 						{:else}
-							<p class="mb-3 text-center text-xs font-medium text-[#9da3b3]">Today</p>
-							<div class="flex flex-col gap-3">
+							<p class={`text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mb-4 mt-4'}`}>Today</p>
+							<div class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'}`}>
 								{#each messagesResponse.data ?? [] as entry (entry._id)}
-									<div class={`flex ${entry.userId === viewer.data?.userId ? 'justify-end' : 'justify-start'}`}>
+									<div
+										class={`flex ${
+											entry.userId === viewer.data?.userId
+												? isDesktopViewport
+													? 'justify-end'
+													: 'justify-end pl-11'
+												: isDesktopViewport
+													? 'justify-start'
+													: 'justify-start pr-11'
+										}`}
+									>
 										<div
-											class={`max-w-[85%] rounded-2xl px-3 py-2 ${
+											class={`${
+												isDesktopViewport ? 'max-w-[85%] rounded-2xl px-3 py-2' : 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pb-1 pt-[10px]'
+											} ${
 												entry.userId === viewer.data?.userId
 													? 'bg-[#f5e2d2] text-[#2b2b2b]'
 													: 'bg-[#e7e9f3] text-[#2b2b2b]'
@@ -546,12 +562,16 @@
 												<img
 													src={entry.mediaUrl}
 													alt="Shared media"
-													class="mb-2 h-40 w-full rounded-xl object-cover"
+													class={`mb-2 w-full object-cover ${
+														isDesktopViewport ? 'h-40 rounded-xl' : 'aspect-[300/279] rounded-[8px]'
+													}`}
 													loading="lazy"
 												/>
 											{/if}
-											<p class="text-[1.03rem] leading-6">{entry.content ?? '[Media message]'}</p>
-											<p class="mt-1 text-right text-xs text-[#7b8090]">{formatClockTime(entry.createdAt)}</p>
+											<p class={`${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}>{entry.content ?? '[Media message]'}</p>
+											<p class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}>
+												{formatClockTime(entry.createdAt)}
+											</p>
 										</div>
 									</div>
 								{/each}
@@ -559,16 +579,18 @@
 						{/if}
 					</div>
 
-					<div class="border-t border-border/70 bg-white px-3 pb-3 pt-2 sm:px-4">
+					<div class={`border-t border-border/70 bg-white ${isDesktopViewport ? 'px-3 pb-3 pt-2 sm:px-4' : 'px-0 pb-2 pt-0'}`}>
 						<Input
 							bind:value={message}
 							placeholder="Send a message..."
-							class="border-0 px-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0"
+							class={`border-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
+								isDesktopViewport ? 'px-0' : 'h-12 px-4'
+							}`}
 							disabled={pending || !selectedRoomId}
 							onkeydown={handleMessageComposerKeydown}
 						/>
-						<div class="mt-2 flex items-center justify-between">
-							<div class="flex items-center gap-4 text-[#7b8090]">
+						<div class={`flex items-center text-[#7b8090] ${isDesktopViewport ? 'mt-2 justify-between' : 'border-t border-transparent px-4 pt-2'}`}>
+							<div class="flex items-center gap-4">
 								<button type="button" class="transition-colors hover:text-orange-500" aria-label="Add camera">
 									<CameraIcon class="size-5" />
 								</button>
@@ -576,16 +598,18 @@
 									<ImageIcon class="size-5" />
 								</button>
 							</div>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								class="text-orange-500 hover:text-orange-600"
-								disabled={pending || !selectedRoomId || !message.trim()}
-								onclick={() => void sendMessage()}
-								aria-label="Send message"
-							>
-								<SendHorizontalIcon class="size-5" />
-							</Button>
+							{#if isDesktopViewport}
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									class="text-orange-500 hover:text-orange-600"
+									disabled={pending || !selectedRoomId || !message.trim()}
+									onclick={() => void sendMessage()}
+									aria-label="Send message"
+								>
+									<SendHorizontalIcon class="size-5" />
+								</Button>
+							{/if}
 						</div>
 					</div>
 				</section>
