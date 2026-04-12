@@ -50,6 +50,7 @@
 		participantDisplayNames: string[];
 		lastMessagePreview: string | null;
 		lastMessageAt: number;
+		unreadCount: number;
 	};
 	type PendingAttachment = {
 		file: File;
@@ -121,6 +122,20 @@
 	const messagesResponse = useStableQuery(api.chat.listMessages, () =>
 		$session.data && selectedRoomId ? { roomId: selectedRoomId, limit: 100 } : 'skip'
 	);
+	let lastMarkedReadKey = $state('');
+
+	$effect(() => {
+		if (!selectedRoomId) return;
+		if (!activeRoom) return;
+		if ((activeRoom.unreadCount ?? 0) <= 0) return;
+		const latestMessageId = (messagesResponse.data ?? []).at(-1)?._id ?? 'none';
+		const nextKey = `${selectedRoomId}:${latestMessageId}:${activeRoom.unreadCount}`;
+		if (nextKey === lastMarkedReadKey) return;
+		lastMarkedReadKey = nextKey;
+		void convexClient.mutation(api.chat.markRoomRead, { roomId: selectedRoomId }).catch(() => {
+			// Ignore transient failures; unread state will reconcile on next query refresh.
+		});
+	});
 
 	let contactSuggestions = $derived.by(() => {
 		const messagingUsers = messagingUsersResponse.data ?? [];
@@ -192,13 +207,6 @@
 			return `${room.participantDisplayNames[0]}: ${preview}`;
 		}
 		return preview;
-	};
-
-	const unreadBadgeCount = (room: RoomSummary, index: number) => {
-		if (!room.lastMessagePreview) return 0;
-		const ageInMinutes = Math.floor((Date.now() - room.lastMessageAt) / 60_000);
-		if (ageInMinutes <= 15) return 1;
-		return index === 0 ? 1 : 0;
 	};
 
 	const openRoom = async (roomId: Id<'rooms'>) => {
@@ -627,11 +635,11 @@
 										{#if index === 0}
 											<PinIcon class="size-3.5 text-gray-500" />
 										{/if}
-										{#if unreadBadgeCount(room, index) > 0}
+										{#if room.unreadCount > 0}
 											<span
-												class="inline-flex size-6 items-center justify-center rounded-full bg-orange-500 text-xs font-bold text-white"
+												class="inline-flex min-w-6 items-center justify-center rounded-full bg-orange-500 px-1 text-xs leading-6 font-bold text-white"
 											>
-												{unreadBadgeCount(room, index)}
+												{room.unreadCount > 99 ? '99+' : room.unreadCount}
 											</span>
 										{/if}
 									</div>

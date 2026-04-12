@@ -32,11 +32,14 @@
 	let ensuredProfileForSession = $state(false);
 
 	const convexClient = useConvexClient();
-	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
-	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
-		isAuthReady ? {} : 'skip'
-	);
-	let clubs = $derived(clubsResponse.data ?? []);
+const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
+const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
+	isAuthReady ? {} : 'skip'
+);
+const unreadSummaryResponse = useStableQuery(api.chat.getUnreadSummary, () =>
+	isAuthReady ? {} : 'skip'
+);
+let clubs = $derived(clubsResponse.data ?? []);
 
 	$effect(() => {
 		if (!browser) return;
@@ -101,10 +104,11 @@
 		}
 	});
 
-	let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
+let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
 
-	let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
-	let navigation = $derived(buildAppNavigation(clubIdForNav));
+let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
+let chatUnreadCount = $derived(unreadSummaryResponse.data?.totalUnreadCount ?? 0);
+let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }));
 	let navState = $derived(deriveNavState(navigation, activePath));
 	let activeNav = $derived(navState.activeNav);
 	let title = $derived(

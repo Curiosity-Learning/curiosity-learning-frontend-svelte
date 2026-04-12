@@ -11,10 +11,13 @@
 		active: boolean;
 		Icon?: Component<{ class?: string }>;
 		nav: AppNavVariant;
+		badgeCount?: number;
 		disabled?: boolean;
 	};
 
-	let { href, label, active, Icon, nav, disabled }: Props = $props();
+	let { href, label, active, Icon, nav, badgeCount = 0, disabled }: Props = $props();
+	let hasBadge = $derived(badgeCount > 0);
+	let badgeLabel = $derived(badgeCount > 99 ? '99+' : String(badgeCount));
 
 	let base = $derived(
 		nav === 'bottom'
@@ -53,15 +56,35 @@
 		<span class="bg-orange-500 absolute inset-y-0 left-0 w-0.5 rounded-r-full" aria-hidden="true"></span>
 	{/if}
 	{#if nav === 'bottom'}
-		{#if Icon}
-			<Icon class="size-6" />
-		{/if}
+		<div class="relative">
+			{#if Icon}
+				<Icon class="size-6" />
+			{/if}
+			{#if hasBadge}
+				<span
+					class="absolute -right-2 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] leading-4 font-bold text-white"
+					aria-label={`${badgeLabel} unread chats`}
+				>
+					{badgeLabel}
+				</span>
+			{/if}
+		</div>
 		<span class="type-caption-medium">{label}</span>
 	{:else if nav === 'side'}
-		{#if Icon}
-			<Icon class="size-4 shrink-0" />
+		<div class="flex min-w-0 flex-1 items-center gap-3">
+			{#if Icon}
+				<Icon class="size-4 shrink-0" />
+			{/if}
+			<span class="truncate">{label}</span>
+		</div>
+		{#if hasBadge}
+			<span
+				class="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-orange-500 px-1.5 text-[11px] leading-5 font-bold text-white"
+				aria-label={`${badgeLabel} unread chats`}
+			>
+				{badgeLabel}
+			</span>
 		{/if}
-		<span>{label}</span>
 	{:else}
 		<span>{label}</span>
 	{/if}

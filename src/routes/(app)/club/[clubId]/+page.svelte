@@ -531,7 +531,9 @@
 					{/each}
 				</div>
 				{#if hiddenLearnersCount > 0}
-					<HomeActionLink href={`${clubPath}/members`} label={`+ ${hiddenLearnersCount} others`} />
+					<div class="self-start">
+						<HomeActionLink href={`${clubPath}/members`} label={`+ ${hiddenLearnersCount} others`} />
+					</div>
 				{/if}
 			</div>
 		{:else}

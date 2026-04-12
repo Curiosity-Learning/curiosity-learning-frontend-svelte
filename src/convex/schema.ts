@@ -325,6 +325,8 @@ export default defineSchema({
 		// Denormalized profile fields for faster room summaries.
 		displayName: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
+		lastReadAt: v.optional(v.number()),
+		unreadCount: v.optional(v.number()),
 		createdAt: v.number()
 	})
 		.index('by_room', ['roomId'])

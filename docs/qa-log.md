@@ -2970,3 +2970,5 @@
 - 2026-04-13: Redesigned `/chat` to match the mobile Figma flow with list + empty state + thread detail modes, header action overrides (compose/search and vertical thread menu), Figma-style message bubbles/composer, and query-param room selection for in-route navigation.
 - 2026-04-13: Redesigned `/profile` to match the Figma layout (hero profile block, share CTA, My Club summary card, stats row, and recent update card) while wiring live Convex data for active-club updates/activities/projects.
 - 2026-04-13: Run `npm run check` (pass, 0 errors / 0 warnings).
+- 2026-04-13: Added chat unread tracking for incoming messages using participant-level unread counters (`participants.unreadCount`), surfaced unread badges in chat room rows and app navigation, and auto-cleared unread state when a room is opened/read.
+- 2026-04-13: Fixed learner section “+ N others” alignment on `/club/[clubId]` so the action stays left-aligned in the learners block.
