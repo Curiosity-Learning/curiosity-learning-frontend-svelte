@@ -610,7 +610,7 @@
 
 					<div
 						class={`flex-1 overflow-y-auto ${
-							isDesktopViewport ? 'bg-[#f7f7f8] px-4 py-4' : 'bg-[#f5f5f5] px-4 py-0'
+							isDesktopViewport ? 'bg-[#f7f7f8] px-4 py-4' : 'bg-white px-4 py-0'
 						}`}
 					>
 						{#if messagesResponse.isLoading}
@@ -671,12 +671,12 @@
 							bind:value={message}
 							placeholder="Send a message..."
 							class={`border-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
-								isDesktopViewport ? 'px-0' : 'h-11 px-4'
+								isDesktopViewport ? 'px-0' : 'h-10 px-4 py-0'
 							}`}
 							disabled={pending || !selectedRoomId}
 							onkeydown={handleMessageComposerKeydown}
 						/>
-						<div class={`flex items-center justify-between text-[#7b8090] ${isDesktopViewport ? 'mt-2' : 'px-4 pb-2 pt-1'}`}>
+						<div class={`flex items-center justify-between text-[#7b8090] ${isDesktopViewport ? 'mt-2' : 'px-4 pb-1.5 pt-0.5'}`}>
 							<div class="flex items-center gap-4">
 								<button
 									type="button"
