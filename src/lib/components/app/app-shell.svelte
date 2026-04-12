@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import favicon from '$lib/assets/svg/favicon.svg';
@@ -291,7 +291,7 @@
 									aria-label={headerBack.ariaLabel ?? 'Go back'}
 									onclick={() => void handleBack()}
 								>
-									<ArrowLeftIcon class="size-5" />
+									<ChevronLeftIcon class="size-5" />
 								</Button>
 							{/if}
 								{#if headerTitleContent}
