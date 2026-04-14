@@ -89,6 +89,20 @@ const en = {
 		description: 'Sign in to continue your club experience.'
 	},
 	auth: {
+		errors: {
+			serverError: 'Something went wrong on our end. Please try again.',
+			networkError: 'Unable to connect. Please check your internet and try again.',
+			rateLimited: 'Too many attempts. Please wait a moment and try again.',
+			emailNotVerified: 'Your email has not been verified yet. Please verify it to continue.',
+			emailAlreadyExists: 'This email is already registered. Please sign in instead.',
+			invalidEmail: 'Please enter a valid email address.',
+			invalidCredentials: 'Invalid username, email, or password.',
+			passwordTooWeak: 'Your password is too weak. Please choose a stronger password.',
+			passwordsMismatch: 'Passwords do not match.',
+			invalidVerificationCode: 'The verification code is invalid. Please check and try again.',
+			verificationCodeExpired: 'The verification code has expired. Please request a new one.',
+			unknownError: 'An unexpected error occurred. Please try again.'
+		},
 		signIn: {
 			title: 'Log in',
 			illustrationAlt: 'Login illustration',

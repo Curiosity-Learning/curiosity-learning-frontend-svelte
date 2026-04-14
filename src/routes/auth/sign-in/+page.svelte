@@ -14,6 +14,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
+	import { normalizeAuthError } from '$lib/auth/error-handler';
 	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -213,10 +214,16 @@
 			});
 
 			if (error) {
-				errorMessage = getGoogleSignInErrorMessage({
+				const googleMessage = getGoogleSignInErrorMessage({
 					description: error.message,
 					hasTypedEmail: isEmailLike(normalizeIdentifier(identifier))
 				});
+				if (googleMessage) {
+					errorMessage = googleMessage;
+				} else {
+					const normalizedError = normalizeAuthError(error);
+					errorMessage = t(normalizedError.userMessage);
+				}
 				return;
 			}
 
@@ -227,8 +234,8 @@
 
 			errorMessage = t('auth.signIn.googleStartFailed');
 		} catch (error) {
-			errorMessage =
-				error instanceof Error ? error.message : t('auth.signIn.googleStartFailedGeneric');
+			const normalizedError = normalizeAuthError(error);
+			errorMessage = t(normalizedError.userMessage);
 		} finally {
 			googlePending = false;
 		}
@@ -262,16 +269,15 @@
 					});
 					return;
 				}
-				errorMessage = error.message ?? t('auth.signIn.genericFailure');
+				const normalizedError = normalizeAuthError(error);
+				errorMessage = t(normalizedError.userMessage);
 				return;
 			}
 
 			await goto(resolvedNextPath, { replaceState: true });
 		} catch (error) {
-			errorMessage =
-				error instanceof Error
-					? error.message
-					: t('auth.signIn.genericFailureRetry');
+			const normalizedError = normalizeAuthError(error);
+			errorMessage = t(normalizedError.userMessage);
 		} finally {
 			pending = false;
 		}
@@ -294,12 +300,14 @@
 				callbackURL: resolvedNextPath
 			});
 			if (error) {
-				errorMessage = error.message ?? t('auth.signIn.resendFailure');
+				const normalizedError = normalizeAuthError(error);
+				errorMessage = t(normalizedError.userMessage);
 				return;
 			}
 			infoMessage = t('auth.signIn.resendSuccess');
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : t('auth.signIn.resendFailure');
+			const normalizedError = normalizeAuthError(error);
+			errorMessage = t(normalizedError.userMessage);
 		} finally {
 			pending = false;
 		}

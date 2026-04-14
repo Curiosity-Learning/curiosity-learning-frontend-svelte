@@ -19,6 +19,7 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { DateSelectField } from '$lib/components/app/form';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
+	import { normalizeAuthError } from '$lib/auth/error-handler';
 	import { _, formatT, t } from '$lib/i18n';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
@@ -519,7 +520,8 @@ type ExistingAccountStatus = {
 			return false;
 		}
 
-		errorMessage = resendError.message ?? t('auth.signUp.failedSendVerificationCode');
+		const normalizedResendError = normalizeAuthError(resendError);
+		errorMessage = t(normalizedResendError.userMessage);
 		return true;
 	};
 
@@ -572,7 +574,8 @@ type ExistingAccountStatus = {
 		});
 
 		if (error) {
-			errorMessage = error.message ?? t('auth.signUp.failedContinueWithGoogle');
+			const normalizedError = normalizeAuthError(error);
+			errorMessage = t(normalizedError.userMessage);
 			return true;
 		}
 
@@ -581,7 +584,8 @@ type ExistingAccountStatus = {
 			return true;
 		}
 
-		errorMessage = t('auth.signUp.failedContinueWithGoogle');
+		const normalizedFallbackError = normalizeAuthError(new Error('Failed to continue with Google'));
+		errorMessage = t(normalizedFallbackError.userMessage);
 		return true;
 	};
 
@@ -788,11 +792,13 @@ const signUp = async () => {
 					return;
 				}
 
-				errorMessage = resendError.message ?? t('auth.signUp.failedSendVerificationCode');
+				const normalizedResendError = normalizeAuthError(resendError);
+				errorMessage = t(normalizedResendError.userMessage);
 				return;
 			}
 
-			errorMessage = errorText;
+			const normalizedError = normalizeAuthError(error);
+			errorMessage = t(normalizedError.userMessage);
 			return;
 		}
 
@@ -856,7 +862,8 @@ const signUpWithGoogle = async () => {
 		if (error) {
 			clearForcedGoogleSignupPending();
 			googleRedirectPending = false;
-			errorMessage = error.message ?? t('auth.signUp.failedStartGoogleSignUp');
+			const normalizedError = normalizeAuthError(error);
+			errorMessage = t(normalizedError.userMessage);
 			return;
 		}
 
@@ -884,7 +891,8 @@ const signUpWithGoogle = async () => {
 		pending = false;
 
 		if (error) {
-			errorMessage = error.message ?? t('auth.signUp.failedSendVerificationCode');
+			const normalizedError = normalizeAuthError(error);
+			errorMessage = t(normalizedError.userMessage);
 			return;
 		}
 
