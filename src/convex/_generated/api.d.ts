@@ -30,6 +30,7 @@ import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as sessions from "../sessions.js";
 import type * as updates from "../updates.js";
+import type * as usernameValidator from "../usernameValidator.js";
 
 import type {
   ApiFromModules,
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   sessions: typeof sessions;
   updates: typeof updates;
+  usernameValidator: typeof usernameValidator;
 }>;
 
 /**
