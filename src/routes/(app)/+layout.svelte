@@ -15,13 +15,15 @@
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import {
 		PAGE_HEADER_CTX,
-		type HeaderActionsOverride,
-		type HeaderBackConfig,
-		type HeaderBannerOverride,
-		type HeaderSearchOverride,
-		type HeaderTitleOverride,
-		type PageHeaderController
-	} from '$lib/app/page-header';
+			type HeaderActionsOverride,
+			type HeaderBackConfig,
+			type HeaderBannerOverride,
+			type BottomNavHiddenOverride,
+			type HeaderSearchOverride,
+			type HeaderTitleContentOverride,
+			type HeaderTitleOverride,
+			type PageHeaderController
+		} from '$lib/app/page-header';
 
 	let { children } = $props();
 
@@ -34,7 +36,28 @@
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
 		isAuthReady ? {} : 'skip'
 	);
+	const unreadSummaryResponse = useStableQuery(api.chat.getUnreadSummary, () =>
+		isAuthReady ? {} : 'skip'
+	);
+	const profileResponse = useStableQuery(api.profiles.getMe, () => (isAuthReady ? {} : 'skip'));
 	let clubs = $derived(clubsResponse.data ?? []);
+	let sidebarProfileName = $derived.by(() => {
+		const profile = profileResponse.data;
+		if (!profile) return 'Profile';
+		const fullName = [profile.firstName ?? '', profile.lastName ?? ''].join(' ').trim();
+		return profile.username || fullName || profile.email || 'Profile';
+	});
+	let sidebarProfileInitials = $derived.by(() => {
+		const name = sidebarProfileName.trim();
+		if (!name) return 'PR';
+		return name
+			.split(' ')
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase() ?? '')
+			.join('');
+	});
+	let sidebarProfileImageUrl = $derived(profileResponse.data?.coverPhotoUrl ?? null);
 
 	$effect(() => {
 		if (!browser) return;
@@ -99,10 +122,11 @@
 		}
 	});
 
-	let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
+let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
 
-	let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
-	let navigation = $derived(buildAppNavigation(clubIdForNav));
+let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
+let chatUnreadCount = $derived(unreadSummaryResponse.data?.totalUnreadCount ?? 0);
+let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }));
 	let navState = $derived(deriveNavState(navigation, activePath));
 	let activeNav = $derived(navState.activeNav);
 	let title = $derived(
@@ -122,6 +146,8 @@
 	let bannerOverride: HeaderBannerOverride = $state(null);
 	let backConfigOverride: HeaderBackConfig = $state(null);
 	let titleOverride: HeaderTitleOverride = $state(null);
+	let titleContentOverride: HeaderTitleContentOverride = $state(null);
+	let bottomNavHiddenOverride: BottomNavHiddenOverride = $state(null);
 
 	setContext(PAGE_HEADER_CTX, {
 		setActions: (value) => {
@@ -148,13 +174,25 @@
 		clearBackConfig: () => {
 			backConfigOverride = null;
 		},
-		setTitle: (value) => {
-			titleOverride = value;
-		},
-		clearTitle: () => {
-			titleOverride = null;
-		}
-	} satisfies PageHeaderController);
+			setTitle: (value) => {
+				titleOverride = value;
+			},
+			clearTitle: () => {
+				titleOverride = null;
+			},
+			setTitleContent: (value) => {
+				titleContentOverride = value;
+			},
+			clearTitleContent: () => {
+				titleContentOverride = null;
+			},
+			setBottomNavHidden: (value) => {
+				bottomNavHiddenOverride = value;
+			},
+			clearBottomNavHidden: () => {
+				bottomNavHiddenOverride = null;
+			}
+		} satisfies PageHeaderController);
 </script>
 
 	<AppShell
@@ -162,13 +200,18 @@
 		{activeNav}
 		{activePath}
 		{navigation}
-	headerBack={backConfigOverride ?? undefined}
-	headerActions={actionsOverride === null || actionsOverride === false
-		? undefined
-		: actionsOverride}
-	headerSearch={searchOverride ?? undefined}
-	banner={bannerOverride ?? undefined}
->
+		headerBack={backConfigOverride ?? undefined}
+		headerTitleContent={titleContentOverride ?? undefined}
+		hideBottomNav={bottomNavHiddenOverride ?? undefined}
+		headerActions={actionsOverride === null || actionsOverride === false
+			? undefined
+			: actionsOverride}
+		headerSearch={searchOverride ?? undefined}
+		banner={bannerOverride ?? undefined}
+		sidebarProfileName={sidebarProfileName}
+		sidebarProfileImageUrl={sidebarProfileImageUrl}
+		sidebarProfileInitials={sidebarProfileInitials}
+	>
 	{#if auth.isLoading}
 		<div class="px-4 py-6 text-sm text-muted-foreground">Loading account...</div>
 	{:else if !auth.isAuthenticated}

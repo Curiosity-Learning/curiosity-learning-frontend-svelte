@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import favicon from '$lib/assets/svg/favicon.svg';
 	import type { Attachment } from 'svelte/attachments';
 	import type { HeaderBackConfig, HeaderSearchConfig, HeaderSearchMode } from '$lib/app/page-header';
 	import { Button } from '$lib/components/ui/button';
+	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils.js';
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '$lib/components/ui/collapsible';
@@ -22,8 +23,13 @@
 		activePath: string;
 		navigation: AppNavItemType[];
 		headerBack?: HeaderBackConfig;
+		headerTitleContent?: import('svelte').Snippet;
+		hideBottomNav?: boolean;
 		headerActions?: import('svelte').Snippet;
 		headerSearch?: HeaderSearchConfig;
+		sidebarProfileName?: string | null;
+		sidebarProfileImageUrl?: string | null;
+		sidebarProfileInitials?: string | null;
 		banner?: import('svelte').Snippet;
 		children: import('svelte').Snippet;
 	};
@@ -34,8 +40,13 @@
 		activePath,
 		navigation,
 		headerBack,
+		headerTitleContent,
+		hideBottomNav = false,
 		headerActions,
 		headerSearch,
+		sidebarProfileName = null,
+		sidebarProfileImageUrl = null,
+		sidebarProfileInitials = null,
 		banner,
 		children
 	}: Props = $props();
@@ -48,7 +59,7 @@
 	const HISTORY_INDEX_KEY = 'sveltekit:history';
 
 	let clubOpen = $state(false);
-	let clubNavOpen = $derived(activeNav === 'club' ? true : clubOpen);
+	let clubNavOpen = $derived(clubOpen);
 	let headerRowWidth = $state(0);
 	let searchInputRef = $state<HTMLInputElement | null>(null);
 	let collapsibleSearchContainerRef = $state<HTMLDivElement | null>(null);
@@ -171,32 +182,47 @@
 <!-- --bottom-nav-h: height of the fixed mobile bottom nav. Used here for content
      clearance (pb) and by child components for sticky element offsets. On desktop
      (lg:) the sidebar replaces the bottom nav so the padding is removed. -->
-<div class="relative flex min-h-screen flex-col bg-purple-50 pb-[var(--bottom-nav-h)] lg:pb-0" style="--bottom-nav-h: 4.5rem;">
+<div
+	class={cn(
+		'relative flex min-h-screen flex-col bg-white lg:pb-0',
+		hideBottomNav ? 'pb-0' : 'pb-[var(--bottom-nav-h)]'
+	)}
+	style="--bottom-nav-h: 4.5rem;"
+>
 	<ConnectivityOverlay />
 	<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
 		<aside
-			class="hidden w-72 flex-col border-r border-border/70 bg-background/70 backdrop-blur lg:flex lg:sticky lg:top-0 lg:h-screen lg:self-start"
+			class="hidden w-60 flex-col border-r border-border bg-[#f6f7f9] lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
 		>
-			<div class="px-5 py-5">
-				<img src={favicon} alt="Curiosity Learning" class="h-8 w-8" />
+			<div class="border-b border-border px-5 py-6">
+				<div class="flex items-center gap-3">
+					<img src={favicon} alt="Curiosity Learning" class="h-10 w-10 shrink-0" />
+					<div class="leading-tight">
+						<p class="text-[1.05rem] font-bold text-foreground">Curiosity</p>
+						<p class="text-[1.05rem] font-bold text-foreground">Learning</p>
+					</div>
+				</div>
 			</div>
 
-			<div class="flex flex-1 flex-col gap-3 px-3 py-3">
+			<div class="flex flex-1 flex-col gap-3 px-0 py-3">
 				<nav class="flex flex-col gap-1">
 					{#each topNavItems as nav (nav.key)}
 						{#if nav.children?.length}
 							<Collapsible open={clubNavOpen} onOpenChange={(open) => (clubOpen = open)}>
 								<div
 									class={cn(
-										'flex w-full items-center gap-1 rounded-md',
+										'relative flex w-full items-center gap-1 overflow-hidden rounded-none',
 										activeNav === nav.key
-											? 'bg-primary/10 text-primary'
-											: 'text-muted-foreground hover:bg-accent hover:text-foreground'
+											? 'bg-[#f8ecdf] text-orange-500'
+											: 'text-[#5e637a] hover:bg-[#eef0f5] hover:text-[#44495f]'
 									)}
 								>
+									{#if activeNav === nav.key}
+										<span class="bg-orange-500 absolute inset-y-0 left-0 w-1 rounded-r-sm" aria-hidden="true"></span>
+									{/if}
 									<a
 										href={nav.href}
-										class="flex flex-1 items-center gap-3 rounded-md px-3 py-2 text-left type-lead-medium"
+										class="flex flex-1 items-center gap-3 px-5 py-2 text-left text-[1.03rem] leading-6 font-medium"
 										data-sveltekit-preload-code="hover"
 										data-sveltekit-preload-data="hover"
 									>
@@ -204,11 +230,11 @@
 										<span>{nav.label}</span>
 									</a>
 									<CollapsibleTrigger
-										class="flex size-9 items-center justify-center rounded-md hover:bg-accent"
+										class="flex size-9 items-center justify-center rounded-md hover:bg-[#e8ebf2]"
 										aria-label={clubNavOpen ? `Collapse ${nav.label}` : `Expand ${nav.label}`}
 									>
 										<ChevronDownIcon
-											class={cn('size-4 transition-transform', clubNavOpen ? 'rotate-180' : '')}
+											class={cn('size-4 transition-transform', activeNav === nav.key ? 'text-orange-500' : 'text-[#7a8093]', clubNavOpen ? 'rotate-180' : '')}
 										/>
 									</CollapsibleTrigger>
 								</div>
@@ -231,6 +257,7 @@
 								label={nav.label}
 								active={activeNav === nav.key}
 								Icon={nav.icon}
+								badgeCount={nav.badgeCount}
 							/>
 						{/if}
 					{/each}
@@ -240,22 +267,51 @@
 
 				<nav class="flex flex-col gap-1">
 					{#each bottomNavItems as nav (nav.key)}
-						<AppNavItem
-							nav="side"
-							href={nav.href}
-							label={nav.label}
-							active={activeNav === nav.key}
-							Icon={nav.icon}
-						/>
+						{#if nav.key === 'profile'}
+							<div class="px-4 py-2">
+								<div class={cn(
+									'flex items-center justify-between rounded-lg px-2 py-2',
+									activeNav === nav.key ? 'bg-[#f8ecdf]' : 'hover:bg-[#eef0f5]'
+								)}>
+									<a
+										href={nav.href}
+										class="min-w-0 flex flex-1 items-center gap-3"
+										data-sveltekit-preload-code="hover"
+										data-sveltekit-preload-data="hover"
+									>
+										<Avatar class="size-9 shrink-0 border border-border/80 bg-[#d8dbe5]">
+											{#if sidebarProfileImageUrl}
+												<AvatarImage src={sidebarProfileImageUrl} alt={sidebarProfileName ?? nav.label} />
+											{/if}
+											<AvatarFallback class="text-xs font-bold text-[#4c5167]">
+												{sidebarProfileInitials ?? 'PR'}
+											</AvatarFallback>
+										</Avatar>
+										<p class="truncate text-[1.03rem] leading-6 font-medium text-[#3e414c]">
+											{sidebarProfileName ?? nav.label}
+										</p>
+									</a>
+								</div>
+							</div>
+						{:else}
+							<AppNavItem
+								nav="side"
+								href={nav.href}
+								label={nav.label}
+								active={activeNav === nav.key}
+								Icon={nav.icon}
+								badgeCount={nav.badgeCount}
+							/>
+						{/if}
 						{/each}
 					</nav>
 				</div>
 		</aside>
 
-		<div class="flex min-h-screen min-w-0 flex-1 flex-col">
-			<header
-				class="sticky top-0 z-20 flex justify-center border-b border-border/70 bg-background/80 backdrop-blur"
-			>
+			<div class="flex min-h-screen min-w-0 flex-1 flex-col bg-white">
+				<header
+					class="sticky top-0 z-20 flex justify-center border-b border-border bg-white"
+				>
 				<div
 					class={cn(
 						'flex w-full max-w-6xl flex-col gap-3 px-4 sm:px-6 lg:px-8',
@@ -272,17 +328,28 @@
 									aria-label={headerBack.ariaLabel ?? 'Go back'}
 									onclick={() => void handleBack()}
 								>
-									<ArrowLeftIcon class="size-5" />
+									<ChevronLeftIcon class="size-5" />
 								</Button>
 							{/if}
-							<h1
-								class={cn(
-									'type-h4-bold min-w-0 truncate transition-opacity duration-200',
-									showOverlaySearchField ? 'opacity-0' : 'opacity-100'
-								)}
-							>
-								{title}
-							</h1>
+								{#if headerTitleContent}
+									<div
+										class={cn(
+											'min-w-0 flex-1 transition-opacity duration-200',
+											showOverlaySearchField ? 'opacity-0' : 'opacity-100'
+										)}
+									>
+										{@render headerTitleContent()}
+									</div>
+								{:else}
+									<h1
+										class={cn(
+											'min-w-0 truncate type-step-title text-[#262626] transition-opacity duration-200',
+											showOverlaySearchField ? 'opacity-0' : 'opacity-100'
+										)}
+									>
+										{title}
+									</h1>
+								{/if}
 
 							{#if showOverlaySearchField}
 								<div class="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center">
@@ -375,15 +442,18 @@
 				</div>
 			</header>
 
-			<main class="flex w-full flex-1 justify-center">
-				<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
-					{@render children()}
-				</div>
-			</main>
+				<main class="flex w-full flex-1 justify-center bg-white">
+					<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 bg-white px-4 py-4 sm:px-6 lg:px-8">
+						{@render children()}
+					</div>
+				</main>
 
-			<footer
-				class="fixed inset-x-0 bottom-0 z-10 flex justify-center border-t border-border bg-background/95 backdrop-blur lg:hidden"
-			>
+				<footer
+					class={cn(
+						'fixed inset-x-0 bottom-0 z-10 justify-center border-t border-border bg-white lg:hidden',
+						hideBottomNav ? 'hidden' : 'flex'
+					)}
+				>
 				<div class="flex w-full max-w-6xl flex-col gap-2 px-2 py-2 sm:px-6 lg:px-8">
 					<nav class="grid w-full grid-cols-4 gap-1">
 						{#each topNavItems.concat(bottomNavItems) as nav (nav.key)}
@@ -393,6 +463,7 @@
 								label={nav.label}
 								active={activeNav === nav.key}
 								Icon={nav.icon}
+								badgeCount={nav.badgeCount}
 							/>
 						{/each}
 					</nav>

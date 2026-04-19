@@ -1,4 +1,6 @@
+import { v } from 'convex/values';
 import { mutation } from './_generated/server';
+import type { Doc, Id } from './_generated/dataModel';
 
 const guidePermissions = [
 	'club:read',
@@ -628,5 +630,125 @@ export const seedBookletActivities = mutation({
 		}
 
 		return { success: true, count: bookletActivitiesData.length };
+	}
+});
+
+export const setClubMemberRoleByEmail = mutation({
+	args: {
+		email: v.string(),
+		roleName: v.union(v.literal('Guide'), v.literal('Learner')),
+		clubCode: v.optional(v.string())
+	},
+	handler: async (ctx, args) => {
+		const normalizedEmail = args.email.trim().toLowerCase();
+		if (!normalizedEmail) {
+			throw new Error('Email is required');
+		}
+
+		const targetRole = await ctx.db
+			.query('clubRoles')
+			.withIndex('by_name', (q) => q.eq('name', args.roleName))
+			.first();
+		if (!targetRole) {
+			throw new Error(`Role ${args.roleName} not found`);
+		}
+
+		let targetClubId: Id<'clubs'> | null = null;
+		let normalizedClubCode: string | null = null;
+		if (args.clubCode) {
+			const requestedClubCode = args.clubCode.trim().toUpperCase();
+			normalizedClubCode = requestedClubCode;
+			const club = await ctx.db
+				.query('clubs')
+				.withIndex('by_club_code', (q) => q.eq('clubCode', requestedClubCode))
+				.first();
+			if (!club) {
+				throw new Error(`Club with code ${normalizedClubCode} was not found`);
+			}
+			targetClubId = club._id;
+		}
+
+		const profiles = await ctx.db
+			.query('profiles')
+			.withIndex('by_email', (q) => q.eq('email', normalizedEmail))
+			.collect();
+		if (!profiles.length) {
+			throw new Error(`No profile found for email ${normalizedEmail}`);
+		}
+
+		const userIds = Array.from(new Set(profiles.map((profile) => profile.userId)));
+		const candidates: Array<{
+			membership: Doc<'clubMembers'>;
+			previousRoleName: string | null;
+			clubCode: string | null;
+		}> = [];
+
+		for (const userId of userIds) {
+			const memberships = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_user', (q) => q.eq('userId', userId))
+				.collect();
+			for (const membership of memberships) {
+				if (membership.leftAt) continue;
+				if (targetClubId && membership.clubId !== targetClubId) continue;
+
+				const [previousRole, club] = await Promise.all([
+					ctx.db.get(membership.roleId),
+					ctx.db.get(membership.clubId)
+				]);
+
+				candidates.push({
+					membership,
+					previousRoleName: previousRole?.name ?? null,
+					clubCode: club?.clubCode ?? null
+				});
+			}
+		}
+
+		if (!candidates.length) {
+			throw new Error(
+				targetClubId
+					? `No active membership found for ${normalizedEmail} in club ${normalizedClubCode}`
+					: `No active membership found for ${normalizedEmail}`
+			);
+		}
+
+		if (!targetClubId && candidates.length > 1) {
+			const memberships = candidates.map((candidate) => ({
+				clubMemberId: candidate.membership._id,
+				clubCode: candidate.clubCode,
+				currentRole: candidate.previousRoleName
+			}));
+			throw new Error(
+				`Multiple active memberships found for ${normalizedEmail}. Re-run with clubCode. ` +
+					`Matches: ${JSON.stringify(memberships)}`
+			);
+		}
+
+		let updated = 0;
+		let unchanged = 0;
+		for (const candidate of candidates) {
+			if (candidate.membership.roleId === targetRole._id) {
+				unchanged += 1;
+				continue;
+			}
+			await ctx.db.patch(candidate.membership._id, { roleId: targetRole._id });
+			updated += 1;
+		}
+
+		return {
+			success: true,
+			email: normalizedEmail,
+			roleName: args.roleName,
+			updated,
+			unchanged,
+			memberships: candidates.map((candidate) => ({
+				clubMemberId: candidate.membership._id,
+				clubId: candidate.membership.clubId,
+				clubCode: candidate.clubCode,
+				previousRoleName: candidate.previousRoleName,
+				newRoleName: args.roleName
+			}))
+		};
 	}
 });

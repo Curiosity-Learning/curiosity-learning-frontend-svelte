@@ -11,31 +11,34 @@
 		active: boolean;
 		Icon?: Component<{ class?: string }>;
 		nav: AppNavVariant;
+		badgeCount?: number;
 		disabled?: boolean;
 	};
 
-	let { href, label, active, Icon, nav, disabled }: Props = $props();
+	let { href, label, active, Icon, nav, badgeCount = 0, disabled }: Props = $props();
+	let hasBadge = $derived(badgeCount > 0);
+	let badgeLabel = $derived(badgeCount > 99 ? '99+' : String(badgeCount));
 
 	let base = $derived(
 		nav === 'bottom'
 			? 'flex h-auto w-full flex-col items-center justify-center gap-1 rounded-md px-0 py-2 text-center'
 			: nav === 'side'
-				? 'flex h-auto w-full items-center justify-start gap-3 rounded-md px-3 py-2 text-left type-lead-medium'
-				: 'flex h-auto w-full items-center justify-start gap-2 rounded-md pr-3 pl-10 py-2 text-left type-label'
+				? 'flex h-auto w-full items-center justify-start gap-3 rounded-none px-5 py-2 text-left !text-[1.03rem] !leading-6 !font-medium'
+				: 'flex h-auto w-full items-center justify-start gap-2 rounded-none py-2 pr-3 pl-12 text-left !text-[0.94rem] !leading-5 !font-medium'
 	);
 
 	let tone = $derived(
 		nav === 'bottom'
 			? active
-				? 'bg-primary/10 text-primary'
+				? 'text-orange-500'
 				: 'text-muted-foreground hover:text-foreground'
 			: nav === 'side'
 				? active
-					? 'bg-primary/10 text-primary'
-					: 'text-muted-foreground hover:bg-accent hover:text-foreground'
+					? 'bg-[#f8ecdf] text-orange-500'
+					: 'text-[#5e637a] hover:bg-[#eef0f5] hover:text-[#44495f]'
 				: active
-					? 'bg-accent text-foreground'
-					: 'text-muted-foreground hover:bg-accent hover:text-foreground'
+					? 'bg-[#f8ecdf] text-orange-500'
+					: 'text-[#6d7286] hover:bg-[#eef0f5] hover:text-[#4f556a]'
 	);
 </script>
 
@@ -45,20 +48,43 @@
 	role={disabled ? 'link' : undefined}
 	tabindex={disabled ? -1 : undefined}
 	variant="ghost"
-	class={cn(base, tone, 'justify-self-stretch')}
+	class={cn(base, tone, 'relative justify-self-stretch overflow-hidden')}
 	data-sveltekit-preload-code="hover"
 	data-sveltekit-preload-data="hover"
 >
+	{#if active && nav !== 'bottom'}
+		<span class="bg-orange-500 absolute inset-y-0 left-0 w-1 rounded-r-sm" aria-hidden="true"></span>
+	{/if}
 	{#if nav === 'bottom'}
-		{#if Icon}
-			<Icon class="size-6" />
-		{/if}
+		<div class="relative">
+			{#if Icon}
+				<Icon class="size-6" />
+			{/if}
+			{#if hasBadge}
+				<span
+					class="absolute -right-2 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-[#5f6297] px-1 text-[10px] leading-4 font-bold text-white"
+					aria-label={`${badgeLabel} unread chats`}
+				>
+					{badgeLabel}
+				</span>
+			{/if}
+		</div>
 		<span class="type-caption-medium">{label}</span>
 	{:else if nav === 'side'}
-		{#if Icon}
-			<Icon class="size-4 shrink-0" />
+		<div class="flex min-w-0 flex-1 items-center gap-3">
+			{#if Icon}
+				<Icon class="size-4 shrink-0" />
+			{/if}
+			<span class="truncate">{label}</span>
+		</div>
+		{#if hasBadge}
+			<span
+				class="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-[#5f6297] px-1.5 text-[11px] leading-5 font-bold text-white"
+				aria-label={`${badgeLabel} unread chats`}
+			>
+				{badgeLabel}
+			</span>
 		{/if}
-		<span>{label}</span>
 	{:else}
 		<span>{label}</span>
 	{/if}

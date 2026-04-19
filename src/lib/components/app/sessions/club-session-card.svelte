@@ -28,10 +28,13 @@
 		} | null;
 		canReadMembers?: boolean;
 		canDelete?: boolean;
+		showActivitiesSection?: boolean;
 		showAttendeesSection?: boolean;
+		attendeesAvatarSizeClass?: string;
 		showActions?: boolean;
 		navigationState?: App.PageState;
 		onDelete?: () => void;
+		class?: string;
 	};
 
 	let {
@@ -40,10 +43,13 @@
 		prefetchedCardData = null,
 		canReadMembers = false,
 		canDelete = false,
+		showActivitiesSection = true,
 		showAttendeesSection = true,
+		attendeesAvatarSizeClass = 'size-11',
 		showActions = true,
 		navigationState,
-		onDelete
+		onDelete,
+		class: className
 	}: Props = $props();
 
 	// When parent routes provide full card payload, skip nested reads to avoid UI pop-in.
@@ -102,7 +108,7 @@
 	]);
 </script>
 
-<DataRecordCard href={sessionHref} navigationState={navigationStateResolved}>
+<DataRecordCard href={sessionHref} navigationState={navigationStateResolved} class={className}>
 	{#snippet header()}
 		{#if tagNames.length > 0}
 			<DataRecordHeader title={formatSessionHeaderLine(session.startTime)}>
@@ -135,26 +141,28 @@
 		{/if}
 	{/snippet}
 
-	<Separator class="opacity-70" />
+	{#if showActivitiesSection}
+		<Separator class="opacity-70" />
 
-	<RelationSection title="Activities">
-		{#if !prefetchedCardData && activitiesResponse.isLoading}
-			<p class="type-lead text-slate-500">Loading activities...</p>
-		{:else if activityItems.length === 0}
-			<p class="type-lead text-slate-500">No activities yet.</p>
-		{:else}
-			<RelationListCards items={activityItems} fallbackDescription="No activity notes yet." />
-			{#if hiddenActivitiesCount > 0}
-				<div class="flex justify-start">
-					<TagChip
-						tone="muted"
-						label={`+${hiddenActivitiesCount} more`}
-						class="type-sm-bold text-muted-foreground"
-					/>
-				</div>
+		<RelationSection title="Activities">
+			{#if !prefetchedCardData && activitiesResponse.isLoading}
+				<p class="type-lead text-slate-500">Loading activities...</p>
+			{:else if activityItems.length === 0}
+				<p class="type-lead text-slate-500">No activities yet.</p>
+			{:else}
+				<RelationListCards items={activityItems} fallbackDescription="No activity notes yet." />
+				{#if hiddenActivitiesCount > 0}
+					<div class="flex justify-start">
+						<TagChip
+							tone="muted"
+							label={`+${hiddenActivitiesCount} more`}
+							class="type-sm-bold text-muted-foreground"
+						/>
+					</div>
+				{/if}
 			{/if}
-		{/if}
-	</RelationSection>
+		</RelationSection>
+	{/if}
 
 	{#if showAttendeesSection}
 		<Separator class="opacity-70" />
@@ -165,7 +173,7 @@
 			{:else if !prefetchedCardData && cardData.isLoading}
 				<p class="type-lead text-slate-500">Loading attendees...</p>
 			{:else}
-				<RelationAvatarStack people={attendees} max={6} sizeClass="size-11" />
+				<RelationAvatarStack people={attendees} max={6} sizeClass={attendeesAvatarSizeClass} />
 			{/if}
 		</RelationSection>
 	{/if}

@@ -20,8 +20,13 @@ export type AppNavItem = {
 	label: string;
 	href: string;
 	icon: Component<{ class?: string }>;
+	badgeCount?: number;
 	placement?: AppNavPlacement;
 	children?: AppNavChildItem[];
+};
+
+export type AppNavBadgeCounts = {
+	chatUnreadCount?: number;
 };
 
 const clubHrefFor = (clubId: string | null | undefined) => {
@@ -32,8 +37,12 @@ const clubHrefFor = (clubId: string | null | undefined) => {
 // Route structure:
 // - Club scoped: /club/[clubId], /club/[clubId]/sessions, /club/[clubId]/projects, /club/[clubId]/members
 // - Non-club: /feed, /chat, /profile, /settings, /notifications
-export const buildAppNavigation = (clubId: string | null | undefined): AppNavItem[] => {
+export const buildAppNavigation = (
+	clubId: string | null | undefined,
+	badgeCounts: AppNavBadgeCounts = {}
+): AppNavItem[] => {
 	const clubHref = clubHrefFor(clubId);
+	const chatBadgeCount = Math.max(badgeCounts.chatUnreadCount ?? 0, 0) || undefined;
 	return [
 		{
 			key: 'club',
@@ -47,7 +56,7 @@ export const buildAppNavigation = (clubId: string | null | undefined): AppNavIte
 			]
 		},
 		{ key: 'feed', label: 'Feed', href: routes.feed, icon: NewspaperIcon },
-		{ key: 'chat', label: 'Chat', href: routes.chat, icon: MessageCircleIcon },
+		{ key: 'chat', label: 'Chat', href: routes.chat, icon: MessageCircleIcon, badgeCount: chatBadgeCount },
 		{
 			key: 'profile',
 			label: 'Profile',

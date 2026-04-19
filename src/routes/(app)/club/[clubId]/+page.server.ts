@@ -24,7 +24,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		convex.query(api.sessions.listCardPreviewsByClub, {
 			clubId,
 			upcomingOnly: true,
-			limit: 1,
+			limit: 6,
 			includeAttendees: true
 		})
 	]);
