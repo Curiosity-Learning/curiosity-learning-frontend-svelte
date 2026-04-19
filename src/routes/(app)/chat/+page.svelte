@@ -41,6 +41,7 @@
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
 	import { onDestroy } from 'svelte';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	type RoomSummary = {
 		roomId: Id<'rooms'>;
@@ -210,7 +211,7 @@
 	};
 
 	const openRoom = async (roomId: Id<'rooms'>) => {
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new SvelteURLSearchParams(page.url.searchParams);
 		params.set('room', roomId);
 		await goto(`${routes.chat}?${params.toString()}`, { keepFocus: true, noScroll: true });
 	};
@@ -406,18 +407,16 @@
 <PageHeaderBackButton enabled={isMobileDetailView} fallbackHref={routes.chat} />
 <PageHeaderTitle title="Chat" />
 <PageHeaderTitleContent enabled={isMobileDetailView}>
-	{#snippet children()}
-		<div class="flex min-w-0 items-center gap-3">
-			<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
-				<AvatarFallback class="text-[0.68rem] font-bold text-slate-700">
-					{initialsFromName(roomDisplayName(activeRoom))}
-				</AvatarFallback>
-			</Avatar>
-			<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
-				{roomDisplayName(activeRoom)}
-			</p>
-		</div>
-	{/snippet}
+	<div class="flex min-w-0 items-center gap-3">
+		<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
+			<AvatarFallback class="text-[0.68rem] font-bold text-slate-700">
+				{initialsFromName(roomDisplayName(activeRoom))}
+			</AvatarFallback>
+		</Avatar>
+		<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
+			{roomDisplayName(activeRoom)}
+		</p>
+	</div>
 </PageHeaderTitleContent>
 <PageBottomNavVisibility hidden={isMobileDetailView} />
 <PageHeaderActions>

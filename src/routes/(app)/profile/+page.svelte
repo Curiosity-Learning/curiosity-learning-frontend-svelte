@@ -237,7 +237,9 @@
 						class={statCardClasses(selectedStat === 'activities')}
 						onclick={() => {
 							selectedStat = 'activities';
-							activeClubId && void goto(routes.clubSessions(activeClubId));
+							if (activeClubId) {
+								void goto(routes.clubSessions(activeClubId));
+							}
 						}}
 					>
 						<div class="flex items-center gap-2">
@@ -251,7 +253,9 @@
 						class={statCardClasses(selectedStat === 'projects')}
 						onclick={() => {
 							selectedStat = 'projects';
-							activeClubId && void goto(routes.clubProjects(activeClubId));
+							if (activeClubId) {
+								void goto(routes.clubProjects(activeClubId));
+							}
 						}}
 					>
 						<div class="flex items-center gap-2">
@@ -298,7 +302,7 @@
 						<p class="mt-1 text-[1.05rem] font-bold text-orange-500">Today I learned</p>
 						<p class="mt-1 line-clamp-3 text-[1rem] leading-6 text-[#303030]">{item.content}</p>
 						<div class="mt-2 grid grid-cols-2 gap-[2px] overflow-hidden rounded-md bg-[#d8dbe5]">
-							{#each Array.from({ length: 4 }) as _, index (`desktop-tile-${item.updateId}-${index}`)}
+							{#each Array.from({ length: 4 }, (_, index) => index) as index (`desktop-tile-${item.updateId}-${index}`)}
 								<div class="relative">
 									<img
 										src={myClubImage}
@@ -339,7 +343,7 @@
 					<p class="mt-1 text-[1.05rem] font-bold text-orange-500">Today I learned</p>
 					<p class="mt-1 text-[1.03rem] leading-6 text-[#303030]">{item.content}</p>
 					<div class="mt-2 grid grid-cols-2 gap-[2px] overflow-hidden rounded-md bg-[#d8dbe5]">
-						{#each Array.from({ length: 4 }) as _, index (`mobile-tile-${item.updateId}-${index}`)}
+						{#each Array.from({ length: 4 }, (_, index) => index) as index (`mobile-tile-${item.updateId}-${index}`)}
 							<div class="relative">
 								<img
 									src={myClubImage}
