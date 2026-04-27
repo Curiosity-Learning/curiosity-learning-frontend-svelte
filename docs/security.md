@@ -65,15 +65,17 @@ All require auth + club permission via `requirePermission`:
 | ---------------------- | ---- | ----------------- | ----------------------------------------------- |
 | `updates.listByProject`| Yes  | `project:update`  | Stricter than `project:read` — see gaps below   |
 | `updates.listByClub`   | Yes  | `project:read`    | Aggregates across linked projects               |
+| `updates.listForViewer`| Yes  | `project:read`    | Aggregates viewer-readable club feed updates    |
 | `updates.create/update`| Yes  | `project:update`  |                                                 |
 | `updates.attachFiles`  | Yes  | `project:update`  |                                                 |
 | `updates.listFiles`    | Yes  | —                 | **Gap:** only checks auth, not project scope    |
+| `updates.getProjectDeliveryAssets` | Yes | `project:update` | Manager-scoped signed media lookup              |
 
 ### Media Delivery
 
 | Endpoint                          | Auth | Permission        | Notes                                                        |
 | --------------------------------- | ---- | ----------------- | ------------------------------------------------------------ |
-| `media.beginUpload/finalize/cancel/retry/getUpload/listMyUploads` | Yes | owner-scoped | Upload control plane is always scoped to the asset owner     |
+| `media.beginUpload/finalizeUpload/cancelUpload/retryProcessing/deleteUpload/getUpload/listMyUploads` | Yes | owner-scoped | Upload control plane is always scoped to the asset owner     |
 | `POST /api/media/refresh` (`owned`)   | Yes | owner-scoped       | Mints signed URLs only for caller-owned ready assets         |
 | `POST /api/media/refresh` (`project`) | Yes | `project:update`   | Uses `updates.getProjectDeliveryAssets`; currently manager-scoped |
 
@@ -95,9 +97,10 @@ Notes:
 
 | Endpoint                          | Auth | Permission | Notes                                   |
 | --------------------------------- | ---- | ---------- | --------------------------------------- |
-| `chat.listRooms/listRoomSummaries`| Yes  | —          | Scoped to user's `participants`         |
+| `chat.listRooms/listRoomSummaries/getUnreadSummary`| Yes  | —          | Scoped to user's `participants`         |
 | `chat.getOrCreateDirectRoom`      | Yes  | —          | **Gap:** no shared-club check           |
-| `chat.listMessages/sendMessage`   | Yes  | —          | Must be room participant                |
+| `chat.listMessages/sendMessage/markRoomRead` | Yes | —   | Must be room participant                |
+| `chat.listUsersForMessaging`      | Yes  | —          | Lists users in viewer's active club     |
 
 ## Known Gaps
 
@@ -114,7 +117,7 @@ Notes:
 
 ## Hardening Plan
 
-1. Write explicit access-control matrix (this document).
+1. Keep this access-control matrix current as endpoints change.
 2. Fix high-priority gaps (policy write, file listing, bootstrap).
 3. Resolve permission string drift (pick `updates:*` or `project:*`).
 4. Decide and enforce chat scope.

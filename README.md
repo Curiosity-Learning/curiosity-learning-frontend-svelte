@@ -37,6 +37,7 @@ npm install
 - `CONVEX_DEPLOYMENT` (for local Convex dev/codegen)
 - `PUBLIC_CONVEX_URL`
 - `PUBLIC_CONVEX_SITE_URL`
+- `PUBLIC_MAPBOX_ACCESS_TOKEN` (for onboarding location search/map preview)
 - `BETTER_AUTH_SECRET` (non-default, high entropy)
 - `BETTER_AUTH_URL` (typically `http://localhost:5173`)
 - `GOOGLE_CLIENT_ID` (for Google OAuth sign-up/sign-in)
@@ -53,6 +54,7 @@ Google OAuth callback URL for local setup:
 - `GOOGLE_CLIENT_SECRET`
 - `RESEND_API_KEY`
 - `RESEND_FROM` (optional override; default exists in code)
+- `MEDIA_S3_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_S3_ACCESS_KEY_ID`, `MEDIA_S3_SECRET_ACCESS_KEY` (for upload storage)
 
 ```sh
 npx convex env set BETTER_AUTH_SECRET <same-secret-as-env-local>
@@ -83,6 +85,7 @@ Render production env values:
 - `BETTER_AUTH_SECRET=<high-entropy secret>`
 - `PUBLIC_CONVEX_URL=https://<your-production-deployment>.convex.cloud`
 - `PUBLIC_CONVEX_SITE_URL=https://<your-production-deployment>.convex.site`
+- `PUBLIC_MAPBOX_ACCESS_TOKEN=<mapbox-token>`
 - `ALLOW_LAN_TRUSTED_ORIGINS=false`
 
 Convex production deployment env values:
@@ -92,6 +95,7 @@ Convex production deployment env values:
 - `PUBLIC_CONVEX_SITE_URL=https://<your-production-deployment>.convex.site`
 - `RESEND_API_KEY=<provider key>`
 - `RESEND_FROM=<verified sender>`
+- `MEDIA_S3_*` values for the media bucket
 - `ALLOW_LAN_TRUSTED_ORIGINS=false`
 
 ## Quality Gates
