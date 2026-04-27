@@ -32,3 +32,7 @@ When a significant design choice is made, it gets an ADR in `adr/`:
 - [ADR-009](adr/009-global-convex-auth-readiness-gate.md) — Global Convex auth readiness gating to prevent pre-hydration query races
 - [ADR-010](adr/010-icon-stroke-weight-policy.md) — Lucide icon stroke weights are tokenized globally with semantic exception classes
 - [ADR-011](adr/011-render-node-runtime.md) — Render production deploys use the SvelteKit Node adapter and explicit runtime env wiring
+- [ADR-012](adr/012-shared-media-upload-pipeline.md) — Shared media upload pipeline
+- [ADR-013](adr/013-s3-backed-media-storage.md) — S3-backed media storage
+- [ADR-014](adr/014-cloudfront-signed-url-media-delivery.md) — CloudFront signed URL media delivery
+- [ADR-015](adr/015-shared-media-field-controller.md) — Shared media field controller

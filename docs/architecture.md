@@ -17,7 +17,7 @@
 - `/auth/*`: sign in/up/reset
 - `/onboarding/*`: get started, join club, start club
 - `/onboarding/join-club/public-clubs`: public club browser with geolocation-aware nearby sorting and Mapbox markers
-- `/app/*`: authenticated app area
+- Authenticated app area lives under the `(app)` route group, which does not add a URL segment. User-facing routes include `/club/[clubId]`, `/feed`, `/chat`, `/profile`, `/settings`, and `/notifications`.
 - `/settings/media-upload-dev`: authenticated developer-facing upload test surface for the shared media pipeline. It now acts as the reference integration for `FileDropZone` + `upload-manager`, so upload mutations, direct-to-S3 descriptors, finalize/retry/cancel actions, and signed delivery can be exercised manually without adding one-off UI components elsewhere in the product.
 - `/privacy`, `/terms`, `/cookies`: public legal document pages
 - Club-scoped routes are canonical under `/club/[clubId]/*` and should be built via `$lib/routes` helpers (`routes.clubHome`, `routes.clubSessions`, etc.) rather than ad-hoc string paths.

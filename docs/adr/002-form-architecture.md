@@ -104,7 +104,11 @@ Field.Group        — groups multiple fields, provides consistent spacing
 
 ## Reference Implementation
 
-`src/routes/(app)/[clubId]/projects/new/+page.svelte` — the project creation form.
+Current form examples live in the auth/onboarding screens and shared app form primitives:
+
+- `src/routes/auth/sign-up/+page.svelte`
+- `src/routes/onboarding/start-club/+page.svelte`
+- `src/lib/components/app/form/`
 
 ## Consequences
 

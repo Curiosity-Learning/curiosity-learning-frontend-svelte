@@ -37,10 +37,10 @@ These instructions exist to keep iteration fast while still shipping production-
 
 When working in this repo:
 
-- UI work: use `shadcn-svelte-frontend-design` guidelines (shadcn components, gap-based spacing, avoid margin utilities).
-- Backend work: use `convex` guidelines (indexes via `withIndex`, no `.filter()`, correct validators, etc).
-- Auth work: use `better-auth-best-practices` guidelines (trusted origins, secrets, email flows).
-- Browser validation/screenshots: use `playwright-skill` when explicitly requested or when verifying complex flows.
+- UI work: follow the local shadcn-svelte conventions (shared components, gap-based spacing, avoid margin utilities).
+- Backend work: follow the Convex conventions in `docs/convex_rules.txt` (indexes via `withIndex`, no `.filter()`, correct validators, etc).
+- Auth work: follow the Better Auth notes in `docs/security.md` (trusted origins, secrets, email flows).
+- Browser validation/screenshots: use the configured browser/Playwright tooling when explicitly requested or when verifying complex flows.
 
 ## Documentation Maintenance
 
@@ -56,4 +56,3 @@ Keep documentation up to date as you work. This is an ongoing responsibility, no
 
 - Keep secrets out of the repo. Use Convex env vars for backend secrets.
 - LAN dev (if needed): Better Auth origin checks should remain strict in production. Any widened dev-only origin patterns should be guarded by an explicit env flag.
-

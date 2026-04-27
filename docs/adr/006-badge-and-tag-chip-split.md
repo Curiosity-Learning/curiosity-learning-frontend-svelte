@@ -32,7 +32,7 @@ Multi-select selected items render `TagChip` chips and use `TagChip`'s built-in 
 | Exports | `src/lib/components/ui/badge/index.ts` |
 | Multi-select adoption | `src/lib/components/ui/multi-select/inline-multi-select.svelte` |
 | Session/list adoption | `src/lib/components/app/record-card/relation-chip-set.svelte` |
-| Session/list adoption | `src/lib/components/app/home/upcoming-session-card.svelte` |
+| Session/list adoption | `src/lib/components/app/sessions/club-session-card.svelte` |
 | Session/list adoption | `src/lib/components/app/sessions/session-activity-card.svelte` |
 | Session/list adoption | `src/routes/(app)/activity-booklet/[activityId]/+page.svelte` |
 

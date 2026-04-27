@@ -1,6 +1,6 @@
-# Curiosity Learning (SvelteKit + shadcn-svelte + Convex)
+# Curiosity Learning Frontend
 
-Production migration target for `/Users/ronberlinski/Documents/Curosity-Learning-Frontend`.
+SvelteKit frontend and Convex backend for Curiosity Learning.
 
 ## Stack
 
@@ -21,7 +21,7 @@ Production migration target for `/Users/ronberlinski/Documents/Curosity-Learning
 
 - `/auth/*`: sign in, sign up, reset password
 - `/onboarding/*`: get started, join club (code preview), start club
-- `/app/*`: authenticated shell with home, sessions, projects, people, settings, notifications, chat
+- Authenticated shell routes: `/club/[clubId]`, `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
 - `/privacy`, `/terms`: policy pages backed by active Convex policy content
 
 ## Local Setup
@@ -123,5 +123,4 @@ See [`docs/README.md`](docs/README.md) for the full docs index — architecture,
 ## Notes
 
 - Convex codegen output lives in `src/convex/_generated`.
-- Demo scaffold routes/tests were removed and replaced by migration smoke + domain tests.
 - The production app is expected to run as a long-lived Node server, not a static export.

@@ -4,8 +4,8 @@
 
 ## Source of Truth
 
-- Flutter app: `/Users/ronberlinski/Documents/Curosity-Learning-Frontend`
-- Legacy reference: `/Users/ronberlinski/Documents/curiosity-learning-flutter-to-svelte/ref`
+- Legacy Flutter app: `/Users/ronberlinski/Documents/Curosity-Learning-Frontend`
+- Imported reference snapshots: `ref/`
 
 ## Phases
 
@@ -24,7 +24,8 @@
 
 - `/auth/sign-in`, `/auth/sign-up`, `/auth/reset-password`
 - `/onboarding/get-started`, `/onboarding/join-club`, `/onboarding/join-club/[code]`, `/onboarding/start-club`
-- `/app/home`, `/app/sessions`, `/app/projects`, `/app/people`, `/app/settings`, `/app/notifications`, `/app/chat`
+- `/club/[clubId]`, `/club/[clubId]/sessions`, `/club/[clubId]/projects`, `/club/[clubId]/members`
+- `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
 - `/project/[projectId]` — project detail page (view, edit, updates feed)
 - `/session/[sessionId]/activities` — session detail (activities tab, drag-and-drop reordering)
 - `/session/[sessionId]/attendees` — session detail (attendees tab)
@@ -38,7 +39,7 @@ Playwright screenshots saved in `docs/screenshots/`.
 
 ## Open Follow-ups
 
-- Authenticated visual captures for full `/app/*` pages require a verified test account/session bootstrap in CI-like runs.
+- Authenticated visual captures for protected app routes require a verified test account/session bootstrap in CI-like runs.
 - Feature-level media surfaces should attach domain records to `mediaAssets` via `mediaAssetId`, not raw file URLs, S3 object keys, or legacy storage IDs.
 - Compression and moderation work should now layer on top of the shared S3-backed upload foundation instead of changing storage plumbing again.
 - Secure media delivery now builds on CloudFront + OAC + signed URLs minted by SvelteKit server code. Feature/domain reads should keep returning `mediaAssetId`-level references, and the app should resolve short-lived delivery URLs through server enrichment or `/api/media/refresh` rather than reintroducing a shared `/media/[assetId]` route.
