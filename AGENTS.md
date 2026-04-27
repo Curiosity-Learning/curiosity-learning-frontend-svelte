@@ -33,7 +33,7 @@ These instructions exist to keep iteration fast while still shipping production-
 - Local e2e config (no webServer): `playwright.local.config.ts`
 - E2E base URL override: `e2e/smoke-and-screenshots.test.ts` (reads `E2E_BASE_URL`)
 
-## Skill Usage Expectations
+## Repo Conventions
 
 When working in this repo:
 
@@ -41,16 +41,17 @@ When working in this repo:
 - Backend work: follow the Convex conventions in `docs/convex_rules.txt` (indexes via `withIndex`, no `.filter()`, correct validators, etc).
 - Auth work: follow the Better Auth notes in `docs/security.md` (trusted origins, secrets, email flows).
 - Browser validation/screenshots: use the configured browser/Playwright tooling when explicitly requested or when verifying complex flows.
+- Keep durable context in commit history instead of long-running planning docs.
 
-## Documentation Maintenance
+## Commit Log
 
-Keep documentation up to date as you work. This is an ongoing responsibility, not a one-time task.
+Use high-quality commits as the project log.
 
-- **Architecture decisions**: When making a significant design choice (new pattern, rejecting an alternative, choosing a library), create an ADR in `docs/adr/` and link it from `docs/architecture.md`.
-- **QA log**: After completing a feature or fixing a notable bug, add an entry to `docs/qa-log.md` with the date and a brief summary.
-- **Architecture doc**: When adding new routes, patterns, or conventions, update `docs/architecture.md` to reflect the current state.
-- **Parity matrix**: When implementing a new flow or data contract, check the corresponding item in `docs/parity-matrix.md`.
-- **Implementation plan**: Update `docs/implementation-plan.md` when phases are completed or new phases are added.
+- Commit after each coherent change when the user asks you to commit or when the workflow clearly calls for a checkpoint.
+- Prefer small, reviewable commits over broad mixed-purpose commits.
+- Write commit subjects that explain the user-visible or engineering outcome, not just the files changed.
+- Use the commit body for context that would otherwise become stale docs: why the change was made, trade-offs, follow-up risks, and validation run.
+- Keep `docs/architecture.md`, `docs/data-model.md`, and `docs/security.md` current only when the present-day system changes.
 
 ## Notes / Guardrails
 

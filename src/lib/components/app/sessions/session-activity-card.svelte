@@ -335,10 +335,9 @@
 								{contentValue}
 							</p>
 						{:else}
-							<!-- Inline text child is intentional — do NOT leave the <p> empty and
-							     populate via $effect. svelte-dnd-action clones the DOM synchronously
-							     on drag start; an empty <p> produces a shorter clone and a height flash.
-							     See docs/inline-activity-editing.md for details. -->
+							<!-- Inline text child is intentional. svelte-dnd-action clones the DOM
+							     synchronously on drag start; an empty <p> produces a shorter clone
+							     and a height flash. -->
 							<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 							<p
 								bind:innerText={contentValue}

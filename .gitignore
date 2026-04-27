@@ -27,5 +27,6 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 # Playwright
 test-results
+docs/screenshots/
 # SQLite
 *.db

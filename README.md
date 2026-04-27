@@ -114,11 +114,15 @@ npm run test:unit -- --run
 npm run test:e2e
 ```
 
-Playwright screenshots are saved in `docs/screenshots/`.
+Playwright screenshots are generated into `docs/screenshots/` and are ignored by Git.
 
 ## Documentation
 
-See [`docs/README.md`](docs/README.md) for the full docs index — architecture, data model, security, ADRs, and more.
+Current reference docs:
+
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/data-model.md`](docs/data-model.md)
+- [`docs/security.md`](docs/security.md)
 
 ## Notes
 
