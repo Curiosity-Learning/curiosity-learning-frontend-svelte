@@ -6,6 +6,7 @@
 	import { page } from '$app/state';
 	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
 	import { Field, FieldError, FieldLabel } from '$lib/components/ui/field';
@@ -34,7 +35,7 @@
 	const auth = useAuth();
 	const convexClient = useConvexClient();
 	const clubVideoField = createMediaField(convexClient, 'clubVideo', {
-		mode: 'deferred'
+		mode: 'immediate'
 	});
 	const PUBLIC_MAPBOX_ACCESS_TOKEN = env.PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
 	const LOCATION_AUTOCOMPLETE_MIN_CHARS = 2;
@@ -227,9 +228,14 @@
 	let hasValidUploadedVideo = $derived(
 		Boolean(clubVideoField.localPreviewUrl && !previewVideoLoadFailed)
 	);
-	let hasSelectedVideo = $derived(Boolean(clubVideoField.selectedFile || clubVideoField.assetId));
+	let hasReadyVideo = $derived(clubVideoField.isReady);
+	let videoUploadError = $derived(
+		clubVideoField.phase === 'failed' ? clubVideoField.errorMessage : ''
+	);
 	let videoError = $derived(
-		videoTouched && !hasSelectedVideo ? t('onboarding.startClub.videoRequired') : ''
+		videoTouched && !clubVideoField.selectedFile && !clubVideoField.assetId
+			? t('onboarding.startClub.videoRequired')
+			: videoUploadError
 	);
 
 	let locationLookupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -420,18 +426,12 @@
 			return;
 		}
 
-		if (!hasSelectedVideo) {
+		if (!hasReadyVideo) {
 			return;
 		}
 
 		pending = true;
 		try {
-			await clubVideoField.ensureUploaded();
-			if (clubVideoField.hasUploadedAsset && !clubVideoField.isReady) {
-				throw new Error(
-					clubVideoField.errorMessage || t('onboarding.startClub.videoUploadFailure')
-				);
-			}
 			const normalizedLocation = location.trim();
 			const generatedName = normalizedLocation
 				? `${normalizedLocation} Curiosity Club`
@@ -622,16 +622,39 @@
 								<div
 									class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs"
 								>
-									{clubVideoField.isBusy
-										? $_('onboarding.startClub.uploading')
-										: $_('common.browse')}
+									{#if clubVideoField.isBusy}
+										<LoaderCircleIcon class="mr-1 inline size-3.5 animate-spin" />
+									{/if}
+									{#if clubVideoField.phase === 'processing'}
+										Processing
+									{:else if clubVideoField.isBusy}
+										{$_('onboarding.startClub.uploading')}
+									{:else if clubVideoField.isReady}
+										Ready
+									{:else}
+										{$_('common.browse')}
+									{/if}
 								</div>
 								<p class="text-base leading-7 font-medium text-gray-700">
-									{clubVideoField.isBusy
-										? $_('onboarding.startClub.videoUploading')
-										: $_('onboarding.startClub.videoDropPrompt')}
+									{#if clubVideoField.phase === 'processing'}
+										Processing video...
+									{:else if clubVideoField.isBusy}
+										{$_('onboarding.startClub.videoUploading')}
+									{:else if clubVideoField.isReady}
+										Video uploaded and ready
+									{:else}
+										{$_('onboarding.startClub.videoDropPrompt')}
+									{/if}
 								</p>
-								<p class="text-sm text-gray-500">{$_('onboarding.startClub.videoRequirements')}</p>
+								<p class="text-sm text-gray-500">
+									{#if clubVideoField.phase === 'processing'}
+										Hang tight while we finish preparing your video.
+									{:else if clubVideoField.isReady}
+										Your video is ready to submit.
+									{:else}
+										{$_('onboarding.startClub.videoRequirements')}
+									{/if}
+								</p>
 								{#if clubVideoField.selectedFileName}
 									<p class="max-w-full truncate text-sm text-gray-500">
 										{clubVideoField.selectedFileName}
@@ -641,7 +664,7 @@
 									<p class="text-xs font-semibold text-primary">
 										{$_('onboarding.startClub.videoUploadingStatus')}
 									</p>
-								{:else if clubVideoField.hasUploadedAsset}
+								{:else if clubVideoField.isReady}
 									<p class="text-xs font-semibold text-emerald-600">
 										{$_('onboarding.startClub.videoUploadedStatus')}
 									</p>
@@ -678,7 +701,7 @@
 					variant="default"
 					size="xl"
 					class="h-12 w-full"
-					disabled={!hasSelectedVideo || pending || clubVideoField.isBusy || auth.isLoading}
+					disabled={!hasReadyVideo || pending || clubVideoField.isBusy || auth.isLoading}
 					onclick={() => void submitStartClub()}
 				>
 					{pending
