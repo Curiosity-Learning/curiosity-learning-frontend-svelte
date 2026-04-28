@@ -127,8 +127,14 @@
 	let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
 
 	let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
+	let hasClubAccess = $derived(clubs.length > 0);
 	let chatUnreadCount = $derived(unreadSummaryResponse.data?.totalUnreadCount ?? 0);
-	let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }));
+	let navigation = $derived(
+		buildAppNavigation(clubIdForNav, {
+			hasClubAccess,
+			badgeCounts: { chatUnreadCount }
+		})
+	);
 	let navState = $derived(deriveNavState(navigation, activePath));
 	let activeNav = $derived(navState.activeNav);
 	let title = $derived(

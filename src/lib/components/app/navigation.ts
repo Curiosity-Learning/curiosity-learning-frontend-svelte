@@ -29,6 +29,11 @@ export type AppNavBadgeCounts = {
 	chatUnreadCount?: number;
 };
 
+export type AppNavigationOptions = {
+	hasClubAccess?: boolean;
+	badgeCounts?: AppNavBadgeCounts;
+};
+
 const clubHrefFor = (clubId: string | null | undefined) => {
 	if (!clubId) return routes.noClub;
 	return routes.clubHome(clubId);
@@ -39,11 +44,13 @@ const clubHrefFor = (clubId: string | null | undefined) => {
 // - Non-club: /feed, /chat, /profile, /settings, /notifications
 export const buildAppNavigation = (
 	clubId: string | null | undefined,
-	badgeCounts: AppNavBadgeCounts = {}
+	options: AppNavigationOptions = {}
 ): AppNavItem[] => {
 	const clubHref = clubHrefFor(clubId);
+	const hasClubAccess = options.hasClubAccess ?? Boolean(clubId);
+	const badgeCounts = options.badgeCounts ?? {};
 	const chatBadgeCount = Math.max(badgeCounts.chatUnreadCount ?? 0, 0) || undefined;
-	return [
+	const items: AppNavItem[] = [
 		{
 			key: 'club',
 			label: 'Club',
@@ -57,7 +64,6 @@ export const buildAppNavigation = (
 					]
 				: []
 		},
-		{ key: 'feed', label: 'Feed', href: routes.feed, icon: NewspaperIcon },
 		{
 			key: 'chat',
 			label: 'Chat',
@@ -77,4 +83,10 @@ export const buildAppNavigation = (
 			]
 		}
 	];
+
+	if (hasClubAccess) {
+		items.splice(1, 0, { key: 'feed', label: 'Feed', href: routes.feed, icon: NewspaperIcon });
+	}
+
+	return items;
 };
