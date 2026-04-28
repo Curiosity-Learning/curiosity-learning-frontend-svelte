@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { setContext } from 'svelte';
 	import AppShell from '$lib/components/app/app-shell.svelte';
 	import {
@@ -10,20 +11,21 @@
 	} from '$lib/components/app/navigation';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
+	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import {
 		PAGE_HEADER_CTX,
-			type HeaderActionsOverride,
-			type HeaderBackConfig,
-			type HeaderBannerOverride,
-			type BottomNavHiddenOverride,
-			type HeaderSearchOverride,
-			type HeaderTitleContentOverride,
-			type HeaderTitleOverride,
-			type PageHeaderController
-		} from '$lib/app/page-header';
+		type HeaderActionsOverride,
+		type HeaderBackConfig,
+		type HeaderBannerOverride,
+		type BottomNavHiddenOverride,
+		type HeaderSearchOverride,
+		type HeaderTitleContentOverride,
+		type HeaderTitleOverride,
+		type PageHeaderController
+	} from '$lib/app/page-header';
 
 	let { children } = $props();
 
@@ -45,7 +47,7 @@
 		const profile = profileResponse.data;
 		if (!profile) return 'Profile';
 		const fullName = [profile.firstName ?? '', profile.lastName ?? ''].join(' ').trim();
-		return profile.username || fullName || profile.email || 'Profile';
+		return profile.username || fullName || 'Profile';
 	});
 	let sidebarProfileInitials = $derived.by(() => {
 		const name = sidebarProfileName.trim();
@@ -122,11 +124,11 @@
 		}
 	});
 
-let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
+	let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
 
-let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
-let chatUnreadCount = $derived(unreadSummaryResponse.data?.totalUnreadCount ?? 0);
-let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }));
+	let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
+	let chatUnreadCount = $derived(unreadSummaryResponse.data?.totalUnreadCount ?? 0);
+	let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }));
 	let navState = $derived(deriveNavState(navigation, activePath));
 	let activeNav = $derived(navState.activeNav);
 	let title = $derived(
@@ -134,6 +136,23 @@ let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }))
 			? (activeClubItem?.clubName ?? 'Club')
 			: navState.title
 	);
+
+	$effect(() => {
+		if (!browser) return;
+		if (!isAuthReady) return;
+		if (clubsResponse.isLoading) return;
+		if (clubs.length > 0) return;
+		if (
+			activePath === routes.noClub ||
+			activePath === routes.chat ||
+			activePath === routes.profile ||
+			activePath === routes.settings ||
+			activePath === routes.notifications
+		) {
+			return;
+		}
+		void goto(routes.noClub, { replaceState: true });
+	});
 	let hintedTitle = $derived.by(() => {
 		const hint = page.state.headerTitleHint?.trim();
 		const hintPath = page.state.headerTitleHintPath;
@@ -174,44 +193,44 @@ let navigation = $derived(buildAppNavigation(clubIdForNav, { chatUnreadCount }))
 		clearBackConfig: () => {
 			backConfigOverride = null;
 		},
-			setTitle: (value) => {
-				titleOverride = value;
-			},
-			clearTitle: () => {
-				titleOverride = null;
-			},
-			setTitleContent: (value) => {
-				titleContentOverride = value;
-			},
-			clearTitleContent: () => {
-				titleContentOverride = null;
-			},
-			setBottomNavHidden: (value) => {
-				bottomNavHiddenOverride = value;
-			},
-			clearBottomNavHidden: () => {
-				bottomNavHiddenOverride = null;
-			}
-		} satisfies PageHeaderController);
+		setTitle: (value) => {
+			titleOverride = value;
+		},
+		clearTitle: () => {
+			titleOverride = null;
+		},
+		setTitleContent: (value) => {
+			titleContentOverride = value;
+		},
+		clearTitleContent: () => {
+			titleContentOverride = null;
+		},
+		setBottomNavHidden: (value) => {
+			bottomNavHiddenOverride = value;
+		},
+		clearBottomNavHidden: () => {
+			bottomNavHiddenOverride = null;
+		}
+	} satisfies PageHeaderController);
 </script>
 
-	<AppShell
-		title={titleOverride ?? hintedTitle ?? title}
-		{activeNav}
-		{activePath}
-		{navigation}
-		headerBack={backConfigOverride ?? undefined}
-		headerTitleContent={titleContentOverride ?? undefined}
-		hideBottomNav={bottomNavHiddenOverride ?? undefined}
-		headerActions={actionsOverride === null || actionsOverride === false
-			? undefined
-			: actionsOverride}
-		headerSearch={searchOverride ?? undefined}
-		banner={bannerOverride ?? undefined}
-		sidebarProfileName={sidebarProfileName}
-		sidebarProfileImageUrl={sidebarProfileImageUrl}
-		sidebarProfileInitials={sidebarProfileInitials}
-	>
+<AppShell
+	title={titleOverride ?? hintedTitle ?? title}
+	{activeNav}
+	{activePath}
+	{navigation}
+	headerBack={backConfigOverride ?? undefined}
+	headerTitleContent={titleContentOverride ?? undefined}
+	hideBottomNav={bottomNavHiddenOverride ?? undefined}
+	headerActions={actionsOverride === null || actionsOverride === false
+		? undefined
+		: actionsOverride}
+	headerSearch={searchOverride ?? undefined}
+	banner={bannerOverride ?? undefined}
+	{sidebarProfileName}
+	{sidebarProfileImageUrl}
+	{sidebarProfileInitials}
+>
 	{#if auth.isLoading}
 		<div class="px-4 py-6 text-sm text-muted-foreground">Loading account...</div>
 	{:else if !auth.isAuthenticated}

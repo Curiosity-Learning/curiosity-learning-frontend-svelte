@@ -94,7 +94,10 @@
 		return () => window.removeEventListener('resize', syncViewport);
 	});
 
-	const resolveRoomIdFromQuery = (roomParam: string | null, rooms: RoomSummary[]): Id<'rooms'> | null => {
+	const resolveRoomIdFromQuery = (
+		roomParam: string | null,
+		rooms: RoomSummary[]
+	): Id<'rooms'> | null => {
 		if (!roomParam) {
 			return null;
 		}
@@ -104,7 +107,9 @@
 	let selectedRoomId = $derived.by(() =>
 		resolveRoomIdFromQuery(page.url.searchParams.get('room'), roomsResponse.data ?? [])
 	);
-	let activeRoom = $derived((roomsResponse.data ?? []).find((room) => room.roomId === selectedRoomId) ?? null);
+	let activeRoom = $derived(
+		(roomsResponse.data ?? []).find((room) => room.roomId === selectedRoomId) ?? null
+	);
 	let isDetailView = $derived(Boolean(selectedRoomId));
 	let isMobileDetailView = $derived(Boolean(selectedRoomId) && !isDesktopViewport);
 
@@ -149,10 +154,7 @@
 	let filteredContacts = $derived.by(() => {
 		const query = sendMessageSearchQuery.toLowerCase().trim();
 		if (!query) return contactSuggestions;
-		return contactSuggestions.filter(
-			(contact) =>
-				contact.label.toLowerCase().includes(query) || contact.userId.toLowerCase().includes(query)
-		);
+		return contactSuggestions.filter((contact) => contact.label.toLowerCase().includes(query));
 	});
 
 	const initialsFromName = (name: string) =>
@@ -262,10 +264,14 @@
 					const beginResult = await beginMediaUpload(convexClient, attachmentFile, constraints);
 					await uploadFileToDescriptor(attachmentFile, beginResult.upload);
 					await finalizeMediaUpload(convexClient, beginResult.asset.assetId);
-					const readyAsset = await waitForMediaUploadReady(convexClient, beginResult.asset.assetId, {
-						timeoutMs: 30_000,
-						intervalMs: 750
-					});
+					const readyAsset = await waitForMediaUploadReady(
+						convexClient,
+						beginResult.asset.assetId,
+						{
+							timeoutMs: 30_000,
+							intervalMs: 750
+						}
+					);
 					const signedAssets = await requestSignedMediaUrls({
 						assetIds: [readyAsset.assetId],
 						context: {
@@ -456,7 +462,7 @@
 </PageHeaderActions>
 
 <Sheet bind:open={composeOpen}>
-	<SheetContent class="flex max-h-[100dvh] w-full flex-col px-0 py-0 sm:max-h-auto sm:max-w-md">
+	<SheetContent class="sm:max-h-auto flex max-h-[100dvh] w-full flex-col px-0 py-0 sm:max-w-md">
 		<SheetHeader class="border-b border-border/70 px-4 py-3 sm:px-6 sm:py-4">
 			<SheetTitle class="text-xl">Send message</SheetTitle>
 		</SheetHeader>
@@ -469,7 +475,13 @@
 						showComingSoon('Create group chat');
 					}}
 				>
-					<svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						class="size-5"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
 						<circle cx="9" cy="7" r="4"></circle>
 						<path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
@@ -512,7 +524,6 @@
 								</Avatar>
 								<div class="min-w-0 flex-1">
 									<p class="truncate text-base font-semibold text-[#2d2d2d]">{contact.label}</p>
-									<p class="truncate text-sm text-[#8b8fa0]">{contact.userId}</p>
 								</div>
 							</button>
 						{/each}
@@ -529,7 +540,9 @@
 		<AlertDescription>Sign in to start or view chats.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="-mx-4 flex w-full flex-col overflow-hidden rounded-none bg-white sm:-mx-6 lg:-mx-8 lg:rounded-[1.1rem] lg:border lg:border-border/70">
+	<div
+		class="-mx-4 flex w-full flex-col overflow-hidden rounded-none bg-white sm:-mx-6 lg:-mx-8 lg:rounded-[1.1rem] lg:border lg:border-border/70"
+	>
 		{#if errorMessage}
 			<div class="px-4 pt-3">
 				<Alert variant="destructive">
@@ -541,7 +554,9 @@
 
 		<div class="hidden items-center justify-end gap-3 border-b border-border/70 px-4 py-3 lg:flex">
 			<div class="relative w-full max-w-sm">
-				<SearchIcon class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#8b8fa0]" />
+				<SearchIcon
+					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#8b8fa0]"
+				/>
 				<Input
 					bind:value={roomSearchQuery}
 					placeholder="Search"
@@ -572,14 +587,16 @@
 				{#if roomsResponse.isLoading}
 					<div class="p-4 text-sm text-muted-foreground">Loading chats...</div>
 				{:else if visibleRooms.length === 0}
-					<div class="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-12 text-center">
+					<div
+						class="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-12 text-center"
+					>
 						<img
 							src={noChatFoundImage}
 							alt="No chats found"
 							class="size-28 object-contain"
 							loading="lazy"
 						/>
-							<p class="text-lg font-medium text-muted-foreground sm:text-xl">No chats yet</p>
+						<p class="text-lg font-medium text-muted-foreground sm:text-xl">No chats yet</p>
 						<Button
 							variant="ghost"
 							class="gap-2 !text-orange-500"
@@ -603,12 +620,14 @@
 							>
 								{#if room.isGroupChat}
 									<div class="relative size-11 shrink-0">
-										<Avatar class="absolute left-0 top-0 size-8 border border-white bg-[#d8dbe5]">
+										<Avatar class="absolute top-0 left-0 size-8 border border-white bg-[#d8dbe5]">
 											<AvatarFallback class="text-[0.6rem] font-bold text-slate-700">
 												{initialsFromName(room.participantDisplayNames[0] ?? room.roomName)}
 											</AvatarFallback>
 										</Avatar>
-										<Avatar class="absolute bottom-0 right-0 size-8 border border-white bg-[#d8dbe5]">
+										<Avatar
+											class="absolute right-0 bottom-0 size-8 border border-white bg-[#d8dbe5]"
+										>
 											<AvatarFallback class="text-[0.6rem] font-bold text-slate-700">
 												{initialsFromName(room.participantDisplayNames[1] ?? room.roomName)}
 											</AvatarFallback>
@@ -624,13 +643,19 @@
 
 								<div class="min-w-0 flex-1">
 									<div class="flex items-start justify-between gap-2">
-										<p class="truncate text-[1rem] leading-tight font-bold text-[#242424] sm:text-[1.08rem]">
+										<p
+											class="truncate text-[1rem] leading-tight font-bold text-[#242424] sm:text-[1.08rem]"
+										>
 											{roomDisplayName(room)}
 										</p>
-										<p class="shrink-0 text-xs text-gray-500">{formatRelativeTime(room.lastMessageAt)}</p>
+										<p class="shrink-0 text-xs text-gray-500">
+											{formatRelativeTime(room.lastMessageAt)}
+										</p>
 									</div>
 									<div class="mt-1 flex items-center gap-2">
-											<p class="min-w-0 flex-1 truncate text-[0.82rem] text-gray-600 sm:text-sm">{roomPreviewText(room)}</p>
+										<p class="min-w-0 flex-1 truncate text-[0.82rem] text-gray-600 sm:text-sm">
+											{roomPreviewText(room)}
+										</p>
 										{#if index === 0}
 											<PinIcon class="size-3.5 text-gray-500" />
 										{/if}
@@ -650,23 +675,25 @@
 			</section>
 
 			{#if isDetailView}
-					<section class="flex flex-1 flex-col">
-						<div class="hidden items-center justify-between border-b border-border/70 bg-white px-4 py-2 lg:flex">
-							<div class="flex min-w-0 flex-1 items-center gap-4 pr-2">
-								<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
-									<AvatarFallback class="text-[0.72rem] font-bold text-slate-700">
-										{initialsFromName(roomDisplayName(activeRoom))}
-									</AvatarFallback>
-								</Avatar>
-								<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
-									{roomDisplayName(activeRoom)}
-								</p>
-							</div>
-							<ActionMenu
-								items={threadMenuItems}
-								contentClass="w-44 rounded-xl border border-border/80 p-1 shadow-lg"
-							/>
+				<section class="flex flex-1 flex-col">
+					<div
+						class="hidden items-center justify-between border-b border-border/70 bg-white px-4 py-2 lg:flex"
+					>
+						<div class="flex min-w-0 flex-1 items-center gap-4 pr-2">
+							<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
+								<AvatarFallback class="text-[0.72rem] font-bold text-slate-700">
+									{initialsFromName(roomDisplayName(activeRoom))}
+								</AvatarFallback>
+							</Avatar>
+							<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
+								{roomDisplayName(activeRoom)}
+							</p>
 						</div>
+						<ActionMenu
+							items={threadMenuItems}
+							contentClass="w-44 rounded-xl border border-border/80 p-1 shadow-lg"
+						/>
+					</div>
 
 					<div
 						class={`flex-1 overflow-y-auto ${
@@ -678,7 +705,11 @@
 						{:else if (messagesResponse.data?.length ?? 0) === 0}
 							<p class="text-sm text-muted-foreground">No messages yet. Send the first one.</p>
 						{:else}
-							<p class={`text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mb-4 mt-4'}`}>Today</p>
+							<p
+								class={`text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
+							>
+								Today
+							</p>
 							<div class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'}`}>
 								{#each messagesResponse.data ?? [] as entry (entry._id)}
 									<div
@@ -694,7 +725,9 @@
 									>
 										<div
 											class={`${
-												isDesktopViewport ? 'max-w-[85%] rounded-2xl px-3 py-2' : 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pb-1 pt-[10px]'
+												isDesktopViewport
+													? 'max-w-[85%] rounded-2xl px-3 py-2'
+													: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
 											} ${
 												entry.userId === viewer.data?.userId
 													? 'bg-[#f5e2d2] text-[#2b2b2b]'
@@ -712,11 +745,15 @@
 												/>
 											{/if}
 											{#if entry.content?.trim()}
-												<p class={`${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}>
+												<p
+													class={`${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}
+												>
 													{entry.content}
 												</p>
 											{/if}
-											<p class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}>
+											<p
+												class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
+											>
 												{formatClockTime(entry.createdAt)}
 											</p>
 										</div>
@@ -726,10 +763,14 @@
 						{/if}
 					</div>
 
-					<div class={`border-t border-border/70 bg-white ${isDesktopViewport ? 'px-3 pb-3 pt-2 sm:px-4' : 'px-0 py-0'}`}>
+					<div
+						class={`border-t border-border/70 bg-white ${isDesktopViewport ? 'px-3 pt-2 pb-3 sm:px-4' : 'px-0 py-0'}`}
+					>
 						{#if pendingAttachment}
-							<div class={isDesktopViewport ? 'mb-2 ml-0 mt-1' : 'px-4 pt-2'}>
-								<div class="relative inline-flex overflow-hidden rounded-xl border border-border/70 bg-[#f7f7f8] p-1">
+							<div class={isDesktopViewport ? 'mt-1 mb-2 ml-0' : 'px-4 pt-2'}>
+								<div
+									class="relative inline-flex overflow-hidden rounded-xl border border-border/70 bg-[#f7f7f8] p-1"
+								>
 									<img
 										src={pendingAttachment.previewUrl}
 										alt={pendingAttachment.fileName}
@@ -737,7 +778,7 @@
 									/>
 									<button
 										type="button"
-										class="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/70"
+										class="absolute top-1 right-1 grid size-5 place-items-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/70"
 										aria-label="Remove selected image"
 										onclick={clearPendingAttachment}
 									>
@@ -755,7 +796,9 @@
 							disabled={pending || !selectedRoomId}
 							onkeydown={handleMessageComposerKeydown}
 						/>
-						<div class={`flex items-center justify-between text-[#7b8090] ${isDesktopViewport ? 'mt-2' : 'px-4 pb-1.5 pt-0.5'}`}>
+						<div
+							class={`flex items-center justify-between text-[#7b8090] ${isDesktopViewport ? 'mt-2' : 'px-4 pt-0.5 pb-1.5'}`}
+						>
 							<div class="flex items-center gap-4">
 								<button
 									type="button"
@@ -779,7 +822,9 @@
 							<button
 								type="button"
 								class={`grid size-8 place-items-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-									isDesktopViewport ? 'text-orange-500 hover:text-orange-600' : 'text-orange-400 hover:text-orange-500'
+									isDesktopViewport
+										? 'text-orange-500 hover:text-orange-600'
+										: 'text-orange-400 hover:text-orange-500'
 								}`}
 								disabled={pending || !selectedRoomId || (!message.trim() && !pendingAttachment)}
 								onclick={() => void sendMessage()}

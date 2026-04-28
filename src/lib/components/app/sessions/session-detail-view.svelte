@@ -198,7 +198,8 @@
 		const nextContent = updates.content !== undefined ? updates.content : (activity.content ?? '');
 		const nextMinutes = updates.minutes !== undefined ? updates.minutes : activity.minutes;
 		const nextBuildingBlockIds = (updates.buildingBlockIds ?? activity.buildingBlocks ?? []).filter(
-			(blockId): blockId is Id<'buildingBlocks'> => typeof blockId === 'string' && blockId.length > 0
+			(blockId): blockId is Id<'buildingBlocks'> =>
+				typeof blockId === 'string' && blockId.length > 0
 		);
 		const mutationArgs = {
 			sessionId: sessionIdTyped,
@@ -392,13 +393,12 @@
 					const currentAttendance = localStore.getQuery(api.sessions.listAttendance, queryArgs);
 					if (!currentAttendance) return;
 
-					const existing = currentAttendance.find(
-						(entry) => entry.userId === mutationArgs.userId
-					);
+					const existing = currentAttendance.find((entry) => entry.userId === mutationArgs.userId);
 					if (mutationArgs.attending) {
 						if (existing) return;
 						const now = Date.now();
-						const optimisticId = `optimistic-attendance-${mutationArgs.sessionId}-${mutationArgs.userId}` as Id<'attendances'>;
+						const optimisticId =
+							`optimistic-attendance-${mutationArgs.sessionId}-${mutationArgs.userId}` as Id<'attendances'>;
 						localStore.setQuery(api.sessions.listAttendance, queryArgs, [
 							...currentAttendance,
 							{
@@ -659,7 +659,6 @@
 										.join(' ')
 										.trim() ||
 										member.username ||
-										member.email ||
 										'Member'}
 								</span>
 							</label>
@@ -667,12 +666,8 @@
 								<p class="type-body-medium">
 									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 										member.username ||
-										member.email ||
 										'Member'}
 								</p>
-								{#if member.email}
-									<p class="type-sm text-muted-foreground">{member.email}</p>
-								{/if}
 							</div>
 							<div class="relative z-10 flex items-center">
 								<Checkbox
@@ -682,7 +677,6 @@
 									aria-label={`Mark ${
 										[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 										member.username ||
-										member.email ||
 										'Member'
 									} as attending`}
 									disabled={!canManageAttendanceOnline}

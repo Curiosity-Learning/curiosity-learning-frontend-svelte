@@ -132,12 +132,7 @@
 	const createSession = async () => {
 		const startTime = createSessionForm.startTime;
 		const endTime = createSessionForm.endTime;
-		if (
-			!canCreateSession ||
-			!clubIdTyped ||
-			startTime === null ||
-			endTime === null
-		) {
+		if (!canCreateSession || !clubIdTyped || startTime === null || endTime === null) {
 			return;
 		}
 
@@ -191,6 +186,15 @@
 		return letters || cleaned.slice(0, 2).toUpperCase();
 	};
 
+	const learnerDisplayName = (learner: {
+		firstName?: string | null;
+		lastName?: string | null;
+		username?: string | null;
+	}) =>
+		[learner.firstName ?? '', learner.lastName ?? ''].join(' ').trim() ||
+		learner.username ||
+		'Learner';
+
 	let initialLearnerImageUrls = $derived.by(() => {
 		return new Map(
 			(data.initialLearnerImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
@@ -198,18 +202,20 @@
 	});
 	let initialProjectPreviewImageUrls = $derived.by(() => {
 		return new Map(
-			(data.initialProjectPreviewImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+			(data.initialProjectPreviewImages ?? []).map(
+				(asset) => [asset.assetId, asset.signedUrl] as const
+			)
 		);
 	});
 	let initialSessionAttendeeImageUrls = $derived.by(() => {
 		return new Map(
-			(data.initialSessionAttendeeImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
+			(data.initialSessionAttendeeImages ?? []).map(
+				(asset) => [asset.assetId, asset.signedUrl] as const
+			)
 		);
 	});
 
-	const learnerImageUrl = (learner: {
-		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
-	}) => {
+	const learnerImageUrl = (learner: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) => {
 		if (learner.profileImageMediaAssetId) {
 			return initialLearnerImageUrls.get(learner.profileImageMediaAssetId) ?? null;
 		}
@@ -225,9 +231,7 @@
 
 		return null;
 	};
-	const attendeeImageUrl = (attendee: {
-		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
-	}) => {
+	const attendeeImageUrl = (attendee: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) => {
 		if (attendee.profileImageMediaAssetId) {
 			return initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? null;
 		}
@@ -253,7 +257,8 @@
 		}))
 	);
 
-	const getProjectRailScrollKey = () => (clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null);
+	const getProjectRailScrollKey = () =>
+		clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null;
 
 	const restoreProjectRailScroll = (node: HTMLDivElement) => {
 		if (!browser) return;
@@ -288,7 +293,8 @@
 
 	const handleProjectRailClick = (event: MouseEvent) => {
 		if (!browser || !projectRailNode) return;
-		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+			return;
 		const target = event.target;
 		if (!(target instanceof Element)) return;
 		const projectLink = target.closest('a[href]');
@@ -314,7 +320,7 @@
 					<Button
 						variant="ghost"
 						size="sm"
-						class="hidden type-sm-bold text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
+						class="type-sm-bold hidden text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
 						disabled={!canMutateOnline}
 						onclick={openCreateSessionDialog}
 					>
@@ -427,7 +433,7 @@
 						href={`${clubPath}/projects`}
 						variant="ghost"
 						size="sm"
-						class="hidden type-sm-bold text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
+						class="type-sm-bold hidden text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
 					>
 						<PlusIcon class="size-4" />
 						<span>Add a project</span>
@@ -509,30 +515,30 @@
 						>
 							<Avatar class="size-12">
 								{#if learnerImageUrl(learner)}
-									<AvatarImage src={learnerImageUrl(learner) ?? undefined} alt={learner.email ?? learner.userId} />
+									<AvatarImage
+										src={learnerImageUrl(learner) ?? undefined}
+										alt={learnerDisplayName(learner)}
+									/>
 								{/if}
 								<AvatarFallback class="text-sm font-semibold">
-									{initialsFor(
-										[learner.firstName ?? '', learner.lastName ?? ''].join(' ').trim() ||
-											learner.email ||
-											learner.userId
-									)}
+									{initialsFor(learnerDisplayName(learner))}
 								</AvatarFallback>
 							</Avatar>
 							<div class="min-w-0 flex-1">
-								<p class="type-h6-bold truncate">
-									{[learner.firstName ?? '', learner.lastName ?? ''].join(' ').trim() ||
-										learner.email ||
-										learner.userId}
-								</p>
-								<p class="type-sm truncate text-muted-foreground">{learner.email ?? learner.userId}</p>
+								<p class="type-h6-bold truncate">{learnerDisplayName(learner)}</p>
+								{#if learner.username}
+									<p class="type-sm truncate text-muted-foreground">@{learner.username}</p>
+								{/if}
 							</div>
 						</a>
 					{/each}
 				</div>
 				{#if hiddenLearnersCount > 0}
 					<div class="self-start">
-						<HomeActionLink href={`${clubPath}/members`} label={`+ ${hiddenLearnersCount} others`} />
+						<HomeActionLink
+							href={`${clubPath}/members`}
+							label={`+ ${hiddenLearnersCount} others`}
+						/>
 					</div>
 				{/if}
 			</div>

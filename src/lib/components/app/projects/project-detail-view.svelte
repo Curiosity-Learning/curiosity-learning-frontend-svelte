@@ -63,7 +63,8 @@
 	);
 	let project = $derived(projectResponse.data ?? null);
 	let headerTitle = $derived(
-		project?.name ?? (projectResponse.isLoading || projectResponse.data === undefined ? null : 'Project')
+		project?.name ??
+			(projectResponse.isLoading || projectResponse.data === undefined ? null : 'Project')
 	);
 
 	const canManageResponse = useStableQuery(api.projects.canManageProject, () =>
@@ -149,20 +150,20 @@
 			name:
 				[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 				member.username ||
-				member.email ||
-				member.profileId,
+				'Project member',
 			imageAssetId: member.profileImageMediaAssetId ?? null,
 			imageUrl: null,
-			email: member.email ?? null,
 			username: member.username ?? null,
 			roleName: member.roleName ?? null
 		}))
 	);
 	let initialProjectMemberImageUrls = $derived.by(() => {
 		return new Map(
-			((page.data.initialProjectMemberImages as Array<{ assetId: Id<'mediaAssets'>; signedUrl: string }> | undefined) ?? []).map(
-				(asset) => [asset.assetId, asset.signedUrl] as const
-			)
+			(
+				(page.data.initialProjectMemberImages as
+					| Array<{ assetId: Id<'mediaAssets'>; signedUrl: string }>
+					| undefined) ?? []
+			).map((asset) => [asset.assetId, asset.signedUrl] as const)
 		);
 	});
 
@@ -188,7 +189,6 @@
 
 	const memberSubtitleFor = (member: (typeof memberSummaries)[number]) => {
 		if (member.username) return `@${member.username}`;
-		if (member.email) return member.email;
 		return null;
 	};
 
@@ -279,7 +279,6 @@
 			onSelect: () => void toggleDone()
 		}
 	]);
-
 </script>
 
 <PageHeaderBackButton fallbackHref={routes.feed} />
@@ -366,7 +365,8 @@
 									{#if update.mediaAssetIds?.length}
 										<div class="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-2">
 											{#each update.mediaAssetIds as mediaAssetId (mediaAssetId)}
-												{@const mediaAsset = initialProjectUpdateMediaById.get(mediaAssetId) ?? null}
+												{@const mediaAsset =
+													initialProjectUpdateMediaById.get(mediaAssetId) ?? null}
 												{@const mediaUrl = mediaAsset?.signedUrl ?? null}
 												<div class="overflow-hidden rounded-xl border border-border bg-muted/20">
 													{#if mediaUrl}
@@ -387,9 +387,7 @@
 														{/if}
 													{:else}
 														<div class="flex aspect-video items-center justify-center p-4">
-															<p class="text-sm text-muted-foreground">
-																Preparing media...
-															</p>
+															<p class="text-sm text-muted-foreground">Preparing media...</p>
 														</div>
 													{/if}
 												</div>
@@ -404,7 +402,6 @@
 						{/each}
 					</div>
 				{/if}
-
 			</div>
 		{:else}
 			<div class="flex flex-col gap-4">

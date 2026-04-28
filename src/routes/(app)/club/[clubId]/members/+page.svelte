@@ -48,7 +48,6 @@
 				member.firstName ?? '',
 				member.lastName ?? '',
 				member.username ?? '',
-				member.email ?? '',
 				member.roleName ?? ''
 			]
 				.join(' ')
@@ -63,9 +62,7 @@
 		);
 	});
 
-	const memberImageUrl = (member: {
-		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
-	}) => {
+	const memberImageUrl = (member: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) => {
 		if (member.profileImageMediaAssetId) {
 			return initialMemberImageUrls.get(member.profileImageMediaAssetId) ?? null;
 		}
@@ -77,18 +74,26 @@
 		firstName?: string | null;
 		lastName?: string | null;
 		username?: string | null;
-		email?: string | null;
 		userId: string;
 	}) => {
 		const label =
 			[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 			member.username ||
-			member.email ||
 			member.userId;
 		const parts = label.split(/\s+/).filter(Boolean);
 		const initials = [parts[0]?.[0] ?? '', parts.at(-1)?.[0] ?? ''].join('').toUpperCase();
 		return initials || label.slice(0, 2).toUpperCase();
 	};
+
+	const displayNameFor = (member: {
+		firstName?: string | null;
+		lastName?: string | null;
+		username?: string | null;
+		userId: string;
+	}) =>
+		[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+		member.username ||
+		'Club member';
 
 	const kickMember = async (clubMemberId: Id<'clubMembers'>) => {
 		if (!window.confirm('Remove this member from the club?')) return;
@@ -145,22 +150,20 @@
 								<div class="flex items-center gap-3">
 									<Avatar class="size-10">
 										{#if memberImageUrl(member)}
-											<AvatarImage src={memberImageUrl(member) ?? undefined} alt={member.email ?? member.userId} />
+											<AvatarImage
+												src={memberImageUrl(member) ?? undefined}
+												alt={displayNameFor(member)}
+											/>
 										{/if}
 										<AvatarFallback>{initialsFor(member)}</AvatarFallback>
 									</Avatar>
-									<p class="font-medium">
-										{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
-											member.email ||
-											member.userId}
-									</p>
+									<p class="font-medium">{displayNameFor(member)}</p>
 								</div>
 								{#if member.roleName}
 									<Badge variant="outline">{member.roleName}</Badge>
 								{/if}
 							</div>
 							<div class="flex flex-col gap-1 text-sm text-muted-foreground">
-								<p>{member.email ?? member.userId}</p>
 								{#if member.username}
 									<p>@{member.username}</p>
 								{/if}
