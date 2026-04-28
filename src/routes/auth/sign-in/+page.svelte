@@ -15,6 +15,7 @@
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
 	import { normalizeAuthError } from '$lib/auth/error-handler';
+	import { navigateAfterAuthChange } from '$lib/auth/navigation';
 	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -172,7 +173,7 @@
 			description: t('auth.signIn.existingGoogleDescription')
 		});
 		existingGoogleAccountHandled = true;
-		void goto(resolvedNextPath, { replaceState: true });
+		void navigateAfterAuthChange(resolvedNextPath, { replaceState: true });
 	});
 
 	$effect(() => {
@@ -194,7 +195,7 @@
 
 		if (existingGoogleAccount) return;
 		if (!auth.isLoading && auth.isAuthenticated) {
-			void goto(resolvedNextPath, { replaceState: true });
+			void navigateAfterAuthChange(resolvedNextPath, { replaceState: true });
 		}
 	});
 
@@ -295,7 +296,7 @@
 				return;
 			}
 
-			await goto(resolvedNextPath, { replaceState: true });
+			await navigateAfterAuthChange(resolvedNextPath, { replaceState: true });
 		} catch (error) {
 			const normalizedError = normalizeAuthError(error);
 			errorMessage = t(normalizedError.userMessage);

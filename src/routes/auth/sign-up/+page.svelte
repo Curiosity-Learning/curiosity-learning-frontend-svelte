@@ -20,6 +20,7 @@
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
 	import { normalizeAuthError } from '$lib/auth/error-handler';
+	import { navigateAfterAuthChange } from '$lib/auth/navigation';
 	import { getUsernameValidationError, normalizeUsername } from '$lib/auth/username';
 	import { createDebouncedLookup } from '$lib/forms/debounced-lookup';
 	import { _, formatT, t } from '$lib/i18n';
@@ -720,7 +721,7 @@
 				return;
 			}
 			setPostSignupPending();
-			await goto(postSignupPath, { replaceState: true });
+			await navigateAfterAuthChange(postSignupPath, { replaceState: true });
 		} finally {
 			successContinuePending = false;
 		}
@@ -1270,7 +1271,7 @@
 			return;
 		}
 		postSignupRedirecting = true;
-		void goto(postSignupPath, { replaceState: true }).finally(() => {
+		void navigateAfterAuthChange(postSignupPath, { replaceState: true }).finally(() => {
 			postSignupRedirecting = false;
 		});
 	});
@@ -1324,11 +1325,11 @@
 					title: t('auth.signUp.accountExistsTitle'),
 					description: t('auth.signUp.existingGoogleSignedInDescription')
 				});
-				void goto(nextPath, { replaceState: true });
+				void navigateAfterAuthChange(nextPath, { replaceState: true });
 				return;
 			}
 			if (isPostSignupPending()) {
-				void goto(postSignupPath, { replaceState: true });
+				void navigateAfterAuthChange(postSignupPath, { replaceState: true });
 				return;
 			}
 			if (showSuccessScreen) {
