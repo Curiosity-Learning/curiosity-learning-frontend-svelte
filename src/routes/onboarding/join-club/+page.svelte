@@ -43,6 +43,7 @@
 	let canContinue = $derived(codeChars.every((char) => char.length === 1));
 	let joinedCode = $derived(codeChars.join(''));
 	let locationSearchStarted = $derived(Boolean(selectedLocationCoordinates));
+	let showClubCodeShortcut = $derived(!locationQuery.trim() && !selectedLocationCoordinates);
 	let isAppNewClubFlow = $derived(page.url.pathname.startsWith(routes.newClubJoin));
 	let joinClubPath = $derived(isAppNewClubFlow ? routes.newClubJoin : routes.onboardingJoinClub);
 	let startClubPath = $derived(isAppNewClubFlow ? routes.newClubStart : routes.onboardingStartClub);
@@ -305,18 +306,6 @@
 					</p>
 				</div>
 
-				<button
-					type="button"
-					class="flex w-full items-center justify-between gap-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-left text-sm font-semibold text-orange-700 transition-colors duration-200 hover:bg-orange-100"
-					onclick={showCodeEntry}
-				>
-					<span class="inline-flex min-w-0 items-center gap-2">
-						<TicketIcon class="size-4 shrink-0" />
-						<span>{$_('onboarding.joinClub.haveCode')}</span>
-					</span>
-					<span class="shrink-0 text-orange-500">{$_('onboarding.joinClub.enterHere')}</span>
-				</button>
-
 				<LocationAutocompleteField
 					id="join-club-location"
 					label={$_('onboarding.joinClub.locationLabel')}
@@ -327,24 +316,35 @@
 					emptyMessage={$_('onboarding.joinClub.locationEmptyFound')}
 					lookupFailureMessage={$_('onboarding.joinClub.locationLookupFailure')}
 				/>
+
+				{#if showClubCodeShortcut}
+					<button
+						type="button"
+						class="inline-flex w-fit items-center gap-2 text-sm font-semibold text-gray-500 transition-colors duration-200 hover:text-orange-600"
+						onclick={showCodeEntry}
+					>
+						<TicketIcon class="size-4 shrink-0" />
+						<span>{$_('onboarding.joinClub.haveCode')}</span>
+						<span class="text-orange-500">{$_('onboarding.joinClub.enterHere')}</span>
+					</button>
+				{/if}
 			</section>
 
 			{#if selectedLocationCoordinates}
 				<section class="flex flex-col gap-3">
-					<div class="flex flex-col gap-1">
-						<h2 class="text-lg font-bold text-gray-900">
-							{$_('onboarding.joinClub.nearbyTitle')}
-						</h2>
-						<p class="text-sm leading-6 text-gray-600">
-							{$_('onboarding.joinClub.nearbyDescription')}
-						</p>
-					</div>
-
 					{#if clubsResponse.isLoading}
 						<p class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
 							{$_('common.loading')}
 						</p>
 					{:else if nearbyClubs.length > 0}
+						<div class="flex flex-col gap-1">
+							<h2 class="text-lg font-bold text-gray-900">
+								{$_('onboarding.joinClub.nearbyTitle')}
+							</h2>
+							<p class="text-sm leading-6 text-gray-600">
+								{$_('onboarding.joinClub.nearbyDescription')}
+							</p>
+						</div>
 						<div class="flex flex-col gap-2">
 							{#each nearbyClubs as club (club.id)}
 								<button
