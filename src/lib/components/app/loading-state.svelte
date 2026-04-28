@@ -1,5 +1,6 @@
 <script lang="ts">
 	import favicon from '$lib/assets/svg/favicon.svg';
+	import { Spinner } from '$lib/components/ui/spinner';
 	import { cn } from '$lib/utils';
 
 	type Props = {
@@ -27,17 +28,29 @@
 		md: 'size-12',
 		lg: 'size-[5.5rem]'
 	};
+
+	const inlineSizeClasses = {
+		sm: 'size-4',
+		md: 'size-5',
+		lg: 'size-6'
+	};
 </script>
 
-<div
-	role="status"
-	aria-live="polite"
-	aria-label={label}
-	class={cn('flex items-center justify-center', variantClasses[variant], className)}
->
-	<img src={favicon} alt="" class={cn('loading-logo', sizeClasses[size])} />
-	<span class="sr-only">{label}</span>
-</div>
+{#if variant === 'inline'}
+	<div class={cn('flex items-center justify-center', variantClasses.inline, className)}>
+		<Spinner ariaLabel={label} class={cn('text-muted-foreground', inlineSizeClasses[size])} />
+	</div>
+{:else}
+	<div
+		role="status"
+		aria-live="polite"
+		aria-label={label}
+		class={cn('flex items-center justify-center', variantClasses[variant], className)}
+	>
+		<img src={favicon} alt="" class={cn('loading-logo', sizeClasses[size])} />
+		<span class="sr-only">{label}</span>
+	</div>
+{/if}
 
 <style>
 	.loading-logo {
