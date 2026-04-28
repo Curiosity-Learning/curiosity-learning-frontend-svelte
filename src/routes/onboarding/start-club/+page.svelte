@@ -8,6 +8,7 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
+	import { Field, FieldError, FieldLabel } from '$lib/components/ui/field';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
@@ -227,6 +228,9 @@
 		Boolean(clubVideoField.localPreviewUrl && !previewVideoLoadFailed)
 	);
 	let hasSelectedVideo = $derived(Boolean(clubVideoField.selectedFile || clubVideoField.assetId));
+	let videoError = $derived(
+		videoTouched && !hasSelectedVideo ? t('onboarding.startClub.videoRequired') : ''
+	);
 
 	let locationLookupTimer: ReturnType<typeof setTimeout> | null = null;
 	let locationLookupAbortController: AbortController | null = null;
@@ -417,7 +421,6 @@
 		}
 
 		if (!hasSelectedVideo) {
-			errorMessage = t('onboarding.startClub.videoRequired');
 			return;
 		}
 
@@ -593,16 +596,23 @@
 					</p>
 				</div>
 
-				<div class="flex flex-col gap-3">
-					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">
+				<Field class="flex flex-col gap-3">
+					<FieldLabel
+						for="start-club-video"
+						required={true}
+						class="text-[1.125rem] leading-8 font-bold text-gray-900"
+					>
 						{$_('onboarding.startClub.videoUploadTitle')}
-					</p>
+					</FieldLabel>
 					<FileDropZone.Root
+						id="start-club-video"
 						accept={clubVideoField.accept}
 						maxFiles={1}
 						fileCount={0}
 						maxFileSize={clubVideoField.maxBytes}
 						disabled={clubVideoField.isBusy || pending || auth.isLoading}
+						aria-invalid={videoError ? 'true' : undefined}
+						aria-describedby={videoError ? 'start-club-video-error' : undefined}
 						onUpload={uploadClubVideo}
 					>
 						<FileDropZone.Trigger class="contents">
@@ -651,10 +661,10 @@
 							}}
 						></video>
 					{/if}
-					{#if videoTouched && !hasSelectedVideo}
-						<p class="text-sm text-red-700">{$_('onboarding.startClub.videoRequired')}</p>
+					{#if videoError}
+						<FieldError id="start-club-video-error">{videoError}</FieldError>
 					{/if}
-				</div>
+				</Field>
 			</div>
 
 			{#if errorMessage}
@@ -668,7 +678,7 @@
 					variant="default"
 					size="xl"
 					class="h-12 w-full"
-					disabled={pending || clubVideoField.isBusy || auth.isLoading}
+					disabled={!hasSelectedVideo || pending || clubVideoField.isBusy || auth.isLoading}
 					onclick={() => void submitStartClub()}
 				>
 					{pending
