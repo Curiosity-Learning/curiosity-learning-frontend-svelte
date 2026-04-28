@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import './layout.css';
 	import favicon from '$lib/assets/svg/favicon.svg';
-	import LauncherScreen from '$lib/components/app/LauncherScreen.svelte';
 	import CookieConsentBanner from '$lib/components/app/cookie-consent-banner.svelte';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { createSvelteAuthClient } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -17,27 +16,12 @@
 		getServerState: () => data.authState
 	});
 
-	let isAuthenticatedFromServer = $derived(Boolean(data.authState?.isAuthenticated));
-	let launcherFinished = $state(false);
-	let showLauncher = $derived(!isAuthenticatedFromServer && !launcherFinished);
 	let localeCleanup: (() => void) | null = null;
 
 	onMount(() => {
 		localeCleanup = initI18n();
 
-		if (isAuthenticatedFromServer) {
-			launcherFinished = true;
-			return () => {
-				localeCleanup?.();
-			};
-		}
-
-		const timer = setTimeout(() => {
-			launcherFinished = true;
-		}, 1200);
-
 		return () => {
-			clearTimeout(timer);
 			localeCleanup?.();
 		};
 	});
@@ -50,12 +34,8 @@
 
 <a class="skip-link" href="#main-content">Skip to main content</a>
 
-{#if showLauncher}
-	<LauncherScreen />
-{:else}
-	<main id="main-content" tabindex="-1">
-		{@render children()}
-	</main>
-	<CookieConsentBanner />
-{/if}
+<main id="main-content" tabindex="-1">
+	{@render children()}
+</main>
+<CookieConsentBanner />
 <Toaster richColors={true} closeButton={true} />
