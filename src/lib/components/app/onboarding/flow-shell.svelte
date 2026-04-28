@@ -47,7 +47,7 @@
 </script>
 
 <div
-	class={`flex flex-1 overflow-x-hidden ${appFrame ? 'w-full py-0' : edgeToEdgePanel ? 'py-0' : 'justify-center py-4 sm:py-6 lg:py-8'}`}
+	class={`flex flex-1 ${appFrame ? 'w-full overflow-visible py-0' : edgeToEdgePanel ? 'overflow-x-hidden py-0' : 'justify-center overflow-x-hidden py-4 sm:py-6 lg:py-8'}`}
 >
 	<div
 		class={`w-full ${appFrame ? 'max-w-none px-0' : edgeToEdgePanel ? 'max-w-none px-0' : 'max-w-6xl px-4 sm:px-8'} ${effectiveShowSideIllustration && !edgeToEdgePanel ? 'lg:px-12' : ''}`}
