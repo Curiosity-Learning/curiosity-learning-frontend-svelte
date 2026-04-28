@@ -208,17 +208,6 @@
 			return;
 		}
 		writeStartClubDraft();
-		if (auth.isLoading) {
-			errorMessage = t('onboarding.startClub.checkingSession');
-			return;
-		}
-		if (!auth.isAuthenticated) {
-			const params = new SvelteURLSearchParams();
-			params.set('next', '/onboarding/start-club?step=2');
-			params.set('forceSignup', '1');
-			await goto(`/auth/sign-up?${params.toString()}`);
-			return;
-		}
 		await goto('/onboarding/start-club?step=2');
 	};
 
