@@ -38,24 +38,7 @@ const nl = {
 		cookiesTitle: 'Cookiebeleid',
 		privacyEmpty: 'Er is nog geen inhoud voor het privacybeleid ingesteld.',
 		termsEmpty: 'Er is nog geen inhoud voor de algemene voorwaarden ingesteld.',
-		cookiesEmpty: 'Er is nog geen inhoud voor het cookiebeleid ingesteld.',
-		cookieBanner: {
-			title: 'Cookievoorkeuren',
-			descriptionStart: 'We gebruiken alleen ',
-			essential: 'essentiële',
-			descriptionMiddle: ' en ',
-			functional: 'functionele',
-			descriptionAfterTypes:
-				' cookies. We gebruiken geen analytische of marketingcookies. Bekijk het ',
-			privacyLink: 'privacybeleid',
-			termsLink: 'algemene voorwaarden',
-			cookiesLink: 'cookiebeleid',
-			betweenPrivacyAndTerms: ', de ',
-			betweenTermsAndCookies: ' en het ',
-			descriptionEnd: '.',
-			essentialOnly: 'Alleen essentieel',
-			allowFunctional: 'Functionele cookies toestaan'
-		}
+		cookiesEmpty: 'Er is nog geen inhoud voor het cookiebeleid ingesteld.'
 	},
 	mediaUpload: {
 		failedBeforeStorage: 'Uploaden is mislukt voordat het bestand de opslag bereikte.',

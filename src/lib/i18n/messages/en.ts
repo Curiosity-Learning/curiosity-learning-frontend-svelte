@@ -38,23 +38,7 @@ const en = {
 		cookiesTitle: 'Cookie Policy',
 		privacyEmpty: 'No privacy policy content is configured yet.',
 		termsEmpty: 'No terms and conditions content is configured yet.',
-		cookiesEmpty: 'No cookie policy content is configured yet.',
-		cookieBanner: {
-			title: 'Cookie preferences',
-			descriptionStart: 'We use only ',
-			essential: 'essential',
-			descriptionMiddle: ' and ',
-			functional: 'functional',
-			descriptionAfterTypes: ' cookies. We do not use analytics or marketing cookies. See ',
-			privacyLink: 'Privacy policy',
-			termsLink: 'Terms and conditions',
-			cookiesLink: 'Cookie policy',
-			betweenPrivacyAndTerms: ', ',
-			betweenTermsAndCookies: ', and ',
-			descriptionEnd: '.',
-			essentialOnly: 'Essential only',
-			allowFunctional: 'Allow functional cookies'
-		}
+		cookiesEmpty: 'No cookie policy content is configured yet.'
 	},
 	mediaUpload: {
 		failedBeforeStorage: 'Upload failed before the file reached storage.',

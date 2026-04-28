@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import './layout.css';
 	import favicon from '$lib/assets/svg/favicon.svg';
-	import CookieConsentBanner from '$lib/components/app/cookie-consent-banner.svelte';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { createSvelteAuthClient } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { authClient } from '$lib/auth-client';
@@ -37,5 +36,4 @@
 <main id="main-content" tabindex="-1">
 	{@render children()}
 </main>
-<CookieConsentBanner />
 <Toaster richColors={true} closeButton={true} />
