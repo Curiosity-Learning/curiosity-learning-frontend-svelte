@@ -36,8 +36,8 @@
 	};
 </script>
 
-{#if variant === 'inline'}
-	<div class={cn('flex items-center justify-center', variantClasses.inline, className)}>
+{#if variant !== 'page'}
+	<div class={cn('flex items-center justify-center', variantClasses[variant], className)}>
 		<Spinner ariaLabel={label} class={cn('text-muted-foreground', inlineSizeClasses[size])} />
 	</div>
 {:else}
