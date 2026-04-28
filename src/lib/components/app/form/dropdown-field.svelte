@@ -3,6 +3,7 @@
 	import { onDestroy, tick } from 'svelte';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import LoadingState from '$lib/components/app/loading-state.svelte';
 	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils';
@@ -230,7 +231,7 @@
 				)}
 			>
 				{#if loading}
-					<p class="px-3 py-2 text-sm leading-6 text-gray-500">Loading...</p>
+					<LoadingState variant="inline" size="sm" label="Loading options" />
 				{:else if renderedOptions.length > 0}
 					<ul
 						class={cn('overflow-y-auto py-1', maxMenuHeightClass)}

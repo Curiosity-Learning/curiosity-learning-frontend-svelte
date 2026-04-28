@@ -5,6 +5,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		ActionMenu,
+		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
 		PageHeaderTitle
@@ -461,7 +462,7 @@
 		<AlertDescription>This session ID is not valid.</AlertDescription>
 	</Alert>
 {:else if sessionResponse.isLoading}
-	<p class="type-sm text-muted-foreground">Loading session...</p>
+	<LoadingState label="Loading session" />
 {:else if !session}
 	<Alert variant="destructive">
 		<AlertTitle>Session not found</AlertTitle>
@@ -636,7 +637,7 @@
 				{#if !canReadMembers}
 					<p class="type-sm text-muted-foreground">You do not have access to club members.</p>
 				{:else if membersResponse.isLoading}
-					<p class="type-sm text-muted-foreground">Loading attendees...</p>
+					<LoadingState label="Loading attendees" />
 				{:else if (membersResponse.data?.length ?? 0) === 0}
 					<p class="type-sm text-muted-foreground">No members found.</p>
 				{:else}

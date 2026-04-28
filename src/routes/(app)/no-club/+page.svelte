@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
+	import { LoadingState } from '$lib/components/app';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
@@ -32,7 +33,7 @@
 		</CardHeader>
 		<CardContent class="flex flex-col gap-3">
 			{#if applicationsResponse.isLoading}
-				<p class="text-sm text-gray-600">Loading your applications...</p>
+				<LoadingState variant="inline" size="sm" label="Loading your applications" />
 			{:else if latestApplication}
 				<div class="flex items-start justify-between gap-3">
 					<div class="min-w-0">

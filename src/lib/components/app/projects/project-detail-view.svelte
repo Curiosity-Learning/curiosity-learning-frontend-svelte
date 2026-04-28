@@ -10,6 +10,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		ActionMenu,
+		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
 		PageHeaderTitle
@@ -295,7 +296,7 @@
 		<AlertDescription>This project ID is not valid.</AlertDescription>
 	</Alert>
 {:else if projectResponse.isLoading}
-	<p class="type-sm text-muted-foreground">Loading project...</p>
+	<LoadingState label="Loading project" />
 {:else if !project}
 	<Alert variant="destructive">
 		<AlertTitle>Project not found</AlertTitle>
@@ -353,7 +354,7 @@
 				{/if}
 
 				{#if updatesResponse.isLoading}
-					<p class="type-sm text-muted-foreground">Loading updates...</p>
+					<LoadingState label="Loading updates" />
 				{:else if (updatesResponse.data ?? []).length === 0}
 					<p class="type-sm text-muted-foreground">No updates yet.</p>
 				{:else}
@@ -406,7 +407,7 @@
 		{:else}
 			<div class="flex flex-col gap-4">
 				{#if membersResponse.isLoading}
-					<p class="type-sm text-muted-foreground">Loading members...</p>
+					<LoadingState label="Loading members" />
 				{:else if memberSummaries.length === 0}
 					<p class="type-sm text-muted-foreground">No members yet.</p>
 				{:else}

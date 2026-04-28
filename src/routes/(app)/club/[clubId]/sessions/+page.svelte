@@ -10,7 +10,12 @@
 		reportMutationFailure,
 		reportMutationSuccess
 	} from '$lib/app/connectivity';
-	import { PageHeaderActions, PageHeaderBackButton, PageHeaderSearch } from '$lib/components/app';
+	import {
+		LoadingState,
+		PageHeaderActions,
+		PageHeaderBackButton,
+		PageHeaderSearch
+	} from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
 	import { routes } from '$lib/routes';
@@ -230,7 +235,7 @@
 		{/if}
 
 		{#if sessionCardsResponse.isLoading}
-			<p class="text-sm text-muted-foreground">Loading sessions...</p>
+			<LoadingState label="Loading sessions" />
 		{:else if visibleSessionCards.length === 0}
 			<p class="text-sm text-muted-foreground">
 				{searchText ? 'No sessions match your search.' : 'No sessions yet.'}

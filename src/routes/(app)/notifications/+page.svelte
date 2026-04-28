@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
+	import { LoadingState } from '$lib/components/app';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import {
@@ -67,7 +68,7 @@
 		{/if}
 
 		{#if notifications.isLoading}
-			<p class="text-sm text-muted-foreground">Loading notifications...</p>
+			<LoadingState label="Loading notifications" />
 		{:else if (notifications.data?.length ?? 0) === 0}
 			<p class="text-sm text-muted-foreground">No notifications available.</p>
 		{:else}

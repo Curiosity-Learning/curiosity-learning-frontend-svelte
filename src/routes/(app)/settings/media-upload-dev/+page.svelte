@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -645,7 +645,7 @@
 				</div>
 
 				{#if uploadsResponse.isLoading}
-					<p class="text-sm text-muted-foreground">Loading uploads...</p>
+					<LoadingState label="Loading uploads" />
 				{:else if uploadsResponse.error}
 					<Alert variant="destructive">
 						<AlertTitle>Unable to load uploads</AlertTitle>
@@ -725,7 +725,7 @@
 			</CardHeader>
 			<CardContent class="flex flex-col gap-4">
 				{#if selectedAssetResponse.isLoading && selectedAssetId}
-					<p class="text-sm text-muted-foreground">Loading selected upload...</p>
+					<LoadingState label="Loading selected upload" />
 				{:else if selectedAssetResponse.error}
 					<Alert variant="destructive">
 						<AlertTitle>Unable to load selected upload</AlertTitle>

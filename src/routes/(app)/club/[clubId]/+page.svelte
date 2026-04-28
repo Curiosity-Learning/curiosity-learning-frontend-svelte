@@ -18,6 +18,7 @@
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
 	import HomeEmptyCard from '$lib/components/app/home/home-empty-card.svelte';
+	import { LoadingState } from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import ClubProjectCard from '$lib/components/app/projects/club-project-card.svelte';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
@@ -346,7 +347,7 @@
 				minHeightClass="min-h-44 sm:min-h-48"
 			/>
 		{:else if upcomingSessionCardsResponse.isLoading}
-			<HomeEmptyCard title="Loading sessions..." minHeightClass="min-h-40 sm:min-h-44" />
+			<LoadingState class="min-h-40 sm:min-h-44" label="Loading sessions" />
 		{:else if visibleUpcomingSessionCardsWithSignedAttendees.length === 0}
 			<HomeEmptyCard
 				title="No sessions to attend"
@@ -457,7 +458,7 @@
 				minHeightClass="min-h-44 sm:min-h-48"
 			/>
 		{:else if projectsPreviewResponse.isLoading}
-			<HomeEmptyCard title="Loading projects..." minHeightClass="min-h-40 sm:min-h-44" />
+			<LoadingState class="min-h-40 sm:min-h-44" label="Loading projects" />
 		{:else if visibleProjectsWithSignedMembers.length === 0}
 			<HomeEmptyCard
 				title="No projects to complete"
@@ -502,7 +503,7 @@
 		</HomeSectionHeader>
 
 		{#if clubId && canReadMembers && learnersResponse.isLoading}
-			<HomeEmptyCard title="Loading learners..." minHeightClass="min-h-32 sm:min-h-36" />
+			<LoadingState class="min-h-32 sm:min-h-36" label="Loading learners" />
 		{:else if clubId && canReadMembers && visibleLearners.length > 0}
 			<div class="flex flex-col gap-4">
 				<div class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">

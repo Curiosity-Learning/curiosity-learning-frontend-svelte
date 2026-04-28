@@ -16,6 +16,7 @@
 	import { api } from '$convex/_generated/api';
 	import {
 		ActionMenu,
+		LoadingState,
 		PageBottomNavVisibility,
 		PageHeaderActions,
 		PageHeaderBackButton,
@@ -500,9 +501,7 @@
 			<div class="flex-1 overflow-y-auto">
 				<div class="space-y-0">
 					{#if messagingUsersResponse.isLoading}
-						<div class="px-4 py-4 text-center text-sm text-muted-foreground sm:px-6">
-							Loading contacts...
-						</div>
+						<LoadingState variant="inline" size="sm" label="Loading contacts" />
 					{:else if filteredContacts.length === 0}
 						<div class="px-4 py-8 text-center text-sm text-muted-foreground sm:px-6">
 							No contacts found
@@ -585,7 +584,7 @@
 				}`}
 			>
 				{#if roomsResponse.isLoading}
-					<div class="p-4 text-sm text-muted-foreground">Loading chats...</div>
+					<LoadingState class="flex-1" label="Loading chats" />
 				{:else if visibleRooms.length === 0}
 					<div
 						class="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-12 text-center"
@@ -701,7 +700,7 @@
 						}`}
 					>
 						{#if messagesResponse.isLoading}
-							<p class="text-sm text-muted-foreground">Loading messages...</p>
+							<LoadingState label="Loading messages" />
 						{:else if (messagesResponse.data?.length ?? 0) === 0}
 							<p class="text-sm text-muted-foreground">No messages yet. Send the first one.</p>
 						{:else}

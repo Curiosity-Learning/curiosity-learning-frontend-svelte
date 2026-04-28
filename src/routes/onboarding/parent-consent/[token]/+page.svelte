@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
+	import { LoadingState } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
@@ -48,7 +49,7 @@
 >
 	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
 		{#if consentResponse.isLoading}
-			<p class="text-sm text-gray-600">Loading consent request...</p>
+			<LoadingState label="Loading consent request" />
 		{:else if !consentResponse.data}
 			<Alert variant="destructive">
 				<AlertTitle>Consent link not found</AlertTitle>

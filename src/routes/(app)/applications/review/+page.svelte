@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
+	import { LoadingState } from '$lib/components/app';
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
@@ -45,7 +46,7 @@
 	</div>
 
 	{#if applicationsResponse.isLoading}
-		<p class="text-sm text-gray-600">Loading applications...</p>
+		<LoadingState label="Loading applications" />
 	{:else if applicationsResponse.error}
 		<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
 			{applicationsResponse.error.message}

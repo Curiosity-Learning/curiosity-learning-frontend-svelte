@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
+	import { LoadingState } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -139,7 +140,7 @@
 			</div>
 
 			{#if membersResponse.isLoading}
-				<p class="text-sm text-muted-foreground">Loading members...</p>
+				<LoadingState label="Loading members" />
 			{:else if (filteredMembers.length ?? 0) === 0}
 				<p class="text-sm text-muted-foreground">No members matched your filter.</p>
 			{:else}

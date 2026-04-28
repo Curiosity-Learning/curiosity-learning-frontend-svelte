@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import BookletActivityCard from '$lib/components/app/sessions/booklet-activity-card.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -85,7 +85,7 @@
 	{/if}
 
 	{#if activitiesResponse.isLoading}
-		<p class="text-sm text-muted-foreground">Loading activities...</p>
+		<LoadingState label="Loading activities" />
 	{:else if filteredActivities.length === 0}
 		<p class="text-sm text-muted-foreground">
 			{selectedBlockNames.length

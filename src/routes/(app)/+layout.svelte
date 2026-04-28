@@ -9,6 +9,7 @@
 		type AppNavKey,
 		type AppNavItem
 	} from '$lib/components/app/navigation';
+	import { LoadingState } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
@@ -238,7 +239,7 @@
 	{sidebarProfileInitials}
 >
 	{#if auth.isLoading}
-		<div class="px-4 py-6 text-sm text-muted-foreground">Loading account...</div>
+		<LoadingState class="min-h-48" label="Loading account" />
 	{:else if !auth.isAuthenticated}
 		<Alert>
 			<AlertTitle>Session expired</AlertTitle>

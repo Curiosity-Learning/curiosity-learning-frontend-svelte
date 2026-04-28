@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
+	import { LoadingState } from '$lib/components/app';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
@@ -17,7 +18,7 @@
 </script>
 
 {#if isLoading}
-	<p class="p-4 text-sm text-muted-foreground">Loading...</p>
+	<LoadingState label="Loading club" />
 {:else if !isMember}
 	<div class="flex flex-col items-center gap-4 p-8 text-center">
 		<Alert variant="destructive" class="max-w-md">
