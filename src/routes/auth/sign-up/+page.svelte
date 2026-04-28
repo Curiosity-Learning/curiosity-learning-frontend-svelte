@@ -1577,7 +1577,7 @@
 									onmousedown={(event) => {
 										event.preventDefault();
 									}}
-									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:ring-0 focus-visible:outline-none active:bg-transparent"
+									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:bg-transparent"
 									aria-label={showPassword
 										? $_('auth.signUp.hidePassword')
 										: $_('auth.signUp.showPassword')}
@@ -1611,7 +1611,7 @@
 									onmousedown={(event) => {
 										event.preventDefault();
 									}}
-									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:ring-0 focus-visible:outline-none active:bg-transparent"
+									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:bg-transparent"
 									aria-label={showConfirmPassword
 										? $_('auth.signUp.hideConfirmPassword')
 										: $_('auth.signUp.showConfirmPassword')}
