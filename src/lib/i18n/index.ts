@@ -20,7 +20,6 @@ const normalizeLocale = (value: string | null | undefined): SupportedLocale | nu
 	if (!value) return null;
 	const normalized = value.trim().toLowerCase();
 	if (normalized === 'en' || normalized.startsWith('en-')) return 'en';
-	if (normalized === 'nl' || normalized.startsWith('nl-')) return 'nl';
 	return null;
 };
 
@@ -41,22 +40,13 @@ const detectInitialLocale = (): SupportedLocale => {
 	const stored = normalizeLocale(localStorage.getItem(LOCALE_STORAGE_KEY));
 	if (stored) return stored;
 
-	const candidates = [navigator.language, ...(navigator.languages ?? [])];
-	for (const candidate of candidates) {
-		const normalized = normalizeLocale(candidate);
-		if (normalized) {
-			return normalized;
-		}
-	}
-
 	return DEFAULT_LOCALE;
 };
 
 export const initI18n = () => {
 	if (!browser) return () => {};
 
-	const initialLocale = detectInitialLocale();
-	localeStore.set(initialLocale);
+	localeStore.set(detectInitialLocale());
 
 	const unsubscribe = localeStore.subscribe((value) => {
 		document.documentElement.lang = value;
@@ -67,7 +57,7 @@ export const initI18n = () => {
 };
 
 export const setAppLocale = (value: SupportedLocale) => {
-	localeStore.set(value);
+	localeStore.set(normalizeLocale(value) ?? DEFAULT_LOCALE);
 };
 
 export const locale = {
