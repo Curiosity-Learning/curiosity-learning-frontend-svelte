@@ -54,7 +54,7 @@
 		const clubId = pickClubId();
 		if (!clubId) {
 			redirected = true;
-			void goto(routes.noClub);
+			void goto(routes.newClub);
 			return;
 		}
 

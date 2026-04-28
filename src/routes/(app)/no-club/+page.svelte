@@ -27,7 +27,7 @@
 	};
 </script>
 
-<PageHeaderTitle title="Find a club" />
+<PageHeaderTitle title="New club" />
 
 <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 py-4">
 	<section
@@ -47,7 +47,7 @@
 			</div>
 
 			<div class="grid gap-3 sm:grid-cols-2">
-				<Button href={routes.onboardingJoinClub} size="xl" class="h-12 justify-between px-4">
+				<Button href={routes.newClubJoin} size="xl" class="h-12 justify-between px-4">
 					<span class="inline-flex items-center gap-2">
 						<UsersRoundIcon class="size-5" />
 						Join a club
@@ -55,7 +55,7 @@
 					<ArrowRightIcon class="size-4" />
 				</Button>
 				<Button
-					href={routes.onboardingStartClub}
+					href={routes.newClubStart}
 					variant="outline"
 					size="xl"
 					class="h-12 justify-between px-4"

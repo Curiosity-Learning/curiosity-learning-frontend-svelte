@@ -6,6 +6,7 @@ import type { LayoutServerLoad } from './$types';
 
 const noClubAllowedPaths = [
 	routes.noClub,
+	routes.newClub,
 	routes.chat,
 	routes.profile,
 	routes.settings,
@@ -27,7 +28,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		const convex = getConvexServerClient(locals.token);
 		const clubs = await convex.query(api.clubs.getMyClubs, {});
 		if (clubs.length === 0) {
-			throw redirect(307, routes.noClub);
+			throw redirect(307, routes.newClub);
 		}
 	}
 

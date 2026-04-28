@@ -2,9 +2,11 @@
 	import { browser } from '$app/environment';
 	import { env } from '$env/dynamic/public';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import { PageHeaderTitle } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import PublicClubMap from '$lib/components/app/public-club-map.svelte';
 	import { Card, CardContent } from '$lib/components/ui/card';
@@ -15,6 +17,8 @@
 
 	const PUBLIC_MAPBOX_ACCESS_TOKEN = env.PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
 	const clubsResponse = useStableQuery(api.clubs.listPublicClubs, {});
+	let isAppNewClubFlow = $derived(page.url.pathname.startsWith(routes.newClubPublicClubs));
+	let joinClubPath = $derived(isAppNewClubFlow ? routes.newClubJoin : routes.onboardingJoinClub);
 
 	type ClubListItem = NonNullable<typeof clubsResponse.data>[number];
 
@@ -38,8 +42,7 @@
 		const lat1 = toRadians(from.latitude);
 		const lat2 = toRadians(to.latitude);
 		const a =
-			Math.sin(latDelta / 2) ** 2 +
-			Math.cos(lat1) * Math.cos(lat2) * Math.sin(lonDelta / 2) ** 2;
+			Math.sin(latDelta / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(lonDelta / 2) ** 2;
 		return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 	};
 
@@ -119,7 +122,7 @@
 		selectedClubCode = clubCode;
 	};
 
-	const getClubDetailsPath = (clubCode: string) => `${routes.onboardingJoinClub}/${clubCode}`;
+	const getClubDetailsPath = (clubCode: string) => `${joinClubPath}/${clubCode}`;
 
 	const selectClub = async (clubCode: string) => {
 		selectedClubCode = clubCode;
@@ -238,6 +241,10 @@
 	});
 </script>
 
+{#if isAppNewClubFlow}
+	<PageHeaderTitle title="Public clubs" />
+{/if}
+
 <FlowShell
 	step={1}
 	total={5}
@@ -245,19 +252,20 @@
 	showSideIllustration={true}
 	showProgressBar={false}
 	edgeToEdgePanel={true}
+	appFrame={isAppNewClubFlow}
 >
-	<div class="flex w-full flex-1 min-h-0 flex-col bg-[#ffd7bb]">
+	<div class="flex min-h-0 w-full flex-1 flex-col bg-[#ffd7bb]">
 		{#if PUBLIC_MAPBOX_ACCESS_TOKEN}
 			<div class="relative flex min-h-full flex-1 flex-col overflow-hidden">
 				<a
-					href={routes.onboardingJoinClub}
-					class="absolute left-4 top-4 z-20 inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
+					href={joinClubPath}
+					class="absolute top-4 left-4 z-20 inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
 					aria-label="Go back"
 				>
 					<ChevronLeftIcon class="size-7" />
 				</a>
 
-				<div class="relative flex flex-1 pb-28 pt-0">
+				<div class="relative flex flex-1 pt-0 pb-28">
 					<PublicClubMap
 						accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
 						clubs={mapClubs}
@@ -274,7 +282,7 @@
 							bind:this={carousel}
 							role="group"
 							aria-label="Public clubs carousel"
-							class="pointer-events-auto flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-3 touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+							class="pointer-events-auto flex touch-pan-x snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 							class:cursor-grab={!isDraggingCarousel}
 							class:cursor-grabbing={isDraggingCarousel}
 							onscroll={handleCarouselScroll}
@@ -298,7 +306,9 @@
 												<div class="min-w-0">
 													<p class="truncate text-base font-semibold text-gray-900">{club.name}</p>
 													{#if club.location}
-														<p class="mt-1 line-clamp-2 min-h-[2.5rem] overflow-hidden text-ellipsis text-xs leading-5 text-gray-600">
+														<p
+															class="mt-1 line-clamp-2 min-h-[2.5rem] overflow-hidden text-xs leading-5 text-ellipsis text-gray-600"
+														>
 															{club.location}
 														</p>
 													{/if}

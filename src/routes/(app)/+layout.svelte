@@ -111,7 +111,6 @@
 	};
 
 	let activePath = $derived(page.url.pathname);
-	let isNoClubPath = $derived(activePath === routes.noClub);
 
 	let clubIdFromUrl = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
 	let activeClubId = $derived(clubIdFromUrl ?? activeContextResponse.data?.activeClubId ?? null);
@@ -149,13 +148,11 @@
 		if (!browser) return;
 		if (!isAuthReady) return;
 		if (clubsResponse.isLoading) return;
-		if (isNoClubPath && clubs.length > 0 && clubIdForNav) {
-			void goto(routes.clubHome(clubIdForNav), { replaceState: true });
-			return;
-		}
 		if (clubs.length > 0) return;
 		if (
 			activePath === routes.noClub ||
+			activePath === routes.newClub ||
+			activePath.startsWith(`${routes.newClub}/`) ||
 			activePath === routes.chat ||
 			activePath === routes.profile ||
 			activePath === routes.settings ||
@@ -163,7 +160,7 @@
 		) {
 			return;
 		}
-		void goto(routes.noClub, { replaceState: true });
+		void goto(routes.newClub, { replaceState: true });
 	});
 	let hintedTitle = $derived.by(() => {
 		const hint = page.state.headerTitleHint?.trim();

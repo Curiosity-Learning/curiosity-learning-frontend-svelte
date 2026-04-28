@@ -450,6 +450,7 @@
 						{club.clubName}
 					</Button>
 				{/each}
+				<Button size="sm" variant="outline" href={routes.newClub}>New club</Button>
 			</div>
 		</CardContent>
 	</Card>

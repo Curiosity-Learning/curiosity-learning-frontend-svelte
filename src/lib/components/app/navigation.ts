@@ -65,8 +65,8 @@ export const buildAppNavigation = (
 	} else {
 		items.push({
 			key: 'noClub',
-			label: 'Find club',
-			href: routes.noClub,
+			label: 'New club',
+			href: routes.newClub,
 			icon: UsersIcon
 		});
 	}

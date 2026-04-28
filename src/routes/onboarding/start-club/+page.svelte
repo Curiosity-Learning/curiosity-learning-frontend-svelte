@@ -10,6 +10,7 @@
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
 	import { Field, FieldError, FieldLabel } from '$lib/components/ui/field';
+	import { PageHeaderTitle } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
@@ -42,6 +43,19 @@
 	const ABOUT_CHARACTER_LIMIT = 500;
 	const LOCATION_AUTOCOMPLETE_DEBOUNCE_MS = 280;
 	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
+	let isAppNewClubFlow = $derived(page.url.pathname.startsWith(routes.newClubStart));
+	let startClubPath = $derived(isAppNewClubFlow ? routes.newClubStart : routes.onboardingStartClub);
+	let startClubVideoPath = $derived(
+		isAppNewClubFlow ? routes.newClubStartVideo : routes.onboardingStartClubVideo
+	);
+	let startClubDonePath = $derived(isAppNewClubFlow ? routes.newClub : routes.noClub);
+	let startClubBackPath = $derived(isAppNewClubFlow ? routes.newClub : routes.onboardingGetStarted);
+	let contentClass = $derived(
+		isAppNewClubFlow
+			? 'flex w-full flex-col gap-6'
+			: 'mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6'
+	);
+	let actionClass = $derived(isAppNewClubFlow ? 'pb-0' : 'mt-auto pb-2 sm:pb-6');
 
 	type StartClubDraft = {
 		location: string;
@@ -198,10 +212,10 @@
 	const goBack = async () => {
 		errorMessage = '';
 		if (step === 2) {
-			await goto(routes.onboardingStartClub, { replaceState: true });
+			await goto(startClubPath, { replaceState: true });
 			return;
 		}
-		await goto(routes.onboardingGetStarted);
+		await goto(startClubBackPath);
 	};
 
 	const goToStepTwo = async () => {
@@ -217,12 +231,12 @@
 		}
 		if (!auth.isAuthenticated) {
 			const params = new SvelteURLSearchParams();
-			params.set('next', routes.onboardingStartClubVideo);
+			params.set('next', startClubVideoPath);
 			params.set('forceSignup', '1');
 			await goto(`/auth/sign-up?${params.toString()}`);
 			return;
 		}
-		await goto(routes.onboardingStartClubVideo);
+		await goto(startClubVideoPath);
 	};
 
 	let hasValidUploadedVideo = $derived(
@@ -306,7 +320,7 @@
 		if (step !== 2) return;
 		writeStartClubDraft();
 		const params = new SvelteURLSearchParams();
-		params.set('next', routes.onboardingStartClubVideo);
+		params.set('next', startClubVideoPath);
 		params.set('forceSignup', '1');
 		void goto(`/auth/sign-up?${params.toString()}`, { replaceState: true });
 	});
@@ -420,7 +434,7 @@
 		if (!auth.isAuthenticated) {
 			writeStartClubDraft();
 			const params = new SvelteURLSearchParams();
-			params.set('next', routes.onboardingStartClubVideo);
+			params.set('next', startClubVideoPath);
 			params.set('forceSignup', '1');
 			await goto(`/auth/sign-up?${params.toString()}`);
 			return;
@@ -453,7 +467,7 @@
 				throw new Error(t('onboarding.startClub.submitFailure'));
 			}
 			clearStartClubDraft();
-			await goto(routes.noClub);
+			await goto(startClubDonePath);
 		} catch (error) {
 			errorMessage =
 				error instanceof Error ? error.message : t('onboarding.startClub.submitFailure');
@@ -463,12 +477,19 @@
 	};
 </script>
 
+{#if isAppNewClubFlow}
+	<PageHeaderTitle
+		title={step === 2 ? $_('onboarding.startClub.videoTitle') : $_('onboarding.startClub.title')}
+	/>
+{/if}
+
 <FlowShell
 	{step}
 	total={5}
 	showAccountLink={false}
 	showSideIllustration={true}
 	desktopContentScrollable={false}
+	appFrame={isAppNewClubFlow}
 >
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
@@ -483,10 +504,12 @@
 		</div>
 	{/snippet}
 
-	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
+	<div class={contentClass}>
 		{#if step === 1}
 			<div class="flex flex-col gap-5">
-				<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.title')}</h1>
+				{#if !isAppNewClubFlow}
+					<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.title')}</h1>
+				{/if}
 
 				<DropdownField
 					id="location"
@@ -573,7 +596,7 @@
 				</p>
 			{/if}
 
-			<div class="mt-auto pb-2 sm:pb-6">
+			<div class={actionClass}>
 				<Button
 					variant="default"
 					size="xl"
@@ -586,7 +609,9 @@
 			</div>
 		{:else}
 			<div class="flex flex-col gap-5">
-				<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.videoTitle')}</h1>
+				{#if !isAppNewClubFlow}
+					<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.videoTitle')}</h1>
+				{/if}
 				<div class="flex flex-col gap-2">
 					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">
 						{$_('onboarding.startClub.videoPromptTitle')}
@@ -696,7 +721,7 @@
 				</p>
 			{/if}
 
-			<div class="mt-auto pb-2 sm:pb-6">
+			<div class={actionClass}>
 				<Button
 					variant="default"
 					size="xl"
