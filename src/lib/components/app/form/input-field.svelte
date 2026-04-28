@@ -68,6 +68,12 @@
 		</FieldLabel>
 	{/if}
 
+	{#if hint}
+		<FieldDescription id={hintId} class={cn('type-body text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+
 	<div class="relative">
 		<Input
 			{id}
@@ -95,12 +101,6 @@
 			</div>
 		{/if}
 	</div>
-
-	{#if hint}
-		<FieldDescription id={hintId} class={cn('text-sm leading-7 text-gray-600', hintClass)}>
-			{hint}
-		</FieldDescription>
-	{/if}
 
 	{#if error}
 		<FieldError id={errorId}>{error}</FieldError>

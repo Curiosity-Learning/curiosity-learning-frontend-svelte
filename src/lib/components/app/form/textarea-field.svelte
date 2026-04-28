@@ -39,6 +39,12 @@
 		</FieldLabel>
 	{/if}
 
+	{#if hint}
+		<FieldDescription class={cn('type-body text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+
 	<div class="relative">
 		<Textarea
 			{id}
@@ -53,10 +59,4 @@
 			</div>
 		{/if}
 	</div>
-
-	{#if hint}
-		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
-			{hint}
-		</FieldDescription>
-	{/if}
 </Field>

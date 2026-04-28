@@ -80,6 +80,12 @@
 		</FieldLabel>
 	{/if}
 
+	{#if hint}
+		<FieldDescription class={cn('type-body text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+
 	<div class={`grid gap-2 ${includeDay ? 'grid-cols-3' : 'grid-cols-2'}`}>
 		<Select.Root type="single" bind:value={month}>
 			<Select.Trigger
@@ -134,10 +140,4 @@
 			</Select.Content>
 		</Select.Root>
 	</div>
-
-	{#if hint}
-		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
-			{hint}
-		</FieldDescription>
-	{/if}
 </Field>

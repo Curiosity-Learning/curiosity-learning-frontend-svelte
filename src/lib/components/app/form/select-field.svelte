@@ -49,6 +49,12 @@
 		</FieldLabel>
 	{/if}
 
+	{#if hint}
+		<FieldDescription class={cn('type-body text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
+	{/if}
+
 	<Select.Root type="single" bind:value {name} {disabled}>
 		<Select.Trigger
 			{id}
@@ -69,10 +75,4 @@
 			{/each}
 		</Select.Content>
 	</Select.Root>
-
-	{#if hint}
-		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
-			{hint}
-		</FieldDescription>
-	{/if}
 </Field>

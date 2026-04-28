@@ -34,13 +34,13 @@
 		</FieldLabel>
 	{/if}
 
-	{@render children()}
-
 	{#if hint}
-		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
+		<FieldDescription class={cn('type-body text-gray-600', hintClass)}>
 			{hint}
 		</FieldDescription>
 	{/if}
+
+	{@render children()}
 
 	{#if error}
 		<FieldError>{error}</FieldError>

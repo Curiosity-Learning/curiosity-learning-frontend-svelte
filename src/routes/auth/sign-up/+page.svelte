@@ -1528,6 +1528,11 @@
 						<FieldLabel for="email" required class="type-field-label text-gray-900">
 							{isMinor ? $_('auth.signUp.parentEmailLabel') : $_('auth.signUp.emailLabel')}
 						</FieldLabel>
+						{#if isMinor}
+							<FieldDescription class="type-body text-gray-600">
+								{$_('auth.signUp.parentEmailDescription')}
+							</FieldDescription>
+						{/if}
 						<Input
 							id="email"
 							type="email"
@@ -1536,11 +1541,6 @@
 							placeholder={$_('auth.signUp.emailPlaceholder')}
 							class="h-12 border-gray-300 bg-white px-4 text-base"
 						/>
-						{#if isMinor}
-							<FieldDescription class="text-sm leading-6 text-gray-600">
-								{$_('auth.signUp.parentEmailDescription')}
-							</FieldDescription>
-						{/if}
 					</Field>
 
 					{#if emailStatusPending}
