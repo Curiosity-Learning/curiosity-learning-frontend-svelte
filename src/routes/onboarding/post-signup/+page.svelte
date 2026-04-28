@@ -414,7 +414,7 @@
 					/>
 
 					<div class="flex flex-col gap-3">
-						<p class="type-field-label text-gray-900">
+						<p class="type-field-label text-base leading-6 font-bold text-gray-900">
 							{$_('onboarding.postSignup.profileImageLabel')}
 						</p>
 						<FileDropZone.Root

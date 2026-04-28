@@ -507,15 +507,6 @@
 		letter-spacing: 0;
 	}
 
-	/* Field label */
-	.type-field-label {
-		font-family: var(--font-family-sans);
-		font-size: 16px;
-		line-height: 24px;
-		font-weight: 700;
-		letter-spacing: 0;
-	}
-
 	/* Body - large */
 	.type-lead {
 		font-family: var(--font-family-sans);
@@ -582,6 +573,15 @@
 		font-size: var(--text-type-body-small-size);
 		line-height: var(--text-type-body-small-line);
 		font-weight: 500;
+	}
+
+	/* Field label */
+	.type-field-label {
+		font-family: var(--font-family-sans);
+		font-size: var(--text-type-body-large-size);
+		line-height: var(--text-type-body-large-line);
+		font-weight: 700;
+		letter-spacing: 0;
 	}
 
 	.type-sm-bold {

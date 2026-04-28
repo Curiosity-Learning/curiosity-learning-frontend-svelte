@@ -1525,11 +1525,11 @@
 					{/if}
 
 					<Field class="flex flex-col gap-2">
-						<FieldLabel for="email" required class="type-field-label text-gray-900">
+						<FieldLabel for="email" required class="type-field-label text-base leading-6 font-bold text-gray-900">
 							{isMinor ? $_('auth.signUp.parentEmailLabel') : $_('auth.signUp.emailLabel')}
 						</FieldLabel>
 						{#if isMinor}
-							<FieldDescription class="type-body text-gray-600">
+							<FieldDescription class="type-body text-sm leading-6 font-normal text-gray-600">
 								{$_('auth.signUp.parentEmailDescription')}
 							</FieldDescription>
 						{/if}
@@ -1559,7 +1559,7 @@
 
 					{#if !shouldHidePasswordFields}
 						<Field class="flex flex-col gap-2">
-							<FieldLabel for="password" required class="type-field-label text-gray-900">
+							<FieldLabel for="password" required class="type-field-label text-base leading-6 font-bold text-gray-900">
 								{$_('auth.signUp.passwordLabel')}
 							</FieldLabel>
 							<div class="relative">
@@ -1593,7 +1593,7 @@
 						</Field>
 
 						<Field class="flex flex-col gap-2">
-							<FieldLabel for="confirmPassword" required class="type-field-label text-gray-900">
+							<FieldLabel for="confirmPassword" required class="type-field-label text-base leading-6 font-bold text-gray-900">
 								{$_('auth.signUp.confirmPasswordLabel')}
 							</FieldLabel>
 							<div class="relative">

@@ -63,13 +63,13 @@
 
 <Field class={cn('flex flex-col gap-2', className)}>
 	{#if label}
-		<FieldLabel for={id} required={required} class={cn('type-field-label text-gray-900', labelClass)}>
+		<FieldLabel for={id} required={required} class={cn('type-field-label text-base leading-6 font-bold text-gray-900', labelClass)}>
 			{label}
 		</FieldLabel>
 	{/if}
 
 	{#if hint}
-		<FieldDescription id={hintId} class={cn('type-body text-gray-600', hintClass)}>
+		<FieldDescription id={hintId} class={cn('type-body text-sm leading-6 font-normal text-gray-600', hintClass)}>
 			{hint}
 		</FieldDescription>
 	{/if}
