@@ -65,6 +65,7 @@
 	let referralSource = $state('');
 	let referralOther = $state('');
 	let previewVideoLoadFailed = $state(false);
+	let videoTouched = $state(false);
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let hydratedDraft = $state(false);
@@ -208,12 +209,24 @@
 			return;
 		}
 		writeStartClubDraft();
+		if (auth.isLoading) {
+			errorMessage = t('onboarding.startClub.checkingSession');
+			return;
+		}
+		if (!auth.isAuthenticated) {
+			const params = new SvelteURLSearchParams();
+			params.set('next', '/onboarding/start-club?step=2');
+			params.set('forceSignup', '1');
+			await goto(`/auth/sign-up?${params.toString()}`);
+			return;
+		}
 		await goto('/onboarding/start-club?step=2');
 	};
 
 	let hasValidUploadedVideo = $derived(
 		Boolean(clubVideoField.localPreviewUrl && !previewVideoLoadFailed)
 	);
+	let hasSelectedVideo = $derived(Boolean(clubVideoField.selectedFile || clubVideoField.assetId));
 
 	let locationLookupTimer: ReturnType<typeof setTimeout> | null = null;
 	let locationLookupAbortController: AbortController | null = null;
@@ -275,6 +288,17 @@
 
 	$effect(() => {
 		writeStartClubDraft();
+	});
+
+	$effect(() => {
+		if (auth.isLoading) return;
+		if (auth.isAuthenticated) return;
+		if (step !== 2) return;
+		writeStartClubDraft();
+		const params = new SvelteURLSearchParams();
+		params.set('next', '/onboarding/start-club?step=2');
+		params.set('forceSignup', '1');
+		void goto(`/auth/sign-up?${params.toString()}`, { replaceState: true });
 	});
 
 	$effect(() => {
@@ -364,6 +388,7 @@
 
 	const uploadClubVideo = async (files: File[]) => {
 		previewVideoLoadFailed = false;
+		videoTouched = true;
 		errorMessage = '';
 		try {
 			await clubVideoField.selectFiles(files);
@@ -375,6 +400,7 @@
 
 	const submitStartClub = async () => {
 		errorMessage = '';
+		videoTouched = true;
 
 		if (auth.isLoading) {
 			errorMessage = t('onboarding.startClub.checkingSession');
@@ -387,6 +413,11 @@
 			params.set('next', '/onboarding/start-club?step=2');
 			params.set('forceSignup', '1');
 			await goto(`/auth/sign-up?${params.toString()}`);
+			return;
+		}
+
+		if (!hasSelectedVideo) {
+			errorMessage = t('onboarding.startClub.videoRequired');
 			return;
 		}
 
@@ -619,6 +650,9 @@
 								previewVideoLoadFailed = true;
 							}}
 						></video>
+					{/if}
+					{#if videoTouched && !hasSelectedVideo}
+						<p class="text-sm text-red-700">{$_('onboarding.startClub.videoRequired')}</p>
 					{/if}
 				</div>
 			</div>

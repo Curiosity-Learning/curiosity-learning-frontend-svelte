@@ -359,6 +359,7 @@ const en = {
 			videoUploading: 'Uploading your video...',
 			videoDropPrompt: 'Drag and drop or choose a video',
 			videoRequirements: 'MP4, MOV, WEBM, or M4V up to 100 MB.',
+			videoRequired: 'Please upload a video before submitting your application.',
 			videoUploadingStatus: 'Uploading video...',
 			videoUploadedStatus: 'Video uploaded',
 			submitting: 'Submitting...',
