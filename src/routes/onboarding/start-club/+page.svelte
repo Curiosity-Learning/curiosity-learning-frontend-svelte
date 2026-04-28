@@ -522,7 +522,7 @@
 					filterOptions={false}
 					emptyMessage={location.trim().length >= LOCATION_AUTOCOMPLETE_MIN_CHARS
 						? $_('onboarding.startClub.locationEmptyFound')
-						: $_('onboarding.startClub.locationEmptyTypeMore')}
+						: undefined}
 					hint={PUBLIC_MAPBOX_ACCESS_TOKEN
 						? $_('onboarding.startClub.locationHintEnabled')
 						: $_('onboarding.startClub.locationHintMissingToken')}
