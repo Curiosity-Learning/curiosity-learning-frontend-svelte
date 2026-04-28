@@ -49,7 +49,6 @@ const resolveAuthorSummary = async (
 	const name =
 		[profile?.firstName ?? '', profile?.lastName ?? ''].join(' ').trim() ||
 		profile?.username ||
-		profile?.email ||
 		userId;
 	const summary = {
 		name,

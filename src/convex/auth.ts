@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth';
-import { emailOTP } from 'better-auth/plugins';
+import { emailOTP, username } from 'better-auth/plugins';
 import { createClient } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
 import type { GenericCtx } from '@convex-dev/better-auth';
@@ -115,6 +115,11 @@ const splitNameParts = (name?: string | null) => {
 	};
 };
 
+const normalizeUsername = (value?: string | null) => {
+	const normalized = value?.trim().toLowerCase() ?? '';
+	return normalized.length > 0 ? normalized : undefined;
+};
+
 const resolvePendingClubIntent = (
 	nextPath?: string | null
 ): { pendingClubCode?: string; pendingRole?: 'Learner' | 'Guide' } => {
@@ -185,6 +190,12 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 					});
 				}
 			}),
+			username({
+				minUsernameLength: 3,
+				maxUsernameLength: 30,
+				usernameNormalization: (value) => value.trim().toLowerCase(),
+				usernameValidator: (value) => /^[a-z0-9_]+$/.test(value)
+			}),
 			convex({ authConfig })
 		],
 		trustedOrigins
@@ -226,12 +237,14 @@ export const getSignupAccountStatusByEmail = query({
 			where: [{ field: 'email', value: normalizedEmail }]
 		})) as { _id: string; emailVerified?: boolean } | null;
 
-		const profile = await ctx.db
-			.query('profiles')
-			.withIndex('by_email', (q) => q.eq('email', normalizedEmail))
-			.first();
+		const profile = authUser?._id
+			? await ctx.db
+					.query('profiles')
+					.withIndex('by_user_id', (q) => q.eq('userId', authUser._id))
+					.first()
+			: null;
 
-		if (!authUser && !profile) {
+		if (!authUser) {
 			return {
 				exists: false,
 				isVerified: false,
@@ -282,13 +295,61 @@ export const resolveAuthIdentifier = query({
 			return { email: normalizedIdentifier };
 		}
 
-		const profile = await ctx.db
-			.query('profiles')
-			.withIndex('by_username', (q) => q.eq('username', normalizedIdentifier))
-			.first();
+		const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: 'username', value: normalizedIdentifier }]
+		})) as { email?: string } | null;
 
 		return {
-			email: profile?.email ?? null
+			email: authUser?.email ?? null
+		};
+	}
+});
+
+export const getAuthUserByUsername = query({
+	args: {
+		username: v.string()
+	},
+	returns: v.any(),
+	handler: async (ctx, args) => {
+		const normalizedUsername = args.username.trim().toLowerCase();
+		if (!normalizedUsername) return null;
+
+		return (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: 'username', value: normalizedUsername }]
+		})) as { _id: string; email: string; emailVerified?: boolean; username?: string | null } | null;
+	}
+});
+
+export const getUsernameLoginStatus = query({
+	args: {
+		username: v.string()
+	},
+	returns: v.object({
+		exists: v.boolean(),
+		parentConsentStatus: v.optional(v.union(v.literal('pending'), v.literal('approved')))
+	}),
+	handler: async (ctx, args) => {
+		const normalizedUsername = args.username.trim().toLowerCase();
+		if (!normalizedUsername) {
+			return { exists: false };
+		}
+		const profile = await ctx.db
+			.query('profiles')
+			.withIndex('by_username', (q) => q.eq('username', normalizedUsername))
+			.first();
+		if (!profile) {
+			return { exists: false };
+		}
+		const consent = await ctx.db
+			.query('parentChildConsents')
+			.withIndex('by_child_user_id', (q) => q.eq('childUserId', profile.userId))
+			.order('desc')
+			.first();
+		return {
+			exists: true,
+			parentConsentStatus: consent?.status
 		};
 	}
 });
@@ -313,7 +374,6 @@ export const ensureProfile = mutation({
 
 		if (existing) {
 			await ctx.db.patch(existing._id, {
-				email: authUser.email,
 				firstName: existing.firstName ?? firstName,
 				lastName: existing.lastName ?? lastName,
 				coverPhotoUrl: existing.coverPhotoUrl ?? authUser.image ?? undefined,
@@ -325,7 +385,6 @@ export const ensureProfile = mutation({
 
 		const profileId = await ctx.db.insert('profiles', {
 			userId: authUser._id,
-			email: authUser.email,
 			firstName,
 			lastName,
 			username,
@@ -351,8 +410,11 @@ export const completeSignupProfile = mutation({
 			ctx as unknown as GenericCtx<GenericDataModel>
 		);
 		const now = Date.now();
-		const normalizedUsername = args.username?.trim().toLowerCase() || undefined;
-		const fallbackUsername = authUser.email.split('@')[0].toLowerCase();
+		const normalizedUsername = normalizeUsername(args.username);
+		const authUsername = normalizeUsername(
+			'username' in authUser ? (authUser.username as string | null | undefined) : undefined
+		);
+		const fallbackUsername = normalizeUsername(authUser.email.split('@')[0]);
 		const desiredUsername = normalizedUsername ?? fallbackUsername;
 		const { firstName, lastName } = splitNameParts(authUser.name);
 		const pending = resolvePendingClubIntent(args.nextPath);
@@ -373,7 +435,6 @@ export const completeSignupProfile = mutation({
 		}
 
 		const patch = {
-			email: authUser.email,
 			isVerified: authUser.emailVerified,
 			firstName: existing?.firstName ?? firstName,
 			lastName: existing?.lastName ?? lastName,
@@ -388,6 +449,19 @@ export const completeSignupProfile = mutation({
 
 		if (existing) {
 			await ctx.db.patch(existing._id, patch);
+			if (desiredUsername && desiredUsername !== authUsername) {
+				await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+					input: {
+						model: 'user',
+						where: [{ field: '_id', value: authUser._id }],
+						update: {
+							username: desiredUsername,
+							displayUsername: desiredUsername,
+							updatedAt: now
+						}
+					}
+				});
+			}
 			return await ctx.db.get(existing._id);
 		}
 
@@ -396,6 +470,19 @@ export const completeSignupProfile = mutation({
 			firstLoginCompleted: false,
 			...patch
 		});
+		if (desiredUsername && desiredUsername !== authUsername) {
+			await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+				input: {
+					model: 'user',
+					where: [{ field: '_id', value: authUser._id }],
+					update: {
+						username: desiredUsername,
+						displayUsername: desiredUsername,
+						updatedAt: now
+					}
+				}
+			});
+		}
 		return await ctx.db.get(profileId);
 	}
 });

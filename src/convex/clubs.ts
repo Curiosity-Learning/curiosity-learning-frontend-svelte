@@ -186,16 +186,13 @@ const getOrCreateProfile = async (ctx: MutationCtx, userId: string) => {
 		return existing;
 	}
 
-	const authUser = await authComponent.getAuthUser(
-		ctx as unknown as GenericCtx<GenericDataModel>
-	);
+	const authUser = await authComponent.getAuthUser(ctx as unknown as GenericCtx<GenericDataModel>);
 	const now = Date.now();
 	const username = await resolveUniqueUsername(ctx, authUser._id, authUser.email);
 	const { firstName, lastName } = splitNameParts(authUser.name);
 
 	const profileId = await ctx.db.insert('profiles', {
 		userId: authUser._id,
-		email: authUser.email,
 		firstName,
 		lastName,
 		username,
@@ -388,7 +385,6 @@ export const createClub = mutation({
 			firstName: profile.firstName,
 			lastName: profile.lastName,
 			username: profile.username,
-			email: profile.email,
 			coverPhotoUrl: profile.coverPhotoUrl,
 			createdAt: now
 		});
@@ -435,7 +431,6 @@ export const joinClubWithCode = mutation({
 			firstName: profile.firstName,
 			lastName: profile.lastName,
 			username: profile.username,
-			email: profile.email,
 			coverPhotoUrl: profile.coverPhotoUrl,
 			createdAt: Date.now()
 		});
@@ -614,7 +609,6 @@ export const getMembers = query({
 			firstName: string | null;
 			lastName: string | null;
 			username: string | null;
-			email: string | null;
 			coverPhotoUrl: string | null;
 			profileImageMediaAssetId: Id<'mediaAssets'> | null;
 		}> = [];
@@ -631,12 +625,11 @@ export const getMembers = query({
 				.first();
 
 			// Fall back to the profiles table when denormalized fields are missing
-			let { firstName, lastName, username, email } = member;
+			let { firstName, lastName, username } = member;
 			if (profile) {
 				firstName = firstName ?? profile.firstName;
 				lastName = lastName ?? profile.lastName;
 				username = username ?? profile.username;
-				email = email ?? profile.email;
 			}
 
 			output.push({
@@ -648,7 +641,6 @@ export const getMembers = query({
 				firstName: firstName ?? null,
 				lastName: lastName ?? null,
 				username: username ?? null,
-				email: email ?? null,
 				coverPhotoUrl: null,
 				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
 			});

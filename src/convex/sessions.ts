@@ -262,7 +262,7 @@ export const getSessionCardData = query({
 						.withIndex('by_user_id', (q) => q.eq('userId', userId))
 						.first();
 					const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-					const name = fullName || profile?.username || profile?.email || userId;
+					const name = fullName || profile?.username || userId;
 					attendees.push({
 						name,
 						imageUrl: null,
@@ -378,7 +378,7 @@ export const listCardPreviewsByClub = query({
 						.withIndex('by_user_id', (q) => q.eq('userId', userId))
 						.first();
 					const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-					const name = fullName || profile?.username || profile?.email || userId;
+					const name = fullName || profile?.username || userId;
 					attendees.push({
 						name,
 						imageUrl: null,
