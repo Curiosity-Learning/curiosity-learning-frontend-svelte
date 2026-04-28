@@ -6,12 +6,20 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import favicon from '$lib/assets/svg/favicon.svg';
 	import type { Attachment } from 'svelte/attachments';
-	import type { HeaderBackConfig, HeaderSearchConfig, HeaderSearchMode } from '$lib/app/page-header';
+	import type {
+		HeaderBackConfig,
+		HeaderSearchConfig,
+		HeaderSearchMode
+	} from '$lib/app/page-header';
 	import { Button } from '$lib/components/ui/button';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils.js';
-	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '$lib/components/ui/collapsible';
+	import {
+		Collapsible,
+		CollapsibleContent,
+		CollapsibleTrigger
+	} from '$lib/components/ui/collapsible';
 	import { Separator } from '$lib/components/ui/separator';
 	import ConnectivityOverlay from './connectivity-overlay.svelte';
 	import AppNavItem from './app-nav-item.svelte';
@@ -53,6 +61,8 @@
 
 	const topNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'top'));
 	const bottomNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'bottom'));
+	const mobileNavItems = $derived(topNavItems.concat(bottomNavItems));
+	let mobileNavGridClass = $derived(mobileNavItems.length <= 3 ? 'grid-cols-3' : 'grid-cols-4');
 	// Auto mode chooses the most stable layout for current header width.
 	const SEARCH_INLINE_MIN_WIDTH = 920;
 	const SEARCH_COLLAPSIBLE_MIN_WIDTH = 680;
@@ -93,6 +103,12 @@
 	if (browser) {
 		initialHistoryIndex = getHistoryIndex();
 	}
+
+	$effect(() => {
+		if (activeNav !== 'club') {
+			clubOpen = false;
+		}
+	});
 
 	const isActivePath = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
 
@@ -157,10 +173,7 @@
 	const handleOverlaySearchBlur = (event: FocusEvent) => {
 		if (!headerSearch || resolvedSearchMode !== 'overlay') return;
 		const nextTarget = event.relatedTarget;
-		if (
-			nextTarget instanceof HTMLElement &&
-			nextTarget.dataset.headerSearchToggle === 'true'
-		) {
+		if (nextTarget instanceof HTMLElement && nextTarget.dataset.headerSearchToggle === 'true') {
 			return;
 		}
 		if (!headerSearchValue.trim()) {
@@ -176,7 +189,6 @@
 			}
 		};
 	};
-
 </script>
 
 <!-- --bottom-nav-h: height of the fixed mobile bottom nav. Used here for content
@@ -218,7 +230,10 @@
 									)}
 								>
 									{#if activeNav === nav.key}
-										<span class="bg-orange-500 absolute inset-y-0 left-0 w-1 rounded-r-sm" aria-hidden="true"></span>
+										<span
+											class="absolute inset-y-0 left-0 w-1 rounded-r-sm bg-orange-500"
+											aria-hidden="true"
+										></span>
 									{/if}
 									<a
 										href={nav.href}
@@ -234,7 +249,11 @@
 										aria-label={clubNavOpen ? `Collapse ${nav.label}` : `Expand ${nav.label}`}
 									>
 										<ChevronDownIcon
-											class={cn('size-4 transition-transform', activeNav === nav.key ? 'text-orange-500' : 'text-[#7a8093]', clubNavOpen ? 'rotate-180' : '')}
+											class={cn(
+												'size-4 transition-transform',
+												activeNav === nav.key ? 'text-orange-500' : 'text-[#7a8093]',
+												clubNavOpen ? 'rotate-180' : ''
+											)}
 										/>
 									</CollapsibleTrigger>
 								</div>
@@ -269,19 +288,24 @@
 					{#each bottomNavItems as nav (nav.key)}
 						{#if nav.key === 'profile'}
 							<div class="px-4 py-2">
-								<div class={cn(
-									'flex items-center justify-between rounded-lg px-2 py-2',
-									activeNav === nav.key ? 'bg-[#f8ecdf]' : 'hover:bg-[#eef0f5]'
-								)}>
+								<div
+									class={cn(
+										'flex items-center justify-between rounded-lg px-2 py-2',
+										activeNav === nav.key ? 'bg-[#f8ecdf]' : 'hover:bg-[#eef0f5]'
+									)}
+								>
 									<a
 										href={nav.href}
-										class="min-w-0 flex flex-1 items-center gap-3"
+										class="flex min-w-0 flex-1 items-center gap-3"
 										data-sveltekit-preload-code="hover"
 										data-sveltekit-preload-data="hover"
 									>
 										<Avatar class="size-9 shrink-0 border border-border/80 bg-[#d8dbe5]">
 											{#if sidebarProfileImageUrl}
-												<AvatarImage src={sidebarProfileImageUrl} alt={sidebarProfileName ?? nav.label} />
+												<AvatarImage
+													src={sidebarProfileImageUrl}
+													alt={sidebarProfileName ?? nav.label}
+												/>
 											{/if}
 											<AvatarFallback class="text-xs font-bold text-[#4c5167]">
 												{sidebarProfileInitials ?? 'PR'}
@@ -303,22 +327,23 @@
 								badgeCount={nav.badgeCount}
 							/>
 						{/if}
-						{/each}
-					</nav>
-				</div>
+					{/each}
+				</nav>
+			</div>
 		</aside>
 
-			<div class="flex min-h-screen min-w-0 flex-1 flex-col bg-white">
-				<header
-					class="sticky top-0 z-20 flex justify-center border-b border-border bg-white"
-				>
+		<div class="flex min-h-screen min-w-0 flex-1 flex-col bg-white">
+			<header class="sticky top-0 z-20 flex justify-center border-b border-border bg-white">
 				<div
 					class={cn(
 						'flex w-full max-w-6xl flex-col gap-3 px-4 sm:px-6 lg:px-8',
 						banner ? 'pt-4 pb-0' : 'py-4'
 					)}
 				>
-					<div class="relative flex flex-wrap items-center justify-between gap-3" bind:clientWidth={headerRowWidth}>
+					<div
+						class="relative flex flex-wrap items-center justify-between gap-3"
+						bind:clientWidth={headerRowWidth}
+					>
 						<div class="relative flex min-w-0 flex-1 items-center gap-2">
 							{#if headerBack}
 								<Button
@@ -331,30 +356,35 @@
 									<ChevronLeftIcon class="size-5" />
 								</Button>
 							{/if}
-								{#if headerTitleContent}
-									<div
-										class={cn(
-											'min-w-0 flex-1 transition-opacity duration-200',
-											showOverlaySearchField ? 'opacity-0' : 'opacity-100'
-										)}
-									>
-										{@render headerTitleContent()}
-									</div>
-								{:else}
-									<h1
-										class={cn(
-											'min-w-0 truncate type-step-title text-[#262626] transition-opacity duration-200',
-											showOverlaySearchField ? 'opacity-0' : 'opacity-100'
-										)}
-									>
-										{title}
-									</h1>
-								{/if}
+							{#if headerTitleContent}
+								<div
+									class={cn(
+										'min-w-0 flex-1 transition-opacity duration-200',
+										showOverlaySearchField ? 'opacity-0' : 'opacity-100'
+									)}
+								>
+									{@render headerTitleContent()}
+								</div>
+							{:else}
+								<h1
+									class={cn(
+										'type-step-title min-w-0 truncate text-[#262626] transition-opacity duration-200',
+										showOverlaySearchField ? 'opacity-0' : 'opacity-100'
+									)}
+								>
+									{title}
+								</h1>
+							{/if}
 
 							{#if showOverlaySearchField}
-								<div class="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center">
+								<div
+									class="pointer-events-none absolute inset-y-0 right-0 left-0 flex items-center"
+								>
 									<div
-										class={cn('pointer-events-auto min-w-0 flex-1', headerBack ? 'pl-10' : undefined)}
+										class={cn(
+											'pointer-events-auto min-w-0 flex-1',
+											headerBack ? 'pl-10' : undefined
+										)}
 									>
 										<Input
 											bind:ref={searchInputRef}
@@ -373,7 +403,7 @@
 							<div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
 								{#if headerSearch}
 									{#if resolvedSearchMode === 'inline'}
-										<div class="w-[min(22rem,45vw)] min-w-[13rem] max-w-full">
+										<div class="w-[min(22rem,45vw)] max-w-full min-w-[13rem]">
 											<Input
 												bind:ref={searchInputRef}
 												value={headerSearchValue}
@@ -395,8 +425,8 @@
 													// matching negative margin keeps surrounding layout alignment unchanged.
 													'overflow-x-hidden overflow-y-visible transition-[width,opacity,padding,margin] duration-200 ease-out',
 													showCollapsibleSearchField
-														? 'w-[min(20rem,42vw)] -m-2 px-2 py-2 opacity-100'
-														: 'w-0 m-0 px-0 py-0 opacity-0'
+														? '-m-2 w-[min(20rem,42vw)] px-2 py-2 opacity-100'
+														: 'm-0 w-0 px-0 py-0 opacity-0'
 												)}
 											>
 												<Input
@@ -442,21 +472,21 @@
 				</div>
 			</header>
 
-				<main class="flex w-full flex-1 justify-center bg-white">
-					<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 bg-white px-4 py-4 sm:px-6 lg:px-8">
-						{@render children()}
-					</div>
-				</main>
+			<main class="flex w-full flex-1 justify-center bg-white">
+				<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 bg-white px-4 py-4 sm:px-6 lg:px-8">
+					{@render children()}
+				</div>
+			</main>
 
-				<footer
-					class={cn(
-						'fixed inset-x-0 bottom-0 z-10 justify-center border-t border-border bg-white lg:hidden',
-						hideBottomNav ? 'hidden' : 'flex'
-					)}
-				>
+			<footer
+				class={cn(
+					'fixed inset-x-0 bottom-0 z-10 justify-center border-t border-border bg-white lg:hidden',
+					hideBottomNav ? 'hidden' : 'flex'
+				)}
+			>
 				<div class="flex w-full max-w-6xl flex-col gap-2 px-2 py-2 sm:px-6 lg:px-8">
-					<nav class="grid w-full grid-cols-4 gap-1">
-						{#each topNavItems.concat(bottomNavItems) as nav (nav.key)}
+					<nav class={cn('grid w-full gap-1', mobileNavGridClass)}>
+						{#each mobileNavItems as nav (nav.key)}
 							<AppNavItem
 								nav="bottom"
 								href={nav.href}

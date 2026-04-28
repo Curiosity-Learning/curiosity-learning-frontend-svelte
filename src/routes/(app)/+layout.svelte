@@ -111,6 +111,7 @@
 	};
 
 	let activePath = $derived(page.url.pathname);
+	let isNoClubPath = $derived(activePath === routes.noClub);
 
 	let clubIdFromUrl = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
 	let activeClubId = $derived(clubIdFromUrl ?? activeContextResponse.data?.activeClubId ?? null);
@@ -148,6 +149,10 @@
 		if (!browser) return;
 		if (!isAuthReady) return;
 		if (clubsResponse.isLoading) return;
+		if (isNoClubPath && clubs.length > 0 && clubIdForNav) {
+			void goto(routes.clubHome(clubIdForNav), { replaceState: true });
+			return;
+		}
 		if (clubs.length > 0) return;
 		if (
 			activePath === routes.noClub ||
@@ -254,7 +259,7 @@
 				>
 			</Alert>
 		{/if}
-		{#if activeNav === 'club' && !clubIdForNav && !clubsResponse.isLoading}
+		{#if activeNav === 'club' && activePath !== routes.noClub && !clubIdForNav && !clubsResponse.isLoading}
 			<Alert>
 				<AlertTitle>No active club</AlertTitle>
 				<AlertDescription
