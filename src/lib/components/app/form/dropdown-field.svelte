@@ -32,6 +32,7 @@
 		allowCustomValue?: boolean;
 		filterOptions?: boolean;
 		loading?: boolean;
+		showInputLoading?: boolean;
 		showLoadingMenu?: boolean;
 		emptyMessage?: string;
 		maxMenuHeightClass?: string;
@@ -55,6 +56,7 @@
 		allowCustomValue = true,
 		filterOptions = true,
 		loading = false,
+		showInputLoading = true,
 		showLoadingMenu = true,
 		emptyMessage = 'No options found.',
 		maxMenuHeightClass = 'max-h-56',
@@ -220,7 +222,7 @@
 			onkeydown={handleKeydown}
 		/>
 
-		{#if loading}
+		{#if loading && showInputLoading}
 			<LoaderCircleIcon
 				class="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-gray-400"
 			/>

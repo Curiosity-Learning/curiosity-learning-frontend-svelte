@@ -193,7 +193,7 @@
 		bind:value
 		options={suggestions.map(({ label, value }) => ({ label, value }))}
 		loading={lookupPending}
-		showLoadingMenu={false}
+		showInputLoading={false}
 		{placeholder}
 		filterOptions={false}
 		emptyMessage={!lookupPending && value.trim().length >= minChars ? emptyMessage : ''}
