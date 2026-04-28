@@ -196,10 +196,10 @@
 	const goBack = async () => {
 		errorMessage = '';
 		if (step === 2) {
-			await goto('/onboarding/start-club', { replaceState: true });
+			await goto(routes.onboardingStartClub, { replaceState: true });
 			return;
 		}
-		await goto('/onboarding/get-started');
+		await goto(routes.onboardingGetStarted);
 	};
 
 	const goToStepTwo = async () => {
@@ -215,12 +215,12 @@
 		}
 		if (!auth.isAuthenticated) {
 			const params = new SvelteURLSearchParams();
-			params.set('next', '/onboarding/start-club?step=2');
+			params.set('next', routes.onboardingStartClubVideo);
 			params.set('forceSignup', '1');
 			await goto(`/auth/sign-up?${params.toString()}`);
 			return;
 		}
-		await goto('/onboarding/start-club?step=2');
+		await goto(routes.onboardingStartClubVideo);
 	};
 
 	let hasValidUploadedVideo = $derived(
@@ -296,7 +296,7 @@
 		if (step !== 2) return;
 		writeStartClubDraft();
 		const params = new SvelteURLSearchParams();
-		params.set('next', '/onboarding/start-club?step=2');
+		params.set('next', routes.onboardingStartClubVideo);
 		params.set('forceSignup', '1');
 		void goto(`/auth/sign-up?${params.toString()}`, { replaceState: true });
 	});
@@ -410,7 +410,7 @@
 		if (!auth.isAuthenticated) {
 			writeStartClubDraft();
 			const params = new SvelteURLSearchParams();
-			params.set('next', '/onboarding/start-club?step=2');
+			params.set('next', routes.onboardingStartClubVideo);
 			params.set('forceSignup', '1');
 			await goto(`/auth/sign-up?${params.toString()}`);
 			return;

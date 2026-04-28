@@ -22,7 +22,7 @@
 
 	<div class="grid gap-3 sm:grid-cols-2">
 		<Button href={routes.onboardingJoinClub} size="xl" class="h-12">Join a club</Button>
-		<Button href="/onboarding/start-club" variant="outline" size="xl" class="h-12">
+		<Button href={routes.onboardingStartClub} variant="outline" size="xl" class="h-12">
 			Start a club
 		</Button>
 	</div>

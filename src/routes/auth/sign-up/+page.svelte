@@ -24,6 +24,7 @@
 	import { getUsernameValidationError, normalizeUsername } from '$lib/auth/username';
 	import { createDebouncedLookup } from '$lib/forms/debounced-lookup';
 	import { _, formatT, t } from '$lib/i18n';
+	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -103,10 +104,10 @@
 	let postSignupNextPath = $derived(resolvePostSignupNextPath(nextPath));
 	let forceSignup = $derived(page.url.searchParams.get('forceSignup') === '1');
 	let backPath = $derived.by(() => {
-		if (nextPath.startsWith('/onboarding/start-club')) return '/onboarding/start-club?step=2';
+		if (nextPath.startsWith(routes.onboardingStartClub)) return routes.onboardingStartClub;
 		if (nextPath.startsWith('/onboarding/join-club/')) return nextPath;
-		if (nextPath.startsWith('/onboarding/join-club')) return '/onboarding/join-club';
-		return '/onboarding/get-started';
+		if (nextPath.startsWith(routes.onboardingJoinClub)) return routes.onboardingJoinClub;
+		return routes.onboardingGetStarted;
 	});
 	let signUpPathForCurrentStep = $derived.by(() => {
 		const params = new SvelteURLSearchParams();
