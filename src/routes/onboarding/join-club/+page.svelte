@@ -1,33 +1,59 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import { env } from '$env/dynamic/public';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import MapPinIcon from '@lucide/svelte/icons/map-pin';
+	import TicketIcon from '@lucide/svelte/icons/ticket';
 	import { Button } from '$lib/components/ui/button';
-	import { PageHeaderTitle } from '$lib/components/app';
+	import { Input } from '$lib/components/ui/input';
+	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
+	import {
+		fetchMapboxLocationSuggestions,
+		type MapboxCoordinates,
+		type MapboxLocationOption
+	} from '$lib/maps/mapbox';
 
 	const CODE_LENGTH = 6;
 	const JOIN_CLUB_CODE_STORAGE_KEY = 'cl_join_club_code_v1';
+	const PUBLIC_MAPBOX_ACCESS_TOKEN = env.PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
+	const SEARCH_RADIUS_KM = 50;
 	const convexClient = useConvexClient();
+	const clubsResponse = useStableQuery(api.clubs.listPublicClubs, {});
 
+	type ClubListItem = NonNullable<typeof clubsResponse.data>[number];
+	type FlowMode = 'location' | 'code';
+
+	let mode = $state<FlowMode>('location');
 	let codeChars = $state<string[]>(Array.from({ length: CODE_LENGTH }, () => ''));
 	let inputRefs: Array<HTMLInputElement | null> = Array.from({ length: CODE_LENGTH }, () => null);
 	let validatingCode = $state(false);
 	let codeError = $state('');
+	let locationQuery = $state('');
+	let selectedLocation = $state<MapboxLocationOption | null>(null);
+	let locationSuggestions = $state<MapboxLocationOption[]>([]);
+	let locationLookupPending = $state(false);
+	let locationLookupError = $state('');
+	let locationSearchStarted = $state(false);
+	let locationAbortController: AbortController | null = null;
+	let interestEmail = $state('');
+	let interestPending = $state(false);
+	let interestMessage = $state('');
+	let interestError = $state('');
 
 	let canContinue = $derived(codeChars.every((char) => char.length === 1));
 	let joinedCode = $derived(codeChars.join(''));
 	let isAppNewClubFlow = $derived(page.url.pathname.startsWith(routes.newClubJoin));
 	let joinClubPath = $derived(isAppNewClubFlow ? routes.newClubJoin : routes.onboardingJoinClub);
-	let publicClubsPath = $derived(
-		isAppNewClubFlow ? routes.newClubPublicClubs : routes.onboardingPublicClubs
-	);
+	let startClubPath = $derived(isAppNewClubFlow ? routes.newClubStart : routes.onboardingStartClub);
 	let backPath = $derived(isAppNewClubFlow ? routes.newClub : routes.onboardingGetStarted);
 	let contentClass = $derived(
 		isAppNewClubFlow
@@ -67,6 +93,14 @@
 		const node = inputRefs[index];
 		node?.focus();
 		node?.select();
+	};
+
+	const showCodeEntry = () => {
+		mode = 'code';
+		requestAnimationFrame(() => {
+			const firstEmptyIndex = codeChars.findIndex((char) => char.length === 0);
+			focusInput(firstEmptyIndex >= 0 ? firstEmptyIndex : CODE_LENGTH - 1);
+		});
 	};
 
 	const fillFrom = (startIndex: number, value: string) => {
@@ -151,19 +185,146 @@
 		}
 	};
 
-	const viewPublicClubs = async () => {
-		await goto(publicClubsPath);
+	const haversineDistanceKm = (from: MapboxCoordinates, to: MapboxCoordinates) => {
+		const earthRadiusKm = 6371;
+		const toRadians = (value: number) => (value * Math.PI) / 180;
+		const latDelta = toRadians(to.latitude - from.latitude);
+		const lonDelta = toRadians(to.longitude - from.longitude);
+		const lat1 = toRadians(from.latitude);
+		const lat2 = toRadians(to.latitude);
+		const a =
+			Math.sin(latDelta / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(lonDelta / 2) ** 2;
+		return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+	};
+
+	const getClubCoordinates = (club: ClubListItem): MapboxCoordinates | null => {
+		if (
+			typeof club.locationLongitude === 'number' &&
+			Number.isFinite(club.locationLongitude) &&
+			typeof club.locationLatitude === 'number' &&
+			Number.isFinite(club.locationLatitude)
+		) {
+			return {
+				longitude: club.locationLongitude,
+				latitude: club.locationLatitude
+			};
+		}
+		return null;
+	};
+
+	let nearbyClubs = $derived.by(() => {
+		if (!selectedLocation) return [];
+		const locationCoordinates = selectedLocation;
+		return (clubsResponse.data ?? [])
+			.map((club) => {
+				const coordinates = getClubCoordinates(club);
+				if (!club.code || !coordinates) return null;
+				const distanceKm = haversineDistanceKm(locationCoordinates, coordinates);
+				if (distanceKm > SEARCH_RADIUS_KM) return null;
+				return {
+					id: club.id,
+					code: club.code,
+					name: club.name,
+					distanceKm
+				};
+			})
+			.filter((club): club is NonNullable<typeof club> => Boolean(club))
+			.sort((a, b) => a.distanceKm - b.distanceKm);
+	});
+
+	const formatDistance = (distanceKm: number) => {
+		if (distanceKm < 1) return 'Less than 1 km away';
+		return `${Math.round(distanceKm)} km away`;
+	};
+
+	const selectLocation = (option: MapboxLocationOption) => {
+		selectedLocation = option;
+		locationQuery = option.label;
+		locationSuggestions = [];
+		locationSearchStarted = true;
+		interestMessage = '';
+		interestError = '';
+	};
+
+	const searchLocations = async () => {
+		const query = locationQuery.trim();
+		selectedLocation = null;
+		locationSearchStarted = false;
+		interestMessage = '';
+		interestError = '';
+		if (locationAbortController) {
+			locationAbortController.abort();
+			locationAbortController = null;
+		}
+		if (!PUBLIC_MAPBOX_ACCESS_TOKEN) {
+			locationLookupError = t('onboarding.joinClub.locationMissingToken');
+			locationSuggestions = [];
+			return;
+		}
+		if (query.length < 2) {
+			locationLookupError = t('onboarding.joinClub.locationEmptyTypeMore');
+			locationSuggestions = [];
+			return;
+		}
+
+		locationLookupPending = true;
+		locationLookupError = '';
+		const controller = new AbortController();
+		locationAbortController = controller;
+		try {
+			const results = await fetchMapboxLocationSuggestions({
+				query,
+				accessToken: PUBLIC_MAPBOX_ACCESS_TOKEN,
+				signal: controller.signal,
+				language: 'en',
+				limit: 5
+			});
+			locationSuggestions = results;
+			if (results.length === 1) {
+				selectLocation(results[0]);
+				return;
+			}
+			if (results.length === 0) {
+				locationLookupError = t('onboarding.joinClub.locationEmptyFound');
+			}
+		} catch (error) {
+			if (error instanceof DOMException && error.name === 'AbortError') return;
+			locationLookupError = t('onboarding.joinClub.locationLookupFailure');
+		} finally {
+			if (locationAbortController === controller) {
+				locationAbortController = null;
+			}
+			locationLookupPending = false;
+		}
+	};
+
+	const submitInterest = async () => {
+		if (!selectedLocation || !interestEmail.trim()) return;
+		interestPending = true;
+		interestMessage = '';
+		interestError = '';
+		try {
+			await convexClient.mutation(api.clubs.submitClubInterestSignup, {
+				email: interestEmail,
+				location: selectedLocation.label,
+				locationLatitude: selectedLocation.latitude,
+				locationLongitude: selectedLocation.longitude
+			});
+			interestMessage = t('onboarding.joinClub.interestSuccess');
+			interestEmail = '';
+		} catch (error) {
+			interestError =
+				error instanceof Error ? error.message : t('onboarding.joinClub.interestFailure');
+		} finally {
+			interestPending = false;
+		}
 	};
 
 	onMount(() => {
 		const storedCode = readStoredCode();
 		if (storedCode) {
 			fillFrom(0, storedCode);
-			const firstEmptyIndex = codeChars.findIndex((char) => char.length === 0);
-			focusInput(firstEmptyIndex >= 0 ? firstEmptyIndex : CODE_LENGTH - 1);
-			return;
 		}
-		focusInput(0);
 	});
 
 	$effect(() => {
@@ -174,6 +335,7 @@
 </script>
 
 {#if isAppNewClubFlow}
+	<PageHeaderBackButton fallbackHref={routes.newClub} />
 	<PageHeaderTitle title={$_('onboarding.joinClub.title')} />
 {/if}
 
@@ -181,74 +343,223 @@
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
 			<a
-				href={backPath}
+				href={mode === 'code' ? joinClubPath : backPath}
 				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
 				aria-label={$_('common.goBack')}
+				onclick={(event) => {
+					if (mode !== 'code') return;
+					event.preventDefault();
+					mode = 'location';
+				}}
 			>
 				<ChevronLeftIcon class="size-7" />
 			</a>
 		</div>
 	{/snippet}
 	<div class={contentClass}>
-		<section class="flex flex-col gap-6">
-			<div class="flex flex-col gap-2">
-				{#if !isAppNewClubFlow}
-					<h1 class="type-step-title text-gray-900">{$_('onboarding.joinClub.title')}</h1>
-				{/if}
-				<p class="text-base leading-7 text-gray-600">{$_('onboarding.joinClub.description')}</p>
-			</div>
+		{#if mode === 'location'}
+			<section class="flex flex-col gap-6">
+				<div class="flex flex-col gap-2">
+					{#if !isAppNewClubFlow}
+						<h1 class="type-step-title text-gray-900">{$_('onboarding.joinClub.title')}</h1>
+					{/if}
+					<p class="text-base leading-7 text-gray-600">
+						{$_('onboarding.joinClub.locationDescription')}
+					</p>
+				</div>
 
-			<div class="grid w-full grid-cols-6 gap-1.5 sm:gap-2.5">
-				{#each codeChars as char, index (index)}
-					<input
-						bind:this={inputRefs[index]}
-						inputmode="text"
-						autocapitalize="characters"
-						autocomplete={index === 0 ? 'one-time-code' : 'off'}
-						maxlength={6}
-						value={char}
-						oninput={(event) => handleInput(index, event)}
-						onkeydown={(event) => handleKeyDown(index, event)}
-						onpaste={(event) => handlePaste(index, event)}
-						class={`h-12 w-full min-w-0 rounded-md border bg-white px-0 text-center text-lg font-semibold text-gray-900 transition-[border-color,box-shadow] duration-200 outline-none sm:h-14 sm:text-xl ${char ? 'border-orange-500' : 'border-gray-300'} focus:border-orange-500 focus:ring-2 focus:ring-orange-200`}
-					/>
-				{/each}
-			</div>
-
-			<div
-				class="relative z-20 flex flex-wrap items-center gap-x-2 gap-y-1 text-base leading-7 text-gray-600"
-			>
-				<span>{$_('onboarding.joinClub.noCode')}</span>
 				<button
 					type="button"
-					class="pointer-events-auto inline-flex cursor-pointer items-center font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600"
-					onclick={() => void viewPublicClubs()}
+					class="flex w-full items-center justify-between gap-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-left text-sm font-semibold text-orange-700 transition-colors duration-200 hover:bg-orange-100"
+					onclick={showCodeEntry}
 				>
-					{$_('onboarding.joinClub.publicClubs')}
+					<span class="inline-flex min-w-0 items-center gap-2">
+						<TicketIcon class="size-4 shrink-0" />
+						<span>{$_('onboarding.joinClub.haveCode')}</span>
+					</span>
+					<span class="shrink-0 text-orange-500">{$_('onboarding.joinClub.enterHere')}</span>
 				</button>
-			</div>
-		</section>
 
-		{#if codeError}
-			<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-				{codeError}
-			</p>
-		{/if}
+				<div class="flex flex-col gap-3">
+					<label for="join-club-location" class="text-sm font-semibold text-gray-900">
+						{$_('onboarding.joinClub.locationLabel')}
+					</label>
+					<div class="flex gap-2">
+						<Input
+							id="join-club-location"
+							bind:value={locationQuery}
+							placeholder={$_('onboarding.joinClub.locationPlaceholder')}
+							autocomplete="street-address"
+							oninput={() => {
+								selectedLocation = null;
+								locationSearchStarted = false;
+								locationSuggestions = [];
+								locationLookupError = '';
+							}}
+							onkeydown={(event) => {
+								if (event.key === 'Enter') {
+									event.preventDefault();
+									void searchLocations();
+								}
+							}}
+						/>
+						<Button
+							type="button"
+							variant="default"
+							class="h-10 shrink-0 px-4"
+							disabled={locationLookupPending}
+							onclick={() => void searchLocations()}
+						>
+							{locationLookupPending ? $_('common.checking') : $_('onboarding.joinClub.search')}
+						</Button>
+					</div>
+					{#if locationLookupError}
+						<p class="text-sm text-red-700">{locationLookupError}</p>
+					{/if}
+					{#if locationSuggestions.length > 0}
+						<div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
+							{#each locationSuggestions as option (option.value)}
+								<button
+									type="button"
+									class="flex w-full items-start gap-2 border-b border-gray-100 px-3 py-3 text-left last:border-b-0 hover:bg-gray-50"
+									onclick={() => selectLocation(option)}
+								>
+									<MapPinIcon class="mt-0.5 size-4 shrink-0 text-orange-500" />
+									<span class="text-sm leading-5 text-gray-700">{option.label}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			</section>
 
-		<div
-			class={isAppNewClubFlow
-				? 'flex max-w-[28.75rem] flex-col gap-3'
-				: 'mt-auto flex flex-col gap-3 pb-2 sm:pb-6'}
-		>
-			<Button
-				variant="default"
-				size="xl"
-				class="h-14 w-full min-w-0 rounded-md px-4 text-center whitespace-normal"
-				disabled={!canContinue || validatingCode}
-				onclick={() => void continueToPreview()}
+			{#if selectedLocation}
+				<section class="flex flex-col gap-3">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-lg font-bold text-gray-900">
+							{$_('onboarding.joinClub.nearbyTitle')}
+						</h2>
+						<p class="text-sm leading-6 text-gray-600">
+							{$_('onboarding.joinClub.nearbyDescription')}
+						</p>
+					</div>
+
+					{#if clubsResponse.isLoading}
+						<p class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
+							{$_('common.loading')}
+						</p>
+					{:else if nearbyClubs.length > 0}
+						<div class="flex flex-col gap-2">
+							{#each nearbyClubs as club (club.id)}
+								<button
+									type="button"
+									class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white px-4 py-3 text-left transition-colors duration-200 hover:border-orange-300 hover:bg-orange-50"
+									onclick={() => void goto(`${joinClubPath}/${club.code}`)}
+								>
+									<span class="min-w-0 truncate text-base font-semibold text-gray-900">
+										{club.name}
+									</span>
+									<span class="shrink-0 text-sm font-semibold text-orange-600">
+										{formatDistance(club.distanceKm)}
+									</span>
+								</button>
+							{/each}
+						</div>
+					{:else if locationSearchStarted}
+						<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-4">
+							<div class="flex flex-col gap-1">
+								<h2 class="text-lg font-bold text-gray-900">
+									{$_('onboarding.joinClub.noClubsTitle')}
+								</h2>
+								<p class="text-sm leading-6 text-gray-600">
+									{$_('onboarding.joinClub.noClubsDescription')}
+								</p>
+							</div>
+							<div class="flex flex-col gap-2">
+								<label for="join-club-interest-email" class="text-sm font-semibold text-gray-900">
+									{$_('onboarding.joinClub.emailLabel')}
+								</label>
+								<div class="flex gap-2">
+									<Input
+										id="join-club-interest-email"
+										type="email"
+										bind:value={interestEmail}
+										autocomplete="email"
+										placeholder={$_('onboarding.joinClub.emailPlaceholder')}
+									/>
+									<Button
+										type="button"
+										class="h-10 shrink-0 px-4"
+										disabled={interestPending || !interestEmail.trim()}
+										onclick={() => void submitInterest()}
+									>
+										{interestPending
+											? $_('common.saving')
+											: $_('onboarding.joinClub.emailSubmit')}
+									</Button>
+								</div>
+								{#if interestMessage}
+									<p class="text-sm text-green-700">{interestMessage}</p>
+								{/if}
+								{#if interestError}
+									<p class="text-sm text-red-700">{interestError}</p>
+								{/if}
+							</div>
+							<Button href={startClubPath} variant="outline" class="h-11 w-full">
+								{$_('onboarding.joinClub.startClubCta')}
+							</Button>
+						</div>
+					{/if}
+				</section>
+			{/if}
+		{:else}
+			<section class="flex flex-col gap-6">
+				<div class="flex flex-col gap-2">
+					{#if !isAppNewClubFlow}
+						<h1 class="type-step-title text-gray-900">{$_('onboarding.joinClub.codeTitle')}</h1>
+					{/if}
+					<p class="text-base leading-7 text-gray-600">{$_('onboarding.joinClub.description')}</p>
+				</div>
+
+				<div class="grid w-full grid-cols-6 gap-1.5 sm:gap-2.5">
+					{#each codeChars as char, index (index)}
+						<input
+							bind:this={inputRefs[index]}
+							inputmode="text"
+							autocapitalize="characters"
+							autocomplete={index === 0 ? 'one-time-code' : 'off'}
+							maxlength={6}
+							value={char}
+							oninput={(event) => handleInput(index, event)}
+							onkeydown={(event) => handleKeyDown(index, event)}
+							onpaste={(event) => handlePaste(index, event)}
+							class={`h-12 w-full min-w-0 rounded-md border bg-white px-0 text-center text-lg font-semibold text-gray-900 transition-[border-color,box-shadow] duration-200 outline-none sm:h-14 sm:text-xl ${char ? 'border-orange-500' : 'border-gray-300'} focus:border-orange-500 focus:ring-2 focus:ring-orange-200`}
+						/>
+					{/each}
+				</div>
+			</section>
+
+			{#if codeError}
+				<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+					{codeError}
+				</p>
+			{/if}
+
+			<div
+				class={isAppNewClubFlow
+					? 'flex max-w-[28.75rem] flex-col gap-3'
+					: 'mt-auto flex flex-col gap-3 pb-2 sm:pb-6'}
 			>
-				{validatingCode ? $_('onboarding.joinClub.checking') : $_('onboarding.joinClub.continue')}
-			</Button>
-		</div>
+				<Button
+					variant="default"
+					size="xl"
+					class="h-14 w-full min-w-0 rounded-md px-4 text-center whitespace-normal"
+					disabled={!canContinue || validatingCode}
+					onclick={() => void continueToPreview()}
+				>
+					{validatingCode ? $_('onboarding.joinClub.checking') : $_('onboarding.joinClub.continue')}
+				</Button>
+			</div>
+		{/if}
 	</div>
 </FlowShell>

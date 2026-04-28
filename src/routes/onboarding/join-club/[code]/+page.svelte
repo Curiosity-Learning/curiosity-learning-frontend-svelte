@@ -4,10 +4,9 @@
 	import { page } from '$app/state';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import { Button } from '$lib/components/ui/button';
-	import { PageHeaderTitle } from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { authClient } from '$lib/auth-client';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -138,6 +137,7 @@
 </script>
 
 {#if isAppNewClubFlow}
+	<PageHeaderBackButton fallbackHref={joinClubPath} />
 	<PageHeaderTitle title={headerTitle} />
 {/if}
 
@@ -189,15 +189,6 @@
 				</div>
 
 				<div class="flex flex-wrap gap-2">
-					{#if club.location}
-						<div
-							class="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-500"
-						>
-							<MapPinIcon class="size-4" />
-							<span>{club.location}</span>
-						</div>
-					{/if}
-
 					{#if meetingLabel}
 						<div
 							class="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-500"

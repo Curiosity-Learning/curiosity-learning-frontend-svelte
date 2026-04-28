@@ -74,6 +74,17 @@ export default defineSchema({
 		.index('by_club_code', ['clubCode'])
 		.index('by_video_media_asset', ['videoMediaAssetId']),
 
+	clubInterestSignups: defineTable({
+		email: v.string(),
+		location: v.string(),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_email', ['email'])
+		.index('by_created_at', ['createdAt']),
+
 	clubMembers: defineTable({
 		clubId: v.id('clubs'),
 		userId: v.string(),

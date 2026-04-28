@@ -24,6 +24,8 @@ type ActiveClubContext = {
 };
 
 const normalizeInviteCode = (code: string) => code.trim().toUpperCase();
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const createInviteCodeCandidate = () => {
 	let code = '';
@@ -337,6 +339,51 @@ export const listPublicClubs = query({
 				};
 			})
 		);
+	}
+});
+
+export const submitClubInterestSignup = mutation({
+	args: {
+		email: v.string(),
+		location: v.string(),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const email = normalizeEmail(args.email);
+		const location = args.location.trim();
+		if (!EMAIL_PATTERN.test(email)) {
+			throw new ConvexError('Enter a valid email address');
+		}
+		if (!location) {
+			throw new ConvexError('Enter a location');
+		}
+
+		const now = Date.now();
+		const existing = await ctx.db
+			.query('clubInterestSignups')
+			.withIndex('by_email', (q) => q.eq('email', email))
+			.first();
+
+		const patch = {
+			location,
+			locationLatitude: args.locationLatitude,
+			locationLongitude: args.locationLongitude,
+			updatedAt: now
+		};
+
+		if (existing) {
+			await ctx.db.patch(existing._id, patch);
+			return { success: true };
+		}
+
+		await ctx.db.insert('clubInterestSignups', {
+			email,
+			...patch,
+			createdAt: now
+		});
+
+		return { success: true };
 	}
 });
 
