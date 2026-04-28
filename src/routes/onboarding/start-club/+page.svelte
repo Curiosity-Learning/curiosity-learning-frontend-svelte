@@ -557,6 +557,7 @@
 				/>
 
 				<div class="flex flex-col gap-2">
+					<p class="text-sm leading-6 text-gray-500">{$_('onboarding.startClub.aboutHelp')}</p>
 					<TextareaField
 						id="about"
 						label={$_('onboarding.startClub.aboutLabel')}
@@ -567,7 +568,6 @@
 						overlayText={`${aboutCharacterCount}/${ABOUT_CHARACTER_LIMIT}`}
 						placeholder={$_('onboarding.startClub.aboutPlaceholder')}
 					/>
-					<p class="text-sm leading-6 text-gray-500">{$_('onboarding.startClub.aboutHelp')}</p>
 				</div>
 
 				<DropdownField
