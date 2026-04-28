@@ -16,6 +16,8 @@ import type * as childAccounts from "../childAccounts.js";
 import type * as childSignup from "../childSignup.js";
 import type * as clubApplications from "../clubApplications.js";
 import type * as clubs from "../clubs.js";
+import type * as email_resend from "../email/resend.js";
+import type * as email_templates from "../email/templates.js";
 import type * as http from "../http.js";
 import type * as legalDocuments from "../legalDocuments.js";
 import type * as media from "../media.js";
@@ -50,6 +52,8 @@ declare const fullApi: ApiFromModules<{
   childSignup: typeof childSignup;
   clubApplications: typeof clubApplications;
   clubs: typeof clubs;
+  "email/resend": typeof email_resend;
+  "email/templates": typeof email_templates;
   http: typeof http;
   legalDocuments: typeof legalDocuments;
   media: typeof media;

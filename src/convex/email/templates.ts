@@ -24,6 +24,31 @@ const escapeHtml = (value: string) =>
 		.replaceAll("'", '&#39;');
 
 const absoluteUrl = (url: string) => url;
+const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+const isLocalUrl = (value: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value);
+
+const getEmailLogoUrl = () => {
+	const explicitLogoUrl = process.env.EMAIL_LOGO_URL?.trim();
+	if (explicitLogoUrl) return explicitLogoUrl;
+
+	const baseUrl =
+		process.env.EMAIL_ASSET_BASE_URL?.trim() ??
+		process.env.PUBLIC_APP_URL?.trim() ??
+		process.env.BETTER_AUTH_URL?.trim();
+
+	if (!baseUrl || isLocalUrl(baseUrl)) return undefined;
+
+	return `${trimTrailingSlash(baseUrl)}/brand/curiosity-learning-logo.png`;
+};
+
+const brandHeader = () => {
+	const logoUrl = getEmailLogoUrl();
+	if (logoUrl) {
+		return `<img src="${escapeHtml(logoUrl)}" width="118" height="40" alt="Curiosity Learning" style="display:block;width:118px;height:40px;border:0;outline:none;text-decoration:none;" />`;
+	}
+
+	return `<div style="font-size:18px;line-height:22px;font-weight:800;color:${colors.foreground};">Curiosity Learning</div>`;
+};
 
 const paragraph = (content: string) =>
 	`<p style="margin:0 0 16px;font-size:16px;line-height:24px;color:${colors.muted};">${content}</p>`;
@@ -74,10 +99,7 @@ const layout = (args: {
 					<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;">
 						<tr>
 							<td style="padding:0 0 18px;">
-								<div style="font-size:18px;line-height:22px;font-weight:800;color:${colors.foreground};">
-									<span style="display:inline-block;width:28px;height:28px;margin-right:10px;border-radius:999px;background:${colors.primary};vertical-align:middle;"></span>
-									Curiosity Learning
-								</div>
+								${brandHeader()}
 							</td>
 						</tr>
 						<tr>
