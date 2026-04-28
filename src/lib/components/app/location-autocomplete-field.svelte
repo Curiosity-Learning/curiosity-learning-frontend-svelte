@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
 	import { DropdownField } from '$lib/components/app/form';
 	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
 	import {
@@ -56,7 +55,7 @@
 	let lookupAbortController: AbortController | null = null;
 	let lookupVersion = 0;
 	let lastResolvedLocation = '';
-	const rememberedCoordinates = new SvelteMap<string, MapboxCoordinates>();
+	const rememberedCoordinates = new Map<string, MapboxCoordinates>();
 
 	const normalizeLocation = (input: string) => input.trim().toLowerCase();
 	const sameCoordinates = (a: MapboxCoordinates | null, b: MapboxCoordinates | null) =>
@@ -194,9 +193,10 @@
 		bind:value
 		options={suggestions.map(({ label, value }) => ({ label, value }))}
 		loading={lookupPending}
+		showLoadingMenu={false}
 		{placeholder}
 		filterOptions={false}
-		emptyMessage={value.trim().length >= minChars ? emptyMessage : ''}
+		emptyMessage={!lookupPending && value.trim().length >= minChars ? emptyMessage : ''}
 		{hint}
 		class={className}
 		onSelectOption={resolveSelectedOption}

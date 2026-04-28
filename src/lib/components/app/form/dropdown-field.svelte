@@ -32,6 +32,7 @@
 		allowCustomValue?: boolean;
 		filterOptions?: boolean;
 		loading?: boolean;
+		showLoadingMenu?: boolean;
 		emptyMessage?: string;
 		maxMenuHeightClass?: string;
 		onSelectOption?: (option: DropdownOption) => void;
@@ -54,6 +55,7 @@
 		allowCustomValue = true,
 		filterOptions = true,
 		loading = false,
+		showLoadingMenu = true,
 		emptyMessage = 'No options found.',
 		maxMenuHeightClass = 'max-h-56',
 		onSelectOption
@@ -87,7 +89,9 @@
 		);
 	});
 
-	let hasDropdownContent = $derived(loading || renderedOptions.length > 0 || Boolean(emptyMessage));
+	let hasDropdownContent = $derived(
+		(loading && showLoadingMenu) || renderedOptions.length > 0 || Boolean(emptyMessage)
+	);
 	let displayedValue = $derived(searchable ? value : (selectedOption?.label ?? ''));
 
 	const openDropdown = () => {
@@ -239,7 +243,7 @@
 						: 'top-[calc(100%+0.5rem)]'
 				)}
 			>
-				{#if loading}
+				{#if loading && showLoadingMenu}
 					<LoadingState variant="inline" size="sm" label="Loading options" />
 				{:else if renderedOptions.length > 0}
 					<ul
