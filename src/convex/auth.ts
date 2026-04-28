@@ -8,49 +8,11 @@ import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
 import { mutation, query } from './_generated/server';
 import authConfig from './auth.config';
+import { sendEmail } from './email/resend';
+import { passwordResetEmail, verificationOtpEmail } from './email/templates';
 import { requireIdentity } from './permissions';
 
 export const authComponent = createClient(components.betterAuth);
-
-const resendEmail = async (args: { to: string; subject: string; html: string; text: string }) => {
-	const apiKey = process.env.RESEND_API_KEY;
-	if (!apiKey) {
-		throw new Error('RESEND_API_KEY is not set (Convex environment variable).');
-	}
-
-	const from = process.env.RESEND_FROM ?? 'Curiosity Learning <onboarding@resend.dev>';
-
-	const response = await fetch('https://api.resend.com/emails', {
-		method: 'POST',
-		headers: {
-			authorization: `Bearer ${apiKey}`,
-			'content-type': 'application/json'
-		},
-		body: JSON.stringify({
-			from,
-			to: args.to,
-			subject: args.subject,
-			html: args.html,
-			text: args.text
-		})
-	});
-
-	if (!response.ok) {
-		let details = '';
-		try {
-			details = JSON.stringify(await response.json());
-		} catch {
-			details = await response.text().catch(() => '');
-		}
-		throw new Error(`Resend send failed: ${response.status} ${response.statusText} ${details}`);
-	}
-};
-
-const otpPurposeByType = {
-	'email-verification': 'verify your email address',
-	'sign-in': 'sign in',
-	'forget-password': 'reset your password'
-} as const;
 
 const trustedOrigins = [
 	process.env.BETTER_AUTH_URL,
@@ -159,11 +121,9 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 			enabled: true,
 			requireEmailVerification: true,
 			sendResetPassword: async ({ user, url, token }) => {
-				await resendEmail({
+				await sendEmail({
 					to: user.email,
-					subject: 'Reset your password',
-					text: `Reset your password:\n\n${url}\n\nToken: ${token}`,
-					html: `<p>Reset your password:</p><p><a href="${url}">${url}</a></p><p style="color:#666">Token: ${token}</p>`
+					...passwordResetEmail({ url, token })
 				});
 			}
 		},
@@ -179,19 +139,9 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 				expiresIn: 300,
 				overrideDefaultEmailVerification: true,
 				sendVerificationOTP: async ({ email, otp, type }) => {
-					const purpose = otpPurposeByType[type];
-					const subject =
-						type === 'forget-password'
-							? 'Reset your password code'
-							: type === 'sign-in'
-								? 'Your sign-in code'
-								: 'Verify your email code';
-
-					await resendEmail({
+					await sendEmail({
 						to: email,
-						subject,
-						text: `Use this 6-digit code to ${purpose}: ${otp}\n\nThis code expires in 5 minutes.`,
-						html: `<p>Use this 6-digit code to ${purpose}:</p><p style="font-size:24px;font-weight:700;letter-spacing:4px">${otp}</p><p style="color:#666">This code expires in 5 minutes.</p>`
+						...verificationOtpEmail({ otp, type })
 					});
 				}
 			}),

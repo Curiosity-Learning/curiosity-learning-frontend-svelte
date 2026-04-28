@@ -4,6 +4,8 @@ import { internal } from './_generated/api';
 import { components } from './_generated/api';
 import { action, internalMutation, mutation, query } from './_generated/server';
 import { syntheticEmailForUsername } from './childAccounts';
+import { sendEmail } from './email/resend';
+import { parentConsentEmail } from './email/templates';
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 
@@ -30,28 +32,13 @@ const sendParentConsentEmail = async (args: {
 	childUsername: string;
 	consentUrl: string;
 }) => {
-	const apiKey = process.env.RESEND_API_KEY;
-	if (!apiKey) {
-		throw new Error('RESEND_API_KEY is not set (Convex environment variable).');
-	}
-	const from = process.env.RESEND_FROM ?? 'Curiosity Learning <onboarding@resend.dev>';
-	const response = await fetch('https://api.resend.com/emails', {
-		method: 'POST',
-		headers: {
-			authorization: `Bearer ${apiKey}`,
-			'content-type': 'application/json'
-		},
-		body: JSON.stringify({
-			from,
-			to: args.parentEmail,
-			subject: 'Approve a Curiosity Learning account',
-			text: `Approve ${args.childUsername}'s Curiosity Learning account:\n\n${args.consentUrl}`,
-			html: `<p>${args.childUsername} wants to use Curiosity Learning.</p><p><a href="${args.consentUrl}">Review and approve this account</a></p>`
+	await sendEmail({
+		to: args.parentEmail,
+		...parentConsentEmail({
+			childUsername: args.childUsername,
+			consentUrl: args.consentUrl
 		})
 	});
-	if (!response.ok) {
-		throw new Error(`Resend send failed: ${response.status} ${response.statusText}`);
-	}
 };
 
 export const registerChild = action({
