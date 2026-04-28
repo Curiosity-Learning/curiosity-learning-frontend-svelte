@@ -34,6 +34,7 @@
 		loading?: boolean;
 		emptyMessage?: string;
 		maxMenuHeightClass?: string;
+		onSelectOption?: (option: DropdownOption) => void;
 	};
 
 	let {
@@ -54,7 +55,8 @@
 		filterOptions = true,
 		loading = false,
 		emptyMessage = 'No options found.',
-		maxMenuHeightClass = 'max-h-56'
+		maxMenuHeightClass = 'max-h-56',
+		onSelectOption
 	}: Props = $props();
 
 	let root = $state<HTMLDivElement | null>(null);
@@ -105,6 +107,7 @@
 	const selectOption = (option: DropdownOption) => {
 		value = option.value;
 		isOpen = false;
+		onSelectOption?.(option);
 	};
 
 	const handleInput = (event: Event) => {

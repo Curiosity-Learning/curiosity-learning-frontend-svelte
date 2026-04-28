@@ -59,6 +59,8 @@
 	const rememberedCoordinates = new SvelteMap<string, MapboxCoordinates>();
 
 	const normalizeLocation = (input: string) => input.trim().toLowerCase();
+	const sameCoordinates = (a: MapboxCoordinates | null, b: MapboxCoordinates | null) =>
+		a?.longitude === b?.longitude && a?.latitude === b?.latitude;
 
 	const clearLookupResources = () => {
 		if (lookupTimer) {
@@ -75,12 +77,36 @@
 		clearLookupResources();
 	});
 
+	const resolveSelectedOption = (option: { value: string }) => {
+		const match = suggestions.find((suggestion) => suggestion.value === option.value);
+		if (!match) return;
+		const selectedCoordinates = {
+			longitude: match.longitude,
+			latitude: match.latitude
+		};
+		const normalizedLocation = normalizeLocation(match.value);
+		rememberedCoordinates.set(normalizedLocation, selectedCoordinates);
+		coordinates = selectedCoordinates;
+		lastResolvedLocation = normalizedLocation;
+		suggestions = [];
+		lookupPending = false;
+		lookupError = '';
+		clearLookupResources();
+	};
+
 	$effect(() => {
 		const query = value.trim();
+		const normalizedQuery = normalizeLocation(query);
 		clearLookupResources();
 		lookupError = '';
 
 		if (query.length < minChars) {
+			suggestions = [];
+			lookupPending = false;
+			return;
+		}
+
+		if (rememberedCoordinates.has(normalizedQuery)) {
 			suggestions = [];
 			lookupPending = false;
 			return;
@@ -146,12 +172,16 @@
 
 		const remembered = rememberedCoordinates.get(normalizedLocation);
 		if (remembered) {
-			coordinates = remembered;
+			if (!sameCoordinates(coordinates, remembered)) {
+				coordinates = remembered;
+			}
 			lastResolvedLocation = normalizedLocation;
 			return;
 		}
 
-		coordinates = null;
+		if (coordinates) {
+			coordinates = null;
+		}
 		lastResolvedLocation = '';
 	});
 </script>
@@ -169,6 +199,7 @@
 		emptyMessage={value.trim().length >= minChars ? emptyMessage : ''}
 		{hint}
 		class={className}
+		onSelectOption={resolveSelectedOption}
 	/>
 
 	{#if lookupError}
