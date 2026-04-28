@@ -98,7 +98,7 @@ const nl = {
 			passwordPlaceholder: 'Voer je wachtwoord in',
 			hidePassword: 'Verberg wachtwoord',
 			showPassword: 'Toon wachtwoord',
-			rememberMe: 'Onthoud mij',
+			rememberMe: 'Houd me 30 dagen ingelogd',
 			forgotPassword: 'Wachtwoord vergeten?',
 			submit: 'Log in',
 			submitting: 'Bezig met inloggen...',

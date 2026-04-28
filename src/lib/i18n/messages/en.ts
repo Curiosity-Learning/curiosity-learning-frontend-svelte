@@ -111,7 +111,7 @@ const en = {
 			passwordPlaceholder: 'Enter your password',
 			hidePassword: 'Hide password',
 			showPassword: 'Show password',
-			rememberMe: 'Remember me',
+			rememberMe: 'Keep me signed in for 30 days',
 			forgotPassword: 'Forgot password?',
 			submit: 'Log in',
 			submitting: 'Logging in...',

@@ -99,6 +99,8 @@ const socialProviders =
 			}
 		: undefined;
 
+const REMEMBERED_SESSION_SECONDS = 60 * 60 * 24 * 30;
+
 const splitNameParts = (name?: string | null) => {
 	if (!name) {
 		return { firstName: undefined, lastName: undefined };
@@ -150,6 +152,9 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 	betterAuth({
 		baseURL: process.env.BETTER_AUTH_URL,
 		database: authComponent.adapter(ctx),
+		session: {
+			expiresIn: REMEMBERED_SESSION_SECONDS
+		},
 		emailAndPassword: {
 			enabled: true,
 			requireEmailVerification: true,
