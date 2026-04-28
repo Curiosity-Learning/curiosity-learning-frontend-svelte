@@ -326,9 +326,6 @@
 					placeholder={$_('onboarding.joinClub.locationPlaceholder')}
 					emptyMessage={$_('onboarding.joinClub.locationEmptyFound')}
 					lookupFailureMessage={$_('onboarding.joinClub.locationLookupFailure')}
-					hint={PUBLIC_MAPBOX_ACCESS_TOKEN
-						? $_('onboarding.joinClub.locationHintEnabled')
-						: $_('onboarding.joinClub.locationMissingToken')}
 				/>
 			</section>
 

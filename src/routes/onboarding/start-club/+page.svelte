@@ -411,9 +411,6 @@
 					placeholder={$_('onboarding.startClub.locationPlaceholder')}
 					emptyMessage={$_('onboarding.startClub.locationEmptyFound')}
 					lookupFailureMessage={$_('onboarding.startClub.locationLookupFailure')}
-					hint={PUBLIC_MAPBOX_ACCESS_TOKEN
-						? $_('onboarding.startClub.locationHintEnabled')
-						: $_('onboarding.startClub.locationHintMissingToken')}
 					showPreview={true}
 					previewStyleUrl={MAPBOX_STYLE_URL}
 				/>
