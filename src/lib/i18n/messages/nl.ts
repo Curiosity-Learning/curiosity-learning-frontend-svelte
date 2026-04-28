@@ -289,6 +289,7 @@ const nl = {
 			locationEmptyTypeMore: 'Typ minimaal 2 tekens.',
 			locationMissingToken:
 				'Locatie zoeken is nog niet geconfigureerd. Voeg PUBLIC_MAPBOX_ACCESS_TOKEN toe aan .env.local.',
+			locationHintEnabled: 'Begin met typen en kies een locatie uit de suggesties.',
 			locationLookupFailure: 'Kan locatiesuggesties niet ophalen.',
 			search: 'Zoeken',
 			nearbyTitle: 'Openbare clubs in de buurt',

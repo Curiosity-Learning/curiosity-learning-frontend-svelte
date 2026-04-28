@@ -5,22 +5,18 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import TicketIcon from '@lucide/svelte/icons/ticket';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import LocationAutocompleteField from '$lib/components/app/location-autocomplete-field.svelte';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
-	import {
-		fetchMapboxLocationSuggestions,
-		type MapboxCoordinates,
-		type MapboxLocationOption
-	} from '$lib/maps/mapbox';
+	import { type MapboxCoordinates } from '$lib/maps/mapbox';
 
 	const CODE_LENGTH = 6;
 	const JOIN_CLUB_CODE_STORAGE_KEY = 'cl_join_club_code_v1';
@@ -38,12 +34,7 @@
 	let validatingCode = $state(false);
 	let codeError = $state('');
 	let locationQuery = $state('');
-	let selectedLocation = $state<MapboxLocationOption | null>(null);
-	let locationSuggestions = $state<MapboxLocationOption[]>([]);
-	let locationLookupPending = $state(false);
-	let locationLookupError = $state('');
-	let locationSearchStarted = $state(false);
-	let locationAbortController: AbortController | null = null;
+	let selectedLocationCoordinates = $state<MapboxCoordinates | null>(null);
 	let interestEmail = $state('');
 	let interestPending = $state(false);
 	let interestMessage = $state('');
@@ -51,6 +42,7 @@
 
 	let canContinue = $derived(codeChars.every((char) => char.length === 1));
 	let joinedCode = $derived(codeChars.join(''));
+	let locationSearchStarted = $derived(Boolean(selectedLocationCoordinates));
 	let isAppNewClubFlow = $derived(page.url.pathname.startsWith(routes.newClubJoin));
 	let joinClubPath = $derived(isAppNewClubFlow ? routes.newClubJoin : routes.onboardingJoinClub);
 	let startClubPath = $derived(isAppNewClubFlow ? routes.newClubStart : routes.onboardingStartClub);
@@ -213,8 +205,8 @@
 	};
 
 	let nearbyClubs = $derived.by(() => {
-		if (!selectedLocation) return [];
-		const locationCoordinates = selectedLocation;
+		if (!selectedLocationCoordinates) return [];
+		const locationCoordinates = selectedLocationCoordinates;
 		return (clubsResponse.data ?? [])
 			.map((club) => {
 				const coordinates = getClubCoordinates(club);
@@ -237,78 +229,17 @@
 		return `${Math.round(distanceKm)} km away`;
 	};
 
-	const selectLocation = (option: MapboxLocationOption) => {
-		selectedLocation = option;
-		locationQuery = option.label;
-		locationSuggestions = [];
-		locationSearchStarted = true;
-		interestMessage = '';
-		interestError = '';
-	};
-
-	const searchLocations = async () => {
-		const query = locationQuery.trim();
-		selectedLocation = null;
-		locationSearchStarted = false;
-		interestMessage = '';
-		interestError = '';
-		if (locationAbortController) {
-			locationAbortController.abort();
-			locationAbortController = null;
-		}
-		if (!PUBLIC_MAPBOX_ACCESS_TOKEN) {
-			locationLookupError = t('onboarding.joinClub.locationMissingToken');
-			locationSuggestions = [];
-			return;
-		}
-		if (query.length < 2) {
-			locationLookupError = t('onboarding.joinClub.locationEmptyTypeMore');
-			locationSuggestions = [];
-			return;
-		}
-
-		locationLookupPending = true;
-		locationLookupError = '';
-		const controller = new AbortController();
-		locationAbortController = controller;
-		try {
-			const results = await fetchMapboxLocationSuggestions({
-				query,
-				accessToken: PUBLIC_MAPBOX_ACCESS_TOKEN,
-				signal: controller.signal,
-				language: 'en',
-				limit: 5
-			});
-			locationSuggestions = results;
-			if (results.length === 1) {
-				selectLocation(results[0]);
-				return;
-			}
-			if (results.length === 0) {
-				locationLookupError = t('onboarding.joinClub.locationEmptyFound');
-			}
-		} catch (error) {
-			if (error instanceof DOMException && error.name === 'AbortError') return;
-			locationLookupError = t('onboarding.joinClub.locationLookupFailure');
-		} finally {
-			if (locationAbortController === controller) {
-				locationAbortController = null;
-			}
-			locationLookupPending = false;
-		}
-	};
-
 	const submitInterest = async () => {
-		if (!selectedLocation || !interestEmail.trim()) return;
+		if (!selectedLocationCoordinates || !interestEmail.trim()) return;
 		interestPending = true;
 		interestMessage = '';
 		interestError = '';
 		try {
 			await convexClient.mutation(api.clubs.submitClubInterestSignup, {
 				email: interestEmail,
-				location: selectedLocation.label,
-				locationLatitude: selectedLocation.latitude,
-				locationLongitude: selectedLocation.longitude
+				location: locationQuery,
+				locationLatitude: selectedLocationCoordinates.latitude,
+				locationLongitude: selectedLocationCoordinates.longitude
 			});
 			interestMessage = t('onboarding.joinClub.interestSuccess');
 			interestEmail = '';
@@ -331,6 +262,12 @@
 		void joinedCode;
 		writeStoredCode(joinedCode);
 		codeError = '';
+	});
+
+	$effect(() => {
+		void selectedLocationCoordinates;
+		interestMessage = '';
+		interestError = '';
 	});
 </script>
 
@@ -380,60 +317,22 @@
 					<span class="shrink-0 text-orange-500">{$_('onboarding.joinClub.enterHere')}</span>
 				</button>
 
-				<div class="flex flex-col gap-3">
-					<label for="join-club-location" class="text-sm font-semibold text-gray-900">
-						{$_('onboarding.joinClub.locationLabel')}
-					</label>
-					<div class="flex gap-2">
-						<Input
-							id="join-club-location"
-							bind:value={locationQuery}
-							placeholder={$_('onboarding.joinClub.locationPlaceholder')}
-							autocomplete="street-address"
-							oninput={() => {
-								selectedLocation = null;
-								locationSearchStarted = false;
-								locationSuggestions = [];
-								locationLookupError = '';
-							}}
-							onkeydown={(event) => {
-								if (event.key === 'Enter') {
-									event.preventDefault();
-									void searchLocations();
-								}
-							}}
-						/>
-						<Button
-							type="button"
-							variant="default"
-							class="h-10 shrink-0 px-4"
-							disabled={locationLookupPending}
-							onclick={() => void searchLocations()}
-						>
-							{locationLookupPending ? $_('common.checking') : $_('onboarding.joinClub.search')}
-						</Button>
-					</div>
-					{#if locationLookupError}
-						<p class="text-sm text-red-700">{locationLookupError}</p>
-					{/if}
-					{#if locationSuggestions.length > 0}
-						<div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
-							{#each locationSuggestions as option (option.value)}
-								<button
-									type="button"
-									class="flex w-full items-start gap-2 border-b border-gray-100 px-3 py-3 text-left last:border-b-0 hover:bg-gray-50"
-									onclick={() => selectLocation(option)}
-								>
-									<MapPinIcon class="mt-0.5 size-4 shrink-0 text-orange-500" />
-									<span class="text-sm leading-5 text-gray-700">{option.label}</span>
-								</button>
-							{/each}
-						</div>
-					{/if}
-				</div>
+				<LocationAutocompleteField
+					id="join-club-location"
+					label={$_('onboarding.joinClub.locationLabel')}
+					bind:value={locationQuery}
+					bind:coordinates={selectedLocationCoordinates}
+					accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
+					placeholder={$_('onboarding.joinClub.locationPlaceholder')}
+					emptyMessage={$_('onboarding.joinClub.locationEmptyFound')}
+					lookupFailureMessage={$_('onboarding.joinClub.locationLookupFailure')}
+					hint={PUBLIC_MAPBOX_ACCESS_TOKEN
+						? $_('onboarding.joinClub.locationHintEnabled')
+						: $_('onboarding.joinClub.locationMissingToken')}
+				/>
 			</section>
 
-			{#if selectedLocation}
+			{#if selectedLocationCoordinates}
 				<section class="flex flex-col gap-3">
 					<div class="flex flex-col gap-1">
 						<h2 class="text-lg font-bold text-gray-900">

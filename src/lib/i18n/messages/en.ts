@@ -297,6 +297,7 @@ const en = {
 			locationEmptyTypeMore: 'Type at least 2 characters.',
 			locationMissingToken:
 				'Location search is not configured yet. Add PUBLIC_MAPBOX_ACCESS_TOKEN to .env.local.',
+			locationHintEnabled: 'Start typing and choose a location from the suggestions.',
 			locationLookupFailure: 'Unable to fetch location suggestions.',
 			search: 'Search',
 			nearbyTitle: 'Public clubs nearby',

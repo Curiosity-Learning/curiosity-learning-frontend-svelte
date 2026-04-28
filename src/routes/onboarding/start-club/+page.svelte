@@ -4,7 +4,7 @@
 	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
@@ -13,7 +13,7 @@
 	import { PageHeaderTitle } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
-	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
+	import LocationAutocompleteField from '$lib/components/app/location-autocomplete-field.svelte';
 	import { createMediaField } from '$lib/media/media-field.svelte';
 	import {
 		DropdownField,
@@ -22,11 +22,8 @@
 		type DropdownOption
 	} from '$lib/components/app/form';
 	import {
-		MAPBOX_GEOCODING_LIMIT,
 		MAPBOX_STYLE_URL,
-		fetchMapboxLocationSuggestions,
-		type MapboxCoordinates,
-		type MapboxLocationOption
+		type MapboxCoordinates
 	} from '$lib/maps/mapbox';
 	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
@@ -39,9 +36,7 @@
 		mode: 'immediate'
 	});
 	const PUBLIC_MAPBOX_ACCESS_TOKEN = env.PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
-	const LOCATION_AUTOCOMPLETE_MIN_CHARS = 2;
 	const ABOUT_CHARACTER_LIMIT = 500;
-	const LOCATION_AUTOCOMPLETE_DEBOUNCE_MS = 280;
 	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
 	let isAppNewClubFlow = $derived(page.url.pathname.startsWith(routes.newClubStart));
 	let startClubPath = $derived(isAppNewClubFlow ? routes.newClubStart : routes.onboardingStartClub);
@@ -72,9 +67,6 @@
 	let step = $derived<1 | 2>(page.url.searchParams.get('step') === '2' ? 2 : 1);
 
 	let location = $state('');
-	let locationSuggestions = $state<MapboxLocationOption[]>([]);
-	let locationLookupPending = $state(false);
-	let locationLookupError = $state('');
 	let selectedLocationCoordinates = $state<MapboxCoordinates | null>(null);
 	let userRole = $state('');
 	let about = $state('');
@@ -85,7 +77,6 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let hydratedDraft = $state(false);
-	const rememberedLocationCoordinates = new SvelteMap<string, MapboxCoordinates>();
 
 	const ROLE_VALUE_ALIASES: Record<string, string> = {
 		teacher: 'teacher',
@@ -252,24 +243,8 @@
 			: videoUploadError
 	);
 
-	let locationLookupTimer: ReturnType<typeof setTimeout> | null = null;
-	let locationLookupAbortController: AbortController | null = null;
-	let locationLookupVersion = 0;
-
-	const clearLocationLookupResources = () => {
-		if (locationLookupTimer) {
-			clearTimeout(locationLookupTimer);
-			locationLookupTimer = null;
-		}
-		if (locationLookupAbortController) {
-			locationLookupAbortController.abort();
-			locationLookupAbortController = null;
-		}
-	};
-
 	onDestroy(() => {
 		clubVideoField.destroy();
-		clearLocationLookupResources();
 	});
 
 	$effect(() => {
@@ -289,12 +264,6 @@
 				longitude: draft.locationLongitude,
 				latitude: draft.locationLatitude
 			};
-			if (draft.location.trim()) {
-				rememberedLocationCoordinates.set(
-					draft.location.trim().toLowerCase(),
-					selectedLocationCoordinates
-				);
-			}
 		}
 		if (!userRole.trim() && draft.userRole) {
 			userRole = draft.userRole;
@@ -329,85 +298,6 @@
 		if (referralSource === 'other') return;
 		if (!referralOther) return;
 		referralOther = '';
-	});
-
-	$effect(() => {
-		if (step !== 1) {
-			clearLocationLookupResources();
-			locationSuggestions = [];
-			locationLookupPending = false;
-			locationLookupError = '';
-			return;
-		}
-
-		const query = location.trim();
-		clearLocationLookupResources();
-		locationLookupError = '';
-
-		if (query.length < LOCATION_AUTOCOMPLETE_MIN_CHARS) {
-			locationSuggestions = [];
-			locationLookupPending = false;
-			return;
-		}
-
-		const nextVersion = ++locationLookupVersion;
-		locationLookupPending = true;
-		locationLookupTimer = setTimeout(async () => {
-			if (!PUBLIC_MAPBOX_ACCESS_TOKEN) {
-				if (nextVersion === locationLookupVersion) {
-					locationSuggestions = [];
-					locationLookupPending = false;
-				}
-				return;
-			}
-
-			const controller = new AbortController();
-			locationLookupAbortController = controller;
-
-			try {
-				const payload = await fetchMapboxLocationSuggestions({
-					query,
-					accessToken: PUBLIC_MAPBOX_ACCESS_TOKEN,
-					signal: controller.signal,
-					language: browser ? (navigator.language.split('-')[0] ?? 'en') : 'en',
-					limit: MAPBOX_GEOCODING_LIMIT
-				});
-				if (nextVersion !== locationLookupVersion) return;
-				locationSuggestions = payload;
-				locationLookupError = '';
-				for (const suggestion of payload) {
-					rememberedLocationCoordinates.set(suggestion.value.trim().toLowerCase(), {
-						longitude: suggestion.longitude,
-						latitude: suggestion.latitude
-					});
-				}
-			} catch (error) {
-				if (nextVersion !== locationLookupVersion) return;
-				if (error instanceof DOMException && error.name === 'AbortError') return;
-				locationSuggestions = [];
-				locationLookupError = t('onboarding.startClub.locationLookupFailure');
-			} finally {
-				if (nextVersion === locationLookupVersion) {
-					locationLookupPending = false;
-				}
-			}
-		}, LOCATION_AUTOCOMPLETE_DEBOUNCE_MS);
-	});
-
-	$effect(() => {
-		const normalizedLocation = location.trim().toLowerCase();
-		if (!normalizedLocation) {
-			selectedLocationCoordinates = null;
-			return;
-		}
-
-		const remembered = rememberedLocationCoordinates.get(normalizedLocation);
-		if (remembered) {
-			selectedLocationCoordinates = remembered;
-			return;
-		}
-
-		selectedLocationCoordinates = null;
 	});
 
 	const uploadClubVideo = async (files: File[]) => {
@@ -511,39 +401,22 @@
 					<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.title')}</h1>
 				{/if}
 
-				<DropdownField
+				<LocationAutocompleteField
 					id="location"
 					label={$_('onboarding.startClub.locationLabel')}
 					required={true}
 					bind:value={location}
-					options={locationSuggestions.map(({ label, value }) => ({ label, value }))}
-					loading={locationLookupPending}
+					bind:coordinates={selectedLocationCoordinates}
+					accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
 					placeholder={$_('onboarding.startClub.locationPlaceholder')}
-					filterOptions={false}
-					emptyMessage={location.trim().length >= LOCATION_AUTOCOMPLETE_MIN_CHARS
-						? $_('onboarding.startClub.locationEmptyFound')
-						: ''}
+					emptyMessage={$_('onboarding.startClub.locationEmptyFound')}
+					lookupFailureMessage={$_('onboarding.startClub.locationLookupFailure')}
 					hint={PUBLIC_MAPBOX_ACCESS_TOKEN
 						? $_('onboarding.startClub.locationHintEnabled')
 						: $_('onboarding.startClub.locationHintMissingToken')}
+					showPreview={true}
+					previewStyleUrl={MAPBOX_STYLE_URL}
 				/>
-
-				{#if locationLookupError}
-					<p
-						class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
-					>
-						{locationLookupError}
-					</p>
-				{/if}
-
-				{#if PUBLIC_MAPBOX_ACCESS_TOKEN && selectedLocationCoordinates}
-					<MapboxLocationPreview
-						accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
-						coordinates={selectedLocationCoordinates}
-						label={location.trim()}
-						styleUrl={MAPBOX_STYLE_URL}
-					/>
-				{/if}
 
 				<DropdownField
 					id="role"
