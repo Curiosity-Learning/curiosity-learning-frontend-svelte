@@ -52,11 +52,7 @@
 	let rawNextPath = $derived(page.url.searchParams.get('next'));
 	let nextPath = $derived(normalizePostSignInPath(rawNextPath));
 	let forceSignup = $derived(page.url.searchParams.get('forceSignup') === '1');
-	let resolvedNextPath = $derived(
-		forceSignup && nextPath.startsWith('/onboarding/') && !nextPath.startsWith('/onboarding/post-signup')
-			? '/'
-			: nextPath
-	);
+	let resolvedNextPath = $derived(nextPath);
 	let googleAuthErrorCode = $derived(page.url.searchParams.get('error') ?? '');
 	let googleAuthErrorDescription = $derived(
 		page.url.searchParams.get('error_description') ??
@@ -73,14 +69,18 @@
 	const isEmailLike = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 	const normalizeGoogleAuthError = (value: string | null | undefined) =>
-		(value ?? '').toLowerCase().replaceAll(/[_+%-]+/g, ' ').trim();
+		(value ?? '')
+			.toLowerCase()
+			.replaceAll(/[_+%-]+/g, ' ')
+			.trim();
 
 	const getGoogleSignInErrorMessage = (args: {
 		code?: string | null;
 		description?: string | null;
 		hasTypedEmail?: boolean;
 	}) => {
-		const combined = `${normalizeGoogleAuthError(args.code)} ${normalizeGoogleAuthError(args.description)}`.trim();
+		const combined =
+			`${normalizeGoogleAuthError(args.code)} ${normalizeGoogleAuthError(args.description)}`.trim();
 		if (!combined) {
 			return '';
 		}
@@ -143,6 +143,17 @@
 			identifier: normalizedIdentifier
 		});
 		return result.email;
+	};
+
+	const isPendingConsentLogin = async (rawIdentifier: string) => {
+		const normalizedIdentifier = normalizeIdentifier(rawIdentifier);
+		if (!normalizedIdentifier || isEmailLike(normalizedIdentifier)) {
+			return false;
+		}
+		const status = await convexClient.query(api.auth.getUsernameLoginStatus, {
+			username: normalizedIdentifier
+		});
+		return status.parentConsentStatus === 'pending';
 	};
 
 	$effect(() => {
@@ -247,30 +258,40 @@
 		dismissGoogleAuthCallbackError = true;
 		pending = true;
 		try {
-			const resolvedEmail = await resolveIdentifierEmail(identifier);
-			resolvedCredentialEmail = resolvedEmail;
-			if (!resolvedEmail) {
-				errorMessage = t('auth.signIn.invalidCredentials');
-				return;
-			}
-
-			const { error } = await authClient.signIn.email({
-				email: resolvedEmail,
-				password,
-				callbackURL: resolvedNextPath,
-				rememberMe
-			});
+			const normalizedIdentifier = normalizeIdentifier(identifier);
+			const emailMode = isEmailLike(normalizedIdentifier);
+			const result = emailMode
+				? await authClient.signIn.email({
+						email: normalizedIdentifier,
+						password,
+						callbackURL: resolvedNextPath,
+						rememberMe
+					})
+				: await authClient.signIn.username({
+						username: normalizedIdentifier,
+						password,
+						callbackURL: resolvedNextPath,
+						rememberMe
+					});
+			const { error } = result;
+			resolvedCredentialEmail = emailMode
+				? normalizedIdentifier
+				: await resolveIdentifierEmail(normalizedIdentifier);
 
 			if (error) {
 				if (isInvalidEmailError(error.message)) {
-					showGlobalSnackbar({
-						title: t('auth.signIn.invalidLoginTitle'),
-						description: t('auth.signIn.invalidLoginDescription')
-					});
+					errorMessage = t('auth.signIn.invalidLoginDescription');
+					return;
+				}
+				if (await isPendingConsentLogin(normalizedIdentifier)) {
+					errorMessage = t('auth.signIn.parentConsentPending');
 					return;
 				}
 				const normalizedError = normalizeAuthError(error);
-				errorMessage = t(normalizedError.userMessage);
+				errorMessage =
+					normalizedError.type === 'unknown-error'
+						? t('auth.errors.invalidCredentials')
+						: t(normalizedError.userMessage);
 				return;
 			}
 
@@ -372,8 +393,10 @@
 									type="button"
 									onclick={() => (showPassword = !showPassword)}
 									onmousedown={(event) => event.preventDefault()}
-									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
-									aria-label={showPassword ? $_('auth.signIn.hidePassword') : $_('auth.signIn.showPassword')}
+									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:ring-0 focus-visible:outline-none active:bg-transparent"
+									aria-label={showPassword
+										? $_('auth.signIn.hidePassword')
+										: $_('auth.signIn.showPassword')}
 									aria-pressed={showPassword}
 								>
 									{#if showPassword}

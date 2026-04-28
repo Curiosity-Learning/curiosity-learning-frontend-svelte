@@ -7,11 +7,14 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
+	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { InputField } from '$lib/components/app/form';
+	import { getUsernameValidationError, normalizeUsername } from '$lib/auth/username';
+	import { createDebouncedLookup } from '$lib/forms/debounced-lookup';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { useConvexClient } from 'convex-svelte';
@@ -52,6 +55,12 @@
 	let agreedAll = $state(false);
 	let pending = $state(false);
 	let usernamePrefilled = $state(false);
+	let usernameTouched = $state(false);
+	let usernameAvailability = $state<'idle' | 'invalid' | 'checking' | 'available' | 'taken' | 'error'>(
+		'idle'
+	);
+	let usernameAvailabilityMessage = $state('');
+	let formErrorMessage = $state('');
 	let completionRedirected = $state(false);
 	let pledgesSeedRequested = $state(false);
 	let pledgesSeeding = $state(false);
@@ -62,6 +71,7 @@
 	const pledgesResponse = useStableQuery(api.pledges.listActive, () =>
 		auth.isAuthenticated ? {} : 'skip'
 	);
+	const usernameLookup = createDebouncedLookup<boolean>(300);
 	const pledgeItems = $derived(pledgesResponse.data ?? []);
 	let selfPath = $derived.by(() => {
 		const params = new SvelteURLSearchParams();
@@ -112,6 +122,7 @@
 	);
 
 	onDestroy(() => {
+		usernameLookup.stop();
 		profileImageField.destroy();
 	});
 
@@ -133,11 +144,29 @@
 	let profileImageError = $derived(
 		profileImageField.phase === 'failed' ? profileImageField.errorMessage : ''
 	);
+	let initialUsername = $derived(profileResponse.data?.username?.trim().toLowerCase() ?? '');
+	let usernameFieldError = $derived(
+		usernameTouched || normalizeUsername(username) ? usernameAvailabilityMessage : ''
+	);
+	let usernameFieldHint = $derived.by(() => {
+		if (usernameAvailability === 'checking') return t('auth.signUp.checkingUsername');
+		if (usernameAvailability === 'available' && normalizeUsername(username) !== initialUsername) {
+			return t('auth.signUp.usernameAvailable');
+		}
+		return '';
+	});
+	let usernameUnavailable = $derived(
+		usernameAvailability === 'invalid' ||
+			usernameAvailability === 'checking' ||
+			usernameAvailability === 'taken' ||
+			usernameAvailability === 'error'
+	);
 	let nextDisabled = $derived(
 		pending ||
 			profileImageField.isBusy ||
 			profileImageNeedsReady ||
 			!username.trim() ||
+			usernameUnavailable ||
 			Boolean(profileImageError)
 	);
 
@@ -148,6 +177,48 @@
 		if (!username.trim()) {
 			username = profileResponse.data.username ?? '';
 		}
+	});
+
+	$effect(() => {
+		const normalized = normalizeUsername(username);
+		usernameLookup.stop();
+		usernameAvailabilityMessage = '';
+
+		if (!normalized) {
+			usernameAvailability = 'idle';
+			return;
+		}
+
+		const validationError = getUsernameValidationError(normalized);
+		if (validationError) {
+			usernameAvailability = 'invalid';
+			usernameAvailabilityMessage = validationError;
+			return;
+		}
+
+		if (normalized === initialUsername) {
+			usernameAvailability = 'available';
+			return;
+		}
+
+		usernameLookup.schedule({
+			key: normalized,
+			onStart: () => {
+				usernameAvailability = 'checking';
+			},
+			lookup: () =>
+				convexClient.query(api.profiles.checkUsernameAvailability, {
+					username: normalized
+				}),
+			onSuccess: (available) => {
+				usernameAvailability = available ? 'available' : 'taken';
+				usernameAvailabilityMessage = available ? '' : t('auth.signUp.usernameTaken');
+			},
+			onError: () => {
+				usernameAvailability = 'error';
+				usernameAvailabilityMessage = t('auth.signUp.usernameCheckFailed');
+			}
+		});
 	});
 
 	$effect(() => {
@@ -192,34 +263,38 @@
 			});
 	});
 
-	const normalizeUsername = (value: string) => value.trim().toLowerCase();
-
 	const uploadProfileImage = async (files: File[]) => {
+		formErrorMessage = '';
 		try {
 			await profileImageField.selectFiles(files);
-			if (profileImageField.phase === 'failed' && profileImageField.errorMessage) {
-				showGlobalSnackbar({
-					title: t('onboarding.postSignup.profileImageUploadFailedTitle'),
-					description: profileImageField.errorMessage
-				});
-			}
 		} catch (error) {
-			showGlobalSnackbar({
-				title: t('onboarding.postSignup.profileImageUploadFailedTitle'),
-				description:
-					error instanceof Error
-						? error.message
-						: t('onboarding.postSignup.profileImageUploadFailedDescription')
-			});
+			formErrorMessage =
+				error instanceof Error
+					? error.message
+					: t('onboarding.postSignup.profileImageUploadFailedDescription');
 		}
 	};
 
 	const saveProfileAndContinue = async () => {
+		usernameTouched = true;
+		formErrorMessage = '';
 		const normalizedUsername = normalizeUsername(username);
-		if (!normalizedUsername) {
-			showGlobalSnackbar({
-				title: t('onboarding.postSignup.usernameRequiredTitle')
-			});
+		const validationError = getUsernameValidationError(normalizedUsername);
+		if (validationError) {
+			usernameAvailability = normalizedUsername ? 'invalid' : 'idle';
+			usernameAvailabilityMessage = validationError;
+			return;
+		}
+		if (usernameAvailability === 'checking') {
+			formErrorMessage = t('auth.signUp.waitForUsernameCheck');
+			return;
+		}
+		if (usernameAvailability === 'taken') {
+			usernameAvailabilityMessage = t('auth.signUp.usernameTaken');
+			return;
+		}
+		if (usernameAvailability === 'error') {
+			formErrorMessage = t('auth.signUp.usernameCheckFailed');
 			return;
 		}
 
@@ -243,26 +318,20 @@
 		} catch (error) {
 			let errorMessage = t('onboarding.postSignup.saveProfileFailedDescription');
 			if (error instanceof Error) {
-				// Extract just the validation message from Convex errors
 				const message = error.message;
 				const match = message.match(/ConvexError:\s*(.+?)(?:\s+at\s+|$)/);
 				errorMessage = match ? match[1] : message;
 			}
-			showGlobalSnackbar({
-				title: t('onboarding.postSignup.saveProfileFailedTitle'),
-				description: errorMessage
-			});
+			formErrorMessage = errorMessage;
 		} finally {
 			pending = false;
 		}
 	};
 
 	const completeOnboarding = async () => {
+		formErrorMessage = '';
 		if (!agreedAll) {
-			showGlobalSnackbar({
-				title: t('onboarding.postSignup.confirmationRequiredTitle'),
-				description: t('onboarding.postSignup.confirmationRequiredDescription')
-			});
+			formErrorMessage = t('onboarding.postSignup.confirmationRequiredDescription');
 			return;
 		}
 
@@ -293,13 +362,10 @@
 			clearPostSignupPending();
 			await goto(completionNextPath, { replaceState: true });
 		} catch (error) {
-			showGlobalSnackbar({
-				title: t('onboarding.postSignup.finishOnboardingFailedTitle'),
-				description:
-					error instanceof Error
-						? error.message
-						: t('onboarding.postSignup.finishOnboardingFailedDescription')
-			});
+			formErrorMessage =
+				error instanceof Error
+					? error.message
+					: t('onboarding.postSignup.finishOnboardingFailedDescription');
 		} finally {
 			pending = false;
 		}
@@ -342,6 +408,9 @@
 						bind:value={username}
 						autocomplete="username"
 						placeholder={$_('onboarding.postSignup.usernamePlaceholder')}
+						hint={usernameFieldHint}
+						hintClass={usernameAvailability === 'available' ? 'text-emerald-700' : undefined}
+						error={usernameFieldError}
 					/>
 
 					<div class="flex flex-col gap-3">
@@ -491,6 +560,17 @@
 						</label>
 					</div>
 				</div>
+			{/if}
+
+			{#if formErrorMessage}
+				<Alert variant="destructive">
+					<AlertTitle>
+						{step === 1
+							? $_('onboarding.postSignup.saveProfileFailedTitle')
+							: $_('onboarding.postSignup.finishOnboardingFailedTitle')}
+					</AlertTitle>
+					<AlertDescription>{formErrorMessage}</AlertDescription>
+				</Alert>
 			{/if}
 
 			<div class="mt-auto pb-2 sm:pb-6">

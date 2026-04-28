@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-import { SvelteURLSearchParams } from 'svelte/reactivity';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import Icon from '@iconify/svelte';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
@@ -16,10 +16,12 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { Input } from '$lib/components/ui/input';
 	import { InputOtp } from '$lib/components/ui/input-otp';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
-	import { DateSelectField } from '$lib/components/app/form';
+	import { DateSelectField, InputField } from '$lib/components/app/form';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
 	import { normalizeAuthError } from '$lib/auth/error-handler';
+	import { getUsernameValidationError, normalizeUsername } from '$lib/auth/username';
+	import { createDebouncedLookup } from '$lib/forms/debounced-lookup';
 	import { _, formatT, t } from '$lib/i18n';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
@@ -28,6 +30,8 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
+	const existingEmailLookup = createDebouncedLookup<ExistingAccountStatus>(450);
+	const childUsernameLookup = createDebouncedLookup<boolean>(300);
 
 	const OTP_LENGTH = 6;
 	const OTP_RESEND_COOLDOWN_SECONDS = 30;
@@ -54,6 +58,7 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	let birthMonth = $state('');
 	let birthYear = $state('');
 
+	let childUsername = $state('');
 	let email = $state('');
 	let password = $state('');
 	let confirmPassword = $state('');
@@ -81,13 +86,19 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	let emailStatusPending = $state(false);
 	let existingEmailStatus = $state<ExistingAccountStatus | null>(null);
 	let existingEmailLookupKey = $state('');
-	let emailLookupTimer: ReturnType<typeof setTimeout> | null = null;
+	let childUsernameTouched = $state(false);
+	let childUsernameAvailability = $state<
+		'idle' | 'invalid' | 'checking' | 'available' | 'taken' | 'error'
+	>('idle');
+	let childUsernameAvailabilityMessage = $state('');
 
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
 	let existingGoogleAccount = $derived(page.url.searchParams.get('existingGoogleAccount') === '1');
 	let isGooglePostSocial = $derived(page.url.searchParams.get('postSocial') === 'google');
-	let googleSignupBlocked = $derived(page.url.searchParams.get('signupBlocked') === 'existing-google');
+	let googleSignupBlocked = $derived(
+		page.url.searchParams.get('signupBlocked') === 'existing-google'
+	);
 	let postSignupNextPath = $derived(resolvePostSignupNextPath(nextPath));
 	let forceSignup = $derived(page.url.searchParams.get('forceSignup') === '1');
 	let backPath = $derived.by(() => {
@@ -131,7 +142,20 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 	});
 	let termsHref = $derived(`/terms?backTo=${encodeURIComponent(signUpPathForCurrentStep)}`);
 
-	const MONTH_VALUES = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'] as const;
+	const MONTH_VALUES = [
+		'01',
+		'02',
+		'03',
+		'04',
+		'05',
+		'06',
+		'07',
+		'08',
+		'09',
+		'10',
+		'11',
+		'12'
+	] as const;
 
 	let monthOptions = $derived(
 		MONTH_VALUES.map((value, index) => ({
@@ -251,26 +275,36 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 		completingEmailPostVerify = false;
 	};
 
-	const stopEmailLookup = () => {
-		if (emailLookupTimer) {
-			clearTimeout(emailLookupTimer);
-			emailLookupTimer = null;
-		}
-	};
-
 	onDestroy(() => {
 		stopResendCooldown();
-		stopEmailLookup();
+		existingEmailLookup.stop();
+		childUsernameLookup.stop();
 	});
 
 	let age = $derived(calculateAge(birthMonth, birthYear));
-	let isMinor = $derived(age !== null && age < 13);
-	let isOver16 = $derived(age !== null && age > 16);
+	let isMinor = $derived(age !== null && age < 16);
+	let isOver16 = $derived(age !== null && age >= 16);
 	let canContinuePersonalStep = $derived(birthMonth.length > 0 && birthYear.length > 0);
 	let normalizedEmail = $derived(normalizeEmail(email));
-	let isEmailReadyForLookup = $derived(step === 4 && isValidEmailFormat(normalizedEmail));
-	let hasExistingAccount = $derived(Boolean(existingEmailStatus?.exists));
-	let shouldHidePasswordFields = $derived(Boolean(existingEmailStatus?.exists));
+	let isEmailReadyForLookup = $derived(
+		!isMinor && step === 4 && isValidEmailFormat(normalizedEmail)
+	);
+	let hasExistingAccount = $derived(!isMinor && Boolean(existingEmailStatus?.exists));
+	let shouldHidePasswordFields = $derived(!isMinor && Boolean(existingEmailStatus?.exists));
+	let childUsernameUnavailable = $derived(
+		childUsernameAvailability === 'invalid' ||
+			childUsernameAvailability === 'checking' ||
+			childUsernameAvailability === 'taken' ||
+			childUsernameAvailability === 'error'
+	);
+	let childUsernameFieldError = $derived(
+		childUsernameTouched || normalizeUsername(childUsername) ? childUsernameAvailabilityMessage : ''
+	);
+	let childUsernameFieldHint = $derived.by(() => {
+		if (childUsernameAvailability === 'checking') return t('auth.signUp.checkingUsername');
+		if (childUsernameAvailability === 'available') return t('auth.signUp.usernameAvailable');
+		return '';
+	});
 	let isOtpComplete = $derived(otpCode.length === OTP_LENGTH);
 	let formSubmissionPending = $derived(pending || googleRedirectPending || googlePostSignUpPending);
 	let otpSyncInProgress = $derived(pending || awaitingEmailPostVerify || completingEmailPostVerify);
@@ -406,7 +440,7 @@ import { SvelteURLSearchParams } from 'svelte/reactivity';
 		}
 	};
 
-type ExistingAccountStatus = {
+	type ExistingAccountStatus = {
 		exists: boolean;
 		isVerified: boolean;
 		firstLoginCompleted: boolean;
@@ -476,7 +510,11 @@ type ExistingAccountStatus = {
 	};
 
 	const getExistingAccountLoginPath = (resumePostSignup: boolean) => {
-		const target = resumePostSignup ? postSignupPath : '/';
+		const target = resumePostSignup
+			? postSignupPath
+			: forceSignup && nextPath.startsWith('/onboarding/')
+				? nextPath
+				: '/';
 		const params = new SvelteURLSearchParams();
 		params.set('next', target);
 		if (forceSignup) {
@@ -485,12 +523,11 @@ type ExistingAccountStatus = {
 		return `/auth/sign-in?${params.toString()}`;
 	};
 
-	const redirectToExistingAccountLogin = async (
-		resumePostSignup: boolean,
-		description: string
-	) => {
+	const redirectToExistingAccountLogin = async (resumePostSignup: boolean, description: string) => {
 		showGlobalSnackbar({
-			title: resumePostSignup ? t('auth.signUp.continueSignupTitle') : t('auth.signUp.accountExistsTitle'),
+			title: resumePostSignup
+				? t('auth.signUp.continueSignupTitle')
+				: t('auth.signUp.accountExistsTitle'),
 			description
 		});
 		await goto(getExistingAccountLoginPath(resumePostSignup));
@@ -678,6 +715,10 @@ type ExistingAccountStatus = {
 		if (successContinuePending) return;
 		successContinuePending = true;
 		try {
+			if (isMinor) {
+				await goto('/auth/sign-in', { replaceState: true });
+				return;
+			}
 			setPostSignupPending();
 			await goto(postSignupPath, { replaceState: true });
 		} finally {
@@ -729,16 +770,75 @@ type ExistingAccountStatus = {
 		window.location.assign(url);
 	};
 
-const signUp = async () => {
+	const signUpChild = async () => {
+		errorMessage = '';
+		infoMessage = '';
+		childUsernameTouched = true;
+		const normalizedChildUsername = normalizeUsername(childUsername);
+		const parentEmail = email.trim().toLowerCase();
+
+		if (!acceptedTerms) {
+			errorMessage = t('auth.signUp.acceptTerms');
+			return;
+		}
+		const usernameValidationError = getUsernameValidationError(normalizedChildUsername);
+		if (usernameValidationError) {
+			childUsernameAvailability = normalizedChildUsername ? 'invalid' : 'idle';
+			childUsernameAvailabilityMessage = usernameValidationError;
+			return;
+		}
+		if (childUsernameAvailability === 'checking') {
+			errorMessage = t('auth.signUp.waitForUsernameCheck');
+			return;
+		}
+		if (childUsernameAvailability === 'taken') {
+			childUsernameAvailabilityMessage = t('auth.signUp.usernameTaken');
+			return;
+		}
+		if (childUsernameAvailability === 'error') {
+			errorMessage = t('auth.signUp.usernameCheckFailed');
+			return;
+		}
+		if (password !== confirmPassword) {
+			errorMessage = t('auth.signUp.passwordsMismatch');
+			return;
+		}
+
+		pending = true;
+		try {
+			await convexClient.action(api.childSignup.registerChild, {
+				username: normalizedChildUsername,
+				password,
+				parentEmail,
+				dateOfBirth: formatDateOfBirth(birthMonth, birthYear),
+				nextPath
+			});
+			showSuccessScreen = true;
+			infoMessage = '';
+			errorMessage = '';
+			clearSignupDraft();
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('auth.signUp.failedCreateAccount');
+		} finally {
+			pending = false;
+		}
+	};
+
+	const signUp = async () => {
+		if (isMinor) {
+			await signUpChild();
+			return;
+		}
 		errorMessage = '';
 		infoMessage = '';
 
 		pending = true;
 		const sanitizedEmail = email.trim();
 
-		const existingStatus = existingEmailLookupKey === normalizeEmail(sanitizedEmail) && existingEmailStatus
-			? existingEmailStatus
-			: await getExistingAccountStatus(sanitizedEmail);
+		const existingStatus =
+			existingEmailLookupKey === normalizeEmail(sanitizedEmail) && existingEmailStatus
+				? existingEmailStatus
+				: await getExistingAccountStatus(sanitizedEmail);
 		if (await handleExistingManualAccountBeforeSignup(existingStatus, sanitizedEmail)) {
 			pending = false;
 			return;
@@ -779,7 +879,9 @@ const signUp = async () => {
 					clearOtp();
 					resetEmailPostVerifyState();
 					startResendCooldown();
-					infoMessage = formatT('auth.signUp.verificationCodeSentToEmail', { email: sanitizedEmail });
+					infoMessage = formatT('auth.signUp.verificationCodeSentToEmail', {
+						email: sanitizedEmail
+					});
 					showGlobalSnackbar({
 						title: t('auth.signUp.verificationCodeSentTitle'),
 						description: t('auth.signUp.verificationCodeSentDescription')
@@ -787,7 +889,10 @@ const signUp = async () => {
 					return;
 				}
 
-				if (isAlreadyVerifiedError(resendError.message) || isAlreadyExistsError(resendError.message)) {
+				if (
+					isAlreadyVerifiedError(resendError.message) ||
+					isAlreadyExistsError(resendError.message)
+				) {
 					errorMessage = t('auth.signUp.registeredSignInInstead');
 					return;
 				}
@@ -809,15 +914,16 @@ const signUp = async () => {
 		infoMessage = formatT('auth.signUp.verificationCodeInitialToEmail', { email: sanitizedEmail });
 	};
 
-const signUpWithGoogle = async () => {
+	const signUpWithGoogle = async () => {
 		errorMessage = '';
 		infoMessage = '';
 
 		googleRedirectPending = true;
 		const sanitizedEmail = email.trim();
-		const existingStatus = existingEmailLookupKey === normalizeEmail(sanitizedEmail) && existingEmailStatus
-			? existingEmailStatus
-			: await getExistingAccountStatus(sanitizedEmail);
+		const existingStatus =
+			existingEmailLookupKey === normalizeEmail(sanitizedEmail) && existingEmailStatus
+				? existingEmailStatus
+				: await getExistingAccountStatus(sanitizedEmail);
 		if (await handleExistingGoogleAccountBeforeSignup(existingStatus, sanitizedEmail)) {
 			googleRedirectPending = false;
 			return;
@@ -1029,9 +1135,7 @@ const signUpWithGoogle = async () => {
 			});
 		} catch (profileError) {
 			const message =
-				profileError instanceof Error
-					? profileError.message
-					: t('auth.signUp.unableSaveProfile');
+				profileError instanceof Error ? profileError.message : t('auth.signUp.unableSaveProfile');
 
 			resetEmailPostVerifyState();
 			errorMessage = message;
@@ -1076,8 +1180,7 @@ const signUpWithGoogle = async () => {
 	});
 
 	$effect(() => {
-		let cancelled = false;
-		stopEmailLookup();
+		existingEmailLookup.stop();
 
 		if (!isEmailReadyForLookup) {
 			emailStatusPending = false;
@@ -1091,31 +1194,70 @@ const signUpWithGoogle = async () => {
 			return;
 		}
 
-		emailStatusPending = true;
-		emailLookupTimer = setTimeout(() => {
-			const lookupEmail = normalizedEmail;
-			void (async () => {
-				try {
-					const status = await getExistingAccountStatus(lookupEmail);
-					if (cancelled || normalizeEmail(email) !== lookupEmail || step !== 4) return;
-					existingEmailLookupKey = lookupEmail;
-					existingEmailStatus = status.exists ? status : null;
-				} catch {
-					if (cancelled || normalizeEmail(email) !== lookupEmail || step !== 4) return;
-					existingEmailStatus = null;
-					existingEmailLookupKey = lookupEmail;
-				} finally {
-					if (!cancelled && normalizeEmail(email) === lookupEmail && step === 4) {
-						emailStatusPending = false;
-					}
-				}
-			})();
-		}, 450);
+		const lookupEmail = normalizedEmail;
+		existingEmailLookup.schedule({
+			key: lookupEmail,
+			onStart: () => {
+				emailStatusPending = true;
+			},
+			lookup: () => getExistingAccountStatus(lookupEmail),
+			onSuccess: (status) => {
+				existingEmailLookupKey = lookupEmail;
+				existingEmailStatus = status.exists ? status : null;
+				emailStatusPending = false;
+			},
+			onError: () => {
+				existingEmailStatus = null;
+				existingEmailLookupKey = lookupEmail;
+				emailStatusPending = false;
+			}
+		});
 
-		return () => {
-			cancelled = true;
-			stopEmailLookup();
-		};
+		return () => existingEmailLookup.stop();
+	});
+
+	$effect(() => {
+		const normalized = normalizeUsername(childUsername);
+		childUsernameLookup.stop();
+		childUsernameAvailabilityMessage = '';
+
+		if (!isMinor || step !== 4) {
+			childUsernameAvailability = 'idle';
+			return;
+		}
+
+		if (!normalized) {
+			childUsernameAvailability = 'idle';
+			return;
+		}
+
+		const validationError = getUsernameValidationError(normalized);
+		if (validationError) {
+			childUsernameAvailability = 'invalid';
+			childUsernameAvailabilityMessage = validationError;
+			return;
+		}
+
+		childUsernameLookup.schedule({
+			key: normalized,
+			onStart: () => {
+				childUsernameAvailability = 'checking';
+			},
+			lookup: () =>
+				convexClient.query(api.profiles.checkUsernameAvailability, {
+					username: normalized
+				}),
+			onSuccess: (available) => {
+				childUsernameAvailability = available ? 'available' : 'taken';
+				childUsernameAvailabilityMessage = available ? '' : t('auth.signUp.usernameTaken');
+			},
+			onError: () => {
+				childUsernameAvailability = 'error';
+				childUsernameAvailabilityMessage = t('auth.signUp.usernameCheckFailed');
+			}
+		});
+
+		return () => childUsernameLookup.stop();
 	});
 
 	$effect(() => {
@@ -1196,20 +1338,18 @@ const signUpWithGoogle = async () => {
 				if (handledGooglePostSignUp) {
 					return;
 				}
-					handledGooglePostSignUp = true;
-					googlePostSignUpPending = true;
-					void (async () => {
-						try {
-							clearForcedGoogleSignupPending();
-							await completeSignupProfile('google');
-							clearPostSocialFromUrl();
-							showSuccessAndContinue();
+				handledGooglePostSignUp = true;
+				googlePostSignUpPending = true;
+				void (async () => {
+					try {
+						clearForcedGoogleSignupPending();
+						await completeSignupProfile('google');
+						clearPostSocialFromUrl();
+						showSuccessAndContinue();
 					} catch (error) {
 						clearPostSocialFromUrl();
 						errorMessage =
-							error instanceof Error
-								? error.message
-								: t('auth.signUp.unableFinishGoogleSignup');
+							error instanceof Error ? error.message : t('auth.signUp.unableFinishGoogleSignup');
 					} finally {
 						googlePostSignUpPending = false;
 					}
@@ -1231,10 +1371,18 @@ const signUpWithGoogle = async () => {
 {#if showSuccessScreen}
 	<div class="flex min-h-screen items-center justify-center bg-white px-4">
 		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-3 text-center">
-			<img src={successImage} alt={$_('auth.signUp.successAlt')} class="h-auto w-[11.5rem] object-contain" />
-			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">{$_('auth.signUp.successTitle')}</h1>
+			<img
+				src={successImage}
+				alt={$_('auth.signUp.successAlt')}
+				class="h-auto w-[11.5rem] object-contain"
+			/>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">
+				{$_('auth.signUp.successTitle')}
+			</h1>
 			<p class="text-base leading-7 text-gray-600">
-				{$_('auth.signUp.successDescription')}
+				{isMinor
+					? 'We sent a consent link to your parent or guardian. You can log in after they approve your account.'
+					: $_('auth.signUp.successDescription')}
 			</p>
 			<Button
 				variant="default"
@@ -1250,10 +1398,14 @@ const signUpWithGoogle = async () => {
 {:else if showExistingGoogleAccountProcessing}
 	<div class="flex min-h-screen items-center justify-center bg-white px-4">
 		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-4 text-center">
-			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+			<div
+				class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500"
+			>
 				<LoaderCircleIcon class="size-7 animate-spin" />
 			</div>
-			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">{$_('auth.signUp.existingGoogleProcessingTitle')}</h1>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">
+				{$_('auth.signUp.existingGoogleProcessingTitle')}
+			</h1>
 			<p class="text-base leading-7 text-gray-600">
 				{$_('auth.signUp.existingGoogleProcessingDescription')}
 			</p>
@@ -1262,17 +1414,21 @@ const signUpWithGoogle = async () => {
 {:else if showGooglePostSignUpProcessing}
 	<div class="flex min-h-screen items-center justify-center bg-white px-4">
 		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-4 text-center">
-			<div class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+			<div
+				class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500"
+			>
 				<LoaderCircleIcon class="size-7 animate-spin" />
 			</div>
-			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">{$_('auth.signUp.googlePostProcessingTitle')}</h1>
+			<h1 class="text-[2rem] leading-[2.5rem] font-bold text-gray-900">
+				{$_('auth.signUp.googlePostProcessingTitle')}
+			</h1>
 			<p class="text-base leading-7 text-gray-600">
 				{$_('auth.signUp.googlePostProcessingDescription')}
 			</p>
 		</div>
 	</div>
 {:else}
-	<FlowShell step={step} total={5} showSideIllustration={true} showAccountLink={false}>
+	<FlowShell {step} total={5} showSideIllustration={true} showAccountLink={false}>
 		{#snippet headerSupplement()}
 			<div class="flex items-center justify-between gap-4">
 				<button
@@ -1282,7 +1438,8 @@ const signUpWithGoogle = async () => {
 					aria-label={$_('common.goBack')}
 				>
 					<ChevronLeftIcon class="size-7" />
-				</button>			</div>
+				</button>
+			</div>
 		{/snippet}
 
 		<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
@@ -1302,10 +1459,10 @@ const signUpWithGoogle = async () => {
 				</div>
 
 				{#if errorMessage}
-						<Alert variant="destructive">
-							<AlertTitle>{$_('auth.signUp.cannotContinueTitle')}</AlertTitle>
-							<AlertDescription>{errorMessage}</AlertDescription>
-						</Alert>
+					<Alert variant="destructive">
+						<AlertTitle>{$_('auth.signUp.cannotContinueTitle')}</AlertTitle>
+						<AlertDescription>{errorMessage}</AlertDescription>
+					</Alert>
 				{/if}
 
 				<div class="mt-auto pb-2 sm:pb-6">
@@ -1327,7 +1484,9 @@ const signUpWithGoogle = async () => {
 						<Checkbox bind:checked={acceptedTerms} id="terms" />
 						<label for="terms" class="cursor-pointer text-sm leading-6 text-gray-600">
 							{$_('auth.signUp.agreeTo')}
-							<a href={termsHref} class="font-medium text-orange-500">{$_('auth.signUp.termsAndConditions')}</a>
+							<a href={termsHref} class="font-medium text-orange-500"
+								>{$_('auth.signUp.termsAndConditions')}</a
+							>
 						</label>
 					</div>
 
@@ -1347,6 +1506,20 @@ const signUpWithGoogle = async () => {
 								{$_('auth.signUp.continueWithGoogle')}
 							{/if}
 						</Button>
+					{/if}
+
+					{#if isMinor}
+						<InputField
+							id="child-username"
+							label={$_('onboarding.postSignup.usernameLabel')}
+							required={true}
+							bind:value={childUsername}
+							autocomplete="username"
+							placeholder={$_('onboarding.postSignup.usernamePlaceholder')}
+							hint={childUsernameFieldHint}
+							hintClass={childUsernameAvailability === 'available' ? 'text-emerald-700' : undefined}
+							error={childUsernameFieldError}
+						/>
 					{/if}
 
 					<Field class="flex flex-col gap-2">
@@ -1376,82 +1549,88 @@ const signUpWithGoogle = async () => {
 					{:else if hasExistingAccount && existingEmailStatus}
 						<Alert>
 							<AlertTitle>{$_('auth.signUp.accountFoundTitle')}</AlertTitle>
-							<AlertDescription>{getExistingAccountInlineMessage(existingEmailStatus)}</AlertDescription>
+							<AlertDescription
+								>{getExistingAccountInlineMessage(existingEmailStatus)}</AlertDescription
+							>
 						</Alert>
 					{/if}
 
 					{#if !shouldHidePasswordFields}
-					<Field class="flex flex-col gap-2">
-						<FieldLabel for="password" required class="type-field-label text-gray-900">
-							{$_('auth.signUp.passwordLabel')}
-						</FieldLabel>
-						<div class="relative">
-							<Input
-								id="password"
-								type={showPassword ? 'text' : 'password'}
-								bind:value={password}
-								autocomplete="new-password"
-								placeholder={$_('auth.signUp.passwordPlaceholder')}
-								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
-							/>
-							<button
-								type="button"
-								onclick={() => (showPassword = !showPassword)}
-								onmousedown={(event) => {
-									event.preventDefault();
-								}}
-								class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
-								aria-label={showPassword ? $_('auth.signUp.hidePassword') : $_('auth.signUp.showPassword')}
-								aria-pressed={showPassword}
-							>
-								{#if showPassword}
-									<EyeOffIcon class="size-5" />
-								{:else}
+						<Field class="flex flex-col gap-2">
+							<FieldLabel for="password" required class="type-field-label text-gray-900">
+								{$_('auth.signUp.passwordLabel')}
+							</FieldLabel>
+							<div class="relative">
+								<Input
+									id="password"
+									type={showPassword ? 'text' : 'password'}
+									bind:value={password}
+									autocomplete="new-password"
+									placeholder={$_('auth.signUp.passwordPlaceholder')}
+									class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+								/>
+								<button
+									type="button"
+									onclick={() => (showPassword = !showPassword)}
+									onmousedown={(event) => {
+										event.preventDefault();
+									}}
+									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:ring-0 focus-visible:outline-none active:bg-transparent"
+									aria-label={showPassword
+										? $_('auth.signUp.hidePassword')
+										: $_('auth.signUp.showPassword')}
+									aria-pressed={showPassword}
+								>
+									{#if showPassword}
+										<EyeOffIcon class="size-5" />
+									{:else}
 										<EyeIcon class="size-5" />
 									{/if}
 								</button>
-						</div>
-					</Field>
+							</div>
+						</Field>
 
-					<Field class="flex flex-col gap-2">
-						<FieldLabel for="confirmPassword" required class="type-field-label text-gray-900">
-							{$_('auth.signUp.confirmPasswordLabel')}
-						</FieldLabel>
-						<div class="relative">
-							<Input
-								id="confirmPassword"
-								type={showConfirmPassword ? 'text' : 'password'}
-								bind:value={confirmPassword}
-								autocomplete="new-password"
-								placeholder={$_('auth.signUp.confirmPasswordPlaceholder')}
-								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
-							/>
-							<button
-								type="button"
-								onclick={() => (showConfirmPassword = !showConfirmPassword)}
-								onmousedown={(event) => {
-									event.preventDefault();
-								}}
-								class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:outline-none focus-visible:ring-0 active:bg-transparent"
-								aria-label={showConfirmPassword ? $_('auth.signUp.hideConfirmPassword') : $_('auth.signUp.showConfirmPassword')}
-								aria-pressed={showConfirmPassword}
-							>
-								{#if showConfirmPassword}
-									<EyeOffIcon class="size-5" />
-								{:else}
+						<Field class="flex flex-col gap-2">
+							<FieldLabel for="confirmPassword" required class="type-field-label text-gray-900">
+								{$_('auth.signUp.confirmPasswordLabel')}
+							</FieldLabel>
+							<div class="relative">
+								<Input
+									id="confirmPassword"
+									type={showConfirmPassword ? 'text' : 'password'}
+									bind:value={confirmPassword}
+									autocomplete="new-password"
+									placeholder={$_('auth.signUp.confirmPasswordPlaceholder')}
+									class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+								/>
+								<button
+									type="button"
+									onclick={() => (showConfirmPassword = !showConfirmPassword)}
+									onmousedown={(event) => {
+										event.preventDefault();
+									}}
+									class="absolute inset-y-0 right-3 inline-flex size-5 cursor-pointer items-center justify-center self-center rounded-sm text-gray-500 transition-colors duration-200 hover:bg-transparent hover:text-gray-700 focus:outline-none focus-visible:ring-0 focus-visible:outline-none active:bg-transparent"
+									aria-label={showConfirmPassword
+										? $_('auth.signUp.hideConfirmPassword')
+										: $_('auth.signUp.showConfirmPassword')}
+									aria-pressed={showConfirmPassword}
+								>
+									{#if showConfirmPassword}
+										<EyeOffIcon class="size-5" />
+									{:else}
 										<EyeIcon class="size-5" />
 									{/if}
-							</button>
-						</div>
-					</Field>
+								</button>
+							</div>
+						</Field>
 					{/if}
 				</div>
 
 				{#if errorMessage}
-						<Alert variant="destructive">
-							<AlertTitle>{$_('auth.signUp.errorTitle')}</AlertTitle>
-							<AlertDescription>{errorMessage}</AlertDescription>
-						</Alert>
+					<Alert variant="destructive">
+						<AlertTitle>{$_('auth.signUp.errorTitle')}</AlertTitle>
+						<AlertDescription>{errorMessage}</AlertDescription>
+					</Alert>
 				{/if}
 
 				<div class="mt-auto flex flex-col gap-3 pb-2 sm:pb-6">
@@ -1459,7 +1638,11 @@ const signUpWithGoogle = async () => {
 						variant="default"
 						size="xl"
 						class="h-12 w-full"
-						disabled={formSubmissionPending || !email.trim() || (!shouldHidePasswordFields && (!password || !confirmPassword))}
+						disabled={formSubmissionPending ||
+							!email.trim() ||
+							(isMinor && !childUsername.trim()) ||
+							(isMinor && childUsernameUnavailable) ||
+							(!shouldHidePasswordFields && (!password || !confirmPassword))}
 						onclick={() => void (hasExistingAccount ? continueExistingAccount() : signUp())}
 					>
 						{#if pending}
@@ -1486,8 +1669,12 @@ const signUpWithGoogle = async () => {
 						</p>
 					</div>
 
-					<div class="flex min-w-0 items-center justify-between gap-3 border-b border-gray-200 pb-3">
-						<p class="min-w-0 flex-1 break-all text-base leading-7 font-bold text-gray-700">{email.trim()}</p>
+					<div
+						class="flex min-w-0 items-center justify-between gap-3 border-b border-gray-200 pb-3"
+					>
+						<p class="min-w-0 flex-1 text-base leading-7 font-bold break-all text-gray-700">
+							{email.trim()}
+						</p>
 						<Button
 							variant="ghost"
 							class="h-auto px-0 py-0 text-sm leading-6 font-bold text-orange-500 hover:bg-transparent hover:text-orange-600 active:bg-transparent"
@@ -1504,7 +1691,9 @@ const signUpWithGoogle = async () => {
 							bind:value={otpCode}
 							maxlength={OTP_LENGTH}
 							disabled={otpSyncInProgress}
-							cellClass={otpSyncInProgress ? 'border-gray-200 bg-gray-100 text-gray-400' : undefined}
+							cellClass={otpSyncInProgress
+								? 'border-gray-200 bg-gray-100 text-gray-400'
+								: undefined}
 						/>
 					</div>
 
@@ -1532,10 +1721,10 @@ const signUpWithGoogle = async () => {
 				{/if}
 
 				{#if errorMessage}
-						<Alert variant="destructive">
-							<AlertTitle>{$_('auth.signUp.verificationErrorTitle')}</AlertTitle>
-							<AlertDescription>{errorMessage}</AlertDescription>
-						</Alert>
+					<Alert variant="destructive">
+						<AlertTitle>{$_('auth.signUp.verificationErrorTitle')}</AlertTitle>
+						<AlertDescription>{errorMessage}</AlertDescription>
+					</Alert>
 				{/if}
 
 				<div class="mt-auto pb-2 sm:pb-6">
@@ -1548,7 +1737,9 @@ const signUpWithGoogle = async () => {
 					>
 						{#if otpSyncInProgress}
 							<LoaderCircleIcon class="size-4 animate-spin" />
-							{awaitingEmailPostVerify || completingEmailPostVerify ? $_('auth.signUp.finalizing') : $_('auth.signUp.verifying')}
+							{awaitingEmailPostVerify || completingEmailPostVerify
+								? $_('auth.signUp.finalizing')
+								: $_('auth.signUp.verifying')}
 						{:else}
 							{$_('common.verify')}
 						{/if}

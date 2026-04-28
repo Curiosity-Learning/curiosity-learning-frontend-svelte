@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
+	import { Field, FieldDescription, FieldError, FieldLabel } from '$lib/components/ui/field';
 	import { cn } from '$lib/utils';
 
 	type Props = {
@@ -7,6 +7,7 @@
 		label?: string;
 		required?: boolean;
 		hint?: string;
+		error?: string;
 		class?: string;
 		labelClass?: string;
 		hintClass?: string;
@@ -18,6 +19,7 @@
 		label,
 		required = false,
 		hint,
+		error,
 		class: className,
 		labelClass,
 		hintClass,
@@ -38,5 +40,9 @@
 		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
 			{hint}
 		</FieldDescription>
+	{/if}
+
+	{#if error}
+		<FieldError>{error}</FieldError>
 	{/if}
 </Field>
