@@ -30,7 +30,7 @@ export type AppNavBadgeCounts = {
 };
 
 const clubHrefFor = (clubId: string | null | undefined) => {
-	if (!clubId) return routes.onboardingGetStarted;
+	if (!clubId) return routes.noClub;
 	return routes.clubHome(clubId);
 };
 
@@ -49,14 +49,22 @@ export const buildAppNavigation = (
 			label: 'Club',
 			href: clubHref,
 			icon: UsersIcon,
-			children: [
-				{ key: 'sessions', label: 'Sessions', href: `${clubHref}/sessions` },
-				{ key: 'projects', label: 'Projects', href: `${clubHref}/projects` },
-				{ key: 'members', label: 'Members', href: `${clubHref}/members` }
-			]
+			children: clubId
+				? [
+						{ key: 'sessions', label: 'Sessions', href: `${clubHref}/sessions` },
+						{ key: 'projects', label: 'Projects', href: `${clubHref}/projects` },
+						{ key: 'members', label: 'Members', href: `${clubHref}/members` }
+					]
+				: []
 		},
 		{ key: 'feed', label: 'Feed', href: routes.feed, icon: NewspaperIcon },
-		{ key: 'chat', label: 'Chat', href: routes.chat, icon: MessageCircleIcon, badgeCount: chatBadgeCount },
+		{
+			key: 'chat',
+			label: 'Chat',
+			href: routes.chat,
+			icon: MessageCircleIcon,
+			badgeCount: chatBadgeCount
+		},
 		{
 			key: 'profile',
 			label: 'Profile',

@@ -2,6 +2,7 @@ export const routes = {
 	onboardingGetStarted: '/onboarding/get-started',
 	onboardingJoinClub: '/onboarding/join-club',
 	onboardingPublicClubs: '/onboarding/join-club/public-clubs',
+	noClub: '/no-club',
 	feed: '/feed',
 	feedMyClubs: '/feed/my-clubs',
 	feedGlobal: '/feed/global',

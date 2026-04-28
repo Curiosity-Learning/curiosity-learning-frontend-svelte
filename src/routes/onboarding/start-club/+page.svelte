@@ -68,7 +68,6 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let hydratedDraft = $state(false);
-	let authRedirected = $state(false);
 	const rememberedLocationCoordinates = new SvelteMap<string, MapboxCoordinates>();
 
 	const ROLE_VALUE_ALIASES: Record<string, string> = {
@@ -208,6 +207,18 @@
 			errorMessage = t('auth.signUp.completeRequiredFields');
 			return;
 		}
+		writeStartClubDraft();
+		if (auth.isLoading) {
+			errorMessage = t('onboarding.startClub.checkingSession');
+			return;
+		}
+		if (!auth.isAuthenticated) {
+			const params = new SvelteURLSearchParams();
+			params.set('next', '/onboarding/start-club?step=2');
+			params.set('forceSignup', '1');
+			await goto(`/auth/sign-up?${params.toString()}`);
+			return;
+		}
 		await goto('/onboarding/start-club?step=2');
 	};
 
@@ -236,15 +247,6 @@
 	});
 
 	$effect(() => {
-		if (authRedirected || auth.isLoading || auth.isAuthenticated) return;
-		authRedirected = true;
-		const params = new SvelteURLSearchParams();
-		params.set('next', '/onboarding/start-club');
-		params.set('forceSignup', '1');
-		void goto(`/auth/sign-up?${params.toString()}`, { replaceState: true });
-	});
-
-	$effect(() => {
 		if (!browser || hydratedDraft) return;
 		hydratedDraft = true;
 		const draft = readStartClubDraft();
@@ -262,7 +264,10 @@
 				latitude: draft.locationLatitude
 			};
 			if (draft.location.trim()) {
-				rememberedLocationCoordinates.set(draft.location.trim().toLowerCase(), selectedLocationCoordinates);
+				rememberedLocationCoordinates.set(
+					draft.location.trim().toLowerCase(),
+					selectedLocationCoordinates
+				);
 			}
 		}
 		if (!userRole.trim() && draft.userRole) {
@@ -327,7 +332,7 @@
 					query,
 					accessToken: PUBLIC_MAPBOX_ACCESS_TOKEN,
 					signal: controller.signal,
-					language: browser ? navigator.language.split('-')[0] ?? 'en' : 'en',
+					language: browser ? (navigator.language.split('-')[0] ?? 'en') : 'en',
 					limit: MAPBOX_GEOCODING_LIMIT
 				});
 				if (nextVersion !== locationLookupVersion) return;
@@ -374,7 +379,8 @@
 		try {
 			await clubVideoField.selectFiles(files);
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : t('onboarding.startClub.videoUploadFailure');
+			errorMessage =
+				error instanceof Error ? error.message : t('onboarding.startClub.videoUploadFailure');
 		}
 	};
 
@@ -387,6 +393,11 @@
 		}
 
 		if (!auth.isAuthenticated) {
+			writeStartClubDraft();
+			const params = new SvelteURLSearchParams();
+			params.set('next', '/onboarding/start-club?step=2');
+			params.set('forceSignup', '1');
+			await goto(`/auth/sign-up?${params.toString()}`);
 			return;
 		}
 
@@ -403,24 +414,26 @@
 				? `${normalizedLocation} Curiosity Club`
 				: 'Curiosity Club';
 			const result = await clubVideoField.persistAttached((assetId) =>
-				convexClient.mutation(api.clubs.createClub, {
+				convexClient.mutation(api.clubApplications.submitApplication, {
 					name: generatedName.slice(0, 100),
 					description: about.trim() || undefined,
 					location: normalizedLocation || undefined,
 					locationLatitude: selectedLocationCoordinates?.latitude,
 					locationLongitude: selectedLocationCoordinates?.longitude,
 					videoMediaAssetId: assetId ?? undefined,
-					meetingDay: undefined,
-					meetingTime: undefined
+					applicantRole: userRole || undefined,
+					referralSource: referralSource || undefined,
+					referralOther: referralOther.trim() || undefined
 				})
 			);
 			if (!result) {
 				throw new Error(t('onboarding.startClub.submitFailure'));
 			}
 			clearStartClubDraft();
-			await goto(routes.clubHome(result.clubId));
+			await goto(routes.noClub);
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : t('onboarding.startClub.submitFailure');
+			errorMessage =
+				error instanceof Error ? error.message : t('onboarding.startClub.submitFailure');
 		} finally {
 			pending = false;
 		}
@@ -428,7 +441,7 @@
 </script>
 
 <FlowShell
-	step={step}
+	{step}
 	total={5}
 	showAccountLink={false}
 	showSideIllustration={true}
@@ -448,7 +461,6 @@
 	{/snippet}
 
 	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">
-
 		{#if step === 1}
 			<div class="flex flex-col gap-5">
 				<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.title')}</h1>
@@ -471,7 +483,9 @@
 				/>
 
 				{#if locationLookupError}
-					<p class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+					<p
+						class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+					>
 						{locationLookupError}
 					</p>
 				{/if}
@@ -531,7 +545,9 @@
 			</div>
 
 			{#if errorMessage}
-				<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
+				<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+					{errorMessage}
+				</p>
 			{/if}
 
 			<div class="mt-auto pb-2 sm:pb-6">
@@ -549,14 +565,18 @@
 			<div class="flex flex-col gap-5">
 				<h1 class="type-step-title text-gray-900">{$_('onboarding.startClub.videoTitle')}</h1>
 				<div class="flex flex-col gap-2">
-					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">{$_('onboarding.startClub.videoPromptTitle')}</p>
+					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">
+						{$_('onboarding.startClub.videoPromptTitle')}
+					</p>
 					<p class="text-base leading-7 text-gray-600">
 						{$_('onboarding.startClub.videoPromptDescription')}
 					</p>
 				</div>
 
 				<div class="flex flex-col gap-3">
-					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">{$_('onboarding.startClub.videoUploadTitle')}</p>
+					<p class="text-[1.125rem] leading-8 font-bold text-gray-900">
+						{$_('onboarding.startClub.videoUploadTitle')}
+					</p>
 					<FileDropZone.Root
 						accept={clubVideoField.accept}
 						maxFiles={1}
@@ -567,24 +587,36 @@
 					>
 						<FileDropZone.Trigger class="contents">
 							<div
-									class="grid min-h-36 place-items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
+								class="grid min-h-36 place-items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-gray-600 transition-all hover:cursor-pointer hover:bg-orange-50"
+							>
+								<div
+									class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs"
 								>
-									<div class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-xs">
-										{clubVideoField.isBusy ? $_('onboarding.startClub.uploading') : $_('common.browse')}
-									</div>
-									<p class="text-base leading-7 font-medium text-gray-700">
-										{clubVideoField.isBusy ? $_('onboarding.startClub.videoUploading') : $_('onboarding.startClub.videoDropPrompt')}
-									</p>
-									<p class="text-sm text-gray-500">{$_('onboarding.startClub.videoRequirements')}</p>
-									{#if clubVideoField.selectedFileName}
-										<p class="max-w-full truncate text-sm text-gray-500">{clubVideoField.selectedFileName}</p>
-									{/if}
-									{#if clubVideoField.isBusy}
-										<p class="text-xs font-semibold text-primary">{$_('onboarding.startClub.videoUploadingStatus')}</p>
-									{:else if clubVideoField.hasUploadedAsset}
-										<p class="text-xs font-semibold text-emerald-600">{$_('onboarding.startClub.videoUploadedStatus')}</p>
-									{/if}
+									{clubVideoField.isBusy
+										? $_('onboarding.startClub.uploading')
+										: $_('common.browse')}
 								</div>
+								<p class="text-base leading-7 font-medium text-gray-700">
+									{clubVideoField.isBusy
+										? $_('onboarding.startClub.videoUploading')
+										: $_('onboarding.startClub.videoDropPrompt')}
+								</p>
+								<p class="text-sm text-gray-500">{$_('onboarding.startClub.videoRequirements')}</p>
+								{#if clubVideoField.selectedFileName}
+									<p class="max-w-full truncate text-sm text-gray-500">
+										{clubVideoField.selectedFileName}
+									</p>
+								{/if}
+								{#if clubVideoField.isBusy}
+									<p class="text-xs font-semibold text-primary">
+										{$_('onboarding.startClub.videoUploadingStatus')}
+									</p>
+								{:else if clubVideoField.hasUploadedAsset}
+									<p class="text-xs font-semibold text-emerald-600">
+										{$_('onboarding.startClub.videoUploadedStatus')}
+									</p>
+								{/if}
+							</div>
 						</FileDropZone.Trigger>
 					</FileDropZone.Root>
 					{#if hasValidUploadedVideo}
@@ -603,7 +635,9 @@
 			</div>
 
 			{#if errorMessage}
-				<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
+				<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+					{errorMessage}
+				</p>
 			{/if}
 
 			<div class="mt-auto pb-2 sm:pb-6">

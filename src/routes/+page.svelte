@@ -53,7 +53,7 @@
 		const clubId = pickClubId();
 		if (!clubId) {
 			redirected = true;
-			void goto(routes.profile);
+			void goto(routes.noClub);
 			return;
 		}
 
