@@ -14,9 +14,9 @@ Current app structure and conventions. Keep this file short; use commit history 
 ## Routes
 
 - Public auth: `/auth/sign-in`, `/auth/sign-up`, `/auth/reset-password`
-- Onboarding: `/onboarding/get-started`, `/onboarding/join-club`, `/onboarding/join-club/[code]`, `/onboarding/join-club/public-clubs`, `/onboarding/start-club`, `/onboarding/post-signup`
+- Onboarding: `/onboarding/get-started`, `/onboarding/join-club`, `/onboarding/join-club/[code]`, `/onboarding/join-club/public-clubs`, `/onboarding/start-club`, `/onboarding/post-signup`, `/onboarding/parent-consent/[token]`
 - Authenticated routes live in `src/routes/(app)`; the `(app)` group is not part of the URL.
-- Main app URLs: `/club/[clubId]`, `/club/[clubId]/sessions`, `/club/[clubId]/projects`, `/club/[clubId]/members`, `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
+- Main app URLs: `/no-club`, `/club/[clubId]`, `/club/[clubId]/sessions`, `/club/[clubId]/projects`, `/club/[clubId]/members`, `/applications/review`, `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
 - Detail URLs: `/session/[sessionId]/activities`, `/session/[sessionId]/attendees`, `/project/[projectId]/overview`, `/project/[projectId]/members`, `/activity-booklet`, `/activity-booklet/[activityId]`
 - Legal pages: `/privacy`, `/terms`, `/cookies`
 
@@ -57,6 +57,7 @@ Use helpers in `src/lib/routes.ts` for app navigation instead of hand-built stri
 - Use shadcn-svelte `Field.*` primitives with `Input`, `Textarea`, `Select`, and shared app form wrappers where they already fit.
 - Superforms + Zod v4 is appropriate for heavier form state; lightweight screens can use local state with shared fields.
 - Convex-backed forms usually run as SPA interactions rather than SvelteKit form actions.
+- Use `docs/forms.md` for consistent field errors, form alerts, and snackbar placement.
 
 ## Navigation
 
