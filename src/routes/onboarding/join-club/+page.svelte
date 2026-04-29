@@ -410,6 +410,11 @@
 									<p class="text-sm text-red-700">{interestError}</p>
 								{/if}
 							</div>
+							<div class="flex items-center gap-3 text-sm font-semibold text-gray-400">
+								<div class="h-px flex-1 bg-gray-200"></div>
+								<span>or</span>
+								<div class="h-px flex-1 bg-gray-200"></div>
+							</div>
 							<Button href={startClubPath} variant="outline" class="h-11 w-full">
 								{$_('onboarding.joinClub.startClubCta')}
 							</Button>
