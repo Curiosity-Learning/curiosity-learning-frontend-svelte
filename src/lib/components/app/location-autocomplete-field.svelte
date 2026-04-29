@@ -1,21 +1,25 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
-	import LocateFixedIcon from '@lucide/svelte/icons/locate-fixed';
 	import { DropdownField } from '$lib/components/app/form';
 	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
 	import {
 		MAPBOX_GEOCODING_LIMIT,
-		fetchMapboxLocationFromCoordinates,
 		fetchMapboxLocationSuggestions,
 		type MapboxCoordinates,
 		type MapboxLocationOption
 	} from '$lib/maps/mapbox';
 
+	type DefaultLocation = {
+		label: string;
+		coordinates: MapboxCoordinates | null;
+	};
+
 	type Props = {
 		id: string;
 		value?: string;
 		coordinates?: MapboxCoordinates | null;
+		defaultLocation?: DefaultLocation | null;
 		accessToken?: string;
 		label?: string;
 		placeholder?: string;
@@ -26,10 +30,6 @@
 		minChars?: number;
 		debounceMs?: number;
 		language?: string;
-		showUseCurrentLocation?: boolean;
-		useCurrentLocationLabel?: string;
-		locatingLabel?: string;
-		currentLocationFailureMessage?: string;
 		showPreview?: boolean;
 		previewStyleUrl?: string;
 		class?: string;
@@ -39,6 +39,7 @@
 		id,
 		value = $bindable(''),
 		coordinates = $bindable<MapboxCoordinates | null>(null),
+		defaultLocation = null,
 		accessToken = '',
 		label,
 		placeholder,
@@ -49,10 +50,6 @@
 		minChars = 2,
 		debounceMs = 280,
 		language,
-		showUseCurrentLocation = false,
-		useCurrentLocationLabel = 'Use my location',
-		locatingLabel = 'Locating...',
-		currentLocationFailureMessage = 'Unable to use your current location.',
 		showPreview = false,
 		previewStyleUrl,
 		class: className
@@ -63,9 +60,11 @@
 	let lookupError = $state('');
 	let lookupTimer: ReturnType<typeof setTimeout> | null = null;
 	let lookupAbortController: AbortController | null = null;
+	let defaultLocationAbortController: AbortController | null = null;
 	let lookupVersion = 0;
 	let lastResolvedLocation = '';
-	let currentLocationPending = $state(false);
+	let defaultLocationApplied = false;
+	let defaultLocationPending = $state(false);
 	const rememberedCoordinates = new Map<string, MapboxCoordinates>();
 
 	const normalizeLocation = (input: string) => input.trim().toLowerCase();
@@ -83,8 +82,16 @@
 		}
 	};
 
+	const clearDefaultLocationResources = () => {
+		if (defaultLocationAbortController) {
+			defaultLocationAbortController.abort();
+			defaultLocationAbortController = null;
+		}
+	};
+
 	onDestroy(() => {
 		clearLookupResources();
+		clearDefaultLocationResources();
 	});
 
 	const resolveSelectedOption = (option: { value: string }) => {
@@ -104,55 +111,17 @@
 		clearLookupResources();
 	};
 
-	const requestCurrentLocation = async () => {
-		if (!browser || !navigator.geolocation || !accessToken) {
-			lookupError = currentLocationFailureMessage;
-			return;
-		}
-
-		currentLocationPending = true;
-		lookupError = '';
-		clearLookupResources();
-		lookupVersion += 1;
-
-		try {
-			const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-				navigator.geolocation.getCurrentPosition(resolve, reject, {
-					enableHighAccuracy: true,
-					timeout: 10000,
-					maximumAge: 5 * 60 * 1000
-				});
-			});
-			const nextCoordinates = {
-				longitude: position.coords.longitude,
-				latitude: position.coords.latitude
-			};
-			const match = await fetchMapboxLocationFromCoordinates({
-				coordinates: nextCoordinates,
-				accessToken,
-				language: language ?? (navigator.language.split('-')[0] ?? 'en')
-			});
-			if (!match) {
-				throw new Error('Unable to resolve current location');
-			}
-			const label = match.label;
-			rememberedCoordinates.set(normalizeLocation(label), nextCoordinates);
-			coordinates = nextCoordinates;
-			lastResolvedLocation = normalizeLocation(label);
-			value = label;
-			suggestions = [];
-		} catch {
-			lookupError = currentLocationFailureMessage;
-		} finally {
-			currentLocationPending = false;
-		}
-	};
-
 	$effect(() => {
 		const query = value.trim();
 		const normalizedQuery = normalizeLocation(query);
 		clearLookupResources();
 		lookupError = '';
+
+		if (defaultLocationPending) {
+			suggestions = [];
+			lookupPending = false;
+			return;
+		}
 
 		if (query.length < minChars) {
 			suggestions = [];
@@ -211,6 +180,66 @@
 	});
 
 	$effect(() => {
+		if (defaultLocationApplied) return;
+		const label = defaultLocation?.label?.trim() ?? '';
+		if (!label || value.trim()) return;
+
+		defaultLocationApplied = true;
+		clearLookupResources();
+		clearDefaultLocationResources();
+		lookupError = '';
+		suggestions = [];
+		value = label;
+
+		if (defaultLocation?.coordinates) {
+			rememberedCoordinates.set(normalizeLocation(label), defaultLocation.coordinates);
+			coordinates = defaultLocation.coordinates;
+			lastResolvedLocation = normalizeLocation(label);
+			return;
+		}
+
+		if (!accessToken || !browser) return;
+
+		defaultLocationPending = true;
+		const controller = new AbortController();
+		defaultLocationAbortController = controller;
+
+		fetchMapboxLocationSuggestions({
+			query: label,
+			accessToken,
+			signal: controller.signal,
+			language: language ?? (navigator.language.split('-')[0] ?? 'en'),
+			limit: 1
+		})
+			.then((payload) => {
+				if (controller.signal.aborted) return;
+				const match = payload[0];
+				if (!match) return;
+				const nextCoordinates = {
+					longitude: match.longitude,
+					latitude: match.latitude
+				};
+				const normalizedLocation = normalizeLocation(match.value);
+				rememberedCoordinates.set(normalizedLocation, nextCoordinates);
+				value = match.label;
+				coordinates = nextCoordinates;
+				lastResolvedLocation = normalizedLocation;
+				suggestions = [];
+			})
+			.catch((error) => {
+				if (error instanceof DOMException && error.name === 'AbortError') return;
+			})
+			.finally(() => {
+				if (defaultLocationAbortController === controller) {
+					defaultLocationAbortController = null;
+				}
+				if (!controller.signal.aborted) {
+					defaultLocationPending = false;
+				}
+			});
+	});
+
+	$effect(() => {
 		const normalizedLocation = normalizeLocation(value);
 		if (!normalizedLocation) {
 			coordinates = null;
@@ -247,7 +276,7 @@
 		{required}
 		bind:value
 		options={suggestions.map(({ label, value }) => ({ label, value }))}
-		loading={lookupPending || currentLocationPending}
+		loading={lookupPending || defaultLocationPending}
 		showInputLoading={false}
 		{placeholder}
 		filterOptions={false}
@@ -256,18 +285,6 @@
 		class={className}
 		onSelectOption={resolveSelectedOption}
 	/>
-
-	{#if showUseCurrentLocation && accessToken && !value.trim()}
-		<button
-			type="button"
-			class="inline-flex w-fit items-center gap-2 text-sm font-semibold text-gray-500 transition-colors duration-200 hover:text-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
-			disabled={currentLocationPending}
-			onclick={() => void requestCurrentLocation()}
-		>
-			<LocateFixedIcon class="size-4 shrink-0" />
-			<span>{currentLocationPending ? locatingLabel : useCurrentLocationLabel}</span>
-		</button>
-	{/if}
 
 	{#if lookupError}
 		<p class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

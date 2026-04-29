@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { api } from '$convex/_generated/api';
 import { getConvexServerClient } from '$lib/server/convex';
+import { getEstimatedIpLocation } from '$lib/server/ip-location';
 import { routes } from '$lib/routes';
 import type { LayoutServerLoad } from './$types';
 
@@ -18,7 +19,7 @@ const isNoClubAllowedPath = (pathname: string) =>
 		(allowedPath) => pathname === allowedPath || pathname.startsWith(`${allowedPath}/`)
 	);
 
-export const load: LayoutServerLoad = async ({ locals, url }) => {
+export const load: LayoutServerLoad = async ({ locals, request, url }) => {
 	if (!locals.token) {
 		const next = `${url.pathname}${url.search}`;
 		throw redirect(307, `/auth/sign-in?next=${encodeURIComponent(next)}`);
@@ -32,5 +33,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		}
 	}
 
-	return {};
+	return {
+		estimatedLocation: getEstimatedIpLocation(request.headers)
+	};
 };

@@ -28,6 +28,10 @@
 
 	type ClubListItem = NonNullable<typeof clubsResponse.data>[number];
 	type FlowMode = 'location' | 'code';
+	type EstimatedLocation = {
+		label: string;
+		coordinates: MapboxCoordinates | null;
+	};
 
 	let mode = $state<FlowMode>('location');
 	let codeChars = $state<string[]>(Array.from({ length: CODE_LENGTH }, () => ''));
@@ -53,6 +57,9 @@
 		isAppNewClubFlow
 			? 'flex w-full min-w-0 flex-col gap-6'
 			: 'mx-auto flex w-full max-w-[28.75rem] min-w-0 flex-1 flex-col gap-8'
+	);
+	let defaultLocation = $derived(
+		((page.data as { estimatedLocation?: EstimatedLocation | null }).estimatedLocation ?? null)
 	);
 
 	const normalizeCode = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
@@ -316,14 +323,11 @@
 					label={$_('onboarding.joinClub.locationLabel')}
 					bind:value={locationQuery}
 					bind:coordinates={selectedLocationCoordinates}
+					{defaultLocation}
 					accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
 					placeholder={$_('onboarding.joinClub.locationPlaceholder')}
 					emptyMessage={$_('onboarding.joinClub.locationEmptyFound')}
 					lookupFailureMessage={$_('onboarding.joinClub.locationLookupFailure')}
-					showUseCurrentLocation={true}
-					useCurrentLocationLabel={$_('onboarding.joinClub.useCurrentLocation')}
-					locatingLabel={$_('onboarding.joinClub.locating')}
-					currentLocationFailureMessage={$_('onboarding.joinClub.currentLocationFailure')}
 				/>
 
 				{#if showClubCodeShortcut}

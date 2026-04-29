@@ -39,6 +39,10 @@
 	const PUBLIC_MAPBOX_ACCESS_TOKEN = env.PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
 	const ABOUT_CHARACTER_LIMIT = 500;
 	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
+	type EstimatedLocation = {
+		label: string;
+		coordinates: MapboxCoordinates | null;
+	};
 	let isAppNewClubFlow = $derived(page.url.pathname.startsWith(routes.newClubStart));
 	let startClubPath = $derived(isAppNewClubFlow ? routes.newClubStart : routes.onboardingStartClub);
 	let startClubVideoPath = $derived(
@@ -50,6 +54,9 @@
 		isAppNewClubFlow
 			? 'flex w-full flex-col gap-6'
 			: 'mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6'
+	);
+	let defaultLocation = $derived(
+		((page.data as { estimatedLocation?: EstimatedLocation | null }).estimatedLocation ?? null)
 	);
 	let actionClass = $derived(isAppNewClubFlow ? 'pb-0' : 'mt-auto pb-2 sm:pb-6');
 
@@ -410,6 +417,7 @@
 					required={true}
 					bind:value={location}
 					bind:coordinates={selectedLocationCoordinates}
+					{defaultLocation}
 					accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
 					placeholder={$_('onboarding.startClub.locationPlaceholder')}
 					emptyMessage={$_('onboarding.startClub.locationEmptyFound')}
