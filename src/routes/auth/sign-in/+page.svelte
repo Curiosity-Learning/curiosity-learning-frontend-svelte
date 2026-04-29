@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
