@@ -47,7 +47,8 @@ Source: `src/convex/permissions.ts`
 
 | Endpoint                                      | Auth | Permission             | Notes                                                                                |
 | --------------------------------------------- | ---- | ---------------------- | ------------------------------------------------------------------------------------ |
-| `clubApplications.submitApplication`          | Yes  | —                      | Creates pending Start Club application; blocked while a child consent row is pending |
+| `clubApplications.saveIncompleteApplication`  | Yes  | —                      | Creates or updates the applicant's incomplete Start Club application draft            |
+| `clubApplications.submitApplication`          | Yes  | —                      | Requires a ready video, promotes incomplete draft to pending review; blocked while a child consent row is pending |
 | `clubApplications.listMyApplications`         | Yes  | —                      | Applicant-scoped                                                                     |
 | `clubApplications.listReviewableApplications` | Yes  | Guide role in any club | Excludes applicant's own applications                                                |
 | `clubApplications.upsertApplicationReview`    | Yes  | Guide role in any club | One review per reviewer/application; score 0-10 and note required                    |

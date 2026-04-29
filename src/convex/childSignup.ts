@@ -47,7 +47,18 @@ export const registerChild = action({
 		password: v.string(),
 		parentEmail: v.string(),
 		dateOfBirth: v.optional(v.string()),
-		nextPath: v.optional(v.string())
+		nextPath: v.optional(v.string()),
+		startClubApplicationDraft: v.optional(
+			v.object({
+				description: v.optional(v.string()),
+				location: v.optional(v.string()),
+				locationLatitude: v.optional(v.number()),
+				locationLongitude: v.optional(v.number()),
+				applicantRole: v.optional(v.string()),
+				referralSource: v.optional(v.string()),
+				referralOther: v.optional(v.string())
+			})
+		)
 	},
 	returns: v.object({
 		success: v.boolean()
@@ -75,7 +86,8 @@ export const registerChild = action({
 			passwordHash,
 			token,
 			dateOfBirth: args.dateOfBirth,
-			nextPath: args.nextPath
+			nextPath: args.nextPath,
+			startClubApplicationDraft: args.startClubApplicationDraft
 		});
 
 		const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
@@ -98,7 +110,18 @@ export const createPendingChildAccount = internalMutation({
 		passwordHash: v.string(),
 		token: v.string(),
 		dateOfBirth: v.optional(v.string()),
-		nextPath: v.optional(v.string())
+		nextPath: v.optional(v.string()),
+		startClubApplicationDraft: v.optional(
+			v.object({
+				description: v.optional(v.string()),
+				location: v.optional(v.string()),
+				locationLatitude: v.optional(v.number()),
+				locationLongitude: v.optional(v.number()),
+				applicantRole: v.optional(v.string()),
+				referralSource: v.optional(v.string()),
+				referralOther: v.optional(v.string())
+			})
+		)
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -169,6 +192,13 @@ export const createPendingChildAccount = internalMutation({
 			createdAt: now,
 			updatedAt: now
 		});
+		if (args.startClubApplicationDraft) {
+			await ctx.runMutation(internal.clubApplications.saveIncompleteApplicationForUser, {
+				userId: authUser._id,
+				profileId,
+				draft: args.startClubApplicationDraft
+			});
+		}
 		return null;
 	}
 });

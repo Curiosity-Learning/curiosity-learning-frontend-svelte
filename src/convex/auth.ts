@@ -5,7 +5,7 @@ import { convex } from '@convex-dev/better-auth/plugins';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import type { GenericDataModel } from 'convex/server';
 import { ConvexError, v } from 'convex/values';
-import { components } from './_generated/api';
+import { components, internal } from './_generated/api';
 import { mutation, query } from './_generated/server';
 import authConfig from './auth.config';
 import { sendEmail } from './email/resend';
@@ -358,7 +358,18 @@ export const completeSignupProfile = mutation({
 		signUpWith: v.union(v.literal('email'), v.literal('google')),
 		dateOfBirth: v.optional(v.string()),
 		username: v.optional(v.string()),
-		nextPath: v.optional(v.string())
+		nextPath: v.optional(v.string()),
+		startClubApplicationDraft: v.optional(
+			v.object({
+				description: v.optional(v.string()),
+				location: v.optional(v.string()),
+				locationLatitude: v.optional(v.number()),
+				locationLongitude: v.optional(v.number()),
+				applicantRole: v.optional(v.string()),
+				referralSource: v.optional(v.string()),
+				referralOther: v.optional(v.string())
+			})
+		)
 	},
 	handler: async (ctx, args) => {
 		const authUser = await authComponent.getAuthUser(
@@ -417,6 +428,13 @@ export const completeSignupProfile = mutation({
 					}
 				});
 			}
+			if (args.startClubApplicationDraft) {
+				await ctx.runMutation(internal.clubApplications.saveIncompleteApplicationForUser, {
+					userId: authUser._id,
+					profileId: existing._id,
+					draft: args.startClubApplicationDraft
+				});
+			}
 			return await ctx.db.get(existing._id);
 		}
 
@@ -436,6 +454,13 @@ export const completeSignupProfile = mutation({
 						updatedAt: now
 					}
 				}
+			});
+		}
+		if (args.startClubApplicationDraft) {
+			await ctx.runMutation(internal.clubApplications.saveIncompleteApplicationForUser, {
+				userId: authUser._id,
+				profileId,
+				draft: args.startClubApplicationDraft
 			});
 		}
 		return await ctx.db.get(profileId);

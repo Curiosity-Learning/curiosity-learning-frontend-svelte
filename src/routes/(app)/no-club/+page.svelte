@@ -16,7 +16,11 @@
 	const applicationsResponse = useStableQuery(api.clubApplications.listMyApplications, {});
 	let applications = $derived(applicationsResponse.data ?? []);
 	const applicationStatusLabel = (status: string) =>
-		status === 'finalized' ? 'Finalized' : 'Pending review';
+		status === 'finalized'
+			? 'Finalized'
+			: status === 'incomplete'
+				? 'Incomplete'
+				: 'Pending review';
 	const applicationDateLabel = (timestamp: number | undefined) => {
 		if (!timestamp) return null;
 		return new Date(timestamp).toLocaleDateString(undefined, {
@@ -113,6 +117,11 @@
 										{applicationStatusLabel(application.status)}
 									</Badge>
 								</div>
+								{#if application.status === 'incomplete'}
+									<Button href={routes.newClubStartVideo} variant="outline" class="mt-3 h-9 px-3">
+										Resume application
+									</Button>
+								{/if}
 							</div>
 						{/each}
 					</div>

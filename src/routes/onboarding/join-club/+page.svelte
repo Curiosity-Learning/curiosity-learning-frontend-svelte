@@ -17,12 +17,13 @@
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
-	import { type MapboxCoordinates } from '$lib/maps/mapbox';
+	import { type MapboxCoordinates, type MapboxLocationOption } from '$lib/maps/mapbox';
 
 	const CODE_LENGTH = 6;
 	const JOIN_CLUB_CODE_STORAGE_KEY = 'cl_join_club_code_v1';
 	const PUBLIC_MAPBOX_ACCESS_TOKEN = env.PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
 	const SEARCH_RADIUS_KM = 50;
+	const AREA_FEATURE_TYPES = new Set(['country', 'region', 'district']);
 	const convexClient = useConvexClient();
 	const clubsResponse = useStableQuery(api.clubs.listPublicClubs, {});
 
@@ -40,6 +41,7 @@
 	let codeError = $state('');
 	let locationQuery = $state('');
 	let selectedLocationCoordinates = $state<MapboxCoordinates | null>(null);
+	let selectedLocation = $state<MapboxLocationOption | null>(null);
 	let interestEmail = $state('');
 	let interestPending = $state(false);
 	let interestMessage = $state('');
@@ -221,15 +223,38 @@
 		return null;
 	};
 
+	const isInsideBoundingBox = (coordinates: MapboxCoordinates, location: MapboxLocationOption) => {
+		const bbox = location.bbox;
+		if (!bbox) return false;
+		return (
+			coordinates.longitude >= bbox.minLongitude &&
+			coordinates.longitude <= bbox.maxLongitude &&
+			coordinates.latitude >= bbox.minLatitude &&
+			coordinates.latitude <= bbox.maxLatitude
+		);
+	};
+
+	const shouldUseAreaSearch = (location: MapboxLocationOption | null) =>
+		Boolean(
+			location?.bbox &&
+				location.featureType &&
+				AREA_FEATURE_TYPES.has(location.featureType.toLowerCase())
+		);
+
 	let nearbyClubs = $derived.by(() => {
 		if (!selectedLocationCoordinates) return [];
 		const locationCoordinates = selectedLocationCoordinates;
+		const useAreaSearch = shouldUseAreaSearch(selectedLocation);
 		return (clubsResponse.data ?? [])
 			.map((club) => {
 				const coordinates = getClubCoordinates(club);
 				if (!club.code || !coordinates) return null;
 				const distanceKm = haversineDistanceKm(locationCoordinates, coordinates);
-				if (distanceKm > SEARCH_RADIUS_KM) return null;
+				if (useAreaSearch && selectedLocation) {
+					if (!isInsideBoundingBox(coordinates, selectedLocation)) return null;
+				} else if (distanceKm > SEARCH_RADIUS_KM) {
+					return null;
+				}
 				return {
 					id: club.id,
 					code: club.code,
@@ -323,6 +348,7 @@
 					label={$_('onboarding.joinClub.locationLabel')}
 					bind:value={locationQuery}
 					bind:coordinates={selectedLocationCoordinates}
+					bind:selectedLocation
 					{defaultLocation}
 					accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
 					placeholder={$_('onboarding.joinClub.locationPlaceholder')}
@@ -356,9 +382,6 @@
 							<h2 class="text-lg font-bold text-gray-900">
 								{$_('onboarding.joinClub.nearbyTitle')}
 							</h2>
-							<p class="text-sm leading-6 text-gray-600">
-								{$_('onboarding.joinClub.nearbyDescription')}
-							</p>
 						</div>
 						<div class="flex flex-col gap-2">
 							{#each nearbyClubs as club (club.id)}
@@ -378,9 +401,9 @@
 						</div>
 					{:else if locationSearchStarted}
 						<div class="flex flex-col gap-4">
-							<h2 class="text-lg font-bold text-gray-900">
+							<h3 class="type-h6-bold text-gray-900">
 								{$_('onboarding.joinClub.noClubsTitle')}
-							</h2>
+							</h3>
 							<p class="text-sm leading-6 text-gray-600">
 								{$_('onboarding.joinClub.noClubsDescription')}
 							</p>
@@ -394,6 +417,7 @@
 										type="email"
 										bind:value={interestEmail}
 										autocomplete="email"
+										class="h-10"
 										placeholder={$_('onboarding.joinClub.emailPlaceholder')}
 									/>
 									<Button

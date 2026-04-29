@@ -20,6 +20,7 @@
 		id: string;
 		value?: string;
 		coordinates?: MapboxCoordinates | null;
+		selectedLocation?: MapboxLocationOption | null;
 		defaultLocation?: DefaultLocation | null;
 		accessToken?: string;
 		label?: string;
@@ -40,6 +41,7 @@
 		id,
 		value = $bindable(''),
 		coordinates = $bindable<MapboxCoordinates | null>(null),
+		selectedLocation = $bindable<MapboxLocationOption | null>(null),
 		defaultLocation = null,
 		accessToken = '',
 		label,
@@ -66,7 +68,7 @@
 	let lastResolvedLocation = '';
 	let defaultLocationApplied = false;
 	let defaultLocationPending = $state(false);
-	const rememberedCoordinates = new SvelteMap<string, MapboxCoordinates>();
+	const rememberedLocations = new SvelteMap<string, MapboxLocationOption>();
 
 	const normalizeLocation = (input: string) => input.trim().toLowerCase();
 	const sameCoordinates = (a: MapboxCoordinates | null, b: MapboxCoordinates | null) =>
@@ -103,7 +105,8 @@
 			latitude: match.latitude
 		};
 		const normalizedLocation = normalizeLocation(match.value);
-		rememberedCoordinates.set(normalizedLocation, selectedCoordinates);
+		rememberedLocations.set(normalizedLocation, match);
+		selectedLocation = match;
 		coordinates = selectedCoordinates;
 		lastResolvedLocation = normalizedLocation;
 		suggestions = [];
@@ -130,7 +133,7 @@
 			return;
 		}
 
-		if (untrack(() => rememberedCoordinates.has(normalizedQuery))) {
+		if (untrack(() => rememberedLocations.has(normalizedQuery))) {
 			suggestions = [];
 			lookupPending = false;
 			return;
@@ -162,10 +165,7 @@
 				suggestions = payload;
 				lookupError = '';
 				for (const suggestion of payload) {
-					rememberedCoordinates.set(normalizeLocation(suggestion.value), {
-						longitude: suggestion.longitude,
-						latitude: suggestion.latitude
-					});
+					rememberedLocations.set(normalizeLocation(suggestion.value), suggestion);
 				}
 			} catch (error) {
 				if (nextVersion !== lookupVersion) return;
@@ -193,7 +193,7 @@
 		value = label;
 
 		if (defaultLocation?.coordinates) {
-			rememberedCoordinates.set(normalizeLocation(label), defaultLocation.coordinates);
+			selectedLocation = null;
 			coordinates = defaultLocation.coordinates;
 			lastResolvedLocation = normalizeLocation(label);
 			return;
@@ -221,8 +221,9 @@
 					latitude: match.latitude
 				};
 				const normalizedLocation = normalizeLocation(match.value);
-				rememberedCoordinates.set(normalizedLocation, nextCoordinates);
+				rememberedLocations.set(normalizedLocation, match);
 				value = match.label;
+				selectedLocation = match;
 				coordinates = nextCoordinates;
 				lastResolvedLocation = normalizedLocation;
 				suggestions = [];
@@ -244,21 +245,26 @@
 		const normalizedLocation = normalizeLocation(value);
 		if (!normalizedLocation) {
 			coordinates = null;
+			selectedLocation = null;
 			lastResolvedLocation = '';
 			return;
 		}
 
 		if (coordinates && !lastResolvedLocation) {
-			rememberedCoordinates.set(normalizedLocation, coordinates);
 			lastResolvedLocation = normalizedLocation;
 			return;
 		}
 
-		const remembered = untrack(() => rememberedCoordinates.get(normalizedLocation));
+		const remembered = untrack(() => rememberedLocations.get(normalizedLocation));
 		if (remembered) {
+			const rememberedCoordinates = {
+				longitude: remembered.longitude,
+				latitude: remembered.latitude
+			};
 			if (!sameCoordinates(coordinates, remembered)) {
-				coordinates = remembered;
+				coordinates = rememberedCoordinates;
 			}
+			selectedLocation = remembered;
 			lastResolvedLocation = normalizedLocation;
 			return;
 		}
@@ -266,6 +272,7 @@
 		if (coordinates) {
 			coordinates = null;
 		}
+		selectedLocation = null;
 		lastResolvedLocation = '';
 	});
 </script>

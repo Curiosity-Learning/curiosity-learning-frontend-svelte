@@ -304,7 +304,6 @@ const en = {
 			currentLocationFailure: 'Unable to use your current location.',
 			search: 'Search',
 			nearbyTitle: 'Public clubs nearby',
-			nearbyDescription: 'Club locations are private. Distances are approximate from your search.',
 			noClubsTitle: 'No public clubs nearby yet',
 			noClubsDescription:
 				'Leave your email and we will let you know if a Curiosity Club opens in this area.',

@@ -30,9 +30,14 @@
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
+	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
+	const incompleteApplicationResponse = useStableQuery(
+		api.clubApplications.getMyIncompleteApplication,
+		() => (auth.isAuthenticated ? {} : 'skip')
+	);
 	const clubVideoField = createMediaField(convexClient, 'clubVideo', {
 		mode: 'immediate'
 	});
@@ -86,6 +91,7 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let hydratedDraft = $state(false);
+	let hydratedIncompleteApplication = $state(false);
 
 	const ROLE_VALUE_ALIASES: Record<string, string> = {
 		teacher: 'teacher',
@@ -209,6 +215,23 @@
 		}
 	};
 
+	const startClubApplicationDraft = () => {
+		const normalizedLocation = location.trim();
+		return {
+			description: about.trim() || undefined,
+			location: normalizedLocation || undefined,
+			locationLatitude: selectedLocationCoordinates?.latitude,
+			locationLongitude: selectedLocationCoordinates?.longitude,
+			applicantRole: userRole || undefined,
+			referralSource: referralSource || undefined,
+			referralOther: referralOther.trim() || undefined
+		};
+	};
+
+	const saveIncompleteApplication = async () => {
+		await convexClient.mutation(api.clubApplications.saveIncompleteApplication, startClubApplicationDraft());
+	};
+
 	const goBack = async () => {
 		errorMessage = '';
 		if (step === 2) {
@@ -236,7 +259,13 @@
 			await goto(`/auth/sign-up?${params.toString()}`);
 			return;
 		}
-		await goto(startClubVideoPath);
+		try {
+			await saveIncompleteApplication();
+			await goto(startClubVideoPath);
+		} catch (error) {
+			errorMessage =
+				error instanceof Error ? error.message : t('onboarding.startClub.submitFailure');
+		}
 	};
 
 	let hasValidUploadedVideo = $derived(
@@ -289,7 +318,40 @@
 	});
 
 	$effect(() => {
+		if (!hydratedDraft) return;
 		writeStartClubDraft();
+	});
+
+	$effect(() => {
+		if (!hydratedDraft || hydratedIncompleteApplication) return;
+		const application = incompleteApplicationResponse.data;
+		if (!application) return;
+		hydratedIncompleteApplication = true;
+		if (!location.trim() && application.location) {
+			location = application.location;
+		}
+		if (
+			selectedLocationCoordinates === null &&
+			typeof application.locationLongitude === 'number' &&
+			typeof application.locationLatitude === 'number'
+		) {
+			selectedLocationCoordinates = {
+				longitude: application.locationLongitude,
+				latitude: application.locationLatitude
+			};
+		}
+		if (!userRole.trim() && application.applicantRole) {
+			userRole = normalizeOptionValue(application.applicantRole, ROLE_VALUE_ALIASES);
+		}
+		if (!about.trim() && application.description) {
+			about = application.description;
+		}
+		if (!referralSource && application.referralSource) {
+			referralSource = normalizeOptionValue(application.referralSource, REFERRAL_VALUE_ALIASES);
+		}
+		if (!referralOther && application.referralOther) {
+			referralOther = application.referralOther;
+		}
 	});
 
 	$effect(() => {
@@ -352,14 +414,8 @@
 			const result = await clubVideoField.persistAttached((assetId) =>
 				convexClient.mutation(api.clubApplications.submitApplication, {
 					name: generatedName.slice(0, 100),
-					description: about.trim() || undefined,
-					location: normalizedLocation || undefined,
-					locationLatitude: selectedLocationCoordinates?.latitude,
-					locationLongitude: selectedLocationCoordinates?.longitude,
+					...startClubApplicationDraft(),
 					videoMediaAssetId: assetId ?? undefined,
-					applicantRole: userRole || undefined,
-					referralSource: referralSource || undefined,
-					referralOther: referralOther.trim() || undefined
 				})
 			);
 			if (!result) {
