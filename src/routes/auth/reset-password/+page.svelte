@@ -11,6 +11,7 @@
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { authClient } from '$lib/auth-client';
 	import { _, t } from '$lib/i18n';
+	import { navigateBack } from '$lib/navigation/back';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
@@ -56,6 +57,10 @@
 
 	const goToSignIn = async () => {
 		await goto(signInHref, { replaceState: true });
+	};
+
+	const goBack = async () => {
+		await navigateBack({ fallbackHref: signInHref, replaceState: true });
 	};
 
 	const requestReset = async () => {
@@ -126,7 +131,7 @@
 	<div class="flex flex-1 flex-col">
 			<button
 				type="button"
-				onclick={() => void goToSignIn()}
+				onclick={() => void goBack()}
 				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
 				aria-label={$_('common.goBack')}
 			>

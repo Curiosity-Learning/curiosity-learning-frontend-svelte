@@ -13,6 +13,7 @@
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
+	import { navigateBack } from '$lib/navigation/back';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
@@ -94,6 +95,14 @@
 			const firstEmptyIndex = codeChars.findIndex((char) => char.length === 0);
 			focusInput(firstEmptyIndex >= 0 ? firstEmptyIndex : CODE_LENGTH - 1);
 		});
+	};
+
+	const goBack = async () => {
+		if (mode === 'code') {
+			mode = 'location';
+			return;
+		}
+		await navigateBack({ fallbackHref: backPath });
 	};
 
 	const fillFrom = (startIndex: number, value: string) => {
@@ -280,18 +289,14 @@
 <FlowShell step={1} total={5} showSideIllustration={true} appFrame={isAppNewClubFlow}>
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
-			<a
-				href={mode === 'code' ? joinClubPath : backPath}
+			<button
+				type="button"
 				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
 				aria-label={$_('common.goBack')}
-				onclick={(event) => {
-					if (mode !== 'code') return;
-					event.preventDefault();
-					mode = 'location';
-				}}
+				onclick={() => void goBack()}
 			>
 				<ChevronLeftIcon class="size-7" />
-			</a>
+			</button>
 		</div>
 	{/snippet}
 	<div class={contentClass}>

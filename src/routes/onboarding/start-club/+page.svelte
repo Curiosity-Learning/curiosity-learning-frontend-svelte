@@ -26,6 +26,7 @@
 		type MapboxCoordinates
 	} from '$lib/maps/mapbox';
 	import { routes } from '$lib/routes';
+	import { navigateBack } from '$lib/navigation/back';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -206,7 +207,7 @@
 			await goto(startClubPath, { replaceState: true });
 			return;
 		}
-		await goto(startClubBackPath);
+		await navigateBack({ fallbackHref: startClubBackPath });
 	};
 
 	const goToStepTwo = async () => {

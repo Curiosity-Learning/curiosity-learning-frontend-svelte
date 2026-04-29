@@ -25,6 +25,7 @@
 	import { createDebouncedLookup } from '$lib/forms/debounced-lookup';
 	import { _, formatT, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
+	import { navigateBack } from '$lib/navigation/back';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -755,7 +756,7 @@
 			return;
 		}
 
-		await goto(backPath);
+		await navigateBack({ fallbackHref: backPath });
 	};
 
 	const goToAccountStep = () => {

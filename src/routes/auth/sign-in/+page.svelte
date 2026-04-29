@@ -18,6 +18,7 @@
 	import { navigateAfterAuthChange } from '$lib/auth/navigation';
 	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
+	import { navigateBack } from '$lib/navigation/back';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
@@ -206,7 +207,7 @@
 	});
 
 	const goBack = async () => {
-		await goto('/onboarding/get-started');
+		await navigateBack({ fallbackHref: '/onboarding/get-started' });
 	};
 
 	const navigateToExternalUrl = (url: string) => {

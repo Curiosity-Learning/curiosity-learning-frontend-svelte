@@ -16,6 +16,7 @@
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
+	import { navigateBack } from '$lib/navigation/back';
 	import { formatWeeklyMeetingLabel } from '$lib/domain/date';
 	import type { SignedDeliveryAsset } from '$lib/server/signed-media';
 
@@ -97,6 +98,10 @@
 		return `/auth/sign-up?${params.toString()}`;
 	};
 
+	const goBack = async () => {
+		await navigateBack({ fallbackHref: joinClubPath });
+	};
+
 	const joinClub = async () => {
 		pending = true;
 		errorMessage = '';
@@ -144,13 +149,14 @@
 <FlowShell step={2} total={5} showSideIllustration={true} appFrame={isAppNewClubFlow}>
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
-			<a
-				href={joinClubPath}
+			<button
+				type="button"
 				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
 				aria-label={$_('common.goBack')}
+				onclick={() => void goBack()}
 			>
 				<ChevronLeftIcon class="size-7" />
-			</a>
+			</button>
 		</div>
 	{/snippet}
 	<div class={contentClass}>
