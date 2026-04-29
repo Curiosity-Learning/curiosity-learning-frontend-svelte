@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { DropdownField } from '$lib/components/app/form';
 	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
@@ -130,7 +130,7 @@
 			return;
 		}
 
-		if (rememberedCoordinates.has(normalizedQuery)) {
+		if (untrack(() => rememberedCoordinates.has(normalizedQuery))) {
 			suggestions = [];
 			lookupPending = false;
 			return;
@@ -254,7 +254,7 @@
 			return;
 		}
 
-		const remembered = rememberedCoordinates.get(normalizedLocation);
+		const remembered = untrack(() => rememberedCoordinates.get(normalizedLocation));
 		if (remembered) {
 			if (!sameCoordinates(coordinates, remembered)) {
 				coordinates = remembered;
