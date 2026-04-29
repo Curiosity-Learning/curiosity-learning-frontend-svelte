@@ -318,15 +318,17 @@
 				/>
 
 				{#if showClubCodeShortcut}
-					<button
-						type="button"
-						class="inline-flex w-fit items-center gap-2 text-sm font-semibold text-gray-500 transition-colors duration-200 hover:text-orange-600"
-						onclick={showCodeEntry}
-					>
+					<div class="inline-flex w-fit items-center gap-2 text-sm font-semibold text-gray-500">
 						<TicketIcon class="size-4 shrink-0" />
 						<span>{$_('onboarding.joinClub.haveCode')}</span>
-						<span class="text-orange-500">{$_('onboarding.joinClub.enterHere')}</span>
-					</button>
+						<button
+							type="button"
+							class="text-orange-500 transition-colors duration-200 hover:text-orange-600"
+							onclick={showCodeEntry}
+						>
+							{$_('onboarding.joinClub.enterHere')}
+						</button>
+					</div>
 				{/if}
 			</section>
 
