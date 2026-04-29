@@ -378,7 +378,7 @@
 						</div>
 					{:else if locationSearchStarted}
 						<div class="flex flex-col gap-4">
-							<h2 class="text-lg font-bold text-gray-900">
+							<h2 class="type-lead-bold text-gray-900">
 								{$_('onboarding.joinClub.noClubsTitle')}
 							</h2>
 							<p class="text-sm leading-6 text-gray-600">
