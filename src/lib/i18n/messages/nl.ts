@@ -38,24 +38,7 @@ const nl = {
 		cookiesTitle: 'Cookiebeleid',
 		privacyEmpty: 'Er is nog geen inhoud voor het privacybeleid ingesteld.',
 		termsEmpty: 'Er is nog geen inhoud voor de algemene voorwaarden ingesteld.',
-		cookiesEmpty: 'Er is nog geen inhoud voor het cookiebeleid ingesteld.',
-		cookieBanner: {
-			title: 'Cookievoorkeuren',
-			descriptionStart: 'We gebruiken alleen ',
-			essential: 'essentiële',
-			descriptionMiddle: ' en ',
-			functional: 'functionele',
-			descriptionAfterTypes:
-				' cookies. We gebruiken geen analytische of marketingcookies. Bekijk het ',
-			privacyLink: 'privacybeleid',
-			termsLink: 'algemene voorwaarden',
-			cookiesLink: 'cookiebeleid',
-			betweenPrivacyAndTerms: ', de ',
-			betweenTermsAndCookies: ' en het ',
-			descriptionEnd: '.',
-			essentialOnly: 'Alleen essentieel',
-			allowFunctional: 'Functionele cookies toestaan'
-		}
+		cookiesEmpty: 'Er is nog geen inhoud voor het cookiebeleid ingesteld.'
 	},
 	mediaUpload: {
 		failedBeforeStorage: 'Uploaden is mislukt voordat het bestand de opslag bereikte.',
@@ -98,7 +81,7 @@ const nl = {
 			passwordPlaceholder: 'Voer je wachtwoord in',
 			hidePassword: 'Verberg wachtwoord',
 			showPassword: 'Toon wachtwoord',
-			rememberMe: 'Onthoud mij',
+			rememberMe: 'Houd me 30 dagen ingelogd',
 			forgotPassword: 'Wachtwoord vergeten?',
 			submit: 'Log in',
 			submitting: 'Bezig met inloggen...',
@@ -111,26 +94,36 @@ const nl = {
 			genericFailure: 'Inloggen mislukt.',
 			genericFailureRetry: 'Kan nu niet inloggen. Probeer het opnieuw.',
 			invalidCredentials: 'Ongeldige gebruikersnaam, e-mail of wachtwoord.',
+			parentConsentPending:
+				'Een ouder of voogd moet dit account goedkeuren voordat je kunt inloggen.',
 			invalidLoginTitle: 'Ongeldige login',
-			invalidLoginDescription: 'Voer een geldige gebruikersnaam of e-mail in en probeer het opnieuw.',
-			resendIdentifierRequired: 'Voer een geldige gebruikersnaam of e-mail in om de verificatie opnieuw te verzenden.',
+			invalidLoginDescription:
+				'Voer een geldige gebruikersnaam of e-mail in en probeer het opnieuw.',
+			resendIdentifierRequired:
+				'Voer een geldige gebruikersnaam of e-mail in om de verificatie opnieuw te verzenden.',
 			resendFailure: 'Kon de verificatie-e-mail niet opnieuw verzenden.',
 			resendSuccess: 'Verificatie-e-mail verzonden. Controleer je inbox en spammap.',
-			existingGoogleInfo: 'Je hebt al een account met Google. Ga verder met Google om in te loggen.',
+			existingGoogleInfo:
+				'Je hebt al een account met Google. Ga verder met Google om in te loggen.',
 			existingGoogleTitle: 'Account bestaat al',
 			existingGoogleDescription: 'Je hebt al een account met Google. We hebben je ingelogd.',
-			existingGoogleJoinClub: 'Dit Google-account is al geregistreerd. Log in om verder te gaan met het lid worden van deze club.',
-			existingGoogleDefault: 'Dit Google-account is al geregistreerd. Log in in plaats van je opnieuw aan te melden.',
+			existingGoogleJoinClub:
+				'Dit Google-account is al geregistreerd. Log in om verder te gaan met het lid worden van deze club.',
+			existingGoogleDefault:
+				'Dit Google-account is al geregistreerd. Log in in plaats van je opnieuw aan te melden.',
 			noAccountForEmail: 'Je hebt geen account met dat e-mailadres. Meld je aan om verder te gaan.',
-			noAccountForGoogleEmail: 'Je hebt geen account met dat Google-e-mailadres. Meld je aan om verder te gaan.',
-			linkMismatch: 'Dit Google-account kon hier niet worden gekoppeld. Log eerst in met je bestaande account of gebruik hetzelfde e-mailadres.',
+			noAccountForGoogleEmail:
+				'Je hebt geen account met dat Google-e-mailadres. Meld je aan om verder te gaan.',
+			linkMismatch:
+				'Dit Google-account kon hier niet worden gekoppeld. Log eerst in met je bestaande account of gebruik hetzelfde e-mailadres.',
 			providerNotConfigured: 'Google-inloggen is nog niet ingesteld.',
 			googleUnavailable: 'Kan nu niet doorgaan met Google. Probeer het opnieuw.'
 		},
 		resetPassword: {
 			backToSignIn: 'Terug naar inloggen',
 			requestTitle: 'Stel je wachtwoord opnieuw in',
-			requestDescription: 'Geen zorgen. Voer je gebruikersnaam of e-mail in en we sturen je instructies om je wachtwoord opnieuw in te stellen.',
+			requestDescription:
+				'Geen zorgen. Voer je gebruikersnaam of e-mail in en we sturen je instructies om je wachtwoord opnieuw in te stellen.',
 			identifierLabel: 'Gebruikersnaam of e-mail',
 			identifierPlaceholder: 'Voer je gebruikersnaam of e-mail in',
 			submit: 'Wachtwoord opnieuw instellen',
@@ -155,25 +148,39 @@ const nl = {
 			passwordUpdatedTitle: 'Wachtwoord bijgewerkt',
 			passwordUpdatedDescription: 'Je kunt nu inloggen met je nieuwe wachtwoord.',
 			emailSentTitle: 'Link voor wachtwoordherstel verzonden',
-			emailSentParent: 'We hebben een e-mail gestuurd naar het account van je ouder of voogd. Vraag hen om op de link in de e-mail te klikken om je wachtwoord opnieuw in te stellen.',
-			emailSentDefault: 'We hebben een e-mail gestuurd naar je account. Klik op de link in de e-mail om je wachtwoord opnieuw in te stellen.',
+			emailSentParent:
+				'We hebben een e-mail gestuurd naar het account van je ouder of voogd. Vraag hen om op de link in de e-mail te klikken om je wachtwoord opnieuw in te stellen.',
+			emailSentDefault:
+				'We hebben een e-mail gestuurd naar je account. Klik op de link in de e-mail om je wachtwoord opnieuw in te stellen.',
 			checkSpam: 'Zie je de e-mail niet? Controleer dan je spammap.',
 			emailSentIllustrationAlt: 'E-mail voor wachtwoordherstel verzonden'
 		},
 		signUp: {
-			existingGoogleJoinClub: 'Dit Google-account is al geregistreerd. Log in om verder te gaan met het lid worden van deze club.',
-			existingGoogleDefault: 'Dit Google-account is al geregistreerd. Log in in plaats van je opnieuw aan te melden.',
-			existingInlineUnverified: 'Er bestaat al een account met dit e-mailadres dat nog e-mailverificatie nodig heeft. Ga verder en we sturen je terug naar de verificatiestap.',
-			existingInlineResumeGoogle: 'Er bestaat al een Google-account met dit e-mailadres en de aanmelding is nog niet afgerond. Ga verder met Google om je gebruikersnaam- en pledge-stappen te hervatten.',
-			existingInlineResumeLogin: 'Dit e-mailadres is al geverifieerd, maar de aanmelding is nog niet afgerond. Ga naar inloggen om je gebruikersnaam- en pledge-stappen te hervatten.',
-			existingInlineGoogleRegistered: 'Dit e-mailadres is al geregistreerd met Google. Ga verder met Google om in te loggen.',
-			existingInlineRegistered: 'Dit e-mailadres is al geregistreerd. Ga naar inloggen om verder te gaan.',
-			existingVerifiedResume: 'Dit e-mailadres is al geverifieerd. Log in om je gebruikersnaam- en pledge-stappen af te ronden.',
+			existingGoogleJoinClub:
+				'Dit Google-account is al geregistreerd. Log in om verder te gaan met het lid worden van deze club.',
+			existingGoogleDefault:
+				'Dit Google-account is al geregistreerd. Log in in plaats van je opnieuw aan te melden.',
+			existingInlineUnverified:
+				'Er bestaat al een account met dit e-mailadres dat nog e-mailverificatie nodig heeft. Ga verder en we sturen je terug naar de verificatiestap.',
+			existingInlineResumeGoogle:
+				'Er bestaat al een Google-account met dit e-mailadres en de aanmelding is nog niet afgerond. Ga verder met Google om je gebruikersnaam- en pledge-stappen te hervatten.',
+			existingInlineResumeLogin:
+				'Dit e-mailadres is al geverifieerd, maar de aanmelding is nog niet afgerond. Ga naar inloggen om je gebruikersnaam- en pledge-stappen te hervatten.',
+			existingInlineGoogleRegistered:
+				'Dit e-mailadres is al geregistreerd met Google. Ga verder met Google om in te loggen.',
+			existingInlineRegistered:
+				'Dit e-mailadres is al geregistreerd. Ga naar inloggen om verder te gaan.',
+			existingVerifiedResume:
+				'Dit e-mailadres is al geverifieerd. Log in om je gebruikersnaam- en pledge-stappen af te ronden.',
 			existingRegisteredSignIn: 'Dit e-mailadres is al geregistreerd. Log in om verder te gaan.',
-			existingManualGoogleResume: 'Er bestaat al een Google-account met dit e-mailadres. Ga verder met Google om je aanmelding af te ronden.',
-			existingManualGoogleSignIn: 'Dit e-mailadres is al geregistreerd met Google. Ga verder met Google om in te loggen.',
-			existingBelongsResume: 'Dit e-mailadres hoort al bij een bestaand account. Log in om je gebruikersnaam- en pledge-stappen af te ronden.',
-			existingBelongsSignIn: 'Dit e-mailadres is al geregistreerd. Log in op je bestaande account om verder te gaan.',
+			existingManualGoogleResume:
+				'Er bestaat al een Google-account met dit e-mailadres. Ga verder met Google om je aanmelding af te ronden.',
+			existingManualGoogleSignIn:
+				'Dit e-mailadres is al geregistreerd met Google. Ga verder met Google om in te loggen.',
+			existingBelongsResume:
+				'Dit e-mailadres hoort al bij een bestaand account. Log in om je gebruikersnaam- en pledge-stappen af te ronden.',
+			existingBelongsSignIn:
+				'Dit e-mailadres is al geregistreerd. Log in op je bestaande account om verder te gaan.',
 			continueSignupTitle: 'Ga verder met je aanmelding',
 			accountExistsTitle: 'Account bestaat al',
 			verificationCodeSentTitle: 'Verificatiecode verzonden',
@@ -184,9 +191,12 @@ const nl = {
 			passwordsMismatch: 'Wachtwoorden komen niet overeen.',
 			failedCreateAccount: 'Kon account niet aanmaken.',
 			registeredSignInInstead: 'Dit e-mailadres is al geregistreerd. Log alsjeblieft in.',
-			verificationCodeSentToEmail: 'We hebben een nieuwe 6-cijferige verificatiecode gestuurd naar {email}.',
-			verificationCodeInitialToEmail: 'We hebben een 6-cijferige verificatiecode gestuurd naar {email}.',
-			googleOnlyOver16: 'Aanmelden met Google is alleen beschikbaar voor gebruikers ouder dan 16 jaar.',
+			verificationCodeSentToEmail:
+				'We hebben een nieuwe 6-cijferige verificatiecode gestuurd naar {email}.',
+			verificationCodeInitialToEmail:
+				'We hebben een 6-cijferige verificatiecode gestuurd naar {email}.',
+			googleOnlyOver16:
+				'Aanmelden met Google is alleen beschikbaar voor gebruikers ouder dan 16 jaar.',
 			failedContinueWithGoogle: 'Kon niet verdergaan met Google.',
 			failedStartGoogleSignUp: 'Kon aanmelden met Google niet starten.',
 			emailResentInfo: 'Er is een nieuwe verificatiecode verzonden.',
@@ -195,18 +205,23 @@ const nl = {
 			enterCompleteCode: 'Voer de volledige verificatiecode van 6 cijfers in.',
 			emailAlreadyVerifiedFinalizing: 'E-mail is al geverifieerd. Je account wordt afgerond...',
 			invalidVerificationCode: 'Ongeldige verificatiecode.',
-			emailVerifiedFinalizing: 'E-mail geverifieerd. Je account wordt afgerond. Dit kan enkele seconden duren...',
+			emailVerifiedFinalizing:
+				'E-mail geverifieerd. Je account wordt afgerond. Dit kan enkele seconden duren...',
 			unableSaveProfile: 'Kan profielgegevens niet opslaan. Probeer het opnieuw.',
-			postVerifyDelayed: 'We hebben je e-mail geverifieerd, maar het afronden van je account duurt langer dan verwacht. Wacht even en tik opnieuw op Verifiëren.',
+			postVerifyDelayed:
+				'We hebben je e-mail geverifieerd, maar het afronden van je account duurt langer dan verwacht. Wacht even en tik opnieuw op Verifiëren.',
 			emailVerifiedTitle: 'E-mail geverifieerd',
-			emailVerifiedDescription: 'We wachten nog tot je sessie klaar is met synchroniseren. Probeer over een ogenblik opnieuw op Verifiëren te tikken.',
+			emailVerifiedDescription:
+				'We wachten nog tot je sessie klaar is met synchroniseren. Probeer over een ogenblik opnieuw op Verifiëren te tikken.',
 			unableFinishGoogleSignup: 'Kon aanmelden met Google niet afronden. Probeer het opnieuw.',
-			existingGoogleSignedInDescription: 'Je hebt al een account met Google. We hebben je ingelogd.',
+			existingGoogleSignedInDescription:
+				'Je hebt al een account met Google. We hebben je ingelogd.',
 			successAlt: 'Succesvolle accountverificatie',
 			successTitle: 'Hoera!',
 			successDescription: 'Je e-mailaccount is succesvol aangemaakt en geverifieerd.',
 			existingGoogleProcessingTitle: 'Je wordt ingelogd',
-			existingGoogleProcessingDescription: 'Dit Google-account bestaat al. We gaan verder met je bestaande account.',
+			existingGoogleProcessingDescription:
+				'Dit Google-account bestaat al. We gaan verder met je bestaande account.',
 			googlePostProcessingTitle: 'Je Google-account wordt gekoppeld',
 			googlePostProcessingDescription: 'Je aanmelding wordt afgerond. Dit duurt maar even.',
 			personalTitle: 'Voer je persoonlijke gegevens in',
@@ -220,8 +235,14 @@ const nl = {
 			parentEmailLabel: 'E-mailadres van je ouder of voogd',
 			emailLabel: 'E-mail',
 			emailPlaceholder: 'john.doe@gmail.com',
-			parentEmailDescription: 'We zijn enthousiast om je te laten starten, maar we moeten je ouder of voogd informeren over je account.',
+			parentEmailDescription:
+				'We zijn enthousiast om je te laten starten, maar we moeten je ouder of voogd informeren over je account.',
 			checkingEmail: 'Dit e-mailadres wordt gecontroleerd...',
+			checkingUsername: 'Deze gebruikersnaam wordt gecontroleerd...',
+			usernameAvailable: 'Gebruikersnaam is beschikbaar.',
+			usernameTaken: 'Deze gebruikersnaam is al in gebruik.',
+			usernameCheckFailed: 'Kon deze gebruikersnaam niet controleren. Probeer het opnieuw.',
+			waitForUsernameCheck: 'Wacht tot de gebruikersnaamcontrole klaar is.',
 			accountFoundTitle: 'Account gevonden',
 			passwordLabel: 'Wachtwoord',
 			passwordPlaceholder: 'Voer je wachtwoord in',
@@ -237,7 +258,8 @@ const nl = {
 			goToLogin: 'Ga naar inloggen',
 			submit: 'Meld je aan',
 			verifyEmailTitle: 'Verifieer je e-mailadres',
-			verifyEmailDescription: 'Dit helpt ons om je account veilig te houden. We hebben een verificatielink gestuurd naar:',
+			verifyEmailDescription:
+				'Dit helpt ons om je account veilig te houden. We hebben een verificatielink gestuurd naar:',
 			codePrompt: 'Voer hieronder je code in:',
 			didntReceiveCode: 'Geen code ontvangen?',
 			verificationErrorTitle: 'Verificatie mislukt',
@@ -256,7 +278,34 @@ const nl = {
 		},
 		joinClub: {
 			title: 'Word lid van een club',
+			codeTitle: 'Voer je clubcode in',
 			description: 'Voer een clubcode in om lid te worden:',
+			locationDescription: 'Zoek op locatie om openbare clubs bij jou in de buurt te vinden.',
+			haveCode: 'Heb je een clubcode?',
+			enterHere: 'Voer hier in',
+			locationLabel: 'Waar zoek je een club?',
+			locationPlaceholder: 'Stad, plaats of adres',
+			locationEmptyFound: 'Geen locaties gevonden.',
+			locationEmptyTypeMore: 'Typ minimaal 2 tekens.',
+			locationMissingToken:
+				'Locatie zoeken is nog niet geconfigureerd. Voeg PUBLIC_MAPBOX_ACCESS_TOKEN toe aan .env.local.',
+			locationHintEnabled: 'Begin met typen en kies een locatie uit de suggesties.',
+			locationLookupFailure: 'Kan locatiesuggesties niet ophalen.',
+			useCurrentLocation: 'Gebruik mijn locatie',
+			locating: 'Locatie bepalen...',
+			currentLocationFailure: 'Kan je huidige locatie niet gebruiken.',
+			search: 'Zoeken',
+			nearbyTitle: 'Openbare clubs in de buurt',
+			nearbyDescription: 'Clublocaties blijven privé. Afstanden zijn bij benadering.',
+			noClubsTitle: 'Nog geen openbare clubs in de buurt',
+			noClubsDescription:
+				'Laat je e-mailadres achter en we laten het weten als er een Curiosity Club in deze buurt opent.',
+			emailLabel: 'E-mail',
+			emailPlaceholder: 'jij@example.com',
+			emailSubmit: 'Houd me op de hoogte',
+			interestSuccess: 'Bedankt. We houden je op de hoogte over clubs in deze buurt.',
+			interestFailure: 'Kan je e-mailadres nu niet opslaan.',
+			startClubCta: 'Start zelf een club',
 			noCode: 'Geen code?',
 			publicClubs: 'Bekijk openbare clubs bij jou in de buurt.',
 			continue: 'Doorgaan',
@@ -270,8 +319,10 @@ const nl = {
 			invalidDescription: 'Deze uitnodigingscode is ongeldig of verlopen.',
 			enterAnother: 'Voer een andere code in',
 			checkingAccountTitle: 'Je account wordt gecontroleerd…',
-			checkingAccountDescription: 'We brengen je terug naar aanmelden zodat je verder kunt gaan vanaf dezelfde stap.',
-			defaultDescription: 'Word lid van deze Curiosity Club om te leren, samen te werken en projecten te bouwen met een lokale leergemeenschap.',
+			checkingAccountDescription:
+				'We brengen je terug naar aanmelden zodat je verder kunt gaan vanaf dezelfde stap.',
+			defaultDescription:
+				'Word lid van deze Curiosity Club om te leren, samen te werken en projecten te bouwen met een lokale leergemeenschap.',
 			joinAsLearner: 'Word lid als leerling',
 			continuing: 'Bezig met doorgaan...',
 			checkingSession: 'Je sessie wordt gecontroleerd. Probeer het opnieuw.',
@@ -295,7 +346,8 @@ const nl = {
 			rolePlaceholder: 'Selecteer een optie',
 			aboutLabel: 'Wie ben je?',
 			aboutPlaceholder: 'Vertel ons iets over jezelf...',
-			aboutHelp: 'Waarom wil je dit doen? Waarom pas jij hier goed bij? Wat wil je leren? Heb je relevante eerdere ervaringen? Links naar eerdere ervaringen?',
+			aboutHelp:
+				'Waarom wil je dit doen? Waarom pas jij hier goed bij? Wat wil je leren? Heb je relevante eerdere ervaringen? Links naar eerdere ervaringen?',
 			referralLabel: 'Hoe heb je ons gevonden?',
 			referralPlaceholder: 'Selecteer een optie',
 			referralOtherLabel: 'Licht toe',
@@ -303,12 +355,14 @@ const nl = {
 			continue: 'Doorgaan',
 			videoTitle: 'Voeg video toe',
 			videoPromptTitle: 'Upload een video van 1 minuut waarin je het volgende beantwoordt:',
-			videoPromptDescription: 'Waarom wil je een Curiosity Club starten? Hoe zie je dat een Curiosity Club past binnen jouw gemeenschap?',
+			videoPromptDescription:
+				'Waarom wil je een Curiosity Club starten? Hoe zie je dat een Curiosity Club past binnen jouw gemeenschap?',
 			videoUploadTitle: 'Upload een video uit je galerij:',
 			uploading: 'Uploaden',
 			videoUploading: 'Je video wordt geüpload...',
 			videoDropPrompt: 'Sleep een video hierheen of kies er een',
 			videoRequirements: 'MP4, MOV, WEBM of M4V tot 100 MB.',
+			videoRequired: 'Upload een video voordat je je aanmelding verzendt.',
 			videoUploadingStatus: 'Video uploaden...',
 			videoUploadedStatus: 'Video geüpload',
 			submitting: 'Verzenden...',
@@ -335,7 +389,8 @@ const nl = {
 		},
 		postSignup: {
 			restoringTitle: 'Je aanmelding wordt voortgezet',
-			restoringDescription: 'We herstellen je sessie zodat je de verplichte stappen voor gebruikersnaam en pledges kunt afronden.',
+			restoringDescription:
+				'We herstellen je sessie zodat je de verplichte stappen voor gebruikersnaam en pledges kunt afronden.',
 			profileTitle: 'Stel je profiel in',
 			usernameLabel: 'Gebruikersnaam',
 			usernamePlaceholder: 'Kies je gebruikersnaam',
@@ -351,7 +406,8 @@ const nl = {
 			saveProfileFailedTitle: 'Kon profielgegevens niet opslaan',
 			saveProfileFailedDescription: 'Probeer het opnieuw.',
 			pledgesTitle: 'Lees en accepteer onze leerbeloften',
-			pledgesDescription: 'Wij zetten ons in voor een veilige en ondersteunende leeromgeving voor elke leerling. Lees en accepteer deze beloften.',
+			pledgesDescription:
+				'Wij zetten ons in voor een veilige en ondersteunende leeromgeving voor elke leerling. Lees en accepteer deze beloften.',
 			pledgesLoading: 'Details van de beloften laden...',
 			pledgesEmpty: 'Er zijn nog geen pledge-details beschikbaar.',
 			agreeAll: 'Ik heb alle bovenstaande punten gelezen en ga ermee akkoord.',

@@ -32,10 +32,7 @@
 		memberPreview ??
 			(membersResponse.data ?? []).map((m) => ({
 				name:
-					[m.firstName ?? '', m.lastName ?? ''].join(' ').trim() ||
-					m.username ||
-					m.email ||
-					m.profileId,
+					[m.firstName ?? '', m.lastName ?? ''].join(' ').trim() || m.username || 'Project member',
 				imageUrl: null
 			}))
 	);

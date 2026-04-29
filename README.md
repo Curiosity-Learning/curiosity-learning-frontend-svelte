@@ -1,6 +1,6 @@
-# Curiosity Learning (SvelteKit + shadcn-svelte + Convex)
+# Curiosity Learning Frontend
 
-Production migration target for `/Users/ronberlinski/Documents/Curosity-Learning-Frontend`.
+SvelteKit frontend and Convex backend for Curiosity Learning.
 
 ## Stack
 
@@ -21,7 +21,7 @@ Production migration target for `/Users/ronberlinski/Documents/Curosity-Learning
 
 - `/auth/*`: sign in, sign up, reset password
 - `/onboarding/*`: get started, join club (code preview), start club
-- `/app/*`: authenticated shell with home, sessions, projects, people, settings, notifications, chat
+- Authenticated shell routes: `/club/[clubId]`, `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
 - `/privacy`, `/terms`: policy pages backed by active Convex policy content
 
 ## Local Setup
@@ -37,6 +37,7 @@ npm install
 - `CONVEX_DEPLOYMENT` (for local Convex dev/codegen)
 - `PUBLIC_CONVEX_URL`
 - `PUBLIC_CONVEX_SITE_URL`
+- `PUBLIC_MAPBOX_ACCESS_TOKEN` (for onboarding location search/map preview)
 - `BETTER_AUTH_SECRET` (non-default, high entropy)
 - `BETTER_AUTH_URL` (typically `http://localhost:5173`)
 - `GOOGLE_CLIENT_ID` (for Google OAuth sign-up/sign-in)
@@ -53,6 +54,7 @@ Google OAuth callback URL for local setup:
 - `GOOGLE_CLIENT_SECRET`
 - `RESEND_API_KEY`
 - `RESEND_FROM` (optional override; default exists in code)
+- `MEDIA_S3_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_S3_ACCESS_KEY_ID`, `MEDIA_S3_SECRET_ACCESS_KEY` (for upload storage)
 
 ```sh
 npx convex env set BETTER_AUTH_SECRET <same-secret-as-env-local>
@@ -83,6 +85,7 @@ Render production env values:
 - `BETTER_AUTH_SECRET=<high-entropy secret>`
 - `PUBLIC_CONVEX_URL=https://<your-production-deployment>.convex.cloud`
 - `PUBLIC_CONVEX_SITE_URL=https://<your-production-deployment>.convex.site`
+- `PUBLIC_MAPBOX_ACCESS_TOKEN=<mapbox-token>`
 - `ALLOW_LAN_TRUSTED_ORIGINS=false`
 
 Convex production deployment env values:
@@ -92,6 +95,7 @@ Convex production deployment env values:
 - `PUBLIC_CONVEX_SITE_URL=https://<your-production-deployment>.convex.site`
 - `RESEND_API_KEY=<provider key>`
 - `RESEND_FROM=<verified sender>`
+- `MEDIA_S3_*` values for the media bucket
 - `ALLOW_LAN_TRUSTED_ORIGINS=false`
 
 ## Quality Gates
@@ -114,14 +118,17 @@ npm run test:unit -- --run
 npm run test:e2e
 ```
 
-Playwright screenshots are saved in `docs/screenshots/`.
+Playwright screenshots are generated into `docs/screenshots/` and are ignored by Git.
 
 ## Documentation
 
-See [`docs/README.md`](docs/README.md) for the full docs index — architecture, data model, security, ADRs, and more.
+Current reference docs:
+
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/data-model.md`](docs/data-model.md)
+- [`docs/security.md`](docs/security.md)
 
 ## Notes
 
 - Convex codegen output lives in `src/convex/_generated`.
-- Demo scaffold routes/tests were removed and replaced by migration smoke + domain tests.
 - The production app is expected to run as a long-lived Node server, not a static export.

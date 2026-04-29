@@ -107,7 +107,7 @@ export const listPreviewsByClub = query({
 						.filter(Boolean)
 						.join(' ')
 						.trim();
-					const name = fullName || membership.username || membership.email || membership.userId;
+					const name = fullName || membership.username || 'Project member';
 					return {
 						name,
 						imageUrl: null,
@@ -191,7 +191,6 @@ export const create = mutation({
 				firstName: profile.firstName,
 				lastName: profile.lastName,
 				username: profile.username,
-				email: profile.email,
 				coverPhotoUrl: profile.coverPhotoUrl,
 				createdAt: now
 			});
@@ -273,7 +272,6 @@ export const listMembers = query({
 				firstName: membership.firstName ?? profile?.firstName ?? '',
 				lastName: membership.lastName ?? profile?.lastName ?? null,
 				username: membership.username ?? profile?.username ?? null,
-				email: membership.email ?? profile?.email ?? null,
 				coverPhotoUrl: null,
 				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
 				roleId: membership.roleId,
@@ -398,7 +396,6 @@ export const addMember = mutation({
 				firstName: profile.firstName,
 				lastName: profile.lastName,
 				username: profile.username,
-				email: profile.email,
 				coverPhotoUrl: profile.coverPhotoUrl
 			});
 			return await ctx.db.get(existing._id);
@@ -412,7 +409,6 @@ export const addMember = mutation({
 			firstName: profile.firstName,
 			lastName: profile.lastName,
 			username: profile.username,
-			email: profile.email,
 			coverPhotoUrl: profile.coverPhotoUrl,
 			createdAt: Date.now()
 		});

@@ -1,125 +1,76 @@
 # Architecture
 
-> Stack, routing, UI patterns, and conventions. For data model see [data-model.md](data-model.md). For security see [security.md](security.md).
+Current app structure and conventions. Keep this file short; use commit history for change history.
 
 ## Stack
 
-- SvelteKit (Svelte 5, TypeScript)
-- SvelteKit Node runtime via `@sveltejs/adapter-node`
-- Tailwind v4 + shadcn-svelte
-- Mapbox GL JS for web map rendering and place search previews
-- Convex backend
-- Better Auth (`@convex-dev/better-auth`)
+- SvelteKit, Svelte 5, TypeScript
+- Tailwind CSS v4 + shadcn-svelte components
+- Convex backend in `src/convex`
+- Better Auth with Convex adapter
+- SvelteKit Node adapter for production
 - Vitest + Playwright
 
-## Route Layout
+## Routes
 
-- `/auth/*`: sign in/up/reset
-- `/onboarding/*`: get started, join club, start club
-- `/onboarding/join-club/public-clubs`: public club browser with geolocation-aware nearby sorting and Mapbox markers
-- `/app/*`: authenticated app area
-- `/settings/media-upload-dev`: authenticated developer-facing upload test surface for the shared media pipeline. It now acts as the reference integration for `FileDropZone` + `upload-manager`, so upload mutations, direct-to-S3 descriptors, finalize/retry/cancel actions, and signed delivery can be exercised manually without adding one-off UI components elsewhere in the product.
-- `/privacy`, `/terms`, `/cookies`: public legal document pages
-- Club-scoped routes are canonical under `/club/[clubId]/*` and should be built via `$lib/routes` helpers (`routes.clubHome`, `routes.clubSessions`, etc.) rather than ad-hoc string paths.
-- Signup verification is OTP-based: `/auth/sign-up` includes step `5/5` for email OTP verification (`authClient.emailOtp.verifyEmail`) after account creation.
+- Public auth: `/auth/sign-in`, `/auth/sign-up`, `/auth/reset-password`
+- Onboarding: `/onboarding/get-started`, `/onboarding/join-club`, `/onboarding/join-club/[code]`, `/onboarding/join-club/public-clubs`, `/onboarding/start-club`, `/onboarding/post-signup`, `/onboarding/parent-consent/[token]`
+- Authenticated routes live in `src/routes/(app)`; the `(app)` group is not part of the URL.
+- Main app URLs: `/no-club`, `/club/[clubId]`, `/club/[clubId]/sessions`, `/club/[clubId]/projects`, `/club/[clubId]/members`, `/applications/review`, `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
+- Detail URLs: `/session/[sessionId]/activities`, `/session/[sessionId]/attendees`, `/project/[projectId]/overview`, `/project/[projectId]/members`, `/activity-booklet`, `/activity-booklet/[activityId]`
+- Legal pages: `/privacy`, `/terms`, `/cookies`
 
-### Layout Groups
-
-Routes that share a tab bar use `(tabbed)/` layout groups so non-tabbed siblings do not inherit the tabs. See [ADR-001](adr/001-layout-groups-for-tabbed-routes.md).
-
-```
-[clubId]/projects/
-├── (tabbed)/          ← Current/Completed tabs
-│   ├── current/
-│   └── completed/
-
-session/[sessionId]/
-├── (tabbed)/          ← Activities/Attendees tabs
-│   ├── activities/
-│   └── attendees/
-
-project/[projectId]/
-├── (tabbed)/          ← Overview/Members tabs
-│   ├── overview/
-│   └── members/
-
-activity-booklet/      ← browsable activity library (?session= query param for context)
-├── [activityId]/      ← activity detail page
-
-feed/
-├── (tabbed)/          ← My Clubs/Global tabs
-│   ├── my-clubs/
-│   └── global/
-```
-
-## Domain Modules
-
-- Auth/Profile
-- Clubs/Memberships/Permissions
-- Sessions/Activities/Attendance
-- Projects/Updates
-- Preferences/Notifications
-- Chat (optional slice after core parity)
+Use helpers in `src/lib/routes.ts` for app navigation instead of hand-built strings.
 
 ## Backend
 
-- `src/convex/schema.ts` defines data model and indexes.
-- `src/convex/*.ts` modules expose queries/mutations/actions.
-- Client uses generated `api` with `convex-svelte` and authenticated token from hooks.
-- **Shared media upload pipeline**: `src/convex/media.ts`, `src/convex/mediaPipeline.ts`, and `src/convex/mediaStorage.ts` define a constraint-based upload state machine with Convex as control plane and S3 as canonical blob storage. Each upload session stores its own accepted content types, max file size, and processing flags in `mediaAssets`, so feature code can choose upload rules without registering new backend enum values. Clients create a draft upload, upload directly to the returned S3 descriptor, then finalize with only the `mediaAssetId`. The asset stores provider-neutral storage references (`storageProvider`, `sourceObjectKey`, `processedObjectKey`, optional bucket fields) plus delivery metadata like `mediaKind`, `contentType`, `sizeBytes`, and optional `durationSeconds`. Product upload flows should go through `src/lib/media/media-field.svelte.ts` via `createMediaField(...)`, which standardizes constraint lookup, local preview lifecycle, upload status (`pending_upload`/`processing`/`ready`), and domain attach timing for pages like settings and onboarding. `src/lib/media/upload-core.ts` owns the pure upload primitives, while `src/lib/media/upload-manager.svelte.ts` remains the debug/developer surface used by `/settings/media-upload-dev`. UI code should bind to short-lived CloudFront signed URLs that are minted by SvelteKit server code after authorization, not to raw storage URLs or a shared redirect route. Initial page renders should receive signed URLs inline through server-composed page data, using `src/lib/server/signed-media.ts` to merge delivery URLs into the route payload for single-media surfaces before the browser renders. `/api/media/refresh` remains the secondary renewal path for long-lived pages, not the default initial fetch path. Compression and media safety screening remain pluggable pipeline steps on top of the same asset contract. Ownership/attachment relationships should be modeled by feature tables via `mediaAssetId`, not object keys. Orphan cleanup for unattached uploads is server-enforced and only considers actual product references (`profiles.profileImageMediaAssetId`, `clubs.videoMediaAssetId`). See [ADR-012](adr/012-shared-media-upload-pipeline.md), [ADR-013](adr/013-s3-backed-media-storage.md), [ADR-014](adr/014-cloudfront-signed-url-media-delivery.md), and [ADR-015](adr/015-shared-media-field-controller.md).
-- Profile avatars and club intro videos also attach through `mediaAssets` (`profiles.profileImageMediaAssetId`, `clubs.videoMediaAssetId`). Single-media routes should receive signed media URLs inline from their server load and render plain `<img>` / `<video>` elements. Active media reads are now strict: if a record has no `mediaAssetId`, the UI should render no media instead of falling back to `coverPhotoUrl` or `videoUrl`.
-- Collection surfaces follow the same rule at the route level, not inside avatar components. For member stacks, attendee stacks, and feed author avatars, the page or layout server load should sign the visible `mediaAssetId`s once and remap `imageUrl` before rendering shared UI like `AvatarStack` or `UpdateCard`.
-- Project detail update attachments follow that same route-level pattern now. The project tabbed layout signs visible update `mediaAssetIds` for the overview tab up front and passes those signed URLs into `project-detail-view`, so update media renders from already-authorized page data instead of asking the client refresh helper to infer project access.
-- Client query convention: import `useStableQuery` from `src/lib/convex/use-stable-query.svelte.ts` instead of `useQuery` directly. Default mode is stale-first (`keepPreviousData: true`) for content continuity during route and param transitions. Pass `{ mode: 'gate' }` for auth/permission gates that should not reuse stale results. Remount cache is opt-in per query via `{ cache: 'memory' }` (default is `'off'`) so only non-sensitive content queries keep last successful data across remounts.
-- Club projects tabs (`/club/[clubId]/projects/current` and `/club/[clubId]/projects/completed`) opt into remount caching on `api.projects.listPreviewsByClub` in `src/lib/components/app/projects/club-projects-view.svelte` so project cards (including avatar preview data) stay visible on back-navigation while live data refreshes.
-- Auth in `hooks.server.ts` + Better Auth cookie/token integration.
-- Global auth readiness gate: root layout hydrates adapter server auth state and app layout gates protected queries/children via `useAuth()` readiness. See [ADR-009](adr/009-global-convex-auth-readiness-gate.md).
-- Sensitive values only from server env.
+- `src/convex/schema.ts` owns tables and indexes.
+- `src/convex/*.ts` modules expose queries, mutations, and actions.
+- Prefer indexed reads with `withIndex`; avoid broad `.filter()` scans.
+- Client code should import `useStableQuery` from `src/lib/convex/use-stable-query.svelte.ts` instead of importing `useQuery` directly.
+- Auth is wired through `src/hooks.server.ts`, Better Auth cookies, and the Convex token integration.
+- Keep secrets in environment variables only.
+
+## Media
+
+- Product media attaches by `mediaAssetId`, not raw object keys or public URLs.
+- `src/lib/media/media-field.svelte.ts` is the product-facing upload controller.
+- `src/lib/media/upload-core.ts` contains the direct-upload lifecycle primitives.
+- `src/lib/media/upload-manager.svelte.ts` powers the developer upload test page at `/settings/media-upload-dev`.
+- Initial page renders should receive authorized signed media URLs from server loads via `src/lib/server/signed-media.ts`.
+- `/api/media/refresh` is for explicit renewal on long-lived pages, not default initial rendering.
+
+## UI
+
+- Use shared shadcn-svelte primitives in `src/lib/components/ui`.
+- Use app components in `src/lib/components/app` for shell, headers, forms, cards, onboarding, and domain surfaces.
+- Keep spacing gap-based where possible.
+- `Button` size variants define button typography; do not attach ad-hoc text sizing to buttons.
+- Lucide icon stroke weights are controlled by global CSS tokens in `src/routes/layout.css`.
+- Shared `Card` is flat by default; opt into elevation only where a surface truly needs it.
+- Use `PageHeaderBackButton`, `PageHeaderTitle`, `PageHeaderActions`, and `PageHeaderSearch` for shell header integration.
+- Mutation-capable UI should respect `$lib/app/connectivity.ts`.
+- For repeated project/session cards, prefer route-level preview queries over nested per-card query waterfalls.
 
 ## Forms
 
-Forms use **shadcn-svelte Field.\* components + Superforms + Zod v4** — no Formsnap. See [ADR-002](adr/002-form-architecture.md).
+- Use shadcn-svelte `Field.*` primitives with `Input`, `Textarea`, `Select`, and shared app form wrappers where they already fit.
+- Superforms + Zod v4 is appropriate for heavier form state; lightweight screens can use local state with shared fields.
+- Convex-backed forms usually run as SPA interactions rather than SvelteKit form actions.
+- Use `docs/forms.md` for consistent field errors, form alerts, and snackbar placement.
 
-- Schema in a co-located `schema.ts` with Zod v4.
-- `defaults(zod4(schema))` for initial form state (server adapter).
-- `validators: zod4Client(schema)` for client-side validation (client adapter).
-- `SPA: true` because the backend is Convex, not SvelteKit form actions.
-- `Field.Label` supports a `required` prop for red asterisk indicators.
-- Non-Superforms onboarding/auth screens should reuse shared app-level form primitives in `src/lib/components/app/form/` (`InputField`, `TextareaField`, `SelectField`, `DateSelectField`) for consistent field spacing, label styles, and control states.
-- Start-club location search uses Mapbox forward geocoding in `src/routes/onboarding/start-club/+page.svelte` and renders the selected place on a live Mapbox GL map preview via `src/lib/components/app/mapbox-location-preview.svelte`. The web client reads its token from `PUBLIC_MAPBOX_ACCESS_TOKEN`, and the current map style is fixed to `mapbox://styles/ronberlinski/clwx2eugd019n01qxfzhw4yjg`.
-- Start-club is an authenticated-only onboarding flow. The page redirects unauthenticated visitors into sign-up before the application detail steps are usable, and optional club videos remain local until the authenticated submit path uploads and attaches them.
-- The join-club browse path (`/onboarding/join-club/public-clubs`) requests the browser’s current location, sorts public clubs by distance when available, falls back to showing all clubs otherwise, and routes club-marker/card selection directly into `/onboarding/join-club/[code]`.
+## Navigation
 
-## UI Patterns
+- Route-backed tabs live in `(tabbed)` layout groups.
+- Entity creation generally uses a small dialog, then opens the created detail page.
+- Editing belongs on detail pages via `ActionMenu` where possible.
+- Use SvelteKit history state for header title hints and contextual back behavior.
+- Dialogs use browser/mobile back dismissal by default through the shared dialog wrapper.
 
-- **Dialog → Detail Page pattern**: Creation via minimal dialog with "Open" button → create entity → navigate to detail page. Editing happens on the detail page via ActionMenu. See [ADR-003](adr/003-modal-to-page-refactor.md).
-- **Project detail tabs**: Project detail uses route-backed tabs (`Overview` and `Members`) with `/project/[projectId]` redirecting to `overview`. See [ADR-008](adr/008-project-detail-tabs.md).
-- **Club home session planning**: The `No upcoming sessions` empty state on `/club/[clubId]` opens the same create-session dialog flow used on `/club/[clubId]/sessions` (submit label `Open`), and then routes to `/session/[sessionId]/activities`. The CTA and helper copy are shown only when the viewer has `session:create`.
-- **Session creation + connectivity policy**: Session creation entry points (`Plan a session`, sessions-list header `+`, and create-dialog `Open`) are mutation-capable controls and must be gated by `canMutateOnline`. When connectivity is unhealthy/offline, these controls stay visible but disabled, matching the shared reconnect-overlay behavior.
-- **Shared session card surface**: `/club/[clubId]` and `/club/[clubId]/sessions` both render `src/lib/components/app/sessions/club-session-card.svelte` for upcoming/list cards. View-specific differences (for example, hiding activity preview and action menu on dashboard while keeping attendee stacks) are controlled via component props instead of separate card implementations.
-- **Session card data prefetching**: Routes that render session cards should prefer `api.sessions.listCardPreviewsByClub` and pass the entry through `prefetchedCardData` to `ClubSessionCard`. This keeps tags/activity preview/attendee preview in a single query and avoids nested per-card loading flashes.
-- **Project card data prefetching**: Routes that render project cards should prefer `api.projects.listPreviewsByClub` and pass `memberPreview` to `ClubProjectCard`. This avoids nested per-card member queries and prevents delayed avatar pop-in after card content renders.
-- **Feed update card surface**: `/feed/my-clubs` renders updates through `src/lib/components/app/feed/update-card.svelte`. The related project displays as a small default `Badge` pill, and the related prompt/question displays as orange `type-sm-bold` text above update content. Feed attachment rendering remains deferred, but project update detail cards now support signed media attachments.
-- **Card elevation baseline**: Shared `Card` (`src/lib/components/ui/card/card.svelte`) is intentionally flat by default (no drop shadow). Feature surfaces that need elevation should opt in explicitly with shadow utilities.
-- **Page headers** use `PageHeaderBackButton`, `PageHeaderTitle`, `PageHeaderActions` — these communicate with AppShell via Svelte context.
-- **Shell-level header title hints**: AppShell supports route-state title seeding via `App.PageState` (`headerTitleHint`, `headerTitleHintPath`) in `src/routes/(app)/+layout.svelte`. Use this when opening an entity detail page from a list/card where the title is already known, so the header renders stable immediately while detail queries resolve. Scope hints to the canonical entity base path (for example `/project/[projectId]`, `/session/[sessionId]`) so nested tabs share the same initial title seed.
-- **Card-driven stateful navigation**: Shared clickable `Card` and `DataRecordCard` support `navigationState` and pass it through SvelteKit `goto(..., { state })`. Prefer this over per-feature ad-hoc `goto` wrappers when you need cross-route page state (for example header title hinting).
-- **Routing/back semantics**: Explicitly choose `pushState` vs `replaceState` per flow. Contextual completion flows (for example session -> booklet -> add -> session) use replace semantics to avoid stale back-stack entries. Header back behavior relies on SvelteKit history state, not `document.referrer`. See [routing-and-back-navigation.md](routing-and-back-navigation.md) and [ADR-007](adr/007-history-semantics-for-routing-and-back.md).
-- **History-driven overlays (mobile back close)**: For sheet/dialog overlays that are scoped to a parent page and should dismiss with browser/mobile back, use SvelteKit shallow routing page state (`pushState('', { ...page.state, overlayOpen: true })`) and close via `history.back()` (with `replaceState` fallback). Prefer fully controlled open-state wiring for Bits UI overlays (`bind:open={getOpen, setOpen}`). See [routing-and-back-navigation.md](routing-and-back-navigation.md) and [ADR-007](adr/007-history-semantics-for-routing-and-back.md).
-- **Dialog back-dismiss default**: Shared `Dialog.Root` enables browser/mobile-back-first close behavior by default. Set `closeOnBack={false}` to opt out for specific dialogs.
-- **Header search** uses `PageHeaderSearch` to opt in per-page search from AppShell, with responsive `auto` mode that resolves between inline, collapsible, and title-overlay variants. See [ADR-005](adr/005-responsive-page-header-search.md).
-- **ActionMenu** provides edit/delete/toggle actions on detail pages via a dropdown triggered by an ellipsis icon.
-- **Icon stroke weight policy**: Lucide icons use global stroke tokens from `src/routes/layout.css` (`--icon-stroke-default`, `--icon-stroke-subtle`, `--icon-stroke-strong`). Use `icon-stroke-subtle`/`icon-stroke-strong` classes for intentional exceptions and avoid hard-coded `strokeWidth` literals in feature code. See [ADR-010](adr/010-icon-stroke-weight-policy.md).
-- **Field component hierarchy**: `Field.Group > Field.Field > Field.Label + Input + Field.Error + Field.Description`.
-- **Session Building Booklet**: Reusable activity templates browsable at `/activity-booklet`, with copy-on-add into sessions, drag-and-drop reordering, and multi-tag filtering that requires activities to match all selected tags (AND semantics). See [ADR-004](adr/004-session-building-booklet.md).
-- **Bottom nav clearance**: The app shell defines a `--bottom-nav-h` CSS variable (currently `4.5rem`) on the outermost wrapper. Content padding (`pb-[var(--bottom-nav-h)]`) and sticky floating element offsets (`bottom-[calc(var(--bottom-nav-h,0rem)+1rem)]`) derive from this single value. On desktop (`lg:`) the sidebar replaces the bottom nav and the padding is removed. Pages should not add their own bottom padding for nav clearance.
-- **Drag-and-drop reordering**: Session activities use `svelte-dnd-action` for sortable lists with an `order` field persisted via Convex mutation.
-- **Dnd shadow rendering guard**: During activity drag start, the temporary shadow item can render for one frame before library shadow decoration. The activities view passes `SHADOW_ITEM_MARKER_PROPERTY_NAME` through list data and cards render shadow rows as `invisible` immediately to avoid UI flash.
-- **Toggle chips**: `ToggleGroup` renders as pill-shaped filter chips by default (rounded-full, spaced, wrapping). Used for building block filtering in booklet and activity dialogs.
-- **Token chips**: Keep `Badge` as a primitive status component and use `TagChip` for accent/muted pill chips and removable chip interactions. See [ADR-006](adr/006-badge-and-tag-chip-split.md).
-- **Mobile pressed behavior**: Interactive primitives should express visual interaction with `hover:*` utilities at the component level. In `src/routes/layout.css`, the global `hover` variant is configured so on coarse-pointer mobile devices those same styles are applied on `:active`, keeping touch pressed feedback aligned with desktop hover without per-instance overrides.
-- **Button typography contract**: Shared `Button` size variants map to design-system text tokens in `src/lib/components/ui/button/button.svelte` (`default` → `type-btn`, `sm` → `type-btn-sm`, `lg` → `type-btn-lg`). Feature code should select button `size` instead of attaching ad-hoc text-size/font-weight classes.
-- **Lightweight public-page i18n**: The public auth/onboarding shell initializes a small client locale store from `src/lib/i18n/`, persists the chosen locale in `localStorage` key `cl_locale`, and exposes a shared top-right globe dropdown across public auth/onboarding pages for English and Dutch. New public copy should use the shared translation lookup instead of hard-coded strings when added to this flow.
-- **Inline activity editing**: Session activity cards support inline blur-save editing for title, description, minutes, and building blocks. Building block edits use a reusable searchable inline multi-select (combobox + listbox) at `src/lib/components/ui/multi-select/inline-multi-select.svelte`, composed from shadcn primitives (`Input`) plus reusable token chips (`TagChip`) and accessible listbox roles. Immediate inline-save feedback is driven by Convex mutation `optimisticUpdate` in `session-detail-view`.
-- **Connectivity gating (global)**: Mutation-capable surfaces consume `$lib/app/connectivity.ts` (`canMutateOnline`, `connectivityMessage`, `reportMutationSuccess`, `reportMutationFailure`) so editing can be disabled consistently during offline/network-loss states. AppShell renders a persistent reconnect overlay with spinner while disconnected. This is intentionally centralized so a future offline queue/replay mode can be introduced without rewriting each screen.
-- **Accessibility baseline (global)**: Root layout provides a keyboard skip link (`#main-content`) and semantic `<main>` landmark. Global CSS defines visible `:focus-visible` rings and a `prefers-reduced-motion` fallback that minimizes animation and transition effects.
+## Docs
+
+- Keep `README.md` for setup and deployment.
+- Keep `AGENTS.md` for workflow expectations.
+- Keep this file for current architecture.
+- Keep `docs/data-model.md` and `docs/security.md` as concise reference docs.
+- Use commit messages and PR descriptions for implementation history.

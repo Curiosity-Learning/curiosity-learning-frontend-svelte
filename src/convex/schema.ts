@@ -5,7 +5,6 @@ import { mediaAssetFields } from './mediaModel';
 export default defineSchema({
 	profiles: defineTable({
 		userId: v.string(),
-		email: v.string(),
 		firstName: v.optional(v.string()),
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
@@ -25,14 +24,25 @@ export default defineSchema({
 		locationAddress: v.optional(v.string()),
 		videoUrl: v.optional(v.string()),
 		signUpWith: v.optional(v.union(v.literal('email'), v.literal('google'))),
+		parentId: v.optional(v.id('parents')),
 		pendingClubCode: v.optional(v.string()),
 		pendingRole: v.optional(v.union(v.literal('Learner'), v.literal('Guide'))),
 		updatedAt: v.number()
 	})
 		.index('by_user_id', ['userId'])
-		.index('by_email', ['email'])
 		.index('by_username', ['username'])
 		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
+
+	parents: defineTable({
+		userId: v.string(),
+		profileId: v.id('profiles'),
+		email: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_user_id', ['userId'])
+		.index('by_profile_id', ['profileId'])
+		.index('by_email', ['email']),
 
 	clubRoles: defineTable({
 		name: v.string(),
@@ -64,6 +74,17 @@ export default defineSchema({
 		.index('by_club_code', ['clubCode'])
 		.index('by_video_media_asset', ['videoMediaAssetId']),
 
+	clubInterestSignups: defineTable({
+		email: v.string(),
+		location: v.string(),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_email', ['email'])
+		.index('by_created_at', ['createdAt']),
+
 	clubMembers: defineTable({
 		clubId: v.id('clubs'),
 		userId: v.string(),
@@ -72,7 +93,6 @@ export default defineSchema({
 		firstName: v.optional(v.string()),
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
-		email: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
 		leftAt: v.optional(v.number()),
 		createdAt: v.number()
@@ -80,6 +100,63 @@ export default defineSchema({
 		.index('by_club', ['clubId'])
 		.index('by_user', ['userId'])
 		.index('by_club_and_user', ['clubId', 'userId']),
+
+	clubApplications: defineTable({
+		applicantUserId: v.string(),
+		applicantProfileId: v.id('profiles'),
+		status: v.union(v.literal('pending'), v.literal('finalized')),
+		name: v.string(),
+		description: v.optional(v.string()),
+		location: v.optional(v.string()),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number()),
+		videoMediaAssetId: v.optional(v.id('mediaAssets')),
+		applicantRole: v.optional(v.string()),
+		referralSource: v.optional(v.string()),
+		referralOther: v.optional(v.string()),
+		createdClubId: v.optional(v.id('clubs')),
+		finalizedByUserId: v.optional(v.string()),
+		finalizedAt: v.optional(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_applicant_user_id', ['applicantUserId'])
+		.index('by_status_and_created_at', ['status', 'createdAt'])
+		.index('by_created_club_id', ['createdClubId']),
+
+	applicationReviews: defineTable({
+		applicationId: v.id('clubApplications'),
+		reviewerUserId: v.string(),
+		reviewerProfileId: v.id('profiles'),
+		score: v.number(),
+		note: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_application_id', ['applicationId'])
+		.index('by_reviewer_user_id', ['reviewerUserId'])
+		.index('by_application_id_and_reviewer_user_id', ['applicationId', 'reviewerUserId']),
+
+	parentChildConsents: defineTable({
+		childUserId: v.string(),
+		childProfileId: v.id('profiles'),
+		parentId: v.optional(v.id('parents')),
+		parentUserId: v.optional(v.string()),
+		parentProfileId: v.optional(v.id('profiles')),
+		parentEmail: v.string(),
+		status: v.union(v.literal('pending'), v.literal('approved')),
+		token: v.string(),
+		onboardingIntentPath: v.optional(v.string()),
+		termsAcceptedAt: v.optional(v.number()),
+		privacyPolicyAcceptedAt: v.optional(v.number()),
+		approvedAt: v.optional(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_child_user_id', ['childUserId'])
+		.index('by_parent_email', ['parentEmail'])
+		.index('by_token', ['token'])
+		.index('by_status_and_created_at', ['status', 'createdAt']),
 
 	sessions: defineTable({
 		clubId: v.id('clubs'),
@@ -187,7 +264,6 @@ export default defineSchema({
 		firstName: v.optional(v.string()),
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
-		email: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
 		createdAt: v.number()
 	})

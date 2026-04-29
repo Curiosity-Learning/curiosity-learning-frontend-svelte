@@ -5,7 +5,7 @@ import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 import UserRoundIcon from '@lucide/svelte/icons/user-round';
 import { routes } from '$lib/routes';
 
-export type AppNavKey = 'club' | 'feed' | 'chat' | 'profile';
+export type AppNavKey = 'club' | 'noClub' | 'feed' | 'chat' | 'profile';
 
 export type AppNavPlacement = 'top' | 'bottom';
 
@@ -29,9 +29,9 @@ export type AppNavBadgeCounts = {
 	chatUnreadCount?: number;
 };
 
-const clubHrefFor = (clubId: string | null | undefined) => {
-	if (!clubId) return routes.onboardingGetStarted;
-	return routes.clubHome(clubId);
+export type AppNavigationOptions = {
+	hasClubAccess?: boolean;
+	badgeCounts?: AppNavBadgeCounts;
 };
 
 // Route structure:
@@ -39,24 +39,46 @@ const clubHrefFor = (clubId: string | null | undefined) => {
 // - Non-club: /feed, /chat, /profile, /settings, /notifications
 export const buildAppNavigation = (
 	clubId: string | null | undefined,
-	badgeCounts: AppNavBadgeCounts = {}
+	options: AppNavigationOptions = {}
 ): AppNavItem[] => {
-	const clubHref = clubHrefFor(clubId);
+	const hasClubAccess = options.hasClubAccess ?? Boolean(clubId);
+	const badgeCounts = options.badgeCounts ?? {};
 	const chatBadgeCount = Math.max(badgeCounts.chatUnreadCount ?? 0, 0) || undefined;
-	return [
+	const items: AppNavItem[] = [];
+
+	if (hasClubAccess && clubId) {
+		const clubHref = routes.clubHome(clubId);
+		items.push(
+			{
+				key: 'club',
+				label: 'Club',
+				href: clubHref,
+				icon: UsersIcon,
+				children: [
+					{ key: 'sessions', label: 'Sessions', href: `${clubHref}/sessions` },
+					{ key: 'projects', label: 'Projects', href: `${clubHref}/projects` },
+					{ key: 'members', label: 'Members', href: `${clubHref}/members` }
+				]
+			},
+			{ key: 'feed', label: 'Feed', href: routes.feed, icon: NewspaperIcon }
+		);
+	} else {
+		items.push({
+			key: 'noClub',
+			label: 'New club',
+			href: routes.newClub,
+			icon: UsersIcon
+		});
+	}
+
+	items.push(
 		{
-			key: 'club',
-			label: 'Club',
-			href: clubHref,
-			icon: UsersIcon,
-			children: [
-				{ key: 'sessions', label: 'Sessions', href: `${clubHref}/sessions` },
-				{ key: 'projects', label: 'Projects', href: `${clubHref}/projects` },
-				{ key: 'members', label: 'Members', href: `${clubHref}/members` }
-			]
+			key: 'chat',
+			label: 'Chat',
+			href: routes.chat,
+			icon: MessageCircleIcon,
+			badgeCount: chatBadgeCount
 		},
-		{ key: 'feed', label: 'Feed', href: routes.feed, icon: NewspaperIcon },
-		{ key: 'chat', label: 'Chat', href: routes.chat, icon: MessageCircleIcon, badgeCount: chatBadgeCount },
 		{
 			key: 'profile',
 			label: 'Profile',
@@ -68,5 +90,7 @@ export const buildAppNavigation = (
 				{ key: 'notifications', label: 'Notifications', href: routes.notifications }
 			]
 		}
-	];
+	);
+
+	return items;
 };

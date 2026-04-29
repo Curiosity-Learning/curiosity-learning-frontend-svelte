@@ -27,11 +27,11 @@ test('public routing smoke checks', async ({ page }) => {
 	await page.goto(`${BASE_URL}/auth/sign-in`);
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 
-	await page.goto(`${BASE_URL}/app/home`);
+	await page.goto(`${BASE_URL}/feed`);
 	await expect(page).toHaveURL(/\/auth\/sign-in/);
 });
 
-test('capture migration screenshots', async ({ page }) => {
+test('capture smoke screenshots', async ({ page }) => {
 	await capture(page, '/auth/sign-in', 'auth-sign-in.png');
 	await capture(page, '/auth/sign-up', 'auth-sign-up.png');
 	await capture(page, '/onboarding/get-started', 'onboarding-get-started.png');
@@ -39,11 +39,11 @@ test('capture migration screenshots', async ({ page }) => {
 	await capture(page, '/onboarding/start-club', 'onboarding-start-club.png');
 	await capture(page, '/privacy', 'privacy.png');
 	await capture(page, '/terms', 'terms.png');
-	await capture(page, '/app/home', 'app-home-auth-gate.png');
-	await capture(page, '/app/feed', 'app-feed-auth-gate.png');
-	await capture(page, '/app/chat', 'app-chat-auth-gate.png');
-	await capture(page, '/app/profile', 'app-profile-auth-gate.png');
-	await capture(page, '/app/sessions', 'app-sessions-auth-gate.png');
-	await capture(page, '/app/projects', 'app-projects-auth-gate.png');
-	await capture(page, '/app/settings', 'app-settings-auth-gate.png');
+	await capture(page, '/feed', 'app-feed-auth-gate.png');
+	await capture(page, '/chat', 'app-chat-auth-gate.png');
+	await capture(page, '/profile', 'app-profile-auth-gate.png');
+	await capture(page, '/settings', 'app-settings-auth-gate.png');
+	await capture(page, '/club/demo-club', 'app-home-auth-gate.png');
+	await capture(page, '/club/demo-club/sessions', 'app-sessions-auth-gate.png');
+	await capture(page, '/club/demo-club/projects', 'app-projects-auth-gate.png');
 });

@@ -24,6 +24,8 @@ type ActiveClubContext = {
 };
 
 const normalizeInviteCode = (code: string) => code.trim().toUpperCase();
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const createInviteCodeCandidate = () => {
 	let code = '';
@@ -186,16 +188,13 @@ const getOrCreateProfile = async (ctx: MutationCtx, userId: string) => {
 		return existing;
 	}
 
-	const authUser = await authComponent.getAuthUser(
-		ctx as unknown as GenericCtx<GenericDataModel>
-	);
+	const authUser = await authComponent.getAuthUser(ctx as unknown as GenericCtx<GenericDataModel>);
 	const now = Date.now();
 	const username = await resolveUniqueUsername(ctx, authUser._id, authUser.email);
 	const { firstName, lastName } = splitNameParts(authUser.name);
 
 	const profileId = await ctx.db.insert('profiles', {
 		userId: authUser._id,
-		email: authUser.email,
 		firstName,
 		lastName,
 		username,
@@ -343,6 +342,51 @@ export const listPublicClubs = query({
 	}
 });
 
+export const submitClubInterestSignup = mutation({
+	args: {
+		email: v.string(),
+		location: v.string(),
+		locationLatitude: v.optional(v.number()),
+		locationLongitude: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const email = normalizeEmail(args.email);
+		const location = args.location.trim();
+		if (!EMAIL_PATTERN.test(email)) {
+			throw new ConvexError('Enter a valid email address');
+		}
+		if (!location) {
+			throw new ConvexError('Enter a location');
+		}
+
+		const now = Date.now();
+		const existing = await ctx.db
+			.query('clubInterestSignups')
+			.withIndex('by_email', (q) => q.eq('email', email))
+			.first();
+
+		const patch = {
+			location,
+			locationLatitude: args.locationLatitude,
+			locationLongitude: args.locationLongitude,
+			updatedAt: now
+		};
+
+		if (existing) {
+			await ctx.db.patch(existing._id, patch);
+			return { success: true };
+		}
+
+		await ctx.db.insert('clubInterestSignups', {
+			email,
+			...patch,
+			createdAt: now
+		});
+
+		return { success: true };
+	}
+});
+
 export const createClub = mutation({
 	args: {
 		name: v.string(),
@@ -388,7 +432,6 @@ export const createClub = mutation({
 			firstName: profile.firstName,
 			lastName: profile.lastName,
 			username: profile.username,
-			email: profile.email,
 			coverPhotoUrl: profile.coverPhotoUrl,
 			createdAt: now
 		});
@@ -435,7 +478,6 @@ export const joinClubWithCode = mutation({
 			firstName: profile.firstName,
 			lastName: profile.lastName,
 			username: profile.username,
-			email: profile.email,
 			coverPhotoUrl: profile.coverPhotoUrl,
 			createdAt: Date.now()
 		});
@@ -614,7 +656,6 @@ export const getMembers = query({
 			firstName: string | null;
 			lastName: string | null;
 			username: string | null;
-			email: string | null;
 			coverPhotoUrl: string | null;
 			profileImageMediaAssetId: Id<'mediaAssets'> | null;
 		}> = [];
@@ -631,12 +672,11 @@ export const getMembers = query({
 				.first();
 
 			// Fall back to the profiles table when denormalized fields are missing
-			let { firstName, lastName, username, email } = member;
+			let { firstName, lastName, username } = member;
 			if (profile) {
 				firstName = firstName ?? profile.firstName;
 				lastName = lastName ?? profile.lastName;
 				username = username ?? profile.username;
-				email = email ?? profile.email;
 			}
 
 			output.push({
@@ -648,7 +688,6 @@ export const getMembers = query({
 				firstName: firstName ?? null,
 				lastName: lastName ?? null,
 				username: username ?? null,
-				email: email ?? null,
 				coverPhotoUrl: null,
 				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
 			});

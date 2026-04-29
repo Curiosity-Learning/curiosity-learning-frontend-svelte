@@ -9,6 +9,7 @@
 		ActionMenu,
 		DataRecordCard,
 		DataRecordHeader,
+		LoadingState,
 		RelationAvatarStack,
 		RelationChipSet,
 		RelationListCards,
@@ -146,7 +147,7 @@
 
 		<RelationSection title="Activities">
 			{#if !prefetchedCardData && activitiesResponse.isLoading}
-				<p class="type-lead text-slate-500">Loading activities...</p>
+				<LoadingState variant="inline" size="sm" label="Loading activities" />
 			{:else if activityItems.length === 0}
 				<p class="type-lead text-slate-500">No activities yet.</p>
 			{:else}
@@ -171,7 +172,7 @@
 			{#if !canReadMembers}
 				<p class="type-lead text-slate-500">You do not have access to attendees.</p>
 			{:else if !prefetchedCardData && cardData.isLoading}
-				<p class="type-lead text-slate-500">Loading attendees...</p>
+				<LoadingState variant="inline" size="sm" label="Loading attendees" />
 			{:else}
 				<RelationAvatarStack people={attendees} max={6} sizeClass={attendeesAvatarSizeClass} />
 			{/if}

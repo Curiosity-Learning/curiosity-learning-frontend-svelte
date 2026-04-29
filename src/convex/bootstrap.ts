@@ -1,4 +1,5 @@
 import { v } from 'convex/values';
+import { components } from './_generated/api';
 import { mutation } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 
@@ -262,7 +263,8 @@ const NETHERLANDS_TEST_CLUBS = [
 	{
 		name: 'Vondelpark Curiosity Club',
 		clubCode: 'AMS101',
-		description: 'A public Amsterdam test club inspired by park learning circles and creative city walks.',
+		description:
+			'A public Amsterdam test club inspired by park learning circles and creative city walks.',
 		location: 'Vondelpark, Amsterdam, Netherlands',
 		locationLatitude: 52.357994,
 		locationLongitude: 4.868648,
@@ -272,7 +274,8 @@ const NETHERLANDS_TEST_CLUBS = [
 	{
 		name: 'Leiden Hortus Explorers Club',
 		clubCode: 'LDN202',
-		description: 'A public Leiden test club for science, nature journaling, and mini research projects.',
+		description:
+			'A public Leiden test club for science, nature journaling, and mini research projects.',
 		location: 'Hortus Botanicus Leiden, Leiden, Netherlands',
 		locationLatitude: 52.158989,
 		locationLongitude: 4.485993,
@@ -282,7 +285,8 @@ const NETHERLANDS_TEST_CLUBS = [
 	{
 		name: 'Utrecht Science Garden Club',
 		clubCode: 'UTC303',
-		description: 'A public Utrecht test club built around experiments, design challenges, and maker sessions.',
+		description:
+			'A public Utrecht test club built around experiments, design challenges, and maker sessions.',
 		location: 'Utrecht Science Park, Utrecht, Netherlands',
 		locationLatitude: 52.085312,
 		locationLongitude: 5.174207,
@@ -292,7 +296,8 @@ const NETHERLANDS_TEST_CLUBS = [
 	{
 		name: 'Rotterdam Garden Bridge Club',
 		clubCode: 'RTD404',
-		description: 'A public Rotterdam test club blending urban nature, teamwork, and community project ideas.',
+		description:
+			'A public Rotterdam test club blending urban nature, teamwork, and community project ideas.',
 		location: 'Trompenburg Tuinen, Rotterdam, Netherlands',
 		locationLatitude: 51.918236,
 		locationLongitude: 4.510173,
@@ -302,7 +307,8 @@ const NETHERLANDS_TEST_CLUBS = [
 	{
 		name: 'Eindhoven Schoolyard Makers Club',
 		clubCode: 'EHV505',
-		description: 'A public Eindhoven test club focused on prototyping, robotics, and collaborative builds.',
+		description:
+			'A public Eindhoven test club focused on prototyping, robotics, and collaborative builds.',
 		location: 'TU Eindhoven Campus, Eindhoven, Netherlands',
 		locationLatitude: 51.448214,
 		locationLongitude: 5.489609,
@@ -312,7 +318,8 @@ const NETHERLANDS_TEST_CLUBS = [
 	{
 		name: 'The Hague Peace Garden Club',
 		clubCode: 'HAG606',
-		description: 'A public Hague test club for storytelling, civic curiosity, and reflective learning projects.',
+		description:
+			'A public Hague test club for storytelling, civic curiosity, and reflective learning projects.',
 		location: 'Westbroekpark, The Hague, Netherlands',
 		locationLatitude: 52.097522,
 		locationLongitude: 4.311856,
@@ -322,7 +329,8 @@ const NETHERLANDS_TEST_CLUBS = [
 	{
 		name: 'Groningen Greenhouse Club',
 		clubCode: 'GRN707',
-		description: 'A public Groningen test club for ecology, climate ideas, and hands-on exploration.',
+		description:
+			'A public Groningen test club for ecology, climate ideas, and hands-on exploration.',
 		location: 'Prinsentuin, Groningen, Netherlands',
 		locationLatitude: 53.221428,
 		locationLongitude: 6.573156,
@@ -332,7 +340,8 @@ const NETHERLANDS_TEST_CLUBS = [
 	{
 		name: 'Maastricht River Garden Club',
 		clubCode: 'MST808',
-		description: 'A public Maastricht test club mixing local history, design prompts, and group discovery.',
+		description:
+			'A public Maastricht test club mixing local history, design prompts, and group discovery.',
 		location: 'Stadspark Maastricht, Maastricht, Netherlands',
 		locationLatitude: 50.844954,
 		locationLongitude: 5.692029,
@@ -668,15 +677,15 @@ export const setClubMemberRoleByEmail = mutation({
 			targetClubId = club._id;
 		}
 
-		const profiles = await ctx.db
-			.query('profiles')
-			.withIndex('by_email', (q) => q.eq('email', normalizedEmail))
-			.collect();
-		if (!profiles.length) {
+		const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: 'email', value: normalizedEmail }]
+		})) as { _id: string } | null;
+		if (!authUser) {
 			throw new Error(`No profile found for email ${normalizedEmail}`);
 		}
 
-		const userIds = Array.from(new Set(profiles.map((profile) => profile.userId)));
+		const userIds = [authUser._id];
 		const candidates: Array<{
 			membership: Doc<'clubMembers'>;
 			previousRoleName: string | null;

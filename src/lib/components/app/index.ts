@@ -2,6 +2,7 @@ import HeaderTabs from './header-tabs.svelte';
 import ActionMenu from './action-menu.svelte';
 import AutoFitCardGrid from './auto-fit-card-grid.svelte';
 import AppShell from './app-shell.svelte';
+import LoadingState from './loading-state.svelte';
 import UpdateCard from './feed/update-card.svelte';
 import DataRecordCard from './record-card/data-record-card.svelte';
 import DataRecordHeader from './record-card/data-record-header.svelte';
@@ -24,6 +25,7 @@ export {
 	ActionMenu,
 	AutoFitCardGrid,
 	AppShell,
+	LoadingState,
 	UpdateCard,
 	DataRecordCard,
 	DataRecordHeader,

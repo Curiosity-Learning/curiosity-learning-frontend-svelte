@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
+	import { Field, FieldDescription, FieldError, FieldLabel } from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils';
 	import type { HTMLInputAttributes, HTMLInputTypeAttribute } from 'svelte/elements';
@@ -22,6 +22,7 @@
 		label?: string;
 		required?: boolean;
 		hint?: string;
+		error?: string;
 		class?: string;
 		labelClass?: string;
 		hintClass?: string;
@@ -47,19 +48,30 @@
 		label,
 		required = false,
 		hint,
+		error,
 		class: className,
 		labelClass,
 		hintClass,
 		inputClass,
 		trailing
 	}: Props = $props();
+
+	let hintId = $derived(hint ? `${id}-hint` : undefined);
+	let errorId = $derived(error ? `${id}-error` : undefined);
+	let describedBy = $derived([hintId, errorId].filter(Boolean).join(' ') || undefined);
 </script>
 
 <Field class={cn('flex flex-col gap-2', className)}>
 	{#if label}
-		<FieldLabel for={id} required={required} class={cn('type-field-label text-gray-900', labelClass)}>
+		<FieldLabel for={id} required={required} class={cn('type-field-label text-base leading-6 font-bold text-gray-900', labelClass)}>
 			{label}
 		</FieldLabel>
+	{/if}
+
+	{#if hint}
+		<FieldDescription id={hintId} class={cn('type-body text-sm leading-6 font-normal text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
 	{/if}
 
 	<div class="relative">
@@ -77,6 +89,8 @@
 			{inputmode}
 			{autocapitalize}
 			{readonly}
+			aria-invalid={error ? 'true' : undefined}
+			aria-describedby={describedBy}
 			bind:value
 			class={cn('h-12 rounded-md border-gray-300 px-4 text-base', trailing ? 'pr-11' : '', inputClass)}
 		/>
@@ -88,9 +102,7 @@
 		{/if}
 	</div>
 
-	{#if hint}
-		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
-			{hint}
-		</FieldDescription>
+	{#if error}
+		<FieldError id={errorId}>{error}</FieldError>
 	{/if}
 </Field>

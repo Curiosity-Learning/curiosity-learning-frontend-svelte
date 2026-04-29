@@ -5,6 +5,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		ActionMenu,
+		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
 		PageHeaderTitle
@@ -198,7 +199,8 @@
 		const nextContent = updates.content !== undefined ? updates.content : (activity.content ?? '');
 		const nextMinutes = updates.minutes !== undefined ? updates.minutes : activity.minutes;
 		const nextBuildingBlockIds = (updates.buildingBlockIds ?? activity.buildingBlocks ?? []).filter(
-			(blockId): blockId is Id<'buildingBlocks'> => typeof blockId === 'string' && blockId.length > 0
+			(blockId): blockId is Id<'buildingBlocks'> =>
+				typeof blockId === 'string' && blockId.length > 0
 		);
 		const mutationArgs = {
 			sessionId: sessionIdTyped,
@@ -392,13 +394,12 @@
 					const currentAttendance = localStore.getQuery(api.sessions.listAttendance, queryArgs);
 					if (!currentAttendance) return;
 
-					const existing = currentAttendance.find(
-						(entry) => entry.userId === mutationArgs.userId
-					);
+					const existing = currentAttendance.find((entry) => entry.userId === mutationArgs.userId);
 					if (mutationArgs.attending) {
 						if (existing) return;
 						const now = Date.now();
-						const optimisticId = `optimistic-attendance-${mutationArgs.sessionId}-${mutationArgs.userId}` as Id<'attendances'>;
+						const optimisticId =
+							`optimistic-attendance-${mutationArgs.sessionId}-${mutationArgs.userId}` as Id<'attendances'>;
 						localStore.setQuery(api.sessions.listAttendance, queryArgs, [
 							...currentAttendance,
 							{
@@ -461,7 +462,7 @@
 		<AlertDescription>This session ID is not valid.</AlertDescription>
 	</Alert>
 {:else if sessionResponse.isLoading}
-	<p class="type-sm text-muted-foreground">Loading session...</p>
+	<LoadingState label="Loading session" />
 {:else if !session}
 	<Alert variant="destructive">
 		<AlertTitle>Session not found</AlertTitle>
@@ -636,7 +637,7 @@
 				{#if !canReadMembers}
 					<p class="type-sm text-muted-foreground">You do not have access to club members.</p>
 				{:else if membersResponse.isLoading}
-					<p class="type-sm text-muted-foreground">Loading attendees...</p>
+					<LoadingState label="Loading attendees" />
 				{:else if (membersResponse.data?.length ?? 0) === 0}
 					<p class="type-sm text-muted-foreground">No members found.</p>
 				{:else}
@@ -659,7 +660,6 @@
 										.join(' ')
 										.trim() ||
 										member.username ||
-										member.email ||
 										'Member'}
 								</span>
 							</label>
@@ -667,12 +667,8 @@
 								<p class="type-body-medium">
 									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 										member.username ||
-										member.email ||
 										'Member'}
 								</p>
-								{#if member.email}
-									<p class="type-sm text-muted-foreground">{member.email}</p>
-								{/if}
 							</div>
 							<div class="relative z-10 flex items-center">
 								<Checkbox
@@ -682,7 +678,6 @@
 									aria-label={`Mark ${
 										[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 										member.username ||
-										member.email ||
 										'Member'
 									} as attending`}
 									disabled={!canManageAttendanceOnline}

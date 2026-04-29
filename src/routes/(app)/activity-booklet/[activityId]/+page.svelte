@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { TagChip } from '$lib/components/ui/badge';
@@ -62,7 +62,7 @@
 		<AlertDescription>This activity ID is not valid.</AlertDescription>
 	</Alert>
 {:else if activityResponse.isLoading}
-	<p class="text-sm text-muted-foreground">Loading activity...</p>
+	<LoadingState label="Loading activity" />
 {:else if !activity}
 	<Alert variant="destructive">
 		<AlertTitle>Activity not found</AlertTitle>

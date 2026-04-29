@@ -52,8 +52,7 @@
 				name:
 					[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 					member.username ||
-					member.email ||
-					member.profileId,
+					'Project member',
 				imageUrl: null
 			}))
 	);
@@ -69,7 +68,8 @@
 
 	const handleLinkClick = (event: MouseEvent) => {
 		if (!href || !navigationState || event.defaultPrevented) return;
-		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+			return;
 		event.preventDefault();
 		void goto(href, { state: navigationState });
 	};
@@ -101,12 +101,7 @@
 {/snippet}
 
 {#if href}
-	<a
-		href={href}
-		class="block h-full"
-		data-sveltekit-preload-code="hover"
-		onclick={handleLinkClick}
-	>
+	<a {href} class="block h-full" data-sveltekit-preload-code="hover" onclick={handleLinkClick}>
 		<Card class={cn('h-full w-full gap-0 py-0', className)}>
 			{@render cardContent()}
 		</Card>

@@ -16,9 +16,7 @@
 	let isLoading = $derived(clubsResponse.isLoading);
 </script>
 
-{#if isLoading}
-	<p class="p-4 text-sm text-muted-foreground">Loading...</p>
-{:else if !isMember}
+{#if !isLoading && !isMember}
 	<div class="flex flex-col items-center gap-4 p-8 text-center">
 		<Alert variant="destructive" class="max-w-md">
 			<AlertTitle>Club not found</AlertTitle>

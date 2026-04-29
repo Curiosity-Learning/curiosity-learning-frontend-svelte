@@ -7,6 +7,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		AutoFitCardGrid,
+		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
 		PageHeaderSearch
@@ -195,7 +196,7 @@
 				</AlertDescription>
 			</Alert>
 		{:else if projectCardsResponse.isLoading}
-			<p class="type-sm text-muted-foreground">Loading projects...</p>
+			<LoadingState label="Loading projects" />
 		{:else if visibleProjectCards.length === 0}
 			<p class="type-sm text-muted-foreground">{emptyLabel}</p>
 		{:else}

@@ -19,8 +19,7 @@
 		value: SupportedLocale;
 		labelKey: 'settings.language.english' | 'settings.language.dutch';
 	}> = [
-		{ value: 'en', labelKey: 'settings.language.english' },
-		{ value: 'nl', labelKey: 'settings.language.dutch' }
+		{ value: 'en', labelKey: 'settings.language.english' }
 	];
 
 	let { class: className = '' }: Props = $props();

@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
+	import { LoadingState } from '$lib/components/app';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 
@@ -53,7 +54,7 @@
 		const clubId = pickClubId();
 		if (!clubId) {
 			redirected = true;
-			void goto(routes.profile);
+			void goto(routes.newClub);
 			return;
 		}
 
@@ -63,4 +64,4 @@
 	});
 </script>
 
-<p class="p-4 text-sm text-muted-foreground">Loading...</p>
+<LoadingState variant="page" size="lg" label="Loading Curiosity Learning" />

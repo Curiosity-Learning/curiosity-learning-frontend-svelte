@@ -38,24 +38,7 @@ const en = {
 		cookiesTitle: 'Cookie Policy',
 		privacyEmpty: 'No privacy policy content is configured yet.',
 		termsEmpty: 'No terms and conditions content is configured yet.',
-		cookiesEmpty: 'No cookie policy content is configured yet.',
-		cookieBanner: {
-			title: 'Cookie preferences',
-			descriptionStart: 'We use only ',
-			essential: 'essential',
-			descriptionMiddle: ' and ',
-			functional: 'functional',
-			descriptionAfterTypes:
-				' cookies. We do not use analytics or marketing cookies. See ',
-			privacyLink: 'Privacy policy',
-			termsLink: 'Terms and conditions',
-			cookiesLink: 'Cookie policy',
-			betweenPrivacyAndTerms: ', ',
-			betweenTermsAndCookies: ', and ',
-			descriptionEnd: '.',
-			essentialOnly: 'Essential only',
-			allowFunctional: 'Allow functional cookies'
-		}
+		cookiesEmpty: 'No cookie policy content is configured yet.'
 	},
 	mediaUpload: {
 		failedBeforeStorage: 'Upload failed before the file reached storage.',
@@ -112,7 +95,7 @@ const en = {
 			passwordPlaceholder: 'Enter your password',
 			hidePassword: 'Hide password',
 			showPassword: 'Show password',
-			rememberMe: 'Remember me',
+			rememberMe: 'Keep me signed in for 30 days',
 			forgotPassword: 'Forgot password?',
 			submit: 'Log in',
 			submitting: 'Logging in...',
@@ -125,26 +108,34 @@ const en = {
 			genericFailure: 'Failed to sign in.',
 			genericFailureRetry: 'Unable to sign in right now. Please try again.',
 			invalidCredentials: 'Invalid username, email, or password.',
+			parentConsentPending:
+				'A parent or guardian needs to approve this account before you can sign in.',
 			invalidLoginTitle: 'Invalid login',
 			invalidLoginDescription: 'Enter a valid username or email and try again.',
 			resendIdentifierRequired: 'Enter a valid username or email to resend verification.',
 			resendFailure: 'Failed to resend verification email.',
 			resendSuccess: 'Verification email sent. Check your inbox and spam folder.',
-			existingGoogleInfo: 'You already have an account with Google. Continue with Google to sign in.',
+			existingGoogleInfo:
+				'You already have an account with Google. Continue with Google to sign in.',
 			existingGoogleTitle: 'Account already exists',
 			existingGoogleDescription: 'You already have an account with Google. We signed you in.',
-			existingGoogleJoinClub: 'This Google account is already registered. Log in to continue joining this club.',
-			existingGoogleDefault: 'This Google account is already registered. Log in instead of signing up.',
+			existingGoogleJoinClub:
+				'This Google account is already registered. Log in to continue joining this club.',
+			existingGoogleDefault:
+				'This Google account is already registered. Log in instead of signing up.',
 			noAccountForEmail: 'You do not have an account with that email. Sign up to continue.',
-			noAccountForGoogleEmail: 'You do not have an account with that Google email. Sign up to continue.',
-			linkMismatch: 'This Google account could not be linked here. Sign in with your existing account first or use the same email address.',
+			noAccountForGoogleEmail:
+				'You do not have an account with that Google email. Sign up to continue.',
+			linkMismatch:
+				'This Google account could not be linked here. Sign in with your existing account first or use the same email address.',
 			providerNotConfigured: 'Google sign-in is not configured yet.',
 			googleUnavailable: 'Unable to continue with Google right now. Please try again.'
 		},
 		resetPassword: {
 			backToSignIn: 'Return to account log in',
 			requestTitle: 'Reset your password',
-			requestDescription: 'No need to worry. Enter your username or email and we’ll send instructions to reset your password.',
+			requestDescription:
+				'No need to worry. Enter your username or email and we’ll send instructions to reset your password.',
 			identifierLabel: 'Username or email',
 			identifierPlaceholder: 'Enter your username or email',
 			submit: 'Reset password',
@@ -169,25 +160,38 @@ const en = {
 			passwordUpdatedTitle: 'Password updated',
 			passwordUpdatedDescription: 'You can now log in with your new password.',
 			emailSentTitle: 'Password reset link sent',
-			emailSentParent: "We've sent an email to your parent's account. Please ask them to click the link in the email to reset your password.",
-			emailSentDefault: "We've sent an email to your account. Click the link in the email to reset your password.",
+			emailSentParent:
+				"We've sent an email to your parent's account. Please ask them to click the link in the email to reset your password.",
+			emailSentDefault:
+				"We've sent an email to your account. Click the link in the email to reset your password.",
 			checkSpam: "If you don't see the email, check your spam folder.",
 			emailSentIllustrationAlt: 'Password reset email sent'
 		},
 		signUp: {
-			existingGoogleJoinClub: 'This Google account is already registered. Log in to continue joining this club.',
-			existingGoogleDefault: 'This Google account is already registered. Log in instead of signing up.',
-			existingInlineUnverified: 'This email already has an account that still needs email verification. Continue and we will send you back to the verification step.',
-			existingInlineResumeGoogle: 'This email already has a Google account and signup is not finished yet. Continue with Google to resume your username and pledge steps.',
-			existingInlineResumeLogin: 'This email is already verified, but signup is not finished yet. Go to login to resume your username and pledge steps.',
-			existingInlineGoogleRegistered: 'This email is already registered with Google. Continue with Google to sign in.',
+			existingGoogleJoinClub:
+				'This Google account is already registered. Log in to continue joining this club.',
+			existingGoogleDefault:
+				'This Google account is already registered. Log in instead of signing up.',
+			existingInlineUnverified:
+				'This email already has an account that still needs email verification. Continue and we will send you back to the verification step.',
+			existingInlineResumeGoogle:
+				'This email already has a Google account and signup is not finished yet. Continue with Google to resume your username and pledge steps.',
+			existingInlineResumeLogin:
+				'This email is already verified, but signup is not finished yet. Go to login to resume your username and pledge steps.',
+			existingInlineGoogleRegistered:
+				'This email is already registered with Google. Continue with Google to sign in.',
 			existingInlineRegistered: 'This email is already registered. Go to login to continue.',
-			existingVerifiedResume: 'This email is already verified. Sign in to finish your username and pledge steps.',
+			existingVerifiedResume:
+				'This email is already verified. Sign in to finish your username and pledge steps.',
 			existingRegisteredSignIn: 'This email is already registered. Please sign in to continue.',
-			existingManualGoogleResume: 'This email already has a Google account. Continue with Google to finish your signup.',
-			existingManualGoogleSignIn: 'This email is already registered with Google. Continue with Google to sign in.',
-			existingBelongsResume: 'This email already belongs to an existing account. Sign in to finish your username and pledge steps.',
-			existingBelongsSignIn: 'This email is already registered. Sign in to your existing account to continue.',
+			existingManualGoogleResume:
+				'This email already has a Google account. Continue with Google to finish your signup.',
+			existingManualGoogleSignIn:
+				'This email is already registered with Google. Continue with Google to sign in.',
+			existingBelongsResume:
+				'This email already belongs to an existing account. Sign in to finish your username and pledge steps.',
+			existingBelongsSignIn:
+				'This email is already registered. Sign in to your existing account to continue.',
 			continueSignupTitle: 'Continue your signup',
 			accountExistsTitle: 'Account already exists',
 			verificationCodeSentTitle: 'Verification code sent',
@@ -209,18 +213,23 @@ const en = {
 			enterCompleteCode: 'Enter the complete 6-digit verification code.',
 			emailAlreadyVerifiedFinalizing: 'Email already verified. Finalizing your account...',
 			invalidVerificationCode: 'Invalid verification code.',
-			emailVerifiedFinalizing: 'Email verified. Finalizing your account. This can take a few seconds...',
+			emailVerifiedFinalizing:
+				'Email verified. Finalizing your account. This can take a few seconds...',
 			unableSaveProfile: 'Unable to save profile details. Please try again.',
-			postVerifyDelayed: 'We verified your email, but finishing your account is taking longer than expected. Please wait a moment and tap Verify again.',
+			postVerifyDelayed:
+				'We verified your email, but finishing your account is taking longer than expected. Please wait a moment and tap Verify again.',
 			emailVerifiedTitle: 'Email verified',
-			emailVerifiedDescription: 'We are still waiting for your session to finish syncing. Please try Verify again in a moment.',
+			emailVerifiedDescription:
+				'We are still waiting for your session to finish syncing. Please try Verify again in a moment.',
 			unableFinishGoogleSignup: 'Unable to finish Google sign up. Please retry.',
-			existingGoogleSignedInDescription: 'You already have an account with Google. We signed you in.',
+			existingGoogleSignedInDescription:
+				'You already have an account with Google. We signed you in.',
 			successAlt: 'Account verification success',
 			successTitle: 'Hooray!',
 			successDescription: 'Your email account has been successfully created and verified.',
 			existingGoogleProcessingTitle: 'Signing you in',
-			existingGoogleProcessingDescription: 'This Google account already exists. We are continuing with your existing account.',
+			existingGoogleProcessingDescription:
+				'This Google account already exists. We are continuing with your existing account.',
 			googlePostProcessingTitle: 'Connecting your Google account',
 			googlePostProcessingDescription: 'Finalizing your signup. This should only take a moment.',
 			personalTitle: 'Enter your personal information',
@@ -234,8 +243,14 @@ const en = {
 			parentEmailLabel: "Your parent or guardian's email",
 			emailLabel: 'Email',
 			emailPlaceholder: 'john.doe@gmail.com',
-			parentEmailDescription: 'We’re excited to get you started, but we need to notify your parent or guardian about your account.',
+			parentEmailDescription:
+				'We’re excited to get you started, but we need to notify your parent or guardian about your account.',
 			checkingEmail: 'Checking this email...',
+			checkingUsername: 'Checking this username...',
+			usernameAvailable: 'Username is available.',
+			usernameTaken: 'Username is already taken.',
+			usernameCheckFailed: 'Unable to check this username. Please try again.',
+			waitForUsernameCheck: 'Please wait for the username check to finish.',
 			accountFoundTitle: 'Account found',
 			passwordLabel: 'Password',
 			passwordPlaceholder: 'Enter your password',
@@ -251,7 +266,8 @@ const en = {
 			goToLogin: 'Go to login',
 			submit: 'Sign up',
 			verifyEmailTitle: 'Verify your email address',
-			verifyEmailDescription: "This helps us keep your account secure. We've sent a verification link to:",
+			verifyEmailDescription:
+				"This helps us keep your account secure. We've sent a verification link to:",
 			codePrompt: 'Please enter your code below:',
 			didntReceiveCode: "Didn't receive your code?",
 			verificationErrorTitle: 'Verification failed',
@@ -270,7 +286,34 @@ const en = {
 		},
 		joinClub: {
 			title: 'Join a club',
+			codeTitle: 'Enter your club code',
 			description: 'Please enter a club code to join:',
+			locationDescription: 'Search by location to find public clubs near you.',
+			haveCode: 'Have a club code?',
+			enterHere: 'Enter here',
+			locationLabel: 'Where are you looking for a club?',
+			locationPlaceholder: 'City, town, or address',
+			locationEmptyFound: 'No locations found.',
+			locationEmptyTypeMore: 'Type at least 2 characters.',
+			locationMissingToken:
+				'Location search is not configured yet. Add PUBLIC_MAPBOX_ACCESS_TOKEN to .env.local.',
+			locationHintEnabled: 'Start typing and choose a location from the suggestions.',
+			locationLookupFailure: 'Unable to fetch location suggestions.',
+			useCurrentLocation: 'Use my location',
+			locating: 'Locating...',
+			currentLocationFailure: 'Unable to use your current location.',
+			search: 'Search',
+			nearbyTitle: 'Public clubs nearby',
+			nearbyDescription: 'Club locations are private. Distances are approximate from your search.',
+			noClubsTitle: 'No public clubs nearby yet',
+			noClubsDescription:
+				'Leave your email and we will let you know if a Curiosity Club opens in this area.',
+			emailLabel: 'Email',
+			emailPlaceholder: 'you@example.com',
+			emailSubmit: 'Notify me',
+			interestSuccess: 'Thanks. We will keep you updated about clubs in this area.',
+			interestFailure: 'Unable to save your email right now.',
+			startClubCta: 'Start a club yourself',
 			noCode: 'Don’t have a code?',
 			publicClubs: 'View public clubs near you.',
 			continue: 'Continue',
@@ -284,8 +327,10 @@ const en = {
 			invalidDescription: 'This invite code is invalid or has expired.',
 			enterAnother: 'Enter another code',
 			checkingAccountTitle: 'Checking your account…',
-			checkingAccountDescription: 'We’re returning you to sign up so you can continue from the same step.',
-			defaultDescription: 'Join this Curiosity Club to learn, collaborate, and build projects with a local learning community.',
+			checkingAccountDescription:
+				'We’re returning you to sign up so you can continue from the same step.',
+			defaultDescription:
+				'Join this Curiosity Club to learn, collaborate, and build projects with a local learning community.',
 			joinAsLearner: 'Join as a learner',
 			continuing: 'Continuing...',
 			checkingSession: 'Checking your session. Please try again.',
@@ -309,7 +354,8 @@ const en = {
 			rolePlaceholder: 'Select an option',
 			aboutLabel: 'Who are you?',
 			aboutPlaceholder: 'Tell us a bit about yourself...',
-			aboutHelp: 'Why do you want to do this? Why are you a right fit? What do you want to learn? Any related previous experiences? Links to previous experiences?',
+			aboutHelp:
+				'Why do you want to do this? Why are you a right fit? What do you want to learn? Any related previous experiences? Links to previous experiences?',
 			referralLabel: 'How did you find out about us?',
 			referralPlaceholder: 'Select an option',
 			referralOtherLabel: 'Please specify',
@@ -317,12 +363,14 @@ const en = {
 			continue: 'Continue',
 			videoTitle: 'Add video',
 			videoPromptTitle: 'Upload a 1 min video answering the following:',
-			videoPromptDescription: 'Why do you want to start a Curiosity Club? How do you see a Curiosity Club fit in your community?',
+			videoPromptDescription:
+				'Why do you want to start a Curiosity Club? How do you see a Curiosity Club fit in your community?',
 			videoUploadTitle: 'Upload a video from your gallery:',
 			uploading: 'Uploading',
 			videoUploading: 'Uploading your video...',
 			videoDropPrompt: 'Drag and drop or choose a video',
 			videoRequirements: 'MP4, MOV, WEBM, or M4V up to 100 MB.',
+			videoRequired: 'Please upload a video before submitting your application.',
 			videoUploadingStatus: 'Uploading video...',
 			videoUploadedStatus: 'Video uploaded',
 			submitting: 'Submitting...',
@@ -349,7 +397,8 @@ const en = {
 		},
 		postSignup: {
 			restoringTitle: 'Continuing your signup',
-			restoringDescription: 'We are restoring your session so you can finish the required username and pledge steps.',
+			restoringDescription:
+				'We are restoring your session so you can finish the required username and pledge steps.',
 			profileTitle: 'Set up your profile',
 			usernameLabel: 'Username',
 			usernamePlaceholder: 'Choose your username',
@@ -365,7 +414,8 @@ const en = {
 			saveProfileFailedTitle: 'Unable to save profile details',
 			saveProfileFailedDescription: 'Please try again.',
 			pledgesTitle: 'Read and accept our learning pledges',
-			pledgesDescription: 'We are committed to a safe and supportive learning space for every student. Please read and accept these pledges.',
+			pledgesDescription:
+				'We are committed to a safe and supportive learning space for every student. Please read and accept these pledges.',
 			pledgesLoading: 'Loading pledge details...',
 			pledgesEmpty: 'No pledge details available yet.',
 			agreeAll: 'I have read and agree to all points above.',

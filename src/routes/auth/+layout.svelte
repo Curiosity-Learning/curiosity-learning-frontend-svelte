@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import LanguageSwitcher from '$lib/components/app/language-switcher.svelte';
 	import { _ } from '$lib/i18n';
 	import {
 		Card,
@@ -21,14 +20,12 @@
 
 {#if isOnboardingStyleRoute}
 	<div class="relative flex min-h-screen flex-col bg-white">
-		<LanguageSwitcher class="absolute top-3 right-5 z-10 sm:top-4 sm:right-8 lg:top-6 lg:right-12" />
 		{@render children()}
 	</div>
 {:else}
 	<div
 		class="relative flex min-h-screen flex-col items-center justify-center gap-6 bg-[radial-gradient(circle_at_top,_var(--color-primary)/12,_transparent_45%),linear-gradient(to_bottom,_var(--color-secondary)/35,_var(--color-background))] px-4 py-8"
 	>
-		<LanguageSwitcher class="absolute top-3 right-5 z-10 sm:top-4 sm:right-8 lg:top-6 lg:right-12" />
 		<div class="flex w-full max-w-md flex-col gap-4">
 			<Card>
 				<CardHeader class="flex flex-col gap-2">

@@ -3,6 +3,7 @@
 	import { onDestroy, tick } from 'svelte';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import LoadingState from '$lib/components/app/loading-state.svelte';
 	import { Field, FieldDescription, FieldLabel } from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
 	import { cn } from '$lib/utils';
@@ -31,8 +32,11 @@
 		allowCustomValue?: boolean;
 		filterOptions?: boolean;
 		loading?: boolean;
+		showInputLoading?: boolean;
+		showLoadingMenu?: boolean;
 		emptyMessage?: string;
 		maxMenuHeightClass?: string;
+		onSelectOption?: (option: DropdownOption) => void;
 	};
 
 	let {
@@ -52,8 +56,11 @@
 		allowCustomValue = true,
 		filterOptions = true,
 		loading = false,
+		showInputLoading = true,
+		showLoadingMenu = true,
 		emptyMessage = 'No options found.',
-		maxMenuHeightClass = 'max-h-56'
+		maxMenuHeightClass = 'max-h-56',
+		onSelectOption
 	}: Props = $props();
 
 	let root = $state<HTMLDivElement | null>(null);
@@ -61,11 +68,14 @@
 	let isOpen = $state(false);
 	let dropdownSide = $state<'top' | 'bottom'>('bottom');
 	let menuMaxHeightPx = $state<number | null>(null);
+	let activeIndex = $state(-1);
 
 	const MENU_GAP_PX = 8;
 	const VIEWPORT_PADDING_PX = 12;
 
 	const normalize = (input: string) => input.trim().toLowerCase();
+	const safeId = $derived(id.replace(/[^a-zA-Z0-9_-]/g, '-'));
+	const listboxId = $derived(`${safeId}-listbox`);
 
 	let selectedOption = $derived(
 		options.find(
@@ -84,18 +94,46 @@
 		);
 	});
 
-	let hasDropdownContent = $derived(loading || renderedOptions.length > 0 || Boolean(emptyMessage));
+	let hasDropdownContent = $derived(
+		(loading && showLoadingMenu) || renderedOptions.length > 0 || Boolean(emptyMessage)
+	);
 	let displayedValue = $derived(searchable ? value : (selectedOption?.label ?? ''));
+	let normalizedActiveIndex = $derived.by(() => {
+		if (renderedOptions.length === 0) return -1;
+		if (activeIndex < 0) return -1;
+		if (activeIndex >= renderedOptions.length) return renderedOptions.length - 1;
+		return activeIndex;
+	});
+	let activeOptionId = $derived(
+		normalizedActiveIndex >= 0 && normalizedActiveIndex < renderedOptions.length
+			? `${listboxId}-option-${normalizedActiveIndex}`
+			: undefined
+	);
+
+	const getSelectedOptionIndex = () => {
+		if (!selectedOption) return -1;
+		return renderedOptions.findIndex((option) => option.value === selectedOption?.value);
+	};
+
+	const getInitialActiveIndex = () => {
+		if (renderedOptions.length === 0) return -1;
+		const selectedIndex = getSelectedOptionIndex();
+		return selectedIndex >= 0 ? selectedIndex : 0;
+	};
 
 	const openDropdown = () => {
 		if (!hasDropdownContent) return;
 		isOpen = true;
+		if (activeIndex < 0) {
+			activeIndex = getInitialActiveIndex();
+		}
 	};
 
 	const closeDropdown = () => {
 		isOpen = false;
 		dropdownSide = 'bottom';
 		menuMaxHeightPx = null;
+		activeIndex = -1;
 		if (allowCustomValue || searchable) return;
 		if (selectedOption) return;
 		value = '';
@@ -104,16 +142,65 @@
 	const selectOption = (option: DropdownOption) => {
 		value = option.value;
 		isOpen = false;
+		onSelectOption?.(option);
 	};
 
 	const handleInput = (event: Event) => {
 		if (!searchable) return;
 		value = (event.currentTarget as HTMLInputElement).value;
+		activeIndex = 0;
 		openDropdown();
 	};
 
 	const handleKeydown = (event: KeyboardEvent) => {
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			if (!isOpen) openDropdown();
+			if (renderedOptions.length === 0) return;
+			activeIndex =
+				normalizedActiveIndex < 0 || normalizedActiveIndex >= renderedOptions.length - 1
+					? 0
+					: normalizedActiveIndex + 1;
+			return;
+		}
+		if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			if (!isOpen) openDropdown();
+			if (renderedOptions.length === 0) return;
+			activeIndex =
+				normalizedActiveIndex <= 0
+					? renderedOptions.length - 1
+					: normalizedActiveIndex - 1;
+			return;
+		}
+		if (event.key === 'Enter') {
+			if (!isOpen && renderedOptions.length === 0) return;
+			event.preventDefault();
+			if (!isOpen) {
+				openDropdown();
+			}
+			const indexToSelect = normalizedActiveIndex >= 0 ? normalizedActiveIndex : 0;
+			const option = renderedOptions[indexToSelect];
+			if (option) {
+				selectOption(option);
+			}
+			return;
+		}
+		if ((event.key === ' ' || event.key === 'Spacebar') && !searchable) {
+			event.preventDefault();
+			if (!isOpen) {
+				openDropdown();
+				return;
+			}
+			const indexToSelect = normalizedActiveIndex >= 0 ? normalizedActiveIndex : 0;
+			const option = renderedOptions[indexToSelect];
+			if (option) {
+				selectOption(option);
+			}
+			return;
+		}
 		if (event.key === 'Escape') {
+			event.preventDefault();
 			closeDropdown();
 		}
 	};
@@ -179,13 +266,40 @@
 			window.visualViewport?.removeEventListener('resize', handleViewportChange);
 		};
 	});
+
+	$effect(() => {
+		if (!isOpen) {
+			activeIndex = -1;
+			return;
+		}
+		if (renderedOptions.length === 0) {
+			activeIndex = -1;
+			return;
+		}
+		if (activeIndex < 0 || activeIndex >= renderedOptions.length) {
+			activeIndex = getInitialActiveIndex();
+		}
+	});
+
+	$effect(() => {
+		if (!browser || !isOpen || !activeOptionId) return;
+		document.getElementById(activeOptionId)?.scrollIntoView({
+			block: 'nearest'
+		});
+	});
 </script>
 
 <Field class={cn('flex flex-col gap-2', className)}>
 	{#if label}
-		<FieldLabel for={id} required={required} class={cn('type-field-label text-gray-900', labelClass)}>
+		<FieldLabel for={id} required={required} class={cn('type-field-label text-base leading-6 font-bold text-gray-900', labelClass)}>
 			{label}
 		</FieldLabel>
+	{/if}
+
+	{#if hint}
+		<FieldDescription class={cn('type-body text-sm leading-6 font-normal text-gray-600', hintClass)}>
+			{hint}
+		</FieldDescription>
 	{/if}
 
 	<div class="relative" bind:this={root}>
@@ -204,9 +318,14 @@
 			onfocus={openDropdown}
 			onclick={openDropdown}
 			onkeydown={handleKeydown}
+			role="combobox"
+			aria-autocomplete={searchable ? 'list' : 'none'}
+			aria-expanded={isOpen}
+			aria-controls={listboxId}
+			aria-activedescendant={activeOptionId}
 		/>
 
-		{#if loading}
+		{#if loading && showInputLoading}
 			<LoaderCircleIcon
 				class="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-gray-400"
 			/>
@@ -229,24 +348,33 @@
 						: 'top-[calc(100%+0.5rem)]'
 				)}
 			>
-				{#if loading}
-					<p class="px-3 py-2 text-sm leading-6 text-gray-500">Loading...</p>
+				{#if loading && showLoadingMenu}
+					<LoadingState variant="inline" size="sm" label="Loading options" />
 				{:else if renderedOptions.length > 0}
 					<ul
+						id={listboxId}
+						role="listbox"
 						class={cn('overflow-y-auto py-1', maxMenuHeightClass)}
 						style:max-height={menuMaxHeightPx ? `${menuMaxHeightPx}px` : undefined}
 					>
-						{#each renderedOptions as option (option.value)}
+						{#each renderedOptions as option, index (option.value)}
 							<li>
 								<button
 									type="button"
+									id={`${listboxId}-option-${index}`}
+									role="option"
+									tabindex="-1"
+									aria-selected={index === normalizedActiveIndex}
 									class={cn(
 										'w-full px-3 py-2 text-left text-sm leading-6 transition-colors',
-										selectedOption?.value === option.value
+										index === normalizedActiveIndex
 											? 'bg-orange-50 text-gray-900'
 											: 'text-gray-700 hover:bg-orange-50 hover:text-gray-900'
 									)}
 									onmousedown={(event) => event.preventDefault()}
+									onmousemove={() => {
+										activeIndex = index;
+									}}
 									onclick={() => selectOption(option)}
 								>
 									{option.label}
@@ -260,10 +388,4 @@
 			</div>
 		{/if}
 	</div>
-
-	{#if hint}
-		<FieldDescription class={cn('text-sm leading-7 text-gray-600', hintClass)}>
-			{hint}
-		</FieldDescription>
-	{/if}
 </Field>

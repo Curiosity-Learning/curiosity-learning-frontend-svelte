@@ -44,10 +44,10 @@
 				</p>
 
 				<div class="mt-8 flex w-full flex-col gap-3">
-					<Button href="/onboarding/join-club" variant="default" size="xl" class="w-full">
+					<Button href={routes.onboardingJoinClub} variant="default" size="xl" class="w-full">
 						{$_('onboarding.getStarted.joinClub')}
 					</Button>
-					<Button href="/onboarding/start-club" variant="outline" size="xl" class="w-full">
+					<Button href={routes.onboardingStartClub} variant="outline" size="xl" class="w-full">
 						{$_('onboarding.getStarted.startClub')}
 					</Button>
 

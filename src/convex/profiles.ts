@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { components } from './_generated/api';
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import { requireIdentity, requireProfile } from './permissions';
@@ -90,6 +91,14 @@ export const updateMe = mutation({
 			if (existing && existing._id !== profile._id) {
 				throw new ConvexError('Username is already taken');
 			}
+
+			const authUserWithUsername = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+				model: 'user',
+				where: [{ field: 'username', value: args.username }]
+			})) as { _id: string } | null;
+			if (authUserWithUsername && authUserWithUsername._id !== identity.subject) {
+				throw new ConvexError('Username is already taken');
+			}
 		}
 
 		let nextCoverPhotoUrl = args.coverPhotoUrl ?? profile.coverPhotoUrl;
@@ -108,6 +117,20 @@ export const updateMe = mutation({
 			updatedAt: Date.now()
 		});
 
+		if (args.username && args.username !== profile.username) {
+			await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+				input: {
+					model: 'user',
+					where: [{ field: '_id', value: identity.subject }],
+					update: {
+						username: args.username,
+						displayUsername: args.username,
+						updatedAt: Date.now()
+					}
+				}
+			});
+		}
+
 		const updated = await ctx.db.get(profile._id);
 		if (!updated) {
 			throw new ConvexError('Profile not found');
@@ -119,7 +142,6 @@ export const updateMe = mutation({
 		const displayName =
 			updated.username ||
 			[updated.firstName, updated.lastName].filter(Boolean).join(' ').trim() ||
-			updated.email ||
 			identity.subject;
 
 		// Keep denormalized member/profile fields in sync for faster reads.
@@ -133,7 +155,6 @@ export const updateMe = mutation({
 				firstName: updated.firstName,
 				lastName: updated.lastName,
 				username: updated.username,
-				email: updated.email,
 				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
@@ -148,7 +169,6 @@ export const updateMe = mutation({
 				firstName: updated.firstName,
 				lastName: updated.lastName,
 				username: updated.username,
-				email: updated.email,
 				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
@@ -185,6 +205,14 @@ export const checkUsernameAvailability = query({
 			.query('profiles')
 			.withIndex('by_username', (q) => q.eq('username', normalized))
 			.first();
-		return !existing;
+		if (existing) {
+			return false;
+		}
+
+		const authUserWithUsername = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: 'username', value: normalized }]
+		});
+		return !authUserWithUsername;
 	}
 });

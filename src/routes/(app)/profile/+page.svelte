@@ -55,15 +55,18 @@
 			.join(' ')
 			.trim()
 	);
-	let displayName = $derived(
-		fullName || profileResponse.data?.username || profileResponse.data?.email || 'My profile'
+	let displayName = $derived(fullName || profileResponse.data?.username || 'My profile');
+	const handle = $derived(
+		profileResponse.data?.username ? `@${profileResponse.data.username}` : ''
 	);
-	const handle = $derived(profileResponse.data?.username ? `@${profileResponse.data.username}` : '');
 	const fallback = $derived(
-		(profileResponse.data?.username ?? profileResponse.data?.firstName ?? 'Me').slice(0, 2).toUpperCase()
+		(profileResponse.data?.username ?? profileResponse.data?.firstName ?? 'Me')
+			.slice(0, 2)
+			.toUpperCase()
 	);
 	const aboutText = $derived(
-		profileResponse.data?.about?.trim() || 'A curious learner who loves designing products and interfaces'
+		profileResponse.data?.about?.trim() ||
+			'A curious learner who loves designing products and interfaces'
 	);
 	const profileImageUrl = $derived.by(() => {
 		const profileImageAssetId = profileResponse.data?.profileImageMediaAssetId ?? null;
@@ -151,7 +154,9 @@
 	</Button>
 </PageHeaderActions>
 
-<div class="-mx-4 flex w-full flex-col gap-4 bg-[#f4f5fb] px-4 py-0 sm:-mx-6 sm:px-6 sm:py-4 lg:-mx-8 lg:px-8 lg:py-5">
+<div
+	class="-mx-4 flex w-full flex-col gap-4 bg-[#f4f5fb] px-4 py-0 sm:-mx-6 sm:px-6 sm:py-4 lg:-mx-8 lg:px-8 lg:py-5"
+>
 	{#if profileResponse.error}
 		<Alert variant="destructive">
 			<AlertTitle>Could not load profile</AlertTitle>
@@ -162,28 +167,32 @@
 	<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20.5rem]">
 		<section class="rounded-2xl border border-border/70 bg-white p-4 sm:p-5">
 			<div class="space-y-4">
-					<div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
-						<div class="min-w-0">
-						<p class="truncate text-[2rem] leading-[2.2rem] font-bold text-[#262626]">{displayName}</p>
+				<div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+					<div class="min-w-0">
+						<p class="truncate text-[2rem] leading-[2.2rem] font-bold text-[#262626]">
+							{displayName}
+						</p>
 						{#if handle}
 							<p class="truncate text-sm text-[#8b8fa0]">{handle}</p>
 						{/if}
 						<p class="mt-2 text-[1.03rem] leading-7 text-[#353535]">{aboutText}</p>
 					</div>
-						<div class="relative mt-1 size-20 shrink-0 sm:size-24">
-							<Avatar class="size-full border border-border/70">
-								<AvatarImage src={profileImageUrl ?? undefined} alt={displayName} />
-								<AvatarFallback class="bg-[#d8dbe5] text-lg font-bold text-[#3a3f50]">{fallback}</AvatarFallback>
-							</Avatar>
-							<button
-								type="button"
-								aria-label="Update profile picture"
-								class="absolute right-0 bottom-0 z-10 grid size-7 translate-x-1/4 translate-y-1/4 place-items-center rounded-full border-2 border-white bg-orange-500 text-white shadow-sm sm:size-8"
+					<div class="relative mt-1 size-20 shrink-0 sm:size-24">
+						<Avatar class="size-full border border-border/70">
+							<AvatarImage src={profileImageUrl ?? undefined} alt={displayName} />
+							<AvatarFallback class="bg-[#d8dbe5] text-lg font-bold text-[#3a3f50]"
+								>{fallback}</AvatarFallback
 							>
-								<CameraIcon class="size-3.5 sm:size-4" />
-							</button>
-						</div>
+						</Avatar>
+						<button
+							type="button"
+							aria-label="Update profile picture"
+							class="absolute right-0 bottom-0 z-10 grid size-7 translate-x-1/4 translate-y-1/4 place-items-center rounded-full border-2 border-white bg-orange-500 text-white shadow-sm sm:size-8"
+						>
+							<CameraIcon class="size-3.5 sm:size-4" />
+						</button>
 					</div>
+				</div>
 
 				<Button
 					variant="outline"
@@ -192,30 +201,36 @@
 					Share profile
 				</Button>
 
-					<div class="rounded-2xl border border-[#f0decc] bg-[#f8ecdf] p-3 sm:p-4">
-						<div class="grid grid-cols-[minmax(0,1fr)_5.25rem] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_7rem] sm:gap-3">
-							<div class="min-w-0">
-								<p class="text-[2rem] leading-[2.2rem] font-bold text-orange-500">My club</p>
-								<div class="mt-3 flex max-w-full flex-col gap-2 pr-1">
-									<Badge class="w-fit max-w-full gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white">
-										<MapPinIcon class="size-3.5" />
-										<span class="truncate">{clubLocationLabel}</span>
+				<div class="rounded-2xl border border-[#f0decc] bg-[#f8ecdf] p-3 sm:p-4">
+					<div
+						class="grid grid-cols-[minmax(0,1fr)_5.25rem] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_7rem] sm:gap-3"
+					>
+						<div class="min-w-0">
+							<p class="text-[2rem] leading-[2.2rem] font-bold text-orange-500">My club</p>
+							<div class="mt-3 flex max-w-full flex-col gap-2 pr-1">
+								<Badge
+									class="w-fit max-w-full gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white"
+								>
+									<MapPinIcon class="size-3.5" />
+									<span class="truncate">{clubLocationLabel}</span>
+								</Badge>
+								{#if meetingSchedule}
+									<Badge
+										class="w-fit max-w-full gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white"
+									>
+										<Clock3Icon class="size-3.5" />
+										<span class="truncate">{meetingSchedule}</span>
 									</Badge>
-									{#if meetingSchedule}
-										<Badge class="w-fit max-w-full gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white">
-											<Clock3Icon class="size-3.5" />
-											<span class="truncate">{meetingSchedule}</span>
-										</Badge>
-									{/if}
-								</div>
+								{/if}
 							</div>
-							<img
-								src={myClubImage}
-								alt="My club"
-								class="h-20 w-20 self-end rounded-2xl object-cover sm:h-28 sm:w-28"
-								loading="lazy"
-							/>
 						</div>
+						<img
+							src={myClubImage}
+							alt="My club"
+							class="h-20 w-20 self-end rounded-2xl object-cover sm:h-28 sm:w-28"
+							loading="lazy"
+						/>
+					</div>
 				</div>
 
 				<div class="grid grid-cols-3 gap-2">
@@ -244,7 +259,9 @@
 					>
 						<div class="flex items-center gap-2">
 							<img src={ideaIcon} alt="" class="size-4" aria-hidden="true" />
-							<p class="text-[1.9rem] leading-[2.1rem] font-bold text-[#6f73af]">{activitiesCount}</p>
+							<p class="text-[1.9rem] leading-[2.1rem] font-bold text-[#6f73af]">
+								{activitiesCount}
+							</p>
 						</div>
 						<p class="text-sm font-medium text-[#8085a1]">Activities</p>
 					</button>
@@ -282,7 +299,9 @@
 			</div>
 		</section>
 
-		<section class="hidden rounded-2xl border border-border/70 bg-white p-4 lg:flex lg:flex-col lg:gap-3">
+		<section
+			class="hidden rounded-2xl border border-border/70 bg-white p-4 lg:flex lg:flex-col lg:gap-3"
+		>
 			<p class="text-[2rem] leading-[2.2rem] font-bold text-[#44495f]">Updates</p>
 			{#if visibleDesktopUpdates.length === 0}
 				<div class="rounded-xl border border-dashed border-border/80 px-4 py-6 text-center">
@@ -293,10 +312,17 @@
 					<div class="rounded-xl border border-border/80 bg-white p-3">
 						<div class="flex items-center gap-2">
 							<Avatar class="size-6 bg-[#d8dbe5]">
-								<AvatarImage src={item.authorImageUrl ?? profileImageUrl ?? undefined} alt={item.authorName} />
-								<AvatarFallback class="text-[0.6rem] font-bold text-[#3a3f50]">{fallback}</AvatarFallback>
+								<AvatarImage
+									src={item.authorImageUrl ?? profileImageUrl ?? undefined}
+									alt={item.authorName}
+								/>
+								<AvatarFallback class="text-[0.6rem] font-bold text-[#3a3f50]"
+									>{fallback}</AvatarFallback
+								>
 							</Avatar>
-							<p class="truncate text-[1.05rem] font-bold text-[#2a2a2a]">{item.authorName ?? displayName}</p>
+							<p class="truncate text-[1.05rem] font-bold text-[#2a2a2a]">
+								{item.authorName ?? displayName}
+							</p>
 							<p class="text-sm text-[#8b8fa0]">{formatRelativeTime(item.createdAt)}</p>
 						</div>
 						<p class="mt-1 text-[1.05rem] font-bold text-orange-500">Today I learned</p>
@@ -311,7 +337,9 @@
 										loading="lazy"
 									/>
 									{#if index === 3}
-										<div class="absolute inset-0 grid place-items-center bg-black/45 text-2xl font-bold text-white">
+										<div
+											class="absolute inset-0 grid place-items-center bg-black/45 text-2xl font-bold text-white"
+										>
 											+3
 										</div>
 									{/if}
@@ -326,7 +354,9 @@
 
 	<section class="flex flex-col gap-3 lg:hidden">
 		{#if visibleMobileUpdates.length === 0}
-			<section class="rounded-[1.1rem] border border-dashed border-border/80 bg-white px-4 py-6 text-center">
+			<section
+				class="rounded-[1.1rem] border border-dashed border-border/80 bg-white px-4 py-6 text-center"
+			>
 				<p class="text-[1.02rem] text-[#6b6f80]">No updates yet.</p>
 			</section>
 		{:else}
@@ -334,10 +364,15 @@
 				<div class="rounded-xl border border-border/80 bg-white p-3">
 					<div class="flex items-center gap-2">
 						<Avatar class="size-7 bg-[#d8dbe5]">
-							<AvatarImage src={item.authorImageUrl ?? profileImageUrl ?? undefined} alt={item.authorName} />
+							<AvatarImage
+								src={item.authorImageUrl ?? profileImageUrl ?? undefined}
+								alt={item.authorName}
+							/>
 							<AvatarFallback class="text-xs font-bold text-[#3a3f50]">{fallback}</AvatarFallback>
 						</Avatar>
-						<p class="truncate text-[1.07rem] font-bold text-[#2a2a2a]">{item.authorName ?? displayName}</p>
+						<p class="truncate text-[1.07rem] font-bold text-[#2a2a2a]">
+							{item.authorName ?? displayName}
+						</p>
 						<p class="text-sm text-[#8b8fa0]">{formatRelativeTime(item.createdAt)}</p>
 					</div>
 					<p class="mt-1 text-[1.05rem] font-bold text-orange-500">Today I learned</p>
@@ -352,7 +387,9 @@
 									loading="lazy"
 								/>
 								{#if index === 3}
-									<div class="absolute inset-0 grid place-items-center bg-black/45 text-2xl font-bold text-white">
+									<div
+										class="absolute inset-0 grid place-items-center bg-black/45 text-2xl font-bold text-white"
+									>
 										+3
 									</div>
 								{/if}

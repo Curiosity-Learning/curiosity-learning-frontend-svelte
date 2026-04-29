@@ -28,7 +28,9 @@ export const listRoomSummaries = query({
 			.query('participants')
 			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
 			.collect();
-		const membershipByRoomId = new Map(memberships.map((membership) => [membership.roomId, membership]));
+		const membershipByRoomId = new Map(
+			memberships.map((membership) => [membership.roomId, membership])
+		);
 
 		const rooms = await Promise.all(memberships.map((membership) => ctx.db.get(membership.roomId)));
 		const summaries = [] as Array<{
@@ -120,6 +122,20 @@ export const getOrCreateDirectRoom = mutation({
 		if (identity.subject === args.otherUserId) {
 			throw new ConvexError('Cannot create a direct room with yourself');
 		}
+		const viewerProfile = await requireProfile(ctx, identity.subject);
+		if (!viewerProfile.activeClubId) {
+			throw new ConvexError('An active club is required to start a new chat');
+		}
+		const activeClubId = viewerProfile.activeClubId;
+		const sharedMembership = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club_and_user', (q) =>
+				q.eq('clubId', activeClubId).eq('userId', args.otherUserId)
+			)
+			.first();
+		if (!sharedMembership || sharedMembership.leftAt) {
+			throw new ConvexError('You can only start chats with members of your active club');
+		}
 
 		const directKey = directKeyFor(identity.subject, args.otherUserId);
 
@@ -138,7 +154,6 @@ export const getOrCreateDirectRoom = mutation({
 			createdAt: now
 		});
 
-		const viewerProfile = await requireProfile(ctx, identity.subject);
 		const otherProfile = await requireProfile(ctx, args.otherUserId);
 
 		await ctx.db.insert('participants', {
@@ -148,7 +163,6 @@ export const getOrCreateDirectRoom = mutation({
 			displayName:
 				viewerProfile.username ||
 				[viewerProfile.firstName, viewerProfile.lastName].filter(Boolean).join(' ').trim() ||
-				viewerProfile.email ||
 				identity.subject,
 			coverPhotoUrl: viewerProfile.coverPhotoUrl,
 			lastReadAt: now,
@@ -162,7 +176,6 @@ export const getOrCreateDirectRoom = mutation({
 			displayName:
 				otherProfile.username ||
 				[otherProfile.firstName, otherProfile.lastName].filter(Boolean).join(' ').trim() ||
-				otherProfile.email ||
 				args.otherUserId,
 			coverPhotoUrl: otherProfile.coverPhotoUrl,
 			lastReadAt: now,
@@ -274,7 +287,9 @@ export const markRoomRead = mutation({
 		const identity = await requireIdentity(ctx);
 		const membership = await ctx.db
 			.query('participants')
-			.withIndex('by_room_and_user', (q) => q.eq('roomId', args.roomId).eq('userId', identity.subject))
+			.withIndex('by_room_and_user', (q) =>
+				q.eq('roomId', args.roomId).eq('userId', identity.subject)
+			)
 			.first();
 		if (!membership) {
 			throw new ConvexError('Not a participant in this room');
@@ -300,7 +315,6 @@ export const listUsersForMessaging = query({
 		const users: Array<{
 			userId: string;
 			displayName: string;
-			email?: string;
 		}> = [];
 
 		// Get viewer's active club from profile
@@ -345,13 +359,11 @@ export const listUsersForMessaging = query({
 				const displayName =
 					memberProfile?.username ||
 					[memberProfile?.firstName, memberProfile?.lastName].filter(Boolean).join(' ').trim() ||
-					memberProfile?.email ||
 					member.userId;
 
 				users.push({
 					userId: member.userId,
-					displayName,
-					email: memberProfile?.email
+					displayName
 				});
 			}
 		}
@@ -391,13 +403,11 @@ export const listUsersForMessaging = query({
 					const displayName =
 						memberProfile?.username ||
 						[memberProfile?.firstName, memberProfile?.lastName].filter(Boolean).join(' ').trim() ||
-						memberProfile?.email ||
 						projectMember.userId;
 
 					users.push({
 						userId: projectMember.userId,
-						displayName,
-						email: memberProfile?.email
+						displayName
 					});
 				}
 			}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { UpdateCard } from '$lib/components/app';
+	import { LoadingState, UpdateCard } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { routes } from '$lib/routes';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -30,7 +30,7 @@
 
 <div class="flex flex-col gap-4">
 	{#if updates.isLoading && visibleUpdates.length === 0}
-		<p>Loading updates...</p>
+		<LoadingState label="Loading updates" />
 	{:else if updates.error && visibleUpdates.length === 0}
 		<Alert variant="destructive">
 			<AlertTitle>Could not load updates</AlertTitle>
