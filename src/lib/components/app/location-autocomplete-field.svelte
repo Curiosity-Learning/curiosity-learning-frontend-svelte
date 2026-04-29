@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { DropdownField } from '$lib/components/app/form';
 	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
 	import {
@@ -65,7 +66,7 @@
 	let lastResolvedLocation = '';
 	let defaultLocationApplied = false;
 	let defaultLocationPending = $state(false);
-	const rememberedCoordinates = new Map<string, MapboxCoordinates>();
+	const rememberedCoordinates = new SvelteMap<string, MapboxCoordinates>();
 
 	const normalizeLocation = (input: string) => input.trim().toLowerCase();
 	const sameCoordinates = (a: MapboxCoordinates | null, b: MapboxCoordinates | null) =>
