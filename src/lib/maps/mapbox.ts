@@ -24,6 +24,7 @@ export type MapboxLocationOption = DropdownOption &
 type MapboxFeature = {
 	bbox?: [number, number, number, number];
 	properties?: {
+		bbox?: [number, number, number, number];
 		feature_type?: string;
 		name?: string;
 		full_address?: string;
@@ -90,7 +91,7 @@ const resolveCoordinates = (feature: MapboxFeature): MapboxCoordinates | null =>
 };
 
 const resolveBoundingBox = (feature: MapboxFeature): MapboxBoundingBox | null => {
-	const bbox = feature.bbox;
+	const bbox = feature.properties?.bbox ?? feature.bbox;
 	if (
 		Array.isArray(bbox) &&
 		bbox.length >= 4 &&
