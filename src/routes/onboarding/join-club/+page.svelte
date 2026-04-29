@@ -378,9 +378,9 @@
 						</div>
 					{:else if locationSearchStarted}
 						<div class="flex flex-col gap-4">
-							<h2 class="type-lead-bold text-gray-900">
+							<h3 class="type-h6-bold text-gray-900">
 								{$_('onboarding.joinClub.noClubsTitle')}
-							</h2>
+							</h3>
 							<p class="text-sm leading-6 text-gray-600">
 								{$_('onboarding.joinClub.noClubsDescription')}
 							</p>
@@ -394,6 +394,7 @@
 										type="email"
 										bind:value={interestEmail}
 										autocomplete="email"
+										class="h-10"
 										placeholder={$_('onboarding.joinClub.emailPlaceholder')}
 									/>
 									<Button
