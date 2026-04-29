@@ -356,9 +356,6 @@
 							<h2 class="text-lg font-bold text-gray-900">
 								{$_('onboarding.joinClub.nearbyTitle')}
 							</h2>
-							<p class="text-sm leading-6 text-gray-600">
-								{$_('onboarding.joinClub.nearbyDescription')}
-							</p>
 						</div>
 						<div class="flex flex-col gap-2">
 							{#each nearbyClubs as club (club.id)}
