@@ -130,3 +130,33 @@ export const fetchMapboxLocationSuggestions = async (args: {
 	const payload = (await response.json()) as MapboxForwardResponse;
 	return parseForwardResponse(payload);
 };
+
+export const fetchMapboxLocationFromCoordinates = async (args: {
+	coordinates: MapboxCoordinates;
+	accessToken: string;
+	signal?: AbortSignal;
+	language?: string;
+}) => {
+	const url = new URL('https://api.mapbox.com/search/geocode/v6/reverse');
+	url.searchParams.set('longitude', String(args.coordinates.longitude));
+	url.searchParams.set('latitude', String(args.coordinates.latitude));
+	url.searchParams.set('access_token', args.accessToken);
+	url.searchParams.set('limit', '1');
+	url.searchParams.set(
+		'types',
+		'country,region,postcode,district,place,locality,neighborhood,address'
+	);
+	if (args.language) {
+		url.searchParams.set('language', args.language);
+	}
+
+	const response = await fetch(url.toString(), {
+		signal: args.signal
+	});
+	if (!response.ok) {
+		throw new Error('Unable to resolve current location');
+	}
+
+	const payload = (await response.json()) as MapboxForwardResponse;
+	return parseForwardResponse(payload)[0] ?? null;
+};

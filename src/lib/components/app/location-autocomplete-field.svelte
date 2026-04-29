@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
+	import LocateFixedIcon from '@lucide/svelte/icons/locate-fixed';
 	import { DropdownField } from '$lib/components/app/form';
 	import MapboxLocationPreview from '$lib/components/app/mapbox-location-preview.svelte';
 	import {
 		MAPBOX_GEOCODING_LIMIT,
+		fetchMapboxLocationFromCoordinates,
 		fetchMapboxLocationSuggestions,
 		type MapboxCoordinates,
 		type MapboxLocationOption
@@ -24,6 +26,10 @@
 		minChars?: number;
 		debounceMs?: number;
 		language?: string;
+		showUseCurrentLocation?: boolean;
+		useCurrentLocationLabel?: string;
+		locatingLabel?: string;
+		currentLocationFailureMessage?: string;
 		showPreview?: boolean;
 		previewStyleUrl?: string;
 		class?: string;
@@ -43,6 +49,10 @@
 		minChars = 2,
 		debounceMs = 280,
 		language,
+		showUseCurrentLocation = false,
+		useCurrentLocationLabel = 'Use my location',
+		locatingLabel = 'Locating...',
+		currentLocationFailureMessage = 'Unable to use your current location.',
 		showPreview = false,
 		previewStyleUrl,
 		class: className
@@ -55,6 +65,7 @@
 	let lookupAbortController: AbortController | null = null;
 	let lookupVersion = 0;
 	let lastResolvedLocation = '';
+	let currentLocationPending = $state(false);
 	const rememberedCoordinates = new Map<string, MapboxCoordinates>();
 
 	const normalizeLocation = (input: string) => input.trim().toLowerCase();
@@ -91,6 +102,50 @@
 		lookupPending = false;
 		lookupError = '';
 		clearLookupResources();
+	};
+
+	const requestCurrentLocation = async () => {
+		if (!browser || !navigator.geolocation || !accessToken) {
+			lookupError = currentLocationFailureMessage;
+			return;
+		}
+
+		currentLocationPending = true;
+		lookupError = '';
+		clearLookupResources();
+		lookupVersion += 1;
+
+		try {
+			const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+				navigator.geolocation.getCurrentPosition(resolve, reject, {
+					enableHighAccuracy: true,
+					timeout: 10000,
+					maximumAge: 5 * 60 * 1000
+				});
+			});
+			const nextCoordinates = {
+				longitude: position.coords.longitude,
+				latitude: position.coords.latitude
+			};
+			const match = await fetchMapboxLocationFromCoordinates({
+				coordinates: nextCoordinates,
+				accessToken,
+				language: language ?? (navigator.language.split('-')[0] ?? 'en')
+			});
+			if (!match) {
+				throw new Error('Unable to resolve current location');
+			}
+			const label = match.label;
+			rememberedCoordinates.set(normalizeLocation(label), nextCoordinates);
+			coordinates = nextCoordinates;
+			lastResolvedLocation = normalizeLocation(label);
+			value = label;
+			suggestions = [];
+		} catch {
+			lookupError = currentLocationFailureMessage;
+		} finally {
+			currentLocationPending = false;
+		}
 	};
 
 	$effect(() => {
@@ -192,7 +247,7 @@
 		{required}
 		bind:value
 		options={suggestions.map(({ label, value }) => ({ label, value }))}
-		loading={lookupPending}
+		loading={lookupPending || currentLocationPending}
 		showInputLoading={false}
 		{placeholder}
 		filterOptions={false}
@@ -201,6 +256,18 @@
 		class={className}
 		onSelectOption={resolveSelectedOption}
 	/>
+
+	{#if showUseCurrentLocation && accessToken && !value.trim()}
+		<button
+			type="button"
+			class="inline-flex w-fit items-center gap-2 text-sm font-semibold text-gray-500 transition-colors duration-200 hover:text-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+			disabled={currentLocationPending}
+			onclick={() => void requestCurrentLocation()}
+		>
+			<LocateFixedIcon class="size-4 shrink-0" />
+			<span>{currentLocationPending ? locatingLabel : useCurrentLocationLabel}</span>
+		</button>
+	{/if}
 
 	{#if lookupError}
 		<p class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

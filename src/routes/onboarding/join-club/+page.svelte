@@ -315,6 +315,10 @@
 					placeholder={$_('onboarding.joinClub.locationPlaceholder')}
 					emptyMessage={$_('onboarding.joinClub.locationEmptyFound')}
 					lookupFailureMessage={$_('onboarding.joinClub.locationLookupFailure')}
+					showUseCurrentLocation={true}
+					useCurrentLocationLabel={$_('onboarding.joinClub.useCurrentLocation')}
+					locatingLabel={$_('onboarding.joinClub.locating')}
+					currentLocationFailureMessage={$_('onboarding.joinClub.currentLocationFailure')}
 				/>
 
 				{#if showClubCodeShortcut}
@@ -364,15 +368,13 @@
 							{/each}
 						</div>
 					{:else if locationSearchStarted}
-						<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-4">
-							<div class="flex flex-col gap-1">
-								<h2 class="text-lg font-bold text-gray-900">
-									{$_('onboarding.joinClub.noClubsTitle')}
-								</h2>
-								<p class="text-sm leading-6 text-gray-600">
-									{$_('onboarding.joinClub.noClubsDescription')}
-								</p>
-							</div>
+						<div class="flex flex-col gap-4">
+							<h2 class="text-lg font-bold text-gray-900">
+								{$_('onboarding.joinClub.noClubsTitle')}
+							</h2>
+							<p class="text-sm leading-6 text-gray-600">
+								{$_('onboarding.joinClub.noClubsDescription')}
+							</p>
 							<div class="flex flex-col gap-2">
 								<label for="join-club-interest-email" class="text-sm font-semibold text-gray-900">
 									{$_('onboarding.joinClub.emailLabel')}
