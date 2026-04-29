@@ -8,10 +8,23 @@ export type MapboxCoordinates = {
 	latitude: number;
 };
 
-export type MapboxLocationOption = DropdownOption & MapboxCoordinates;
+export type MapboxBoundingBox = {
+	minLongitude: number;
+	minLatitude: number;
+	maxLongitude: number;
+	maxLatitude: number;
+};
+
+export type MapboxLocationOption = DropdownOption &
+	MapboxCoordinates & {
+		bbox: MapboxBoundingBox | null;
+		featureType: string | null;
+	};
 
 type MapboxFeature = {
+	bbox?: [number, number, number, number];
 	properties?: {
+		feature_type?: string;
 		name?: string;
 		full_address?: string;
 		place_formatted?: string;
@@ -76,6 +89,24 @@ const resolveCoordinates = (feature: MapboxFeature): MapboxCoordinates | null =>
 	return null;
 };
 
+const resolveBoundingBox = (feature: MapboxFeature): MapboxBoundingBox | null => {
+	const bbox = feature.bbox;
+	if (
+		Array.isArray(bbox) &&
+		bbox.length >= 4 &&
+		bbox.every((value) => typeof value === 'number' && Number.isFinite(value))
+	) {
+		return {
+			minLongitude: bbox[0],
+			minLatitude: bbox[1],
+			maxLongitude: bbox[2],
+			maxLatitude: bbox[3]
+		};
+	}
+
+	return null;
+};
+
 const parseForwardResponse = (payload: MapboxForwardResponse): MapboxLocationOption[] => {
 	const seen = new Set<string>();
 	const features = Array.isArray(payload.features) ? payload.features : [];
@@ -92,7 +123,9 @@ const parseForwardResponse = (payload: MapboxForwardResponse): MapboxLocationOpt
 			label,
 			value: label,
 			longitude: coordinates.longitude,
-			latitude: coordinates.latitude
+			latitude: coordinates.latitude,
+			bbox: resolveBoundingBox(feature),
+			featureType: feature.properties?.feature_type ?? null
 		});
 		if (options.length >= MAPBOX_GEOCODING_LIMIT) break;
 	}
