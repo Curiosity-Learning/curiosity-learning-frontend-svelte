@@ -104,7 +104,7 @@ export default defineSchema({
 	clubApplications: defineTable({
 		applicantUserId: v.string(),
 		applicantProfileId: v.id('profiles'),
-		status: v.union(v.literal('pending'), v.literal('finalized')),
+		status: v.union(v.literal('incomplete'), v.literal('pending'), v.literal('finalized')),
 		name: v.string(),
 		description: v.optional(v.string()),
 		location: v.optional(v.string()),

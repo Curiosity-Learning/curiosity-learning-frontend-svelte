@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { components } from './_generated/api';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { mutation, query } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
 import { getMembership, requireIdentity, requireProfile } from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
@@ -10,6 +10,25 @@ type Ctx = QueryCtx | MutationCtx;
 const APPLICATION_ADMIN_EMAILS_ENV = 'APPLICATION_REVIEW_ADMIN_EMAILS';
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const applicationDraftValidator = v.object({
+	description: v.optional(v.string()),
+	location: v.optional(v.string()),
+	locationLatitude: v.optional(v.number()),
+	locationLongitude: v.optional(v.number()),
+	applicantRole: v.optional(v.string()),
+	referralSource: v.optional(v.string()),
+	referralOther: v.optional(v.string())
+});
+
+type ApplicationDraft = {
+	description?: string;
+	location?: string;
+	locationLatitude?: number;
+	locationLongitude?: number;
+	applicantRole?: string;
+	referralSource?: string;
+	referralOther?: string;
+};
 
 const getRoleByName = async (ctx: Ctx, name: 'Guide' | 'Learner') => {
 	const role = await ctx.db
@@ -91,6 +110,96 @@ const createInviteCode = async (ctx: Ctx) => {
 	throw new ConvexError('Failed to generate unique invite code');
 };
 
+const trimOptional = (value?: string) => {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : undefined;
+};
+
+const nameFromDraft = (draft: ApplicationDraft) => {
+	const location = trimOptional(draft.location);
+	return location ? `${location} Curiosity Club`.slice(0, 100) : 'Curiosity Club';
+};
+
+const normalizeDraft = (draft: ApplicationDraft) => ({
+	name: nameFromDraft(draft),
+	description: trimOptional(draft.description),
+	location: trimOptional(draft.location),
+	locationLatitude: draft.locationLatitude,
+	locationLongitude: draft.locationLongitude,
+	applicantRole: trimOptional(draft.applicantRole),
+	referralSource: trimOptional(draft.referralSource),
+	referralOther: trimOptional(draft.referralOther)
+});
+
+const getLatestIncompleteApplication = async (ctx: Ctx, userId: string) => {
+	const applications = await ctx.db
+		.query('clubApplications')
+		.withIndex('by_applicant_user_id', (q) => q.eq('applicantUserId', userId))
+		.order('desc')
+		.collect();
+	return applications.find((application) => application.status === 'incomplete') ?? null;
+};
+
+const upsertIncompleteApplication = async (
+	ctx: MutationCtx,
+	args: {
+		userId: string;
+		profileId: Id<'profiles'>;
+		draft: ApplicationDraft;
+	}
+) => {
+	const now = Date.now();
+	const normalized = normalizeDraft(args.draft);
+	const existing = await getLatestIncompleteApplication(ctx, args.userId);
+	if (existing) {
+		await ctx.db.patch(existing._id, {
+			...normalized,
+			updatedAt: now
+		});
+		return { applicationId: existing._id };
+	}
+
+	const applicationId = await ctx.db.insert('clubApplications', {
+		applicantUserId: args.userId,
+		applicantProfileId: args.profileId,
+		status: 'incomplete',
+		...normalized,
+		createdAt: now,
+		updatedAt: now
+	});
+	return { applicationId };
+};
+
+export const saveIncompleteApplicationForUser = internalMutation({
+	args: {
+		userId: v.string(),
+		profileId: v.id('profiles'),
+		draft: applicationDraftValidator
+	},
+	returns: v.object({
+		applicationId: v.id('clubApplications')
+	}),
+	handler: async (ctx, args) => {
+		return await upsertIncompleteApplication(ctx, args);
+	}
+});
+
+export const saveIncompleteApplication = mutation({
+	args: applicationDraftValidator,
+	returns: v.object({
+		applicationId: v.id('clubApplications')
+	}),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		return await upsertIncompleteApplication(ctx, {
+			userId: identity.subject,
+			profileId: profile._id,
+			draft: args
+		});
+	}
+});
+
 export const submitApplication = mutation({
 	args: {
 		name: v.string(),
@@ -109,6 +218,9 @@ export const submitApplication = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
+		if (!args.videoMediaAssetId) {
+			throw new ConvexError('Club video is required before submitting an application');
+		}
 		const pendingConsent = await ctx.db
 			.query('parentChildConsents')
 			.withIndex('by_child_user_id', (q) => q.eq('childUserId', identity.subject))
@@ -117,12 +229,11 @@ export const submitApplication = mutation({
 		if (pendingConsent?.status === 'pending') {
 			throw new ConvexError('Parent consent is required before submitting an application');
 		}
-		if (args.videoMediaAssetId) {
-			await assertReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
-		}
+		await assertReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
 
 		const now = Date.now();
-		const applicationId = await ctx.db.insert('clubApplications', {
+		const existing = await getLatestIncompleteApplication(ctx, identity.subject);
+		const payload = {
 			applicantUserId: identity.subject,
 			applicantProfileId: profile._id,
 			status: 'pending',
@@ -135,11 +246,29 @@ export const submitApplication = mutation({
 			applicantRole: args.applicantRole,
 			referralSource: args.referralSource,
 			referralOther: args.referralOther,
-			createdAt: now,
 			updatedAt: now
+		} as const;
+
+		if (existing) {
+			await ctx.db.patch(existing._id, payload);
+			return { applicationId: existing._id };
+		}
+
+		const applicationId = await ctx.db.insert('clubApplications', {
+			...payload,
+			createdAt: now
 		});
 
 		return { applicationId };
+	}
+});
+
+export const getMyIncompleteApplication = query({
+	args: {},
+	returns: v.any(),
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		return await getLatestIncompleteApplication(ctx, identity.subject);
 	}
 });
 
@@ -262,6 +391,9 @@ export const finalizeApplication = mutation({
 				throw new ConvexError('Application is finalized without a club');
 			}
 			return { clubId: application.createdClubId };
+		}
+		if (application.status !== 'pending') {
+			throw new ConvexError('Application is not ready to finalize');
 		}
 
 		const applicantProfile = await ctx.db.get(application.applicantProfileId);

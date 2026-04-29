@@ -40,6 +40,7 @@
 	const OTP_RESEND_COOLDOWN_SECONDS = 30;
 	const EMAIL_POST_VERIFY_MAX_ATTEMPTS = 24;
 	const SIGNUP_DRAFT_STORAGE_KEY = 'cl_signup_draft_v1';
+	const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
 	const FORCE_SIGNUP_GOOGLE_PENDING_KEY = 'cl_force_signup_google_pending_v1';
 
@@ -365,6 +366,52 @@
 		updatedAt: number;
 	};
 
+	type StartClubApplicationDraft = {
+		description?: string;
+		location?: string;
+		locationLatitude?: number;
+		locationLongitude?: number;
+		applicantRole?: string;
+		referralSource?: string;
+		referralOther?: string;
+	};
+
+	const trimOptional = (value: unknown) => {
+		if (typeof value !== 'string') return undefined;
+		const trimmed = value.trim();
+		return trimmed ? trimmed : undefined;
+	};
+
+	const readStartClubApplicationDraft = (): StartClubApplicationDraft | undefined => {
+		if (!browser || !nextPath.startsWith(routes.onboardingStartClub)) return undefined;
+		try {
+			const raw = sessionStorage.getItem(START_CLUB_DRAFT_STORAGE_KEY);
+			if (!raw) return undefined;
+			const parsed = JSON.parse(raw) as Record<string, unknown>;
+			if (!parsed || typeof parsed !== 'object') return undefined;
+			const locationLatitude =
+				typeof parsed.locationLatitude === 'number' && Number.isFinite(parsed.locationLatitude)
+					? parsed.locationLatitude
+					: undefined;
+			const locationLongitude =
+				typeof parsed.locationLongitude === 'number' && Number.isFinite(parsed.locationLongitude)
+					? parsed.locationLongitude
+					: undefined;
+			const draft = {
+				description: trimOptional(parsed.about),
+				location: trimOptional(parsed.location),
+				locationLatitude,
+				locationLongitude,
+				applicantRole: trimOptional(parsed.userRole),
+				referralSource: trimOptional(parsed.referralSource),
+				referralOther: trimOptional(parsed.referralOther)
+			};
+			return Object.values(draft).some((value) => value !== undefined) ? draft : undefined;
+		} catch {
+			return undefined;
+		}
+	};
+
 	const readSignupDraft = (): SignupDraft | null => {
 		if (!browser) return null;
 		try {
@@ -668,7 +715,8 @@
 		await convexClient.mutation(api.auth.completeSignupProfile, {
 			signUpWith,
 			dateOfBirth: formatDateOfBirth(birthMonth, birthYear),
-			nextPath
+			nextPath,
+			startClubApplicationDraft: readStartClubApplicationDraft()
 		});
 	};
 
@@ -814,7 +862,8 @@
 				password,
 				parentEmail,
 				dateOfBirth: formatDateOfBirth(birthMonth, birthYear),
-				nextPath
+				nextPath,
+				startClubApplicationDraft: readStartClubApplicationDraft()
 			});
 			showSuccessScreen = true;
 			infoMessage = '';
@@ -1024,7 +1073,7 @@
 		}
 
 		pending = true;
-		const { data, error } = await authClient.emailOtp.verifyEmail({
+		const { error } = await authClient.emailOtp.verifyEmail({
 			email: email.trim(),
 			otp: otpCode
 		});
@@ -1045,7 +1094,7 @@
 		resetEmailPostVerifyState();
 		awaitingEmailPostVerify = true;
 		infoMessage = t('auth.signUp.emailVerifiedFinalizing');
-		await finalizeEmailPostVerify(Boolean(data?.token));
+		await finalizeEmailPostVerify();
 	};
 
 	const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1071,7 +1120,7 @@
 		}
 	};
 
-	const finalizeEmailPostVerify = async (autoSignedInByVerification = false) => {
+	const finalizeEmailPostVerify = async () => {
 		if (!awaitingEmailPostVerify || completingEmailPostVerify || showSuccessScreen) return;
 		completingEmailPostVerify = true;
 		errorMessage = '';
@@ -1086,7 +1135,6 @@
 
 				if (
 					!hasSession &&
-					!autoSignedInByVerification &&
 					!fallbackSignInAttempted &&
 					attempt >= 6 &&
 					email.trim() &&
