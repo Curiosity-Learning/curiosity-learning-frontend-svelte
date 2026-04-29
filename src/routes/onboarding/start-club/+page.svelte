@@ -10,7 +10,7 @@
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
 	import { Field, FieldError, FieldLabel } from '$lib/components/ui/field';
-	import { PageHeaderTitle } from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import LocationAutocompleteField from '$lib/components/app/location-autocomplete-field.svelte';
@@ -66,6 +66,7 @@
 	};
 
 	let step = $derived<1 | 2>(page.url.searchParams.get('step') === '2' ? 2 : 1);
+	let startClubHeaderBackPath = $derived(step === 2 ? routes.newClubStart : routes.newClub);
 
 	let location = $state('');
 	let selectedLocationCoordinates = $state<MapboxCoordinates | null>(null);
@@ -369,6 +370,7 @@
 </script>
 
 {#if isAppNewClubFlow}
+	<PageHeaderBackButton fallbackHref={startClubHeaderBackPath} />
 	<PageHeaderTitle
 		title={step === 2 ? $_('onboarding.startClub.videoTitle') : $_('onboarding.startClub.title')}
 	/>
