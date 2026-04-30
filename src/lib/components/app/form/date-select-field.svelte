@@ -91,7 +91,7 @@
 			<Select.Trigger
 				id={`${idPrefix}-month`}
 				aria-label="Month"
-				class={cn('h-12 w-full justify-between bg-white text-base text-gray-700', !month && 'text-gray-500', selectClass)}
+				class={cn('h-12 w-full justify-between bg-input-background text-base text-gray-700', !month && 'text-gray-500', selectClass)}
 			>
 				<span>{selectedMonthLabel || 'Month'}</span>
 			</Select.Trigger>
@@ -109,7 +109,7 @@
 				<Select.Trigger
 					id={`${idPrefix}-day`}
 					aria-label="Day"
-					class={cn('h-12 w-full justify-between bg-white text-base text-gray-700', !day && 'text-gray-500', selectClass)}
+					class={cn('h-12 w-full justify-between bg-input-background text-base text-gray-700', !day && 'text-gray-500', selectClass)}
 				>
 					<span>{day || 'Day'}</span>
 				</Select.Trigger>
@@ -127,7 +127,7 @@
 			<Select.Trigger
 				id={`${idPrefix}-year`}
 				aria-label="Year"
-				class={cn('h-12 w-full justify-between bg-white text-base text-gray-700', !year && 'text-gray-500', selectClass)}
+				class={cn('h-12 w-full justify-between bg-input-background text-base text-gray-700', !year && 'text-gray-500', selectClass)}
 			>
 				<span>{year || 'Year'}</span>
 			</Select.Trigger>

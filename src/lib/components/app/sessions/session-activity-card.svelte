@@ -379,7 +379,7 @@
 								oninput={handleMinutesInput}
 								onfocus={handleMinutesFocus}
 								onblur={() => void handleMinutesBlur()}
-								class="h-7 w-20 pr-9 bg-background [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+								class="h-7 w-20 pr-9 bg-input-background [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 							/>
 							<span
 								class="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-xs text-muted-foreground"

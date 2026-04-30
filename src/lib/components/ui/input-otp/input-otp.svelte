@@ -37,7 +37,7 @@
 				{cell}
 				aria-label={`OTP digit ${index + 1}`}
 				class={cn(
-					'relative flex h-14 w-11 items-center justify-center rounded-md border border-gray-300 bg-white text-center text-lg font-bold text-gray-900 transition-colors sm:w-12',
+					'relative flex h-14 w-11 items-center justify-center rounded-md border border-gray-300 bg-input-background text-center text-lg font-bold text-gray-900 transition-colors sm:w-12',
 					'data-[active]:border-orange-500 data-[active]:ring-2 data-[active]:ring-orange-200',
 					cell.char ? 'border-orange-500' : '',
 					cellClass

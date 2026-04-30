@@ -153,7 +153,7 @@
 								bind:value={newPassword}
 								autocomplete="new-password"
 								placeholder={$_('auth.resetPassword.newPasswordPlaceholder')}
-								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+								class="h-12 border-gray-300 bg-input-background px-4 pr-11 text-base"
 							/>
 							<button
 								type="button"
@@ -183,7 +183,7 @@
 								bind:value={confirmPassword}
 								autocomplete="new-password"
 								placeholder={$_('auth.resetPassword.confirmPasswordPlaceholder')}
-								class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+								class="h-12 border-gray-300 bg-input-background px-4 pr-11 text-base"
 							/>
 							<button
 								type="button"
@@ -268,7 +268,7 @@
 							bind:value={identifier}
 							autocomplete="username"
 							placeholder={$_('auth.resetPassword.identifierPlaceholder')}
-							class="h-12 border-gray-300 bg-white px-4 text-base"
+							class="h-12 border-gray-300 bg-input-background px-4 text-base"
 						/>
 					</Field>
 				</div>

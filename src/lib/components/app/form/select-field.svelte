@@ -60,7 +60,7 @@
 			{id}
 			aria-label={label ?? placeholder}
 			class={cn(
-				'h-12 w-full justify-between bg-white text-base text-gray-700',
+				'h-12 w-full justify-between bg-input-background text-base text-gray-700',
 				!value && 'text-gray-500',
 				selectClass
 			)}

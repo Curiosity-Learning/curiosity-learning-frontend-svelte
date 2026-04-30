@@ -1588,7 +1588,7 @@
 							bind:value={email}
 							autocomplete="email"
 							placeholder={$_('auth.signUp.emailPlaceholder')}
-							class="h-12 border-gray-300 bg-white px-4 text-base"
+							class="h-12 border-gray-300 bg-input-background px-4 text-base"
 						/>
 					</Field>
 
@@ -1618,7 +1618,7 @@
 									bind:value={password}
 									autocomplete="new-password"
 									placeholder={$_('auth.signUp.passwordPlaceholder')}
-									class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+									class="h-12 border-gray-300 bg-input-background px-4 pr-11 text-base"
 								/>
 								<button
 									type="button"
@@ -1652,7 +1652,7 @@
 									bind:value={confirmPassword}
 									autocomplete="new-password"
 									placeholder={$_('auth.signUp.confirmPasswordPlaceholder')}
-									class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+									class="h-12 border-gray-300 bg-input-background px-4 pr-11 text-base"
 								/>
 								<button
 									type="button"

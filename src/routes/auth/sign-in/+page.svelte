@@ -373,7 +373,7 @@
 								bind:value={identifier}
 								autocomplete="username"
 								placeholder={$_('auth.signIn.identifierPlaceholder')}
-								class="h-12 border-gray-300 bg-white px-4 text-base"
+								class="h-12 border-gray-300 bg-input-background px-4 text-base"
 							/>
 						</Field>
 
@@ -388,7 +388,7 @@
 									bind:value={password}
 									autocomplete="current-password"
 									placeholder={$_('auth.signIn.passwordPlaceholder')}
-									class="h-12 border-gray-300 bg-white px-4 pr-11 text-base"
+									class="h-12 border-gray-300 bg-input-background px-4 pr-11 text-base"
 								/>
 								<button
 									type="button"

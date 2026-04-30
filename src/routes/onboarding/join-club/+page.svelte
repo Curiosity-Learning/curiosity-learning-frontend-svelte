@@ -471,7 +471,7 @@
 							oninput={(event) => handleInput(index, event)}
 							onkeydown={(event) => handleKeyDown(index, event)}
 							onpaste={(event) => handlePaste(index, event)}
-							class={`h-12 w-full min-w-0 rounded-md border bg-white px-0 text-center text-lg font-semibold text-gray-900 transition-[border-color,box-shadow] duration-200 outline-none sm:h-14 sm:text-xl ${char ? 'border-orange-500' : 'border-gray-300'} focus:border-orange-500 focus:ring-2 focus:ring-orange-200`}
+							class={`h-12 w-full min-w-0 rounded-md border bg-input-background px-0 text-center text-lg font-semibold text-gray-900 transition-[border-color,box-shadow] duration-200 outline-none sm:h-14 sm:text-xl ${char ? 'border-orange-500' : 'border-gray-300'} focus:border-orange-500 focus:ring-2 focus:ring-orange-200`}
 						/>
 					{/each}
 				</div>
