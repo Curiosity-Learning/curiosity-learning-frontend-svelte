@@ -35,7 +35,7 @@
 
 				<h1
 					class="mt-8 text-[1.75rem] leading-[1.2] text-neutral-black sm:text-[1.9rem]"
-					style="font-family: var(--font-family-heading);"
+					style="font-family: var(--font-family-heading-h1);"
 				>
 					{$_('onboarding.getStarted.welcome')}
 				</h1>

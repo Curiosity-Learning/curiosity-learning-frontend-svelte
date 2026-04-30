@@ -4,6 +4,21 @@
 @import 'tw-animate-css';
 @import 'tailwindcss';
 
+@font-face {
+	font-family: 'Curious Charcoal';
+	src: url('/brand/fonts/Acuriouscharcoalfont-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Clear Curious';
+	src: url('/brand/fonts/A%20Clear%20Curious%20Font-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant hover {
@@ -24,6 +39,8 @@
 	--radius: 0.625rem;
 	--font-family-sans: 'DM Sans', sans-serif;
 	--font-family-heading: var(--font-family-sans);
+	--font-family-heading-h1: 'Curious Charcoal', var(--font-family-sans);
+	--font-family-heading-h2: 'Clear Curious', var(--font-family-sans);
 	--body-texture-image: url('/assets/texture.avif');
 	--body-texture-size: 200px auto;
 	--input-background: var(--neutral-white);
@@ -425,7 +442,7 @@
 	/* Headings */
 	.type-h1,
 	h1 {
-		font-family: var(--font-family-heading);
+		font-family: var(--font-family-heading-h1);
 		font-size: var(--text-type-heading-h1-size);
 		line-height: var(--text-type-heading-h1-line);
 		font-weight: 400;
@@ -434,7 +451,7 @@
 
 	.type-h2,
 	h2 {
-		font-family: var(--font-family-heading);
+		font-family: var(--font-family-heading-h2);
 		font-size: var(--text-type-heading-h2-size);
 		line-height: var(--text-type-heading-h2-line);
 		font-weight: 400;
@@ -515,7 +532,7 @@
 
 	/* Step heading */
 	.type-step-title {
-		font-family: var(--font-family-sans);
+		font-family: var(--font-family-heading-h1);
 		font-size: 20px;
 		line-height: 24px;
 		font-weight: 700;
