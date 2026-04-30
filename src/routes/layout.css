@@ -30,7 +30,7 @@
 
 	/* ── Neutral ── */
 	--neutral-black: #1F1A17;
-	--neutral-white: #FFFDF8;
+	--neutral-white: #FFFDF7;
 
 	/* ── Grayscale ── */
 	--gray-50: #F6F7F9;
@@ -127,7 +127,7 @@
 	--info-500: #005180;
 
 	/* ── Semantic tokens (shadcn) ── */
-	--background: oklch(0.994 0.003 95.6);
+	--background: #FFF7E8;
 	--foreground: oklch(0.196 0.012 42.5);
 	--card: var(--neutral-white);
 	--card-foreground: oklch(0.196 0.012 42.5);
