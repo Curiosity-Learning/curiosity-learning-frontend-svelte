@@ -175,8 +175,8 @@
 	--sidebar-accent-foreground: oklch(0.278 0.016 42.1);
 	--sidebar-border: oklch(0.884 0.008 78.4);
 	--sidebar-ring: oklch(0.595 0.179 40.5);
-	--text-type-heading-h1-size: 2.125rem;
-	--text-type-heading-h1-line: 2.625rem;
+	--text-type-heading-h1-size: 3.25rem;
+	--text-type-heading-h1-line: 3.75rem;
 	--text-type-heading-h2-size: 2rem;
 	--text-type-heading-h2-line: 2.625rem;
 	--text-type-heading-h3-size: 1.625rem;
@@ -533,8 +533,8 @@
 	/* Step heading */
 	.type-step-title {
 		font-family: var(--font-family-heading-h1);
-		font-size: 20px;
-		line-height: 24px;
+		font-size: 32px;
+		line-height: 36px;
 		font-weight: 700;
 		letter-spacing: 0;
 	}
