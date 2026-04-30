@@ -75,7 +75,7 @@
 					: `onboarding-shell-panel ${appFrame ? 'onboarding-shell-panel--app min-h-0 max-w-none px-0 pb-0' : edgeToEdgePanel ? 'onboarding-shell-panel--edge min-h-[100dvh] px-0 lg:min-h-screen' : 'mx-auto min-h-[calc(100dvh-2rem)] px-1 lg:min-h-[calc(100vh-4rem)]'} flex w-full min-w-0 flex-1 flex-col`}
 			>
 				{#if showHeader}
-					<div class={`sticky top-0 z-10 ${edgeToEdgePanel ? 'bg-transparent' : 'bg-white'}`}>
+					<div class="sticky top-0 z-10 bg-transparent">
 						<header
 							class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-3 sm:gap-8"
 						>
