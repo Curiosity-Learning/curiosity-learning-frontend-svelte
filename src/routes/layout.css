@@ -381,6 +381,9 @@
 
 	body {
 		@apply min-h-screen bg-background text-foreground antialiased;
+		background-image: url('/assets/texture.avif');
+		background-repeat: repeat;
+		background-size: 200px auto;
 		font-family: var(--font-family-sans);
 		font-size: var(--text-type-body-default-size);
 		line-height: var(--text-type-body-default-line);
