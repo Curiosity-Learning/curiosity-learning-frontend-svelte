@@ -8,8 +8,7 @@ Schema source: `src/convex/schema.ts`
 
 | Table             | Purpose                               | Key Fields                                                                                                                                                | Indexes                                                     |
 | ----------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `profiles`        | Per-user profile and onboarding state | `userId`, `username?`, `profileImageMediaAssetId?`, `activeClubId?`, `isVerified`, `firstLoginCompleted`, `parentId?`, `pendingClubCode?`, `pendingRole?` | `by_user_id`, `by_username`, `by_profile_image_media_asset` |
-| `parents`         | Parent marker/link table              | `userId`, `profileId`, `email`                                                                                                                            | `by_user_id`, `by_profile_id`, `by_email`                   |
+| `profiles`        | Per-user profile and onboarding state | `userId`, `username?`, `profileImageMediaAssetId?`, `activeClubId?`, `isVerified`, `firstLoginCompleted`, `parentProfileId?`, `pendingClubCode?`, `pendingRole?` | `by_user_id`, `by_username`, `by_profile_image_media_asset` |
 | `userPreferences` | Theme + notification settings         | `userId`, `activeClubId?`                                                                                                                                 | `by_user`                                                   |
 
 ## Clubs / Membership / Permissions
@@ -22,7 +21,7 @@ Schema source: `src/convex/schema.ts`
 | `clubInterestSignups` | Email interest capture when no public club is nearby | `email`, `location`, `locationLatitude?`, `locationLongitude?`                                                                                                          | `by_email`, `by_created_at`                                                          |
 | `clubApplications`    | Start Club applications from incomplete draft through review/finalization | `applicantUserId`, `applicantProfileId`, `status` (`incomplete`/`pending`/`finalized`), `name`, `description?`, `location?`, `videoMediaAssetId?`, `createdClubId?`       | `by_applicant_user_id`, `by_status_and_created_at`, `by_created_club_id`             |
 | `applicationReviews`  | Guide reviews for club applications                  | `applicationId`, `reviewerUserId`, `reviewerProfileId`, `score`, `note`                                                                                                | `by_application_id`, `by_reviewer_user_id`, `by_application_id_and_reviewer_user_id` |
-| `parentChildConsents` | Parent/guardian consent for under-16 learners        | `childUserId`, `childProfileId`, `parentId?`, `parentEmail`, `status`, `token`, `onboardingIntentPath?`, `termsAcceptedAt?`, `privacyPolicyAcceptedAt?`, `approvedAt?` | `by_child_user_id`, `by_parent_email`, `by_token`, `by_status_and_created_at`        |
+| `parentChildConsents` | Parent/guardian consent for under-16 learners        | `childUserId`, `childProfileId`, `parentUserId?`, `parentProfileId?`, `parentEmail`, `status`, `token`, `onboardingIntentPath?`, `termsAcceptedAt?`, `privacyPolicyAcceptedAt?`, `approvedAt?` | `by_child_user_id`, `by_parent_email`, `by_token`, `by_status_and_created_at`        |
 
 ## Sessions / Activities / Attendance
 
