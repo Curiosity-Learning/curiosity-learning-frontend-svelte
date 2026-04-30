@@ -46,6 +46,28 @@
 	<title>{$_('common.appName')}</title>
 </svelte:head>
 
+<svg class="chalk-filter-definition" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true">
+	<filter id="chalk" x="-5%" y="-5%" width="110%" height="110%">
+		<feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="5" result="wobble" />
+		<feDisplacementMap
+			in="SourceGraphic"
+			in2="wobble"
+			scale="6"
+			xChannelSelector="R"
+			yChannelSelector="G"
+			result="wobbled"
+		/>
+		<feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" seed="2" result="grain" />
+		<feDisplacementMap
+			in="wobbled"
+			in2="grain"
+			scale="3"
+			xChannelSelector="R"
+			yChannelSelector="G"
+		/>
+	</filter>
+</svg>
+
 <div class="flex flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-8">
 	<section
 		class="relative mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-7xl flex-col overflow-hidden px-1 py-2 sm:min-h-[calc(100dvh-3rem)] sm:px-2 sm:py-3 lg:min-h-[calc(100dvh-4rem)] lg:px-0 lg:py-0"
@@ -114,7 +136,7 @@
 				<img
 					src={onboardingIllustration}
 					alt={$_('onboarding.getStarted.illustrationAlt')}
-					class="relative z-10 h-auto w-full max-w-[24rem] object-contain drop-shadow-[0_16px_26px_rgba(67,45,23,0.12)] sm:max-w-[34rem] lg:max-w-[42rem]"
+					class="chalk-filter relative z-10 h-auto w-full max-w-[24rem] object-contain drop-shadow-[0_16px_26px_rgba(67,45,23,0.12)] sm:max-w-[34rem] lg:max-w-[42rem]"
 				/>
 			</div>
 		</div>
@@ -122,7 +144,7 @@
 		<div class="relative z-10 grid gap-5 pb-1 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
 			{#each featureCards as feature}
 				<div class="flex flex-col items-center gap-3 text-center">
-					<div class={`feature-icon feature-icon--${feature.tone}`}>
+					<div class={`chalk-filter feature-icon feature-icon--${feature.tone}`}>
 						<svelte:component this={feature.icon} class="size-8" />
 					</div>
 					<div class="flex flex-col gap-1.5">
@@ -136,6 +158,15 @@
 </div>
 
 <style>
+	.chalk-filter-definition {
+		position: absolute;
+		pointer-events: none;
+	}
+
+	.chalk-filter {
+		filter: url('#chalk');
+	}
+
 	.hero-title {
 		font-family: var(--font-family-heading-h1);
 		font-size: clamp(3.5rem, 9vw, 6.75rem);
