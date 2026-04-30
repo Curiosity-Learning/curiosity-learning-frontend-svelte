@@ -46,9 +46,9 @@
 	<title>{$_('common.appName')}</title>
 </svelte:head>
 
-<div class="flex flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+<div class="flex flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-8">
 	<section
-		class="relative flex min-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-orange-100/80 bg-[#fff9ed]/88 px-5 py-5 shadow-[0_18px_50px_rgba(67,45,23,0.16)] sm:min-h-[calc(100dvh-3rem)] sm:px-8 sm:py-7 lg:px-12 lg:py-9"
+		class="relative mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-7xl flex-col overflow-hidden px-1 py-2 sm:min-h-[calc(100dvh-3rem)] sm:px-2 sm:py-3 lg:min-h-[calc(100dvh-4rem)] lg:px-0 lg:py-0"
 	>
 		<div class="pointer-events-none absolute top-24 -left-7 h-48 w-16 rotate-12 rounded-[100%] bg-[#f5a7b8]/55 blur-[1px]"></div>
 		<div class="pointer-events-none absolute top-24 right-3 size-28 text-yellow-400/90 sm:right-9 sm:size-36">
