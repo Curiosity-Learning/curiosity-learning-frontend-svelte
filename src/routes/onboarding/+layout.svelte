@@ -2,6 +2,6 @@
 	let { children } = $props();
 </script>
 
-<div class="relative flex min-h-screen flex-col bg-white">
+<div class="app-texture-background relative flex min-h-screen flex-col">
 	{@render children()}
 </div>

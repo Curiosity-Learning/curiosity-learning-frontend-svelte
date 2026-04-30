@@ -336,7 +336,7 @@
 	};
 </script>
 
-<div class="min-h-screen bg-white px-4 py-6 sm:px-8">
+<div class="app-texture-background min-h-screen px-4 py-6 sm:px-8">
 	<div class="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl items-center justify-center">
 		<div class="grid w-full max-w-[54rem] items-center gap-8 md:grid-cols-[19.5rem_minmax(0,1fr)]">
 			<div class="hidden md:flex md:items-center md:justify-center">

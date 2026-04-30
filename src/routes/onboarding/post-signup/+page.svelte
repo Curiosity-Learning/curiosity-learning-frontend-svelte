@@ -373,7 +373,7 @@
 </script>
 
 {#if awaitingSignupSession}
-	<div class="flex min-h-screen items-center justify-center bg-white px-4">
+	<div class="app-texture-background flex min-h-screen items-center justify-center px-4">
 		<div class="mx-auto flex w-full max-w-[22rem] flex-col items-center gap-4 text-center">
 			<div
 				class="inline-flex size-14 items-center justify-center rounded-full bg-orange-50 text-orange-500"
