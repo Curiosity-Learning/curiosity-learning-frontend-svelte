@@ -24,6 +24,8 @@
 	--radius: 0.625rem;
 	--font-family-sans: 'DM Sans', sans-serif;
 	--font-family-heading: var(--font-family-sans);
+	--body-texture-image: url('/assets/texture.avif');
+	--body-texture-size: 200px auto;
 
 	/* ── Neutral ── */
 	--neutral-black: #191919;
@@ -381,12 +383,19 @@
 
 	body {
 		@apply min-h-screen bg-background text-foreground antialiased;
-		background-image: url('/assets/texture.avif');
+		background-image: var(--body-texture-image);
 		background-repeat: repeat;
-		background-size: 200px auto;
+		background-size: var(--body-texture-size);
 		font-family: var(--font-family-sans);
 		font-size: var(--text-type-body-default-size);
 		line-height: var(--text-type-body-default-line);
+	}
+
+	.app-texture-background {
+		background-color: var(--background);
+		background-image: var(--body-texture-image);
+		background-repeat: repeat;
+		background-size: var(--body-texture-size);
 	}
 
 	a,

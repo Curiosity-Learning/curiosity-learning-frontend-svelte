@@ -332,7 +332,7 @@
 			</div>
 		</aside>
 
-		<div class="flex min-h-screen min-w-0 flex-1 flex-col bg-white">
+		<div class="app-texture-background flex min-h-screen min-w-0 flex-1 flex-col">
 			<header class="sticky top-0 z-20 flex justify-center border-b border-border bg-white">
 				<div
 					class={cn(
@@ -472,8 +472,8 @@
 				</div>
 			</header>
 
-			<main class="flex w-full flex-1 justify-center bg-white">
-				<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 bg-white px-4 py-4 sm:px-6 lg:px-8">
+			<main class="app-texture-background flex w-full flex-1 justify-center">
+				<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
 					{@render children()}
 				</div>
 			</main>
