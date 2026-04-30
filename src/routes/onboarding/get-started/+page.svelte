@@ -70,14 +70,14 @@
 
 <div class="flex flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-8">
 	<section
-		class="relative mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-7xl flex-col overflow-visible px-1 py-2 sm:min-h-[calc(100dvh-3rem)] sm:px-2 sm:py-3 lg:min-h-[calc(100dvh-4rem)] lg:px-0 lg:py-0"
+		class="relative mx-auto flex w-full max-w-7xl flex-col overflow-visible px-1 py-2 sm:px-2 sm:py-3 lg:min-h-[calc(100dvh-4rem)] lg:px-0 lg:py-0"
 	>
 		<div class="chalk-filter pointer-events-none absolute top-24 left-0 h-48 w-16 rotate-12 rounded-[100%] bg-[#f5a7b8]/55 blur-[1px]"></div>
 		<div class="chalk-filter pointer-events-none absolute top-24 right-3 size-28 text-yellow-400/90 sm:right-9 sm:size-36">
 			<div class="doodle-sun"></div>
 		</div>
-		<div class="chalk-filter pointer-events-none absolute top-48 right-0 hidden size-40 rounded-[46%] bg-green-600/75 xl:block"></div>
-		<div class="chalk-filter pointer-events-none absolute bottom-56 left-[38%] hidden h-4 w-20 rotate-[-18deg] rounded-full border-4 border-green-600/80 border-r-0 border-l-0 xl:block"></div>
+		<div class="chalk-filter pointer-events-none absolute top-48 right-0 hidden size-40 rounded-[46%] bg-green-600/75 lg:block"></div>
+		<div class="chalk-filter pointer-events-none absolute bottom-56 left-[38%] hidden h-4 w-20 rotate-[-18deg] rounded-full border-4 border-green-600/80 border-r-0 border-l-0 lg:block"></div>
 
 		<header class="relative z-10 flex items-center justify-between gap-4">
 			<a href={routes.onboardingGetStarted} aria-label={$_('common.appName')} class="shrink-0">
@@ -98,8 +98,8 @@
 			</nav>
 		</header>
 
-		<div class="relative z-10 grid flex-1 items-center gap-8 py-10 sm:py-12 xl:grid-cols-[0.84fr_1.16fr] xl:gap-12 xl:py-4">
-			<div class="flex w-full flex-col items-center gap-6 text-center xl:max-w-[27rem] xl:items-start xl:text-left">
+		<div class="relative z-10 grid gap-8 pt-16 pb-10 sm:pt-20 sm:pb-12 lg:flex-1 lg:grid-cols-2 lg:items-center lg:gap-12 lg:py-4">
+			<div class="flex w-full flex-col items-center gap-6 text-center lg:max-w-[27rem] lg:items-start lg:text-left">
 				<div class="flex flex-col gap-4">
 					<h1 class="hero-title max-w-[11ch] text-neutral-black">
 						{$_('onboarding.getStarted.subtitle')}
@@ -127,7 +127,7 @@
 				</div>
 			</div>
 
-			<div class="relative hidden min-h-[31rem] items-end justify-center xl:flex">
+			<div class="relative hidden min-h-[31rem] min-w-[26rem] items-end justify-center lg:flex">
 				<div class="chalk-filter absolute bottom-8 left-4 size-10 rounded-full bg-yellow-400/85 sm:left-10"></div>
 				<div class="chalk-filter absolute bottom-2 right-16 size-9 rounded-full bg-purple-500/75"></div>
 				<div class="chalk-filter absolute top-8 left-10 hidden h-5 w-14 rotate-[-18deg] rounded-full border-4 border-green-700/80 border-r-0 border-l-0 sm:block"></div>
@@ -135,12 +135,12 @@
 				<img
 					src={onboardingIllustration}
 					alt={$_('onboarding.getStarted.illustrationAlt')}
-					class="chalk-filter relative z-10 h-auto w-full max-w-[24rem] object-contain drop-shadow-[0_16px_26px_rgba(67,45,23,0.12)] sm:max-w-[30rem] md:max-w-[32rem] xl:max-w-[42rem]"
+					class="chalk-filter relative z-10 h-auto w-full max-w-[42rem] object-contain drop-shadow-[0_16px_26px_rgba(67,45,23,0.12)]"
 				/>
 			</div>
 		</div>
 
-		<div class="relative z-10 grid gap-5 pb-1 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
+		<div class="relative z-10 grid gap-5 pt-6 pb-1 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8 lg:pt-0">
 			{#each featureCards as feature}
 				<div class="flex flex-col items-center gap-3 text-center">
 					<div class={`feature-icon feature-icon--${feature.tone}`}>
