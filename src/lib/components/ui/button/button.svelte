@@ -12,7 +12,7 @@
 				destructive:
 					"bg-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60 text-white shadow-xs",
 				outline:
-					"border border-orange-500 bg-white text-base font-bold text-orange-500 shadow-none hover:border-orange-500 hover:bg-orange-50 hover:text-orange-500 active:border-orange-600 active:bg-orange-100 focus-visible:ring-orange-200",
+					"border border-orange-500 bg-transparent text-base font-bold text-orange-500 shadow-none hover:border-orange-500 hover:bg-orange-50 hover:text-orange-500 active:border-orange-600 active:bg-orange-100 focus-visible:ring-orange-200",
 				secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-xs",
 				ghost:
 					"bg-transparent text-base font-bold text-orange-500 shadow-none hover:bg-orange-50 hover:text-orange-500 active:bg-orange-100 focus-visible:ring-orange-200",
