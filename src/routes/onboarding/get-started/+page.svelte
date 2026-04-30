@@ -99,17 +99,17 @@
 		</header>
 
 		<div class="relative z-10 grid gap-8 pt-16 pb-10 sm:pt-20 sm:pb-12 lg:flex-1 lg:grid-cols-2 lg:items-center lg:gap-12 lg:py-4">
-			<div class="flex w-full flex-col items-center gap-6 text-center lg:max-w-[27rem] lg:items-start lg:text-left">
-				<div class="flex flex-col gap-4">
-					<h1 class="hero-title max-w-[11ch] text-neutral-black">
+			<div class="flex w-full flex-col items-center gap-6 text-center lg:items-start lg:text-left">
+				<div class="flex w-full flex-col gap-4">
+					<h1 class="hero-title text-neutral-black">
 						{$_('onboarding.getStarted.subtitle')}
 					</h1>
-					<p class="max-w-[22rem] text-lg leading-7 text-gray-700 sm:text-xl sm:leading-8">
+					<p class="w-full text-lg leading-7 text-gray-700 sm:text-xl sm:leading-8">
 						{$_('onboarding.getStarted.kicker')}
 					</p>
 				</div>
 
-				<div class="flex w-full flex-col gap-3 lg:max-w-[17rem]">
+				<div class="flex w-full flex-col gap-3">
 					<Button href={routes.onboardingJoinClub} size="xl" class="h-13 w-full">
 						{$_('onboarding.getStarted.joinClub')}
 					</Button>
