@@ -109,7 +109,7 @@
 					</p>
 				</div>
 
-				<div class="flex w-full max-w-[17rem] flex-col gap-3">
+				<div class="flex w-full flex-col gap-3 lg:max-w-[17rem]">
 					<Button href={routes.onboardingJoinClub} size="xl" class="h-13 w-full">
 						{$_('onboarding.getStarted.joinClub')}
 					</Button>
