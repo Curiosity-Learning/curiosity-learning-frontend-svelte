@@ -372,6 +372,7 @@ const nl = {
 				student: 'Leerling',
 				communityOrganizer: 'Gemeenschapsorganisator',
 				mentor: 'Mentor',
+				awesomePersonStartClub: 'Geweldig persoon die een Curiosity Club wil starten',
 				other: 'Anders'
 			},
 			referrals: {

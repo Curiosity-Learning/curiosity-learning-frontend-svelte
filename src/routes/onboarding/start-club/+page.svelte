@@ -100,6 +100,8 @@
 		'community organizer': 'community_organizer',
 		community_organizer: 'community_organizer',
 		mentor: 'mentor',
+		'awesome person wanting to start a curiosity club': 'awesome_person_start_club',
+		awesome_person_start_club: 'awesome_person_start_club',
 		other: 'other'
 	};
 
@@ -131,6 +133,10 @@
 			value: 'community_organizer'
 		},
 		{ label: $_('onboarding.startClub.roles.mentor'), value: 'mentor' },
+		{
+			label: $_('onboarding.startClub.roles.awesomePersonStartClub'),
+			value: 'awesome_person_start_club'
+		},
 		{ label: $_('onboarding.startClub.roles.other'), value: 'other' }
 	]);
 

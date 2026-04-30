@@ -380,6 +380,7 @@ const en = {
 				student: 'Student',
 				communityOrganizer: 'Community organizer',
 				mentor: 'Mentor',
+				awesomePersonStartClub: 'Awesome person wanting to start a Curiosity Club',
 				other: 'Other'
 			},
 			referrals: {
