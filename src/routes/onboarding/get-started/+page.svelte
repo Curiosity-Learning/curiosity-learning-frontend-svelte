@@ -48,7 +48,7 @@
 
 <div class="flex flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
 	<section
-		class="get-started-card relative flex min-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-orange-100/80 bg-[#fff9ed]/88 px-5 py-5 shadow-[0_18px_50px_rgba(67,45,23,0.16)] sm:min-h-[calc(100dvh-3rem)] sm:px-8 sm:py-7 lg:px-12 lg:py-9"
+		class="relative flex min-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-orange-100/80 bg-[#fff9ed]/88 px-5 py-5 shadow-[0_18px_50px_rgba(67,45,23,0.16)] sm:min-h-[calc(100dvh-3rem)] sm:px-8 sm:py-7 lg:px-12 lg:py-9"
 	>
 		<div class="pointer-events-none absolute top-24 -left-7 h-48 w-16 rotate-12 rounded-[100%] bg-[#f5a7b8]/55 blur-[1px]"></div>
 		<div class="pointer-events-none absolute top-24 right-3 size-28 text-yellow-400/90 sm:right-9 sm:size-36">
@@ -136,17 +136,6 @@
 </div>
 
 <style>
-	.get-started-card {
-		background-image:
-			radial-gradient(circle at 14% 18%, rgb(245 121 29 / 0.08) 0 1px, transparent 2px),
-			radial-gradient(circle at 76% 22%, rgb(32 75 62 / 0.08) 0 1px, transparent 2px),
-			radial-gradient(circle at 48% 74%, rgb(177 179 231 / 0.12) 0 1px, transparent 2px);
-		background-size:
-			18px 18px,
-			22px 22px,
-			26px 26px;
-	}
-
 	.hero-title {
 		font-family: var(--font-family-heading-h1);
 		font-size: clamp(3.5rem, 9vw, 6.75rem);
