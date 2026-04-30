@@ -72,12 +72,12 @@
 	<section
 		class="relative mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-7xl flex-col overflow-hidden px-1 py-2 sm:min-h-[calc(100dvh-3rem)] sm:px-2 sm:py-3 lg:min-h-[calc(100dvh-4rem)] lg:px-0 lg:py-0"
 	>
-		<div class="pointer-events-none absolute top-24 -left-7 h-48 w-16 rotate-12 rounded-[100%] bg-[#f5a7b8]/55 blur-[1px]"></div>
-		<div class="pointer-events-none absolute top-24 right-3 size-28 text-yellow-400/90 sm:right-9 sm:size-36">
+		<div class="chalk-filter pointer-events-none absolute top-24 -left-7 h-48 w-16 rotate-12 rounded-[100%] bg-[#f5a7b8]/55 blur-[1px]"></div>
+		<div class="chalk-filter pointer-events-none absolute top-24 right-3 size-28 text-yellow-400/90 sm:right-9 sm:size-36">
 			<div class="doodle-sun"></div>
 		</div>
-		<div class="pointer-events-none absolute right-[-3rem] top-48 hidden size-40 rounded-[46%] bg-green-600/75 lg:block"></div>
-		<div class="pointer-events-none absolute bottom-56 left-[38%] hidden h-4 w-20 rotate-[-18deg] rounded-full border-4 border-green-600/80 border-r-0 border-l-0 lg:block"></div>
+		<div class="chalk-filter pointer-events-none absolute right-[-3rem] top-48 hidden size-40 rounded-[46%] bg-green-600/75 lg:block"></div>
+		<div class="chalk-filter pointer-events-none absolute bottom-56 left-[38%] hidden h-4 w-20 rotate-[-18deg] rounded-full border-4 border-green-600/80 border-r-0 border-l-0 lg:block"></div>
 
 		<header class="relative z-10 flex items-center justify-between gap-4">
 			<a href={routes.onboardingGetStarted} aria-label={$_('common.appName')} class="shrink-0">
@@ -129,9 +129,9 @@
 			</div>
 
 			<div class="relative flex min-h-[18rem] items-end justify-center lg:min-h-[31rem]">
-				<div class="absolute bottom-8 left-4 size-10 rounded-full bg-yellow-400/85 sm:left-10"></div>
-				<div class="absolute bottom-2 right-16 size-9 rounded-full bg-purple-500/75"></div>
-				<div class="absolute top-8 left-10 hidden h-5 w-14 rotate-[-18deg] rounded-full border-4 border-green-700/80 border-r-0 border-l-0 sm:block"></div>
+				<div class="chalk-filter absolute bottom-8 left-4 size-10 rounded-full bg-yellow-400/85 sm:left-10"></div>
+				<div class="chalk-filter absolute bottom-2 right-16 size-9 rounded-full bg-purple-500/75"></div>
+				<div class="chalk-filter absolute top-8 left-10 hidden h-5 w-14 rotate-[-18deg] rounded-full border-4 border-green-700/80 border-r-0 border-l-0 sm:block"></div>
 
 				<img
 					src={onboardingIllustration}
@@ -144,8 +144,11 @@
 		<div class="relative z-10 grid gap-5 pb-1 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
 			{#each featureCards as feature}
 				<div class="flex flex-col items-center gap-3 text-center">
-					<div class={`chalk-filter feature-icon feature-icon--${feature.tone}`}>
-						<svelte:component this={feature.icon} class="size-8" />
+					<div class={`feature-icon feature-icon--${feature.tone}`}>
+						<svg class="chalk-filter feature-icon-background" viewBox="0 0 60 60" aria-hidden="true">
+							<circle cx="30" cy="30" r="28" />
+						</svg>
+						<svelte:component this={feature.icon} class="relative z-10 size-8" />
 					</div>
 					<div class="flex flex-col gap-1.5">
 						<h2 class="text-lg leading-6 text-green-700">{$_(feature.titleKey)}</h2>
@@ -210,31 +213,39 @@
 	}
 
 	.feature-icon {
+		position: relative;
 		display: inline-flex;
 		width: 3.75rem;
 		height: 3.75rem;
 		align-items: center;
 		justify-content: center;
-		border-radius: 9999px;
+		background: transparent;
+	}
+
+	.feature-icon-background {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
 	}
 
 	.feature-icon--sun {
 		color: #c46117;
-		background: #fde4d2;
+		fill: #fde4d2;
 	}
 
 	.feature-icon--earth {
 		color: #204b3e;
-		background: #d8ebe5;
+		fill: #d8ebe5;
 	}
 
 	.feature-icon--leaf {
 		color: #204b3e;
-		background: #e3f1d9;
+		fill: #e3f1d9;
 	}
 
 	.feature-icon--flower {
 		color: #565990;
-		background: #eff0fa;
+		fill: #eff0fa;
 	}
 </style>
