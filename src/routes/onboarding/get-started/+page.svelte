@@ -76,8 +76,8 @@
 		<div class="chalk-filter pointer-events-none absolute top-24 right-3 size-28 text-yellow-400/90 sm:right-9 sm:size-36">
 			<div class="doodle-sun"></div>
 		</div>
-		<div class="chalk-filter pointer-events-none absolute top-48 right-0 hidden size-40 rounded-[46%] bg-green-600/75 lg:block"></div>
-		<div class="chalk-filter pointer-events-none absolute bottom-56 left-[38%] hidden h-4 w-20 rotate-[-18deg] rounded-full border-4 border-green-600/80 border-r-0 border-l-0 lg:block"></div>
+		<div class="chalk-filter pointer-events-none absolute top-48 right-0 hidden size-40 rounded-[46%] bg-green-600/75 xl:block"></div>
+		<div class="chalk-filter pointer-events-none absolute bottom-56 left-[38%] hidden h-4 w-20 rotate-[-18deg] rounded-full border-4 border-green-600/80 border-r-0 border-l-0 xl:block"></div>
 
 		<header class="relative z-10 flex items-center justify-between gap-4">
 			<a href={routes.onboardingGetStarted} aria-label={$_('common.appName')} class="shrink-0">
@@ -98,8 +98,8 @@
 			</nav>
 		</header>
 
-		<div class="relative z-10 grid flex-1 items-center gap-8 py-8 md:grid-cols-[0.86fr_1.14fr] md:gap-6 md:py-6 xl:grid-cols-[0.84fr_1.16fr] xl:gap-12 xl:py-4">
-			<div class="flex max-w-[27rem] flex-col items-center gap-6 text-center md:items-start md:text-left">
+		<div class="relative z-10 grid flex-1 items-center gap-8 py-10 sm:py-12 xl:grid-cols-[0.84fr_1.16fr] xl:gap-12 xl:py-4">
+			<div class="flex w-full flex-col items-center gap-6 text-center xl:max-w-[27rem] xl:items-start xl:text-left">
 				<div class="flex flex-col gap-4">
 					<h1 class="hero-title max-w-[11ch] text-neutral-black">
 						{$_('onboarding.getStarted.subtitle')}
@@ -127,7 +127,7 @@
 				</div>
 			</div>
 
-			<div class="relative flex min-h-[18rem] items-end justify-center md:min-h-[24rem] xl:min-h-[31rem]">
+			<div class="relative hidden min-h-[31rem] items-end justify-center xl:flex">
 				<div class="chalk-filter absolute bottom-8 left-4 size-10 rounded-full bg-yellow-400/85 sm:left-10"></div>
 				<div class="chalk-filter absolute bottom-2 right-16 size-9 rounded-full bg-purple-500/75"></div>
 				<div class="chalk-filter absolute top-8 left-10 hidden h-5 w-14 rotate-[-18deg] rounded-full border-4 border-green-700/80 border-r-0 border-l-0 sm:block"></div>
