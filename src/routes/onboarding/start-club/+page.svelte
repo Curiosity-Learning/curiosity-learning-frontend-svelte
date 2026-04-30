@@ -448,7 +448,6 @@
 <FlowShell
 	{step}
 	total={5}
-	showAccountLink={false}
 	showSideIllustration={true}
 	desktopContentScrollable={false}
 	appFrame={isAppNewClubFlow}

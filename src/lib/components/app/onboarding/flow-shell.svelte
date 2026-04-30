@@ -23,7 +23,7 @@
 		total,
 		accountHref = '/auth/sign-in',
 		accountLabel,
-		showAccountLink = false,
+		showAccountLink = true,
 		showProgressBar = true,
 		showSideIllustration = false,
 		desktopContentScrollable = false,
@@ -37,10 +37,7 @@
 	let effectiveShowProgressBar = $derived(!appFrame && showProgressBar);
 	let effectiveShowAccountLink = $derived(!appFrame && showAccountLink);
 	let effectiveShowSideIllustration = $derived(!appFrame && showSideIllustration);
-	let hasHeaderSupplement = $derived(!appFrame && Boolean(headerSupplement));
-	let showHeader = $derived(
-		effectiveShowProgressBar || effectiveShowAccountLink || hasHeaderSupplement
-	);
+	let showHeader = $derived(!appFrame);
 	let contentTopPadding = $derived(
 		appFrame ? 'pt-0' : edgeToEdgePanel ? 'pt-0' : showHeader ? 'pt-6 sm:pt-8' : 'pt-2 sm:pt-6'
 	);
@@ -54,32 +51,34 @@
 	>
 		<div
 			class={effectiveShowSideIllustration
-				? `${edgeToEdgePanel ? 'min-h-[100dvh] gap-0 lg:min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'min-h-[calc(100dvh-2rem)] gap-6 lg:min-h-[calc(100vh-4rem)] lg:grid-cols-[minmax(0,1fr)_minmax(0,28.75rem)] lg:gap-14'} grid items-stretch`
+				? `${edgeToEdgePanel ? 'min-h-[100dvh] gap-0 lg:min-h-screen lg:grid-cols-2' : 'min-h-[calc(100dvh-2rem)] gap-6 lg:min-h-[calc(100vh-4rem)] lg:grid-cols-2 lg:gap-14'} grid items-stretch`
 				: `${appFrame ? 'min-h-0' : edgeToEdgePanel ? 'min-h-[100dvh] lg:min-h-screen' : 'min-h-[calc(100dvh-2rem)] lg:min-h-[calc(100vh-4rem)]'} flex flex-col`}
 		>
-			{#if effectiveShowSideIllustration}
-				<div
-					class={`hidden ${edgeToEdgePanel ? 'justify-center bg-white lg:h-screen' : 'justify-center lg:h-[calc(100vh-4rem)]'} lg:flex lg:items-center`}
-				>
-					<img
-						src={onboardingIllustration}
-						alt={$_('onboarding.getStarted.illustrationAlt')}
-						class={`h-auto w-full object-contain ${edgeToEdgePanel ? 'max-w-[36rem]' : 'max-w-[32rem]'}`}
-					/>
-				</div>
-			{/if}
-
 			<div
 				class={effectiveShowSideIllustration
-					? `onboarding-shell-panel ${edgeToEdgePanel ? 'onboarding-shell-panel--edge' : 'mx-auto'} flex w-full min-w-0 ${edgeToEdgePanel ? 'min-h-[100dvh] max-w-none px-0 lg:min-h-screen' : 'min-h-[calc(100dvh-2rem)] max-w-[28.75rem] px-1 lg:min-h-[calc(100vh-4rem)]'} flex-1 flex-col ${desktopContentScrollable && !edgeToEdgePanel ? 'lg:max-h-[calc(100vh-4rem)]' : ''}`
+					? `onboarding-shell-panel ${edgeToEdgePanel ? 'onboarding-shell-panel--edge' : ''} flex w-full min-w-0 ${edgeToEdgePanel ? 'min-h-[100dvh] max-w-none px-0 lg:min-h-screen' : 'min-h-[calc(100dvh-2rem)] px-1 lg:min-h-[calc(100vh-4rem)]'} flex-1 flex-col ${desktopContentScrollable && !edgeToEdgePanel ? 'lg:max-h-[calc(100vh-4rem)]' : ''}`
 					: `onboarding-shell-panel ${appFrame ? 'onboarding-shell-panel--app min-h-0 max-w-none px-0 pb-0' : edgeToEdgePanel ? 'onboarding-shell-panel--edge min-h-[100dvh] px-0 lg:min-h-screen' : 'mx-auto min-h-[calc(100dvh-2rem)] px-1 lg:min-h-[calc(100vh-4rem)]'} flex w-full min-w-0 flex-1 flex-col`}
 			>
 				{#if showHeader}
 					<div class="sticky top-0 z-10 bg-transparent">
-						<header
-							class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-3 sm:gap-8"
-						>
-							<div class="flex min-w-0 flex-col gap-2 sm:gap-3 sm:pt-1">
+						<header class="flex flex-col gap-4">
+							<div class="flex items-center justify-between gap-4">
+								<a href="/onboarding/get-started" aria-label={$_('common.appName')} class="shrink-0">
+									<img src="/brand/curiosity-learning-logo.png" alt={$_('common.appName')} class="h-9 w-auto" />
+								</a>
+
+								{#if effectiveShowAccountLink}
+									<a
+										href={accountHref}
+										class="inline-flex items-center gap-2 text-sm font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600 sm:text-base"
+									>
+										<span>{accountLabel ?? $_('onboarding.getStarted.iHaveAccount')}</span>
+										<ArrowRightIcon class="size-4 sm:size-5" />
+									</a>
+								{/if}
+							</div>
+
+							<div class="flex min-w-0 flex-col gap-2 sm:gap-3">
 								{#if effectiveShowProgressBar}
 									<div class="h-2 w-full rounded-full bg-gray-200">
 										<div
@@ -89,16 +88,6 @@
 									</div>
 								{/if}
 							</div>
-
-							{#if effectiveShowAccountLink}
-								<a
-									href={accountHref}
-									class="mt-1 hidden items-center gap-2 text-base font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600 sm:inline-flex"
-								>
-									<span>{accountLabel ?? $_('onboarding.getStarted.iHaveAccount')}</span>
-									<ArrowRightIcon class="size-5" />
-								</a>
-							{/if}
 						</header>
 
 						{#if headerSupplement}
@@ -115,6 +104,18 @@
 					{@render children()}
 				</div>
 			</div>
+
+			{#if effectiveShowSideIllustration}
+				<div
+					class={`hidden min-w-0 ${edgeToEdgePanel ? 'justify-center bg-white lg:h-screen' : 'justify-center lg:h-[calc(100vh-4rem)]'} lg:flex lg:items-center`}
+				>
+					<img
+						src={onboardingIllustration}
+						alt={$_('onboarding.getStarted.illustrationAlt')}
+						class={`h-auto w-full object-contain ${edgeToEdgePanel ? 'max-w-[36rem]' : 'max-w-[32rem]'}`}
+					/>
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>

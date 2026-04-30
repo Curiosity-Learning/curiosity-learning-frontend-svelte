@@ -336,21 +336,10 @@
 	};
 </script>
 
-<div class="app-texture-background min-h-screen px-4 py-6 sm:px-8">
-	<div class="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl items-center justify-center">
-		<div class="grid w-full max-w-[54rem] items-center gap-8 md:grid-cols-[19.5rem_minmax(0,1fr)]">
-			<div class="hidden md:flex md:items-center md:justify-center">
-				<div class="w-full max-w-[18.5rem] overflow-hidden rounded-2xl bg-orange-50">
-					<img
-						src={loginIllustration}
-						alt={$_('auth.signIn.illustrationAlt')}
-						class="h-auto w-full object-contain"
-					/>
-				</div>
-			</div>
-
-			<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col">
-				<div class="flex flex-1 flex-col pt-2 md:pt-8">
+<div class="app-texture-background min-h-screen px-4 py-6 sm:px-8 lg:px-12 lg:py-8">
+	<div class="mx-auto grid min-h-[calc(100vh-3rem)] w-full max-w-6xl items-stretch gap-8 lg:min-h-[calc(100vh-4rem)] lg:grid-cols-2 lg:gap-14">
+		<div class="flex w-full min-w-0 flex-col">
+			<div class="flex min-h-[calc(100vh-3rem)] flex-1 flex-col pt-2 sm:pt-8 lg:min-h-[calc(100vh-4rem)]">
 					<button
 						type="button"
 						onclick={() => void goBack()}
@@ -487,6 +476,13 @@
 					</div>
 				</div>
 			</div>
+
+		<div class="hidden min-w-0 items-center justify-center lg:flex">
+			<img
+				src={loginIllustration}
+				alt={$_('auth.signIn.illustrationAlt')}
+				class="h-auto w-full max-w-[32rem] object-contain"
+			/>
 		</div>
 	</div>
 </div>
