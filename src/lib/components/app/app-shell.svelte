@@ -14,6 +14,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Input } from '$lib/components/ui/input';
+	import { canUseInternalHistoryBack } from '$lib/navigation/back';
 	import { cn } from '$lib/utils.js';
 	import {
 		Collapsible,
@@ -66,8 +67,6 @@
 	// Auto mode chooses the most stable layout for current header width.
 	const SEARCH_INLINE_MIN_WIDTH = 920;
 	const SEARCH_COLLAPSIBLE_MIN_WIDTH = 680;
-	const HISTORY_INDEX_KEY = 'sveltekit:history';
-
 	let clubOpen = $state(false);
 	let clubNavOpen = $derived(clubOpen);
 	let headerRowWidth = $state(0);
@@ -94,14 +93,9 @@
 		resolvedSearchMode === 'overlay' && (searchFieldOpen || searchHasValue)
 	);
 
-	const getHistoryIndex = () => {
-		if (!browser) return null;
-		const value = window.history.state?.[HISTORY_INDEX_KEY];
-		return typeof value === 'number' ? value : null;
-	};
-
 	if (browser) {
-		initialHistoryIndex = getHistoryIndex();
+		const value = window.history.state?.['sveltekit:history'];
+		initialHistoryIndex = typeof value === 'number' ? value : null;
 	}
 
 	$effect(() => {
@@ -112,19 +106,9 @@
 
 	const isActivePath = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
 
-	const canUseHistoryBack = () => {
-		if (!browser) return false;
-		if (window.history.length <= 1) return false;
-		const currentHistoryIndex = getHistoryIndex();
-		if (initialHistoryIndex !== null && currentHistoryIndex !== null) {
-			return currentHistoryIndex > initialHistoryIndex;
-		}
-		return true;
-	};
-
 	const handleBack = async () => {
 		if (!headerBack) return;
-		if (canUseHistoryBack()) {
+		if (canUseInternalHistoryBack({ initialHistoryIndex })) {
 			window.history.back();
 			return;
 		}
