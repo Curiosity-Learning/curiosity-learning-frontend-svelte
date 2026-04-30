@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 import { components } from './_generated/api';
 import { mutation } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
+import { privacyPolicyContent, termsAndConditionsContent } from './legalContent';
 
 const guidePermissions = [
 	'club:read',
@@ -140,15 +141,15 @@ export const seedDefaults = mutation({
 				documentKey: 'privacy_policy' as const,
 				fullName: 'Privacy Policy' as const,
 				title: 'Privacy Policy',
-				content: 'Privacy policy content has not been configured yet.',
-				version: '1.0'
+				content: privacyPolicyContent,
+				version: '1.1'
 			},
 			{
 				documentKey: 'terms_and_conditions' as const,
 				fullName: 'Terms and Conditions' as const,
 				title: 'Terms and Conditions',
-				content: 'Terms and conditions content has not been configured yet.',
-				version: '1.0'
+				content: termsAndConditionsContent,
+				version: '1.1'
 			},
 			{
 				documentKey: 'cookie_policy' as const,
