@@ -301,27 +301,6 @@ export const approveConsent = mutation({
 			});
 		}
 
-		const existingParent = await ctx.db
-			.query('parents')
-			.withIndex('by_user_id', (q) => q.eq('userId', parentAuthUser._id))
-			.first();
-		const parentId =
-			existingParent?._id ??
-			(await ctx.db.insert('parents', {
-				userId: parentAuthUser._id,
-				profileId: parentProfileId,
-				email: parentAuthUser.email,
-				createdAt: now,
-				updatedAt: now
-			}));
-		if (existingParent) {
-			await ctx.db.patch(existingParent._id, {
-				profileId: parentProfileId,
-				email: parentAuthUser.email,
-				updatedAt: now
-			});
-		}
-
 		const childProfile = await ctx.db.get(consent.childProfileId);
 		if (!childProfile) {
 			throw new ConvexError('Child profile not found');
@@ -367,7 +346,6 @@ export const approveConsent = mutation({
 			status: 'approved',
 			parentUserId: parentAuthUser._id,
 			parentProfileId,
-			parentId,
 			termsAcceptedAt: now,
 			privacyPolicyAcceptedAt: now,
 			approvedAt: now,
@@ -375,7 +353,7 @@ export const approveConsent = mutation({
 		});
 		await ctx.db.patch(consent.childProfileId, {
 			isVerified: true,
-			parentId,
+			parentProfileId,
 			activeClubId: joinedClubId,
 			firstLoginCompleted: Boolean(joinedClubId) || childProfile.firstLoginCompleted,
 			pendingClubCode: undefined,

@@ -24,7 +24,7 @@ export default defineSchema({
 		locationAddress: v.optional(v.string()),
 		videoUrl: v.optional(v.string()),
 		signUpWith: v.optional(v.union(v.literal('email'), v.literal('google'))),
-		parentId: v.optional(v.id('parents')),
+		parentProfileId: v.optional(v.id('profiles')),
 		pendingClubCode: v.optional(v.string()),
 		pendingRole: v.optional(v.union(v.literal('Learner'), v.literal('Guide'))),
 		updatedAt: v.number()
@@ -32,17 +32,6 @@ export default defineSchema({
 		.index('by_user_id', ['userId'])
 		.index('by_username', ['username'])
 		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
-
-	parents: defineTable({
-		userId: v.string(),
-		profileId: v.id('profiles'),
-		email: v.string(),
-		createdAt: v.number(),
-		updatedAt: v.number()
-	})
-		.index('by_user_id', ['userId'])
-		.index('by_profile_id', ['profileId'])
-		.index('by_email', ['email']),
 
 	clubRoles: defineTable({
 		name: v.string(),
@@ -140,7 +129,6 @@ export default defineSchema({
 	parentChildConsents: defineTable({
 		childUserId: v.string(),
 		childProfileId: v.id('profiles'),
-		parentId: v.optional(v.id('parents')),
 		parentUserId: v.optional(v.string()),
 		parentProfileId: v.optional(v.id('profiles')),
 		parentEmail: v.string(),
