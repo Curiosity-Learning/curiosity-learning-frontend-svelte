@@ -134,20 +134,4 @@
 		}
 	}
 
-	@media (min-width: 1024px) and (min-height: 980px) {
-		.onboarding-shell-panel {
-			padding-top: 120px;
-			padding-bottom: 120px;
-		}
-
-		.onboarding-shell-panel--edge {
-			padding-top: 0;
-			padding-bottom: 0;
-		}
-
-		.onboarding-shell-panel--app {
-			padding-top: 0;
-			padding-bottom: 0;
-		}
-	}
 </style>
