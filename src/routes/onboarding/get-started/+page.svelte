@@ -87,20 +87,19 @@
 			<nav aria-label="Get started" class="flex items-center gap-2 sm:gap-3">
 				<Button
 					href={routes.onboardingJoinClub}
-					variant="outline"
 					size="lg"
-					class="hidden border-green-700/60 px-4 text-green-800 hover:border-green-700 hover:bg-green-50 hover:text-green-800 sm:inline-flex"
+					class="px-4"
 				>
 					{$_('onboarding.getStarted.joinClub')}
 				</Button>
-				<Button href={routes.onboardingStartClub} size="lg" class="px-4">
+				<Button href={routes.onboardingStartClub} variant="outline" size="lg" class="hidden px-4 sm:inline-flex">
 					{$_('onboarding.getStarted.startClub')}
 				</Button>
 			</nav>
 		</header>
 
-		<div class="relative z-10 grid flex-1 items-center gap-8 py-8 lg:grid-cols-[0.84fr_1.16fr] lg:gap-12 lg:py-4">
-			<div class="flex max-w-[27rem] flex-col items-center gap-6 text-center lg:items-start lg:text-left">
+		<div class="relative z-10 grid flex-1 items-center gap-8 py-8 md:grid-cols-[0.86fr_1.14fr] md:gap-6 md:py-6 xl:grid-cols-[0.84fr_1.16fr] xl:gap-12 xl:py-4">
+			<div class="flex max-w-[27rem] flex-col items-center gap-6 text-center md:items-start md:text-left">
 				<div class="flex flex-col gap-4">
 					<h1 class="hero-title max-w-[11ch] text-neutral-black">
 						{$_('onboarding.getStarted.subtitle')}
@@ -128,7 +127,7 @@
 				</div>
 			</div>
 
-			<div class="relative flex min-h-[18rem] items-end justify-center lg:min-h-[31rem]">
+			<div class="relative flex min-h-[18rem] items-end justify-center md:min-h-[24rem] xl:min-h-[31rem]">
 				<div class="chalk-filter absolute bottom-8 left-4 size-10 rounded-full bg-yellow-400/85 sm:left-10"></div>
 				<div class="chalk-filter absolute bottom-2 right-16 size-9 rounded-full bg-purple-500/75"></div>
 				<div class="chalk-filter absolute top-8 left-10 hidden h-5 w-14 rotate-[-18deg] rounded-full border-4 border-green-700/80 border-r-0 border-l-0 sm:block"></div>
@@ -136,7 +135,7 @@
 				<img
 					src={onboardingIllustration}
 					alt={$_('onboarding.getStarted.illustrationAlt')}
-					class="chalk-filter relative z-10 h-auto w-full max-w-[24rem] object-contain drop-shadow-[0_16px_26px_rgba(67,45,23,0.12)] sm:max-w-[34rem] lg:max-w-[42rem]"
+					class="chalk-filter relative z-10 h-auto w-full max-w-[24rem] object-contain drop-shadow-[0_16px_26px_rgba(67,45,23,0.12)] sm:max-w-[30rem] md:max-w-[32rem] xl:max-w-[42rem]"
 				/>
 			</div>
 		</div>
@@ -172,10 +171,16 @@
 
 	.hero-title {
 		font-family: var(--font-family-heading-h1);
-		font-size: clamp(3.5rem, 9vw, 6.75rem);
+		font-size: clamp(3.5rem, 8vw, 6.75rem);
 		line-height: 0.9;
 		font-weight: 400;
 		text-wrap: balance;
+	}
+
+	@media (min-width: 768px) and (max-width: 1279px) {
+		.hero-title {
+			font-size: clamp(3.75rem, 6vw, 5.25rem);
+		}
 	}
 
 	.doodle-sun {
