@@ -337,9 +337,16 @@
 </script>
 
 <div class="app-texture-background min-h-screen px-4 py-6 sm:px-8 lg:px-12 lg:py-8">
-	<div class="mx-auto grid min-h-[calc(100vh-3rem)] w-full max-w-6xl items-stretch gap-8 lg:min-h-[calc(100vh-4rem)] lg:grid-cols-2 lg:gap-14">
+	<div class="mx-auto flex w-full max-w-6xl flex-col">
+		<header class="flex items-center justify-between gap-4">
+			<a href={routes.onboardingGetStarted} aria-label={$_('common.appName')} class="shrink-0">
+				<img src="/brand/curiosity-learning-logo.png" alt={$_('common.appName')} class="h-9 w-auto" />
+			</a>
+		</header>
+
+	<div class="grid min-h-[calc(100vh-8rem)] w-full items-stretch gap-8 pt-6 sm:pt-8 lg:grid-cols-2 lg:gap-14">
 		<div class="flex w-full min-w-0 flex-col">
-			<div class="flex min-h-[calc(100vh-3rem)] flex-1 flex-col pt-2 sm:pt-8 lg:min-h-[calc(100vh-4rem)]">
+			<div class="flex flex-1 flex-col pt-2 sm:pt-8">
 					<button
 						type="button"
 						onclick={() => void goBack()}
@@ -428,7 +435,7 @@
 						</Alert>
 					{/if}
 
-					<div class="mt-auto flex flex-col gap-3 pb-2 sm:pb-6">
+					<div class="mt-8 flex flex-col gap-3 pb-2 sm:pb-6">
 						{#if needsVerification}
 							<Button
 								variant="outline"
@@ -484,5 +491,6 @@
 				class="h-auto w-full max-w-[32rem] object-contain"
 			/>
 		</div>
+	</div>
 	</div>
 </div>
