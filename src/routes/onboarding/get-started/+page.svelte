@@ -70,13 +70,13 @@
 
 <div class="flex flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-8">
 	<section
-		class="relative mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-7xl flex-col overflow-hidden px-1 py-2 sm:min-h-[calc(100dvh-3rem)] sm:px-2 sm:py-3 lg:min-h-[calc(100dvh-4rem)] lg:px-0 lg:py-0"
+		class="relative mx-auto flex min-h-[calc(100dvh-2rem)] w-full max-w-7xl flex-col overflow-visible px-1 py-2 sm:min-h-[calc(100dvh-3rem)] sm:px-2 sm:py-3 lg:min-h-[calc(100dvh-4rem)] lg:px-0 lg:py-0"
 	>
-		<div class="chalk-filter pointer-events-none absolute top-24 -left-7 h-48 w-16 rotate-12 rounded-[100%] bg-[#f5a7b8]/55 blur-[1px]"></div>
+		<div class="chalk-filter pointer-events-none absolute top-24 left-0 h-48 w-16 rotate-12 rounded-[100%] bg-[#f5a7b8]/55 blur-[1px]"></div>
 		<div class="chalk-filter pointer-events-none absolute top-24 right-3 size-28 text-yellow-400/90 sm:right-9 sm:size-36">
 			<div class="doodle-sun"></div>
 		</div>
-		<div class="chalk-filter pointer-events-none absolute right-[-3rem] top-48 hidden size-40 rounded-[46%] bg-green-600/75 lg:block"></div>
+		<div class="chalk-filter pointer-events-none absolute top-48 right-0 hidden size-40 rounded-[46%] bg-green-600/75 lg:block"></div>
 		<div class="chalk-filter pointer-events-none absolute bottom-56 left-[38%] hidden h-4 w-20 rotate-[-18deg] rounded-full border-4 border-green-600/80 border-r-0 border-l-0 lg:block"></div>
 
 		<header class="relative z-10 flex items-center justify-between gap-4">
