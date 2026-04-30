@@ -282,7 +282,16 @@ const en = {
 			subtitle: 'Nurture your love for learning.',
 			joinClub: 'Join a club',
 			startClub: 'Start a club',
-			iHaveAccount: 'I have an account'
+			iHaveAccount: 'I have an account',
+			kicker: 'Bring curiosity to your day-to-day.',
+			featureCuriousTitle: 'Curious by nature',
+			featureCuriousDescription: 'Designed to spark wonder and encourage exploration.',
+			featureTogetherTitle: 'Learn together',
+			featureTogetherDescription: 'Clubs bring curious minds together to share and grow.',
+			featureImpactTitle: 'Make an impact',
+			featureImpactDescription: 'Learn, lead, and create meaningful change.',
+			featureJourneyTitle: 'Your learning journey',
+			featureJourneyDescription: "Every path is unique. We're here to support yours."
 		},
 		joinClub: {
 			title: 'Join a club',

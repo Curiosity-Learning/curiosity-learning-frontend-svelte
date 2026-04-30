@@ -274,7 +274,16 @@ const nl = {
 			subtitle: 'Voed je liefde voor leren.',
 			joinClub: 'Word lid van een club',
 			startClub: 'Start een club',
-			iHaveAccount: 'Ik heb al een account'
+			iHaveAccount: 'Ik heb al een account',
+			kicker: 'Breng nieuwsgierigheid in je dagelijkse leven.',
+			featureCuriousTitle: 'Nieuwsgierig van nature',
+			featureCuriousDescription: 'Ontworpen om verwondering en ontdekking aan te moedigen.',
+			featureTogetherTitle: 'Samen leren',
+			featureTogetherDescription: 'Clubs brengen nieuwsgierige mensen samen om te delen en te groeien.',
+			featureImpactTitle: 'Maak impact',
+			featureImpactDescription: 'Leer, leid en maak betekenisvolle verandering.',
+			featureJourneyTitle: 'Jouw leerreis',
+			featureJourneyDescription: 'Elke weg is uniek. Wij helpen je op weg.'
 		},
 		joinClub: {
 			title: 'Word lid van een club',
