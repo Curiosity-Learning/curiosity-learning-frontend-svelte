@@ -148,7 +148,7 @@
 						<svg class="chalk-filter feature-icon-background" viewBox="0 0 60 60" aria-hidden="true">
 							<circle cx="30" cy="30" r="28" />
 						</svg>
-						<svelte:component this={feature.icon} class="relative z-10 size-8" />
+						<svelte:component this={feature.icon} class="chalk-filter relative z-10 size-8" />
 					</div>
 					<div class="flex flex-col gap-1.5">
 						<h2 class="text-lg leading-6 text-green-700">{$_(feature.titleKey)}</h2>
