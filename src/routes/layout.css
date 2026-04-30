@@ -29,8 +29,8 @@
 	--input-background: var(--neutral-white);
 
 	/* ── Neutral ── */
-	--neutral-black: #191919;
-	--neutral-white: #FFFFFF;
+	--neutral-black: #1F1A17;
+	--neutral-white: #FFFDF8;
 
 	/* ── Grayscale ── */
 	--gray-50: #F6F7F9;
@@ -129,9 +129,9 @@
 	/* ── Semantic tokens (shadcn) ── */
 	--background: oklch(0.994 0.003 95.6);
 	--foreground: oklch(0.196 0.012 42.5);
-	--card: oklch(1 0 0);
+	--card: var(--neutral-white);
 	--card-foreground: oklch(0.196 0.012 42.5);
-	--popover: oklch(1 0 0);
+	--popover: var(--neutral-white);
 	--popover-foreground: oklch(0.196 0.012 42.5);
 	--primary: oklch(0.595 0.179 40.5);
 	--primary-foreground: oklch(0.98 0.013 95.1);
@@ -225,6 +225,8 @@
 	--radius-xl: calc(var(--radius) + 4px);
 
 	/* ── Neutral ── */
+	--color-black: var(--neutral-black);
+	--color-white: var(--neutral-white);
 	--color-neutral-black: var(--neutral-black);
 	--color-neutral-white: var(--neutral-white);
 
