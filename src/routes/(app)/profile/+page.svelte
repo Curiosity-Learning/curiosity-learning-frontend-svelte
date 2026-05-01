@@ -135,8 +135,8 @@
 	const statCardClasses = (isSelected: boolean) =>
 		`flex flex-col items-start gap-1 rounded-xl border px-3 py-2 text-left transition ${
 			isSelected
-				? 'border-[#9498ce] bg-white shadow-[0_0_0_1px_rgba(148,152,206,0.12)]'
-				: 'border-transparent bg-[#f2f3fa]'
+				? 'border-orange-200 bg-white shadow-[0_0_0_1px_rgba(245,121,29,0.10)]'
+				: 'border-transparent bg-[#f6f7f9]'
 		}`;
 </script>
 
@@ -154,9 +154,7 @@
 	</Button>
 </PageHeaderActions>
 
-<div
-	class="-mx-4 flex w-full flex-col gap-4 bg-[#f4f5fb] px-4 py-0 sm:-mx-6 sm:px-6 sm:py-4 lg:-mx-8 lg:px-8 lg:py-5"
->
+<div class="mx-auto flex w-full max-w-5xl flex-col gap-4 py-0 sm:py-4 lg:py-5">
 	{#if profileResponse.error}
 		<Alert variant="destructive">
 			<AlertTitle>Could not load profile</AlertTitle>
