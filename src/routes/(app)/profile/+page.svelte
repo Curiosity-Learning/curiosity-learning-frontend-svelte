@@ -154,7 +154,7 @@
 	</Button>
 </PageHeaderActions>
 
-<div class="mx-auto flex w-full max-w-5xl flex-col gap-4 py-0 sm:py-4 lg:py-5">
+<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 py-4">
 	{#if profileResponse.error}
 		<Alert variant="destructive">
 			<AlertTitle>Could not load profile</AlertTitle>
