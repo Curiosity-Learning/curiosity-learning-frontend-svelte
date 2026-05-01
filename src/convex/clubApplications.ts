@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
-import { components } from './_generated/api';
+import { components, internal } from './_generated/api';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import { getMembership, requireIdentity, requireProfile } from './permissions';
@@ -131,6 +131,15 @@ const normalizeDraft = (draft: ApplicationDraft) => ({
 	referralOther: trimOptional(draft.referralOther)
 });
 
+const profileDisplayName = (profile: {
+	firstName?: string;
+	lastName?: string;
+	username?: string;
+}) => {
+	const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim();
+	return fullName || profile.username || undefined;
+};
+
 const getLatestIncompleteApplication = async (ctx: Ctx, userId: string) => {
 	const applications = await ctx.db
 		.query('clubApplications')
@@ -251,12 +260,29 @@ export const submitApplication = mutation({
 
 		if (existing) {
 			await ctx.db.patch(existing._id, payload);
+			await ctx.scheduler.runAfter(0, internal.googleChat.notifyClubApplicationSubmitted, {
+				applicationId: existing._id,
+				name: payload.name,
+				location: payload.location,
+				applicantName: profileDisplayName(profile),
+				applicantRole: payload.applicantRole,
+				referralSource: payload.referralSource
+			});
 			return { applicationId: existing._id };
 		}
 
 		const applicationId = await ctx.db.insert('clubApplications', {
 			...payload,
 			createdAt: now
+		});
+
+		await ctx.scheduler.runAfter(0, internal.googleChat.notifyClubApplicationSubmitted, {
+			applicationId,
+			name: payload.name,
+			location: payload.location,
+			applicantName: profileDisplayName(profile),
+			applicantRole: payload.applicantRole,
+			referralSource: payload.referralSource
 		});
 
 		return { applicationId };

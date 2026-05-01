@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import type { GenericDataModel } from 'convex/server';
 import { mutation, query } from './_generated/server';
+import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
@@ -377,10 +378,16 @@ export const submitClubInterestSignup = mutation({
 			return { success: true };
 		}
 
-		await ctx.db.insert('clubInterestSignups', {
+		const signupId = await ctx.db.insert('clubInterestSignups', {
 			email,
 			...patch,
 			createdAt: now
+		});
+
+		await ctx.scheduler.runAfter(0, internal.googleChat.notifyClubInterestSignupCreated, {
+			signupId,
+			email,
+			location
 		});
 
 		return { success: true };

@@ -17,6 +17,7 @@ import type * as clubApplications from "../clubApplications.js";
 import type * as clubs from "../clubs.js";
 import type * as email_resend from "../email/resend.js";
 import type * as email_templates from "../email/templates.js";
+import type * as googleChat from "../googleChat.js";
 import type * as http from "../http.js";
 import type * as legalContent from "../legalContent.js";
 import type * as legalDocuments from "../legalDocuments.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   clubs: typeof clubs;
   "email/resend": typeof email_resend;
   "email/templates": typeof email_templates;
+  googleChat: typeof googleChat;
   http: typeof http;
   legalContent: typeof legalContent;
   legalDocuments: typeof legalDocuments;
