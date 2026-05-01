@@ -311,7 +311,9 @@
 	};
 </script>
 
-<div class="mx-auto flex w-full max-w-7xl flex-col gap-8 py-4">
+<div
+	class="-mx-4 flex min-h-full flex-col gap-8 bg-white px-4 py-4 sm:-mx-6 sm:px-6 sm:py-5 lg:-mx-8 lg:px-8 lg:py-6"
+>
 	<section class="flex flex-col gap-4">
 		<HomeSectionHeader title="Sessions">
 			{#snippet action()}
