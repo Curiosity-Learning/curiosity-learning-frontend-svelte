@@ -8,7 +8,6 @@ import type { LayoutServerLoad } from './$types';
 const noClubAllowedPaths = [
 	routes.noClub,
 	routes.newClub,
-	routes.chat,
 	routes.profile,
 	routes.settings,
 	routes.notifications

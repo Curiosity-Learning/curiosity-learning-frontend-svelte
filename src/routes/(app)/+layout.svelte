@@ -153,7 +153,6 @@
 			activePath === routes.noClub ||
 			activePath === routes.newClub ||
 			activePath.startsWith(`${routes.newClub}/`) ||
-			activePath === routes.chat ||
 			activePath === routes.profile ||
 			activePath === routes.settings ||
 			activePath === routes.notifications
