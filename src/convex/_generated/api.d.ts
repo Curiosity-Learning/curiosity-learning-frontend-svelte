@@ -10,7 +10,6 @@
 
 import type * as auth from "../auth.js";
 import type * as booklet from "../booklet.js";
-import type * as bootstrap from "../bootstrap.js";
 import type * as chat from "../chat.js";
 import type * as childAccounts from "../childAccounts.js";
 import type * as childSignup from "../childSignup.js";
@@ -47,7 +46,6 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   booklet: typeof booklet;
-  bootstrap: typeof bootstrap;
   chat: typeof chat;
   childAccounts: typeof childAccounts;
   childSignup: typeof childSignup;

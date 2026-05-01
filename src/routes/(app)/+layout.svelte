@@ -76,23 +76,6 @@
 		});
 	});
 
-	$effect(() => {
-		if (!browser) return;
-		if (!isAuthReady) return;
-		if (clubsResponse.isLoading) return;
-		// Run seeding in the background; it is idempotent but can be slow.
-		const key = 'cl_bootstrapped_v2';
-		if (localStorage.getItem(key) === '1') return;
-		void (async () => {
-			try {
-				await convexClient.mutation(api.bootstrap.seedDefaults, {});
-				localStorage.setItem(key, '1');
-			} catch {
-				// Ignore; we'll retry next time.
-			}
-		})();
-	});
-
 	const isActivePath = (pathname: string, href: string) =>
 		pathname === href || pathname.startsWith(`${href}/`);
 

@@ -10,7 +10,6 @@
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { InputField } from '$lib/components/app/form';
 	import { getUsernameValidationError, normalizeUsername } from '$lib/auth/username';
@@ -56,14 +55,12 @@
 	let pending = $state(false);
 	let usernamePrefilled = $state(false);
 	let usernameTouched = $state(false);
-	let usernameAvailability = $state<'idle' | 'invalid' | 'checking' | 'available' | 'taken' | 'error'>(
-		'idle'
-	);
+	let usernameAvailability = $state<
+		'idle' | 'invalid' | 'checking' | 'available' | 'taken' | 'error'
+	>('idle');
 	let usernameAvailabilityMessage = $state('');
 	let formErrorMessage = $state('');
 	let completionRedirected = $state(false);
-	let pledgesSeedRequested = $state(false);
-	let pledgesSeeding = $state(false);
 
 	let rawNextPath = $derived(page.url.searchParams.get('next') ?? '/');
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
@@ -236,31 +233,6 @@
 		if (isPostSignupPending()) return;
 		const next = encodeURIComponent(selfPath);
 		void goto(`/auth/sign-in?next=${next}`, { replaceState: true });
-	});
-
-	$effect(() => {
-		if (!auth.isAuthenticated) return;
-		if (pledgesSeedRequested || pledgesSeeding) return;
-		const pledges = pledgesResponse.data;
-		if (!pledges) return;
-		if (pledges.length > 0) return;
-		pledgesSeedRequested = true;
-		pledgesSeeding = true;
-
-		void convexClient
-			.mutation(api.pledges.seedDefaults, {})
-			.catch((error) => {
-				showGlobalSnackbar({
-					title: t('onboarding.postSignup.loadPledgesFailedTitle'),
-					description:
-						error instanceof Error
-							? error.message
-							: t('onboarding.postSignup.loadPledgesFailedDescription')
-				});
-			})
-			.finally(() => {
-				pledgesSeeding = false;
-			});
 	});
 
 	const uploadProfileImage = async (files: File[]) => {
@@ -535,7 +507,7 @@
 									</div>
 								</details>
 							{/each}
-						{:else if pledgesSeeding || !pledgesResponse.data}
+						{:else if !pledgesResponse.data}
 							<div
 								class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600"
 							>

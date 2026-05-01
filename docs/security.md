@@ -16,7 +16,7 @@ Source: `src/convex/permissions.ts`
 - `requireIdentity(ctx)` — base auth gate.
 - Club permissions: `clubMembers` → `clubRoles.permissions[]`.
 - Project permissions: club-level via `projectClubs` OR project-membership via `projectMembers` → `projectRoles.permissions[]`.
-- Seeded roles (via `src/convex/bootstrap.ts`): Club has `Guide` and `Learner`; Project has `Creator` and `Contributor`.
+- Default role records are managed directly in the database: Club has `Guide` and `Learner`; Project has `Creator` and `Contributor`.
 
 ## Access Control Matrix
 
@@ -45,14 +45,14 @@ Source: `src/convex/permissions.ts`
 
 ### Club Applications / Reviews
 
-| Endpoint                                      | Auth | Permission             | Notes                                                                                |
-| --------------------------------------------- | ---- | ---------------------- | ------------------------------------------------------------------------------------ |
-| `clubApplications.saveIncompleteApplication`  | Yes  | —                      | Creates or updates the applicant's incomplete Start Club application draft            |
+| Endpoint                                      | Auth | Permission             | Notes                                                                                                             |
+| --------------------------------------------- | ---- | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `clubApplications.saveIncompleteApplication`  | Yes  | —                      | Creates or updates the applicant's incomplete Start Club application draft                                        |
 | `clubApplications.submitApplication`          | Yes  | —                      | Requires a ready video, promotes incomplete draft to pending review; blocked while a child consent row is pending |
-| `clubApplications.listMyApplications`         | Yes  | —                      | Applicant-scoped                                                                     |
-| `clubApplications.listReviewableApplications` | Yes  | Guide role in any club | Excludes applicant's own applications                                                |
-| `clubApplications.upsertApplicationReview`    | Yes  | Guide role in any club | One review per reviewer/application; score 0-10 and note required                    |
-| `clubApplications.finalizeApplication`        | Yes  | Convex env allowlist   | Creates club + Guide membership; no reject path in v1                                |
+| `clubApplications.listMyApplications`         | Yes  | —                      | Applicant-scoped                                                                                                  |
+| `clubApplications.listReviewableApplications` | Yes  | Guide role in any club | Excludes applicant's own applications                                                                             |
+| `clubApplications.upsertApplicationReview`    | Yes  | Guide role in any club | One review per reviewer/application; score 0-10 and note required                                                 |
+| `clubApplications.finalizeApplication`        | Yes  | Convex env allowlist   | Creates club + Guide membership; no reject path in v1                                                             |
 
 ### Parent Consent
 
@@ -128,15 +128,14 @@ Notes:
 
 1. **Legal document write is too broad** — `legalDocuments.upsertActive` is callable by any auth user. Should restrict to admin.
 2. **Update file listing is too broad** — `updates.listFiles(updateId)` only checks auth. Any user who knows an `updateId` can list its files.
-3. **Bootstrap is unauthenticated** — `bootstrap.seedDefaults` should be `internalMutation` or require auth.
 
 ### Medium Priority
 
-4. **Permission string drift** — Roles have `updates:*` but code checks `project:*`. `updates.listByProject` requires `project:update` (not `project:read`), inconsistent with `listByClub`.
+1. **Permission string drift** — Roles have `updates:*` but code checks `project:*`. `updates.listByProject` requires `project:update` (not `project:read`), inconsistent with `listByClub`.
 
 ## Hardening Plan
 
 1. Keep this access-control matrix current as endpoints change.
-2. Fix high-priority gaps (policy write, file listing, bootstrap).
+2. Fix high-priority gaps (policy write, file listing).
 3. Resolve permission string drift (pick `updates:*` or `project:*`).
 4. Add focused tests for security boundaries.
