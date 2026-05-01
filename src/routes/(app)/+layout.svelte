@@ -81,7 +81,7 @@
 		if (!isAuthReady) return;
 		if (clubsResponse.isLoading) return;
 		// Run seeding in the background; it is idempotent but can be slow.
-		const key = 'cl_bootstrapped_v2';
+		const key = 'cl_bootstrapped_v1';
 		if (localStorage.getItem(key) === '1') return;
 		void (async () => {
 			try {
