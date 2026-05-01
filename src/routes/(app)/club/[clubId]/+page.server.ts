@@ -15,18 +15,38 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	const convex = getConvexServerClient(locals.token);
 	const clubId = params.clubId as Id<'clubs'>;
+	const clubs = await convex.query(api.clubs.getMyClubs, {});
+	const club = clubs.find((item) => item.clubId === clubId);
+
+	if (!club) {
+		return {
+			initialLearnerImages: [],
+			initialProjectPreviewImages: [],
+			initialSessionAttendeeImages: []
+		};
+	}
+
+	const permissions = club.rolePermissions;
+	const canReadMembers = permissions.includes('club_member:read_active');
+	const canReadAttendance = permissions.includes('attendance:read');
+	const canReadProjects = permissions.includes('project:read');
+	const canReadSessions = permissions.includes('session:read');
 	const [learners, projectPreviews, sessionCards] = await Promise.all([
-		convex.query(api.clubs.getMembers, {
-			clubId,
-			roleName: 'Learner'
-		}),
-		convex.query(api.projects.listPreviewsByClub, { clubId, limit: 6 }),
-		convex.query(api.sessions.listCardPreviewsByClub, {
-			clubId,
-			upcomingOnly: true,
-			limit: 6,
-			includeAttendees: true
-		})
+		canReadMembers
+			? convex.query(api.clubs.getMembers, {
+					clubId,
+					roleName: 'Learner'
+				})
+			: [],
+		canReadProjects ? convex.query(api.projects.listPreviewsByClub, { clubId, limit: 6 }) : [],
+		canReadSessions
+			? convex.query(api.sessions.listCardPreviewsByClub, {
+					clubId,
+					upcomingOnly: true,
+					limit: 6,
+					includeAttendees: canReadMembers && canReadAttendance
+				})
+			: []
 	]);
 	const learnerAssetIds = learners
 		.map((learner) => learner.profileImageMediaAssetId)

@@ -52,6 +52,8 @@
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 	let canReadAttendance = $derived(clubPermissions.includes('attendance:read'));
+	let canReadSessions = $derived(clubPermissions.includes('session:read'));
+	let canReadProjects = $derived(clubPermissions.includes('project:read'));
 	let canCreateSession = $derived(clubPermissions.includes('session:create'));
 	let canCreateProject = $derived(clubPermissions.includes('project:create'));
 	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
@@ -62,14 +64,14 @@
 	const upcomingSessionCardsResponse = useStableQuery(
 		api.sessions.listCardPreviewsByClub,
 		() =>
-			clubIdTyped
+			clubIdTyped && canReadSessions
 				? { clubId: clubIdTyped, upcomingOnly: true, limit: 6, includeAttendees: true }
 				: 'skip',
 		{ cache: 'memory' }
 	);
 	const projectsPreviewResponse = useStableQuery(
 		api.projects.listPreviewsByClub,
-		() => (clubIdTyped ? { clubId: clubIdTyped, limit: 6 } : 'skip'),
+		() => (clubIdTyped && canReadProjects ? { clubId: clubIdTyped, limit: 6 } : 'skip'),
 		{ cache: 'memory' }
 	);
 	const learnersResponse = useStableQuery(
