@@ -141,7 +141,7 @@
 		</div>
 
 		<div class="relative z-10 grid gap-5 pt-6 pb-1 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8 lg:pt-0">
-			{#each featureCards as feature}
+			{#each featureCards as feature (feature.titleKey)}
 				<div class="flex flex-col items-center gap-3 text-center">
 					<div class={`feature-icon feature-icon--${feature.tone}`}>
 						<svg class="chalk-filter feature-icon-background" viewBox="0 0 60 60" aria-hidden="true">

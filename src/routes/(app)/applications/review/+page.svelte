@@ -39,7 +39,7 @@
 	};
 </script>
 
-<div class="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6">
+<div class="flex w-full flex-col gap-6 py-6">
 	<div class="flex flex-col gap-2">
 		<h1 class="text-2xl font-bold text-gray-900">Club applications</h1>
 		<p class="text-sm leading-6 text-gray-600">Review pending Start Club applications.</p>

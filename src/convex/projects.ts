@@ -56,6 +56,34 @@ export const listByClub = query({
 	}
 });
 
+export const countForViewer = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const memberships = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		const seen = new Set<Id<'projects'>>();
+
+		for (const membership of activeMemberships) {
+			const canRead = await hasPermission(ctx, membership.clubId, identity.subject, 'project:read');
+			if (!canRead) continue;
+
+			const links = await ctx.db
+				.query('projectClubs')
+				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+				.collect();
+			for (const link of links) {
+				seen.add(link.projectId);
+			}
+		}
+
+		return seen.size;
+	}
+});
+
 export const listPreviewsByClub = query({
 	args: {
 		clubId: v.id('clubs'),

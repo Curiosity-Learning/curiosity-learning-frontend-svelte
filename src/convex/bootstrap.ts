@@ -37,6 +37,7 @@ const guidePermissions = [
 const learnerPermissions = [
 	'club:read',
 	'session:read',
+	'session_activity:read',
 	'project:read',
 	'attendance:read',
 	'updates:read'

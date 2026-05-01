@@ -291,6 +291,99 @@ export const listForViewer = query({
 	}
 });
 
+export const listMine = query({
+	args: {
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const limit = args.limit;
+		const authorCache = new Map<string, AuthorSummary>();
+
+		const memberships = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		if (!activeMemberships.length) {
+			return [];
+		}
+
+		const readableClubIds: Array<Id<'clubs'>> = [];
+		for (const membership of activeMemberships) {
+			const role = await ctx.db.get(membership.roleId);
+			if (role?.permissions.includes('project:read')) {
+				readableClubIds.push(membership.clubId);
+			}
+		}
+		if (!readableClubIds.length) {
+			return [];
+		}
+
+		const rowsByClub = await Promise.all(
+			readableClubIds.map((clubId) =>
+				ctx.db
+					.query('updateClubs')
+					.withIndex('by_club_and_created', (q) => q.eq('clubId', clubId))
+					.order('desc')
+					.collect()
+			)
+		);
+
+		const rows = rowsByClub.flat().sort((a, b) => b.createdAt - a.createdAt);
+		const seen = new Set<Id<'updates'>>();
+		const items: Array<{
+			updateId: Id<'updates'>;
+			clubId: Id<'clubs'>;
+			clubName: string | null;
+			projectId: Id<'projects'> | null;
+			projectName: string | null;
+			questionId: Id<'questions'> | null;
+			questionContent: string | null;
+			authorName: string;
+			authorImageUrl: string | null;
+			authorImageMediaAssetId: Id<'mediaAssets'> | null;
+			content: string;
+			createdAt: number;
+			createdByUserId: string;
+		}> = [];
+
+		for (const row of rows) {
+			if (limit !== undefined && items.length >= limit) break;
+			if (seen.has(row.updateId)) continue;
+			seen.add(row.updateId);
+
+			const update = await ctx.db.get(row.updateId);
+			if (!update || update.createdByUserId !== identity.subject) continue;
+
+			const club = await ctx.db.get(row.clubId);
+			const projectId = row.projectId ?? update.projectId ?? null;
+			const project = projectId ? await ctx.db.get(projectId) : null;
+			const questionId = update.questionId ?? null;
+			const question = questionId ? await ctx.db.get(questionId) : null;
+			const author = await resolveAuthorSummary(ctx, update.createdByUserId, authorCache);
+
+			items.push({
+				updateId: update._id,
+				clubId: row.clubId,
+				clubName: club?.name ?? null,
+				projectId,
+				projectName: project?.name ?? null,
+				questionId,
+				questionContent: question?.content ?? null,
+				authorName: author.name,
+				authorImageUrl: author.imageUrl,
+				authorImageMediaAssetId: author.imageAssetId,
+				content: update.content,
+				createdAt: update.createdAt,
+				createdByUserId: update.createdByUserId
+			});
+		}
+
+		return items;
+	}
+});
+
 export const getViewerAuthorDeliveryAssets = query({
 	args: {
 		assetIds: v.array(v.id('mediaAssets')),

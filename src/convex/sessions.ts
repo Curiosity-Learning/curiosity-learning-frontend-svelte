@@ -37,6 +37,44 @@ export const listByClub = query({
 	}
 });
 
+export const countAttendedForViewer = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const memberships = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+
+		let count = 0;
+		for (const membership of activeMemberships) {
+			if (!(await hasPermission(ctx, membership.clubId, identity.subject, 'session:read'))) {
+				continue;
+			}
+
+			const sessions = await ctx.db
+				.query('sessions')
+				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+				.collect();
+
+			for (const session of sessions) {
+				const attendance = await ctx.db
+					.query('attendances')
+					.withIndex('by_session_and_user', (q) =>
+						q.eq('sessionId', session._id).eq('userId', identity.subject)
+					)
+					.first();
+				if (attendance) {
+					count += 1;
+				}
+			}
+		}
+
+		return count;
+	}
+});
+
 export const getById = query({
 	args: {
 		sessionId: v.id('sessions')
@@ -287,7 +325,12 @@ export const listCardPreviewsByClub = query({
 		// Single payload for session cards so list/dashboard routes avoid nested per-card queries.
 		const identity = await requireIdentity(ctx);
 		await requirePermission(ctx, args.clubId, identity.subject, 'session:read');
-		await requirePermission(ctx, args.clubId, identity.subject, 'session_activity:read');
+		const canReadActivities = await hasPermission(
+			ctx,
+			args.clubId,
+			identity.subject,
+			'session_activity:read'
+		);
 
 		const now = Date.now();
 		const queryBuilder = ctx.db.query('sessions').withIndex('by_club_and_start', (q) => {
@@ -334,10 +377,12 @@ export const listCardPreviewsByClub = query({
 		}> = [];
 
 		for (const session of sessions) {
-			const rawActivities = await ctx.db
-				.query('sessionActivities')
-				.withIndex('by_session', (q) => q.eq('sessionId', session._id))
-				.collect();
+			const rawActivities = canReadActivities
+				? await ctx.db
+						.query('sessionActivities')
+						.withIndex('by_session', (q) => q.eq('sessionId', session._id))
+						.collect()
+				: [];
 			const activities = rawActivities.sort(
 				(a, b) => (a.order ?? a._creationTime) - (b.order ?? b._creationTime)
 			);
@@ -348,10 +393,12 @@ export const listCardPreviewsByClub = query({
 				description: activity.content ?? null
 			}));
 
-			const links = await ctx.db
-				.query('sessionActivityBuildingBlocks')
-				.withIndex('by_session', (q) => q.eq('sessionId', session._id))
-				.collect();
+			const links = canReadActivities
+				? await ctx.db
+						.query('sessionActivityBuildingBlocks')
+						.withIndex('by_session', (q) => q.eq('sessionId', session._id))
+						.collect()
+				: [];
 			const buildingBlockIds = new Set<Id<'buildingBlocks'>>();
 			for (const link of links) {
 				buildingBlockIds.add(link.buildingBlockId);
