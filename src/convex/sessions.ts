@@ -37,6 +37,44 @@ export const listByClub = query({
 	}
 });
 
+export const countAttendedForViewer = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const memberships = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+			.collect();
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+
+		let count = 0;
+		for (const membership of activeMemberships) {
+			if (!(await hasPermission(ctx, membership.clubId, identity.subject, 'session:read'))) {
+				continue;
+			}
+
+			const sessions = await ctx.db
+				.query('sessions')
+				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+				.collect();
+
+			for (const session of sessions) {
+				const attendance = await ctx.db
+					.query('attendances')
+					.withIndex('by_session_and_user', (q) =>
+						q.eq('sessionId', session._id).eq('userId', identity.subject)
+					)
+					.first();
+				if (attendance) {
+					count += 1;
+				}
+			}
+		}
+
+		return count;
+	}
+});
+
 export const getById = query({
 	args: {
 		sessionId: v.id('sessions')
