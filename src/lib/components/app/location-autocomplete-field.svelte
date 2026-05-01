@@ -73,6 +73,9 @@
 	const normalizeLocation = (input: string) => input.trim().toLowerCase();
 	const sameCoordinates = (a: MapboxCoordinates | null, b: MapboxCoordinates | null) =>
 		a?.longitude === b?.longitude && a?.latitude === b?.latitude;
+	const rememberLocation = (option: MapboxLocationOption) => {
+		rememberedLocations.set(normalizeLocation(option.value), option);
+	};
 
 	const clearLookupResources = () => {
 		if (lookupTimer) {
@@ -105,7 +108,7 @@
 			latitude: match.latitude
 		};
 		const normalizedLocation = normalizeLocation(match.value);
-		rememberedLocations.set(normalizedLocation, match);
+		rememberLocation(match);
 		selectedLocation = match;
 		coordinates = selectedCoordinates;
 		lastResolvedLocation = normalizedLocation;
@@ -165,7 +168,7 @@
 				suggestions = payload;
 				lookupError = '';
 				for (const suggestion of payload) {
-					rememberedLocations.set(normalizeLocation(suggestion.value), suggestion);
+					rememberLocation(suggestion);
 				}
 			} catch (error) {
 				if (nextVersion !== lookupVersion) return;
@@ -193,7 +196,16 @@
 		value = label;
 
 		if (defaultLocation?.coordinates) {
-			selectedLocation = null;
+			const defaultOption: MapboxLocationOption = {
+				label,
+				value: label,
+				longitude: defaultLocation.coordinates.longitude,
+				latitude: defaultLocation.coordinates.latitude,
+				bbox: null,
+				featureType: null
+			};
+			rememberLocation(defaultOption);
+			selectedLocation = defaultOption;
 			coordinates = defaultLocation.coordinates;
 			lastResolvedLocation = normalizeLocation(label);
 			return;
@@ -221,7 +233,7 @@
 					latitude: match.latitude
 				};
 				const normalizedLocation = normalizeLocation(match.value);
-				rememberedLocations.set(normalizedLocation, match);
+				rememberLocation(match);
 				value = match.label;
 				selectedLocation = match;
 				coordinates = nextCoordinates;
