@@ -33,7 +33,7 @@
 
 <PageHeaderTitle title="New club" />
 
-<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 py-4">
+<div class="flex w-full flex-col gap-4 py-4">
 	<section
 		class="grid overflow-hidden rounded-2xl border border-border/70 bg-white lg:grid-cols-[minmax(0,1fr)_18rem]"
 	>

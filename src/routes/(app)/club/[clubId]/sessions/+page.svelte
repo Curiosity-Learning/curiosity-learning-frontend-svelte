@@ -226,7 +226,7 @@
 		<AlertDescription>Choose or create a club first from onboarding.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="mx-auto flex w-full flex-col gap-4">
+	<div class="flex w-full flex-col gap-4">
 		{#if errorMessage}
 			<Alert variant="destructive">
 				<AlertTitle>Action failed</AlertTitle>
