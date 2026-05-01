@@ -325,7 +325,12 @@ export const listCardPreviewsByClub = query({
 		// Single payload for session cards so list/dashboard routes avoid nested per-card queries.
 		const identity = await requireIdentity(ctx);
 		await requirePermission(ctx, args.clubId, identity.subject, 'session:read');
-		await requirePermission(ctx, args.clubId, identity.subject, 'session_activity:read');
+		const canReadActivities = await hasPermission(
+			ctx,
+			args.clubId,
+			identity.subject,
+			'session_activity:read'
+		);
 
 		const now = Date.now();
 		const queryBuilder = ctx.db.query('sessions').withIndex('by_club_and_start', (q) => {
@@ -372,10 +377,12 @@ export const listCardPreviewsByClub = query({
 		}> = [];
 
 		for (const session of sessions) {
-			const rawActivities = await ctx.db
-				.query('sessionActivities')
-				.withIndex('by_session', (q) => q.eq('sessionId', session._id))
-				.collect();
+			const rawActivities = canReadActivities
+				? await ctx.db
+						.query('sessionActivities')
+						.withIndex('by_session', (q) => q.eq('sessionId', session._id))
+						.collect()
+				: [];
 			const activities = rawActivities.sort(
 				(a, b) => (a.order ?? a._creationTime) - (b.order ?? b._creationTime)
 			);
@@ -386,10 +393,12 @@ export const listCardPreviewsByClub = query({
 				description: activity.content ?? null
 			}));
 
-			const links = await ctx.db
-				.query('sessionActivityBuildingBlocks')
-				.withIndex('by_session', (q) => q.eq('sessionId', session._id))
-				.collect();
+			const links = canReadActivities
+				? await ctx.db
+						.query('sessionActivityBuildingBlocks')
+						.withIndex('by_session', (q) => q.eq('sessionId', session._id))
+						.collect()
+				: [];
 			const buildingBlockIds = new Set<Id<'buildingBlocks'>>();
 			for (const link of links) {
 				buildingBlockIds.add(link.buildingBlockId);
