@@ -16,10 +16,12 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
+	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { authClient } from '$lib/auth-client';
+	import { routes } from '$lib/routes';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -197,6 +199,9 @@
 				]
 	);
 </script>
+
+<PageHeaderBackButton fallbackHref={routes.profile} />
+<PageHeaderTitle title="Settings" />
 
 <div class="grid grid-cols-1 gap-4">
 	{#if errorMessage}
