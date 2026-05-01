@@ -43,7 +43,7 @@
 					No active club
 				</Badge>
 				<div class="flex flex-col gap-2">
-					<h1 class="type-h3 text-[#262626]">Pick your next Curiosity Club</h1>
+					<h1 class="type-h1 text-[#262626]">Pick your next Curiosity Club</h1>
 					<p class="type-lead max-w-2xl text-[#545766]">
 						Join an existing club or send in an application to start a new club for your community.
 					</p>
