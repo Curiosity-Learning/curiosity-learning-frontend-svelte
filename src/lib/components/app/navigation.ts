@@ -60,7 +60,14 @@ export const buildAppNavigation = (
 					{ key: 'members', label: 'Members', href: `${clubHref}/members` }
 				]
 			},
-			{ key: 'feed', label: 'Feed', href: routes.feed, icon: NewspaperIcon }
+			{ key: 'feed', label: 'Feed', href: routes.feed, icon: NewspaperIcon },
+			{
+				key: 'chat',
+				label: 'Chat',
+				href: routes.chat,
+				icon: MessageCircleIcon,
+				badgeCount: chatBadgeCount
+			}
 		);
 	} else {
 		items.push({
@@ -72,13 +79,6 @@ export const buildAppNavigation = (
 	}
 
 	items.push(
-		{
-			key: 'chat',
-			label: 'Chat',
-			href: routes.chat,
-			icon: MessageCircleIcon,
-			badgeCount: chatBadgeCount
-		},
 		{
 			key: 'profile',
 			label: 'Profile',
