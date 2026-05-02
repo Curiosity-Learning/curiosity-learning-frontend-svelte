@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { hasPermission, requireIdentity } from './permissions';
+import { hasPermission, isProjectPermissionAllowed, requireIdentity } from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
@@ -60,29 +60,11 @@ const resolveAuthorSummary = async (
 	return summary;
 };
 
-const canManageProject = async (ctx: Ctx, projectId: Id<'projects'>, userId: string) => {
-	const links = await ctx.db
-		.query('projectClubs')
-		.withIndex('by_project', (q) => q.eq('projectId', projectId))
-		.collect();
+const canReadProject = (ctx: Ctx, projectId: Id<'projects'>, userId: string) =>
+	isProjectPermissionAllowed(ctx, projectId, userId, 'project:read');
 
-	for (const link of links) {
-		if (await hasPermission(ctx, link.clubId, userId, 'project:update')) {
-			return true;
-		}
-	}
-
-	const membership = await ctx.db
-		.query('projectMembers')
-		.withIndex('by_project_and_user', (q) => q.eq('projectId', projectId).eq('userId', userId))
-		.first();
-	if (!membership || membership.leftAt) {
-		return false;
-	}
-
-	const role = await ctx.db.get(membership.roleId);
-	return role?.permissions.includes('project:update') ?? false;
-};
+const canManageProject = (ctx: Ctx, projectId: Id<'projects'>, userId: string) =>
+	isProjectPermissionAllowed(ctx, projectId, userId, 'project:update');
 
 export const listByProject = query({
 	args: {
@@ -91,7 +73,7 @@ export const listByProject = query({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const allowed = await canManageProject(ctx, args.projectId, identity.subject);
+		const allowed = await canReadProject(ctx, args.projectId, identity.subject);
 		if (!allowed) {
 			throw new ConvexError('Permission denied');
 		}
@@ -594,7 +576,17 @@ export const listFiles = query({
 		updateId: v.id('updates')
 	},
 	handler: async (ctx, args) => {
-		await requireIdentity(ctx);
+		const identity = await requireIdentity(ctx);
+		const update = await ctx.db.get(args.updateId);
+		if (!update || !update.projectId) {
+			throw new ConvexError('Update not found');
+		}
+
+		const allowed = await canReadProject(ctx, update.projectId, identity.subject);
+		if (!allowed) {
+			throw new ConvexError('Permission denied');
+		}
+
 		return await ctx.db
 			.query('updateFiles')
 			.withIndex('by_update', (q) => q.eq('updateId', args.updateId))
@@ -609,7 +601,7 @@ export const getProjectDeliveryAssets = query({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const allowed = await canManageProject(ctx, args.projectId, identity.subject);
+		const allowed = await canReadProject(ctx, args.projectId, identity.subject);
 		if (!allowed) {
 			throw new ConvexError('Permission denied');
 		}

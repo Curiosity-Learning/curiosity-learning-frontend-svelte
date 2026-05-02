@@ -82,13 +82,13 @@ All require auth + club permission via `requirePermission`:
 
 | Endpoint                           | Auth | Permission       | Notes                                         |
 | ---------------------------------- | ---- | ---------------- | --------------------------------------------- |
-| `updates.listByProject`            | Yes  | `project:update` | Stricter than `project:read` — see gaps below |
+| `updates.listByProject`            | Yes  | `project:read`   | Via linked clubs OR project membership         |
 | `updates.listByClub`               | Yes  | `project:read`   | Aggregates across linked projects             |
 | `updates.listForViewer`            | Yes  | `project:read`   | Aggregates viewer-readable club feed updates  |
 | `updates.create/update`            | Yes  | `project:update` |                                               |
 | `updates.attachFiles`              | Yes  | `project:update` |                                               |
-| `updates.listFiles`                | Yes  | —                | **Gap:** only checks auth, not project scope  |
-| `updates.getProjectDeliveryAssets` | Yes  | `project:update` | Manager-scoped signed media lookup            |
+| `updates.listFiles`                | Yes  | `project:read`   | Via linked clubs OR project membership        |
+| `updates.getProjectDeliveryAssets` | Yes  | `project:read`   | Project-scoped signed media lookup            |
 
 ### Media Delivery
 
@@ -96,7 +96,7 @@ All require auth + club permission via `requirePermission`:
 | ---------------------------------------------------------------------------------------------------- | ---- | ---------------- | ----------------------------------------------------------------- |
 | `media.beginUpload/finalizeUpload/cancelUpload/retryProcessing/deleteUpload/getUpload/listMyUploads` | Yes  | owner-scoped     | Upload control plane is always scoped to the asset owner          |
 | `POST /api/media/refresh` (`owned`)                                                                  | Yes  | owner-scoped     | Mints signed URLs only for caller-owned ready assets              |
-| `POST /api/media/refresh` (`project`)                                                                | Yes  | `project:update` | Uses `updates.getProjectDeliveryAssets`; currently manager-scoped |
+| `POST /api/media/refresh` (`project`)                                                                | Yes  | `project:read`   | Uses `updates.getProjectDeliveryAssets`                           |
 
 Notes:
 
@@ -127,11 +127,10 @@ Notes:
 ### High Priority
 
 1. **Legal document write is too broad** — `legalDocuments.upsertActive` is callable by any auth user. Should restrict to admin.
-2. **Update file listing is too broad** — `updates.listFiles(updateId)` only checks auth. Any user who knows an `updateId` can list its files.
 
 ### Medium Priority
 
-1. **Permission string drift** — Roles have `updates:*` but code checks `project:*`. `updates.listByProject` requires `project:update` (not `project:read`), inconsistent with `listByClub`.
+1. **Permission vocabulary drift** — Some role records may still carry legacy `updates:*` permissions, while project update APIs use `project:*`.
 
 ## Hardening Plan
 

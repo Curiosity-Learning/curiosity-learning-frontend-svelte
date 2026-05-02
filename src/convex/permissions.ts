@@ -51,6 +51,35 @@ export const hasPermission = async (
 	return role.permissions.includes(permission);
 };
 
+export const isProjectPermissionAllowed = async (
+	ctx: DbCtx,
+	projectId: Id<'projects'>,
+	userId: string,
+	permission: string
+) => {
+	const links = await ctx.db
+		.query('projectClubs')
+		.withIndex('by_project', (q) => q.eq('projectId', projectId))
+		.collect();
+
+	for (const link of links) {
+		if (await hasPermission(ctx, link.clubId, userId, permission)) {
+			return true;
+		}
+	}
+
+	const membership = await ctx.db
+		.query('projectMembers')
+		.withIndex('by_project_and_user', (q) => q.eq('projectId', projectId).eq('userId', userId))
+		.first();
+	if (!membership || membership.leftAt) {
+		return false;
+	}
+
+	const role = await ctx.db.get(membership.roleId);
+	return role?.permissions.includes(permission) ?? false;
+};
+
 export const requirePermission = async (
 	ctx: DbCtx,
 	clubId: Id<'clubs'>,
