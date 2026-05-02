@@ -95,6 +95,11 @@
 			? { sessionId: sessionIdTyped }
 			: 'skip'
 	);
+	const attendanceAttendeesResponse = useStableQuery(api.sessions.listAttendanceAttendees, () =>
+		sessionIdTyped && canReadAttendance && view === 'attendees'
+			? { sessionId: sessionIdTyped }
+			: 'skip'
+	);
 	const membersResponse = useStableQuery(api.clubs.getMembers, () =>
 		session && canReadMembers && view === 'attendees' ? { clubId: session.clubId } : 'skip'
 	);
@@ -167,11 +172,30 @@
 	let serverAttendanceSet = $derived(
 		new Set((attendanceResponse.data ?? []).map((entry) => entry.userId))
 	);
+	let activeMemberUserIds = $derived(
+		new Set((membersResponse.data ?? []).map((member) => member.userId))
+	);
+	let historicalAttendees = $derived(
+		(attendanceAttendeesResponse.data ?? []).filter(
+			(attendee) => !activeMemberUserIds.has(attendee.userId)
+		)
+	);
 	let buildingBlockOptions = $derived(
 		(blocksResponse.data ?? []).map((block) => ({ id: String(block._id), name: block.name }))
 	);
 
 	const isUserAttending = (userId: string) => serverAttendanceSet.has(userId);
+	const formatDisplayName = (person: {
+		firstName?: string | null;
+		lastName?: string | null;
+		username?: string | null;
+	}) => {
+		return (
+			[person.firstName ?? '', person.lastName ?? ''].join(' ').trim() ||
+			person.username ||
+			'Member'
+		);
+	};
 
 	const saveInlineActivity = async (
 		activity: {
@@ -634,12 +658,12 @@
 			{/if}
 		{:else}
 			<div class="flex flex-col gap-3">
-				{#if !canReadMembers}
-					<p class="type-sm text-muted-foreground">You do not have access to club members.</p>
-				{:else if membersResponse.isLoading}
+				{#if !canReadMembers && !canReadAttendance}
+					<p class="type-sm text-muted-foreground">You do not have access to attendees.</p>
+				{:else if membersResponse.isLoading || attendanceAttendeesResponse.isLoading}
 					<LoadingState label="Loading attendees" />
-				{:else if (membersResponse.data?.length ?? 0) === 0}
-					<p class="type-sm text-muted-foreground">No members found.</p>
+				{:else if (membersResponse.data?.length ?? 0) === 0 && historicalAttendees.length === 0}
+					<p class="type-sm text-muted-foreground">No attendees found.</p>
 				{:else}
 					{#each membersResponse.data ?? [] as member (member.clubMemberId)}
 						<div
@@ -656,18 +680,12 @@
 								for={`attendance-${member.clubMemberId}`}
 							>
 								<span class="sr-only">
-									Toggle attendance for {[member.firstName ?? '', member.lastName ?? '']
-										.join(' ')
-										.trim() ||
-										member.username ||
-										'Member'}
+									Toggle attendance for {formatDisplayName(member)}
 								</span>
 							</label>
 							<div class="flex flex-col gap-1">
 								<p class="type-body-medium">
-									{[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
-										member.username ||
-										'Member'}
+									{formatDisplayName(member)}
 								</p>
 							</div>
 							<div class="relative z-10 flex items-center">
@@ -676,15 +694,32 @@
 									class="size-6 rounded-md [&>[data-slot=checkbox-indicator]>svg]:size-4"
 									checked={isUserAttending(member.userId)}
 									aria-label={`Mark ${
-										[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
-										member.username ||
-										'Member'
+										formatDisplayName(member)
 									} as attending`}
 									disabled={!canManageAttendanceOnline}
 									onCheckedChange={(checked) => {
 										if (!canManageAttendanceOnline) return;
 										void setAttendance(member.userId, checked === true);
 									}}
+								/>
+							</div>
+						</div>
+					{/each}
+					{#each historicalAttendees as attendee (attendee.userId)}
+						<div
+							class="relative flex cursor-not-allowed items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
+						>
+							<div class="flex flex-col gap-1">
+								<p class="type-body-medium">
+									{attendee.isPastMember ? 'Past member' : formatDisplayName(attendee)}
+								</p>
+							</div>
+							<div class="relative z-10 flex items-center">
+								<Checkbox
+									class="size-6 rounded-md [&>[data-slot=checkbox-indicator]>svg]:size-4"
+									checked={true}
+									aria-label={`${attendee.isPastMember ? 'Past member' : formatDisplayName(attendee)} attended`}
+									disabled={true}
 								/>
 							</div>
 						</div>

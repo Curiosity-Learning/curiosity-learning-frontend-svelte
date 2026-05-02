@@ -17,7 +17,6 @@ const getSession = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
 const getSessionAttendeePreviews = async (
 	ctx: Ctx,
 	sessionId: Id<'sessions'>,
-	clubId: Id<'clubs'>,
 	limit = 6
 ) => {
 	const attendanceRows = await ctx.db
@@ -34,24 +33,50 @@ const getSessionAttendeePreviews = async (
 	for (const userId of userIds) {
 		if (attendees.length >= limit) break;
 
-		const membership = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_club_and_user', (q) => q.eq('clubId', clubId).eq('userId', userId))
-			.first();
-		if (!membership || membership.leftAt) {
-			continue;
-		}
-
 		const profile = await ctx.db
 			.query('profiles')
 			.withIndex('by_user_id', (q) => q.eq('userId', userId))
 			.first();
 		const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-		const name = fullName || profile?.username || userId;
+		const name = profile ? fullName || profile.username || userId : 'Past member';
 		attendees.push({
 			name,
 			imageUrl: null,
 			profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
+		});
+	}
+
+	return attendees;
+};
+
+const getSessionAttendanceAttendees = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
+	const attendanceRows = await ctx.db
+		.query('attendances')
+		.withIndex('by_session', (q) => q.eq('sessionId', sessionId))
+		.collect();
+	const userIds = [...new Set(attendanceRows.map((row) => row.userId))];
+	const attendees: Array<{
+		userId: string;
+		firstName: string | null;
+		lastName: string | null;
+		username: string | null;
+		profileImageMediaAssetId: Id<'mediaAssets'> | null;
+		isPastMember: boolean;
+	}> = [];
+
+	for (const userId of userIds) {
+		const profile = await ctx.db
+			.query('profiles')
+			.withIndex('by_user_id', (q) => q.eq('userId', userId))
+			.first();
+
+		attendees.push({
+			userId,
+			firstName: profile?.firstName ?? null,
+			lastName: profile?.lastName ?? null,
+			username: profile?.username ?? null,
+			profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
+			isPastMember: !profile
 		});
 	}
 
@@ -333,7 +358,7 @@ export const getSessionCardData = query({
 				'club_member:read_active'
 			);
 			if (canReadAttendance && canReadMembers) {
-				attendees.push(...(await getSessionAttendeePreviews(ctx, args.sessionId, session.clubId)));
+				attendees.push(...(await getSessionAttendeePreviews(ctx, args.sessionId)));
 			}
 		}
 
@@ -441,7 +466,7 @@ export const listCardPreviewsByClub = query({
 				profileImageMediaAssetId: Id<'mediaAssets'> | null;
 			}> = [];
 			if (includeAttendees && canReadAttendance && canReadMembers) {
-				attendees.push(...(await getSessionAttendeePreviews(ctx, session._id, session.clubId)));
+				attendees.push(...(await getSessionAttendeePreviews(ctx, session._id)));
 			}
 
 			entries.push({
@@ -598,6 +623,19 @@ export const listAttendance = query({
 			.query('attendances')
 			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
 			.collect();
+	}
+});
+
+export const listAttendanceAttendees = query({
+	args: {
+		sessionId: v.id('sessions')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const session = await getSession(ctx, args.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'attendance:read');
+
+		return await getSessionAttendanceAttendees(ctx, args.sessionId);
 	}
 });
 
