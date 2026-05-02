@@ -14,6 +14,50 @@ const getSession = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
 	return session;
 };
 
+const getSessionAttendeePreviews = async (
+	ctx: Ctx,
+	sessionId: Id<'sessions'>,
+	clubId: Id<'clubs'>,
+	limit = 6
+) => {
+	const attendanceRows = await ctx.db
+		.query('attendances')
+		.withIndex('by_session', (q) => q.eq('sessionId', sessionId))
+		.collect();
+	const userIds = [...new Set(attendanceRows.map((row) => row.userId))];
+	const attendees: Array<{
+		name: string;
+		imageUrl: string | null;
+		profileImageMediaAssetId: Id<'mediaAssets'> | null;
+	}> = [];
+
+	for (const userId of userIds) {
+		if (attendees.length >= limit) break;
+
+		const membership = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club_and_user', (q) => q.eq('clubId', clubId).eq('userId', userId))
+			.first();
+		if (!membership || membership.leftAt) {
+			continue;
+		}
+
+		const profile = await ctx.db
+			.query('profiles')
+			.withIndex('by_user_id', (q) => q.eq('userId', userId))
+			.first();
+		const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+		const name = fullName || profile?.username || userId;
+		attendees.push({
+			name,
+			imageUrl: null,
+			profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
+		});
+	}
+
+	return attendees;
+};
+
 export const listByClub = query({
 	args: {
 		clubId: v.id('clubs'),
@@ -289,24 +333,7 @@ export const getSessionCardData = query({
 				'club_member:read_active'
 			);
 			if (canReadAttendance && canReadMembers) {
-				const attendance = await ctx.db
-					.query('attendances')
-					.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
-					.collect();
-				const userIds = attendance.map((row) => row.userId).slice(0, 6);
-				for (const userId of userIds) {
-					const profile = await ctx.db
-						.query('profiles')
-						.withIndex('by_user_id', (q) => q.eq('userId', userId))
-						.first();
-					const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-					const name = fullName || profile?.username || userId;
-					attendees.push({
-						name,
-						imageUrl: null,
-						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
-					});
-				}
+				attendees.push(...(await getSessionAttendeePreviews(ctx, args.sessionId, session.clubId)));
 			}
 		}
 
@@ -414,24 +441,7 @@ export const listCardPreviewsByClub = query({
 				profileImageMediaAssetId: Id<'mediaAssets'> | null;
 			}> = [];
 			if (includeAttendees && canReadAttendance && canReadMembers) {
-				const attendanceRows = await ctx.db
-					.query('attendances')
-					.withIndex('by_session', (q) => q.eq('sessionId', session._id))
-					.collect();
-				const userIds = attendanceRows.map((row) => row.userId).slice(0, 6);
-				for (const userId of userIds) {
-					const profile = await ctx.db
-						.query('profiles')
-						.withIndex('by_user_id', (q) => q.eq('userId', userId))
-						.first();
-					const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-					const name = fullName || profile?.username || userId;
-					attendees.push({
-						name,
-						imageUrl: null,
-						profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
-					});
-				}
+				attendees.push(...(await getSessionAttendeePreviews(ctx, session._id, session.clubId)));
 			}
 
 			entries.push({
