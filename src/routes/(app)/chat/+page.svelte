@@ -2,7 +2,6 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import SearchIcon from '@lucide/svelte/icons/search';
 	import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { api } from '$convex/_generated/api';
@@ -10,6 +9,7 @@
 		LoadingState,
 		PageBottomNavVisibility,
 		PageHeaderBackButton,
+		PageHeaderSearch,
 		PageHeaderTitle,
 		PageHeaderTitleContent
 	} from '$lib/components/app';
@@ -170,6 +170,13 @@
 
 <PageHeaderBackButton enabled={isMobileDetailView} fallbackHref={routes.chat} />
 <PageHeaderTitle title="Chat" />
+<PageHeaderSearch
+	bind:value={roomSearchQuery}
+	placeholder="Search chats"
+	ariaLabel="Search chats"
+	mode="auto"
+	enabled={!isMobileDetailView}
+/>
 <PageHeaderTitleContent enabled={isMobileDetailView}>
 	<div class="flex min-w-0 items-center gap-3">
 		<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
@@ -190,35 +197,20 @@
 		<AlertDescription>Sign in to view chats.</AlertDescription>
 	</Alert>
 {:else}
-	<div
-		class="-mx-4 flex w-full flex-col overflow-hidden rounded-none bg-white sm:-mx-6 lg:-mx-8 lg:rounded-[1.1rem] lg:border lg:border-border/70"
-	>
+	<div class="flex w-full flex-col gap-4">
 		{#if errorMessage}
-			<div class="px-4 pt-3">
-				<Alert variant="destructive">
-					<AlertTitle>Chat action failed</AlertTitle>
-					<AlertDescription>{errorMessage}</AlertDescription>
-				</Alert>
-			</div>
+			<Alert variant="destructive">
+				<AlertTitle>Chat action failed</AlertTitle>
+				<AlertDescription>{errorMessage}</AlertDescription>
+			</Alert>
 		{/if}
 
-		<div class="hidden items-center justify-end border-b border-border/70 px-4 py-3 lg:flex">
-			<div class="relative w-full max-w-sm">
-				<SearchIcon
-					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#8b8fa0]"
-				/>
-				<Input
-					bind:value={roomSearchQuery}
-					placeholder="Search"
-					class="h-10 rounded-xl border-0 bg-[#f0f1f5] pr-3 pl-9 text-sm"
-				/>
-			</div>
-		</div>
-
-		<div class="flex min-h-[calc(100dvh-13rem)]">
+		<div class="flex min-h-[calc(100dvh-10.5rem)] gap-4">
 			<section
-				class={`w-full flex-col border-r border-border/70 lg:w-[22rem] ${
-					isMobileDetailView ? 'hidden lg:flex' : 'flex'
+				class={`min-h-0 w-full flex-col overflow-hidden lg:w-[22rem] ${
+					isMobileDetailView
+						? 'hidden lg:flex'
+						: 'flex rounded-[1.1rem] bg-white/85 shadow-sm ring-1 ring-black/5'
 				}`}
 			>
 				{#if roomsResponse.isLoading}
@@ -239,12 +231,12 @@
 						</p>
 					</div>
 				{:else}
-					<div class="flex flex-1 flex-col overflow-y-auto">
+					<div class="flex flex-1 flex-col gap-1 overflow-y-auto p-1.5">
 						{#each visibleRooms as room (room.roomId)}
 							<button
 								type="button"
-								class={`flex items-center gap-3 border-b border-border/60 px-3 py-3 text-left transition-colors ${
-									selectedRoomId === room.roomId ? 'bg-[#f3f4f9]' : 'hover:bg-[#f7f8fc]'
+								class={`flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
+									selectedRoomId === room.roomId ? 'bg-[#f5e2d2]' : 'hover:bg-[#f7f3ee]'
 								}`}
 								onclick={() => void openRoom(room.roomId)}
 							>
@@ -278,8 +270,14 @@
 			</section>
 
 			{#if isDetailView}
-				<section class="flex flex-1 flex-col">
-					<div class="hidden items-center border-b border-border/70 bg-white px-4 py-2 lg:flex">
+				<section
+					class={`min-h-0 flex-1 flex-col overflow-hidden ${
+						isDesktopViewport
+							? 'flex rounded-[1.1rem] bg-white/85 shadow-sm ring-1 ring-black/5'
+							: 'flex'
+					}`}
+				>
+					<div class="hidden items-center border-b border-border/60 px-4 py-3 lg:flex">
 						<div class="flex min-w-0 flex-1 items-center gap-4 pr-2">
 							<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
 								<AvatarFallback class="text-[0.72rem] font-bold text-slate-700">
@@ -294,7 +292,7 @@
 
 					<div
 						class={`flex-1 overflow-y-auto ${
-							isDesktopViewport ? 'bg-[#f7f7f8] px-4 py-4' : 'bg-white px-4 py-0'
+							isDesktopViewport ? 'bg-[#fbfaf8] px-4 py-4' : 'bg-transparent px-0 py-0'
 						}`}
 					>
 						{#if activeRoom && !activeRoom.canSend}
@@ -309,7 +307,7 @@
 						{#if messagesResponse.isLoading}
 							<LoadingState label="Loading messages" />
 						{:else if (messagesResponse.data?.length ?? 0) === 0}
-							<p class="text-sm text-muted-foreground">
+							<p class="px-4 text-sm text-muted-foreground lg:px-0">
 								{activeRoom?.canSend ? 'No messages yet. Send the first one.' : 'No messages yet.'}
 							</p>
 						{:else}
@@ -360,7 +358,11 @@
 					</div>
 
 					<div
-						class={`border-t border-border/70 bg-white ${isDesktopViewport ? 'px-3 pt-2 pb-3 sm:px-4' : 'px-0 py-0'}`}
+						class={`bg-white/90 ${
+							isDesktopViewport
+								? 'border-t border-border/60 px-3 pt-2 pb-3 sm:px-4'
+								: 'rounded-[1.1rem] shadow-sm ring-1 ring-black/5'
+						}`}
 					>
 						<Input
 							bind:value={message}
@@ -392,8 +394,15 @@
 					</div>
 				</section>
 			{:else}
-				<section class="hidden flex-1 items-center justify-center bg-[#f7f7f8] px-6 lg:flex">
-					<p class="text-base text-muted-foreground">Select a chat to view messages.</p>
+				<section
+					class="hidden flex-1 items-center justify-center rounded-[1.1rem] bg-white/65 px-6 shadow-sm ring-1 ring-black/5 lg:flex"
+				>
+					<div class="max-w-sm text-center">
+						<p class="text-base font-semibold text-[#242424]">Select a chat</p>
+						<p class="mt-1 text-sm text-muted-foreground">
+							Choose a club, project, or application chat to view its messages.
+						</p>
+					</div>
 				</section>
 			{/if}
 		</div>
