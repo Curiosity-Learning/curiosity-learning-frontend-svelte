@@ -48,6 +48,7 @@
 	let errorMessage = $state('');
 	let roomSearchQuery = $state('');
 	let isDesktopViewport = $state(false);
+	let messageInputRef = $state<HTMLInputElement | null>(null);
 
 	$effect(() => {
 		if (!browser) return;
@@ -139,6 +140,11 @@
 		await goto(`${routes.chat}?${params.toString()}`, { keepFocus: true, noScroll: true });
 	};
 
+	const focusMessageInput = () => {
+		if (!browser) return;
+		requestAnimationFrame(() => messageInputRef?.focus());
+	};
+
 	const sendMessage = async () => {
 		const targetRoomId = selectedRoomId;
 		const trimmedMessage = message.trim();
@@ -148,16 +154,21 @@
 
 		pending = true;
 		errorMessage = '';
+		let sent = false;
 		try {
 			await convexClient.mutation(api.chat.sendMessage, {
 				roomId: targetRoomId,
 				content: trimmedMessage
 			});
 			message = '';
+			sent = true;
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to send message.';
 		} finally {
 			pending = false;
+			if (sent) {
+				focusMessageInput();
+			}
 		}
 	};
 
@@ -365,6 +376,7 @@
 						}`}
 					>
 						<Input
+							bind:ref={messageInputRef}
 							bind:value={message}
 							placeholder="Send a message..."
 							maxlength={MAX_MESSAGE_LENGTH}
