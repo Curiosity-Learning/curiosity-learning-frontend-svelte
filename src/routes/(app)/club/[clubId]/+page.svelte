@@ -345,33 +345,36 @@
 </script>
 
 <PageHeaderTitleContent enabled={Boolean(clubItem)}>
-	<DropdownMenu>
-		<DropdownMenuTrigger>
-			<Button
-				variant="ghost"
-				class="-ml-2 max-w-full min-w-0 justify-start gap-2 px-2 text-[#262626] hover:text-[#262626]"
-				aria-label={`Switch club from ${clubItem?.clubName ?? 'current club'}`}
-			>
-				<span class="type-step-title truncate">{clubItem?.clubName ?? 'Club'}</span>
-				<ChevronDownIcon class="size-5 shrink-0 text-muted-foreground" />
-			</Button>
-		</DropdownMenuTrigger>
-		<DropdownMenuContent align="start" class="w-64">
-			<DropdownMenuLabel>Switch club</DropdownMenuLabel>
-			{#each clubsResponse.data ?? [] as club (club.clubId)}
-				<DropdownMenuItem
-					class="justify-between gap-3 py-2"
-					disabled={switchingClubId !== null}
-					onSelect={() => void switchClub(club.clubId)}
+	<div class="max-w-full min-w-0">
+		<DropdownMenu>
+			<DropdownMenuTrigger class="-ml-2 inline-flex w-fit max-w-full min-w-0 overflow-hidden">
+				<Button
+					variant="ghost"
+					class="max-w-full min-w-0 shrink justify-start gap-1 px-1.5 text-[#262626] hover:text-[#262626]"
+					aria-label={`Switch club from ${clubItem?.clubName ?? 'current club'}`}
 				>
-					<span class="truncate">{club.clubName}</span>
-					{#if club.clubId === clubIdTyped}
-						<CheckIcon class="size-4 text-orange-500" />
-					{/if}
-				</DropdownMenuItem>
-			{/each}
-		</DropdownMenuContent>
-	</DropdownMenu>
+					<span class="type-step-title min-w-0 flex-1 truncate">{clubItem?.clubName ?? 'Club'}</span
+					>
+					<ChevronDownIcon class="size-4 shrink-0 text-muted-foreground" />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="start" class="w-64">
+				<DropdownMenuLabel>Switch club</DropdownMenuLabel>
+				{#each clubsResponse.data ?? [] as club (club.clubId)}
+					<DropdownMenuItem
+						class="justify-between gap-3 py-2"
+						disabled={switchingClubId !== null}
+						onSelect={() => void switchClub(club.clubId)}
+					>
+						<span class="truncate">{club.clubName}</span>
+						{#if club.clubId === clubIdTyped}
+							<CheckIcon class="size-4 text-orange-500" />
+						{/if}
+					</DropdownMenuItem>
+				{/each}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	</div>
 </PageHeaderTitleContent>
 
 <PageHeaderActions none={!canEditClub}>
