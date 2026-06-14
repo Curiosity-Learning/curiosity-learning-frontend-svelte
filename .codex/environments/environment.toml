@@ -3,9 +3,9 @@ version = 1
 name = "curiosity-learning-flutter-to-svelte"
 
 [setup]
-script = ""
+script = "npm run worktree:setup"
 
 [[actions]]
 name = "Run"
 icon = "run"
-command = "pnpm dev"
+command = "npm run dev"
