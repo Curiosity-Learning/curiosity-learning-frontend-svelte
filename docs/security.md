@@ -103,6 +103,18 @@ Notes:
 - Client upload constraints sent to Convex must stay limited to the backend validator shape (`acceptedContentTypes`, `maxBytes`, processing flags). UI helpers such as HTML `accept` strings are client-only metadata and must not be forwarded through `media.beginUpload`.
 - Signed delivery is URL-based via `/api/media/refresh`; the app no longer relies on a shared `/media/[assetId]` route or CloudFront signed cookies.
 
+### Operational Monitoring
+
+| Endpoint                               | Auth                       | Notes                                                                |
+| -------------------------------------- | -------------------------- | -------------------------------------------------------------------- |
+| `POST /api/internal/monitoring/report` | `MONITORING_REPORT_SECRET` | Accepts only size-limited, allowlisted, redacted Convex failure data |
+| `POST /api/webhooks/resend`            | Resend webhook signature   | Captures delivery failures without storing recipient or message data |
+
+- Sentry default PII collection, tracing, replay, and Sentry logs are disabled.
+- Monitoring redacts cookies, authorization headers, request bodies, query strings, emails, consent/reset tokens, and signed URL parameters.
+- Entity IDs, operation names, provider names, statuses, and failure codes are allowed when needed to debug an operational failure.
+- `MONITORING_REPORT_SECRET`, `RESEND_WEBHOOK_SECRET`, and `SENTRY_AUTH_TOKEN` must remain outside the repository.
+
 ### Preferences / Notifications / Legal Documents
 
 | Endpoint                                   | Auth   | Permission | Notes                                            |

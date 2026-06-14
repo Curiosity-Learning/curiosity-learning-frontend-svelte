@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 
 export type MediaRefreshContext =
 	| {
@@ -156,6 +157,10 @@ export const createSignedMediaManager = (fetcher: typeof fetch = fetch) => {
 			}
 			return assets;
 		} catch (error) {
+			captureUnexpectedOperationalError(error, {
+				area: 'media',
+				operation: 'media:refresh-signed-urls'
+			});
 			if (requestGeneration === refreshGeneration) {
 				errorMessage = error instanceof Error ? error.message : 'Unable to refresh media.';
 				scheduleRefresh();

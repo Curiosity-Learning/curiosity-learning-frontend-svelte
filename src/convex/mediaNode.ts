@@ -1,6 +1,11 @@
-"use node";
+'use node';
 
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+	DeleteObjectCommand,
+	GetObjectCommand,
+	HeadObjectCommand,
+	S3Client
+} from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
@@ -11,15 +16,15 @@ import {
 	type MediaStorageConfig,
 	type MediaUploadDescriptor
 } from './mediaStorage';
-import {
-	mediaUploadConstraintsValidator
-} from './mediaModel';
+import { mediaUploadConstraintsValidator } from './mediaModel';
+import { isOperationalMediaFailure } from './mediaMonitoring';
 import {
 	type SupportedContentType,
 	type StoredMediaMetadata,
 	runMediaPipeline
 } from './mediaPipeline';
 import { toResolvedAsset } from './mediaShared';
+import { reportConvexError } from './monitoring';
 
 type PresignedPostCondition = NonNullable<
 	Parameters<typeof createPresignedPost>[1]['Conditions']
@@ -225,7 +230,7 @@ const loadStoredMediaMetadata = async ({
 	bucket: string;
 	objectKey: string;
 	provider: Doc<'mediaAssets'>['storageProvider'];
-	}): Promise<StoredMediaMetadata | null> => {
+}): Promise<StoredMediaMetadata | null> => {
 	try {
 		const response = await client.send(
 			new HeadObjectCommand({
@@ -337,10 +342,7 @@ export const beginUpload = internalAction({
 		}
 
 		console.info('media:beginUpload:prepared', {
-			ownerUserId: args.ownerUserId,
 			assetId: asset._id,
-			bucket: config.bucket,
-			objectKey: asset.sourceObjectKey,
 			clientContentType: asset.clientContentType ?? null,
 			clientSizeBytes: asset.clientSizeBytes ?? null
 		});
@@ -384,8 +386,6 @@ export const finalizeUpload = internalAction({
 		});
 		console.info('media:finalizeUpload:headObject', {
 			assetId: asset._id,
-			bucket: asset.sourceBucket,
-			objectKey: asset.sourceObjectKey,
 			clientSizeBytes: asset.clientSizeBytes ?? null,
 			storedSize: storageMetadata?.size ?? null,
 			storedContentType: storageMetadata?.contentType ?? null
@@ -427,11 +427,7 @@ export const cancelUpload = internalAction({
 		console.info('media:cancelUpload:start', {
 			assetId: asset._id,
 			status: asset.status,
-			deleteStorage,
-			sourceBucket: asset.sourceBucket ?? null,
-			sourceObjectKey: asset.sourceObjectKey ?? null,
-			processedBucket: asset.processedBucket ?? null,
-			processedObjectKey: asset.processedObjectKey ?? null
+			deleteStorage
 		});
 
 		if (asset.status === 'ready') {
@@ -499,11 +495,7 @@ export const deleteUpload: ReturnType<typeof internalAction> = internalAction({
 
 		console.info('media:deleteUpload:start', {
 			assetId: asset._id,
-			status: asset.status,
-			sourceBucket: asset.sourceBucket ?? null,
-			sourceObjectKey: asset.sourceObjectKey ?? null,
-			processedBucket: asset.processedBucket ?? null,
-			processedObjectKey: asset.processedObjectKey ?? null
+			status: asset.status
 		});
 
 		const config = loadMediaStorageConfig();
@@ -541,72 +533,97 @@ export const processUpload = internalAction({
 		assetId: v.id('mediaAssets')
 	},
 	handler: async (ctx, args): Promise<Doc<'mediaAssets'> | null> => {
-		const asset: Doc<'mediaAssets'> | null = await ctx.runQuery(internal.media.getAssetRecord, {
-			assetId: args.assetId
-		});
-		if (!asset || asset.status !== 'processing' || !asset.sourceBucket || !asset.sourceObjectKey) {
-			return null;
-		}
-
-		const config = loadMediaStorageConfig();
-		const client = createS3Client(config);
-		const storageMetadata = await loadStoredMediaMetadata({
-			client,
-			bucket: asset.sourceBucket,
-			objectKey: asset.sourceObjectKey,
-			provider: asset.storageProvider
-		});
-		console.info('media:processUpload:start', {
-			assetId: asset._id,
-			bucket: asset.sourceBucket,
-			objectKey: asset.sourceObjectKey,
-			storedSize: storageMetadata?.size ?? null,
-			storedContentType: storageMetadata?.contentType ?? null
-		});
-		const result = await runMediaPipeline({
-			asset: {
-				acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
-				maxBytes: asset.maxBytes,
-				enableCompression: asset.enableCompression,
-				enableSafetyScreening: asset.enableSafetyScreening,
-				originalFilename: asset.originalFilename ?? null,
-				clientContentType: asset.clientContentType ?? null
-			},
-			storageMetadata
-		});
-
-		if (result.ok) {
-			console.info('media:processUpload:ready', {
-				assetId: asset._id,
-				mediaKind: result.descriptor.mediaKind ?? null,
-				contentType: result.descriptor.contentType ?? null,
-				sizeBytes: result.descriptor.sizeBytes
+		try {
+			const asset: Doc<'mediaAssets'> | null = await ctx.runQuery(internal.media.getAssetRecord, {
+				assetId: args.assetId
 			});
-			return await ctx.runMutation(internal.media.markUploadReady, {
-				assetId: asset._id,
-				mediaKind: result.descriptor.mediaKind ?? undefined,
-				contentType: result.descriptor.contentType ?? undefined,
-				sizeBytes: result.descriptor.sizeBytes,
-				durationSeconds: result.descriptor.durationSeconds ?? undefined,
-				sha256: result.descriptor.sha256 ?? undefined,
-				stepResults: result.steps
-			});
-		}
+			if (
+				!asset ||
+				asset.status !== 'processing' ||
+				!asset.sourceBucket ||
+				!asset.sourceObjectKey
+			) {
+				return null;
+			}
 
-		console.warn('media:processUpload:failed', {
-			assetId: asset._id,
-			failure: result.failure,
-			descriptor: result.descriptor ?? null
-		});
-		return await ctx.runMutation(internal.media.markUploadFailed, {
-			assetId: asset._id,
-			mediaKind: result.descriptor?.mediaKind ?? undefined,
-			contentType: result.descriptor?.contentType ?? undefined,
-			sizeBytes: result.descriptor?.sizeBytes ?? undefined,
-			durationSeconds: result.descriptor?.durationSeconds ?? undefined,
-			sha256: result.descriptor?.sha256 ?? undefined,
-			stepResults: result.steps,
-			failure: result.failure
-		});
+			const config = loadMediaStorageConfig();
+			const client = createS3Client(config);
+			const storageMetadata = await loadStoredMediaMetadata({
+				client,
+				bucket: asset.sourceBucket,
+				objectKey: asset.sourceObjectKey,
+				provider: asset.storageProvider
+			});
+			console.info('media:processUpload:start', {
+				assetId: asset._id,
+				storedSize: storageMetadata?.size ?? null,
+				storedContentType: storageMetadata?.contentType ?? null
+			});
+			const result = await runMediaPipeline({
+				asset: {
+					acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
+					maxBytes: asset.maxBytes,
+					enableCompression: asset.enableCompression,
+					enableSafetyScreening: asset.enableSafetyScreening,
+					originalFilename: asset.originalFilename ?? null,
+					clientContentType: asset.clientContentType ?? null
+				},
+				storageMetadata
+			});
+
+			if (result.ok) {
+				console.info('media:processUpload:ready', {
+					assetId: asset._id,
+					mediaKind: result.descriptor.mediaKind ?? null,
+					contentType: result.descriptor.contentType ?? null,
+					sizeBytes: result.descriptor.sizeBytes
+				});
+				return await ctx.runMutation(internal.media.markUploadReady, {
+					assetId: asset._id,
+					mediaKind: result.descriptor.mediaKind ?? undefined,
+					contentType: result.descriptor.contentType ?? undefined,
+					sizeBytes: result.descriptor.sizeBytes,
+					durationSeconds: result.descriptor.durationSeconds ?? undefined,
+					sha256: result.descriptor.sha256 ?? undefined,
+					stepResults: result.steps
+				});
+			}
+
+			console.warn('media:processUpload:failed', {
+				assetId: asset._id,
+				failureCode: result.failure.code,
+				failureStage: result.failure.stage,
+				retryable: result.failure.retryable
+			});
+			if (isOperationalMediaFailure(result.failure.code)) {
+				await reportConvexError(new Error(`Media pipeline failed: ${result.failure.code}`), {
+					area: 'media',
+					operation: 'media:process-pipeline',
+					identifiers: {
+						assetId: asset._id,
+						attemptCount: asset.attemptCount,
+						failureCode: result.failure.code,
+						status: 'failed'
+					}
+				});
+			}
+			return await ctx.runMutation(internal.media.markUploadFailed, {
+				assetId: asset._id,
+				mediaKind: result.descriptor?.mediaKind ?? undefined,
+				contentType: result.descriptor?.contentType ?? undefined,
+				sizeBytes: result.descriptor?.sizeBytes ?? undefined,
+				durationSeconds: result.descriptor?.durationSeconds ?? undefined,
+				sha256: result.descriptor?.sha256 ?? undefined,
+				stepResults: result.steps,
+				failure: result.failure
+			});
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'media',
+				operation: 'media:process-upload',
+				identifiers: { assetId: args.assetId }
+			});
+			throw error;
+		}
 	}
 });

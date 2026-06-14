@@ -1,5 +1,6 @@
 import type { Id } from '$convex/_generated/dataModel';
 import type { ConvexClient } from 'convex/browser';
+import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 import {
 	VIDEO_CONTENT_TYPES,
 	beginMediaUpload,
@@ -164,10 +165,24 @@ class MediaFieldController {
 			}
 
 			if (isLifecycleError(error)) {
+				captureUnexpectedOperationalError(error, {
+					area: 'media',
+					operation: 'media:wait-for-ready',
+					identifiers: {
+						assetId,
+						failureCode: error.asset?.lastFailure?.code,
+						status: error.asset?.status
+					}
+				});
 				this.setFailure(error.message, error.asset?.status ?? this.assetStatus);
 				return null;
 			}
 
+			captureUnexpectedOperationalError(error, {
+				area: 'media',
+				operation: 'media:wait-for-ready',
+				identifiers: { assetId, status: this.assetStatus }
+			});
 			this.setFailure(normalizeUploadErrorMessage(error), this.assetStatus);
 			return null;
 		}
@@ -250,7 +265,11 @@ class MediaFieldController {
 			this.phase = 'uploading';
 			this.errorMessage = '';
 
-			const beginResult = await beginMediaUpload(this.convexClient, selectedFile, this.definition.constraints);
+			const beginResult = await beginMediaUpload(
+				this.convexClient,
+				selectedFile,
+				this.definition.constraints
+			);
 			const nextAssetId = beginResult.asset.assetId;
 
 			if (!this.isActiveGeneration(generation)) {
@@ -298,7 +317,18 @@ class MediaFieldController {
 			}
 
 			const message = normalizeUploadErrorMessage(error);
-			const assetStatus = isLifecycleError(error) ? error.asset?.status ?? this.assetStatus : this.assetStatus;
+			const assetStatus = isLifecycleError(error)
+				? (error.asset?.status ?? this.assetStatus)
+				: this.assetStatus;
+			captureUnexpectedOperationalError(error, {
+				area: 'media',
+				operation: 'media:upload',
+				identifiers: {
+					assetId: this.assetId,
+					failureCode: isLifecycleError(error) ? error.asset?.lastFailure?.code : undefined,
+					status: assetStatus
+				}
+			});
 			this.setFailure(message, assetStatus);
 			return null;
 		}

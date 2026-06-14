@@ -38,12 +38,15 @@ npm install
 - `PUBLIC_CONVEX_URL`
 - `PUBLIC_CONVEX_SITE_URL`
 - `PUBLIC_MAPBOX_ACCESS_TOKEN` (for onboarding location search/map preview)
+- `PUBLIC_SENTRY_DSN` (public Sentry project DSN; already present in `.env.example`)
+- `PUBLIC_SENTRY_ENVIRONMENT` (typically `development` locally)
 - `BETTER_AUTH_SECRET` (non-default, high entropy)
 - `BETTER_AUTH_URL` (typically `http://localhost:5173`)
 - `GOOGLE_CLIENT_ID` (for Google OAuth sign-up/sign-in)
 - `GOOGLE_CLIENT_SECRET` (for Google OAuth sign-up/sign-in)
 
 Google OAuth callback URL for local setup:
+
 - `http://localhost:5173/api/auth/callback/google`
 
 3. Set Convex deployment env values (server-side runtime):
@@ -64,6 +67,7 @@ npx convex env set GOOGLE_CLIENT_SECRET <google-client-secret>
 npx convex env set RESEND_API_KEY <key>
 npx convex env set RESEND_FROM "Curiosity Learning <your-verified-from@domain.com>"
 ```
+
 4. Start backend + frontend:
 
 ```sh
@@ -73,19 +77,25 @@ npm run dev
 
 ## Production Deployment
 
-Deploy the web app as a Render `Web Service` backed by SvelteKit's Node runtime.
+Deploy the web app to Vercel using SvelteKit's Node runtime.
 
-- Adapter: `@sveltejs/adapter-node`
-- Build command: `npm install && npm run build`
-- Start command: `node build/index.js`
+- Adapter: `@sveltejs/adapter-vercel`
+- Runtime: Node.js 22
+- Build command: `npm run build`
 
-Render production env values:
+Vercel production env values:
 
 - `BETTER_AUTH_URL=https://<your-production-domain>`
 - `BETTER_AUTH_SECRET=<high-entropy secret>`
 - `PUBLIC_CONVEX_URL=https://<your-production-deployment>.convex.cloud`
 - `PUBLIC_CONVEX_SITE_URL=https://<your-production-deployment>.convex.site`
 - `PUBLIC_MAPBOX_ACCESS_TOKEN=<mapbox-token>`
+- `PUBLIC_SENTRY_DSN=https://d01f876073a72f8b3d36d41a8372e2c8@o4511563803852800.ingest.de.sentry.io/4511563814207568`
+- `PUBLIC_SENTRY_ENVIRONMENT=production`
+- `SENTRY_ENVIRONMENT=production`
+- `SENTRY_AUTH_TOKEN=<private Sentry source-map upload token>`
+- `MONITORING_REPORT_SECRET=<random shared secret>`
+- `RESEND_WEBHOOK_SECRET=<Resend webhook signing secret>`
 - `ALLOW_LAN_TRUSTED_ORIGINS=false`
 
 Convex production deployment env values:
@@ -95,8 +105,12 @@ Convex production deployment env values:
 - `PUBLIC_CONVEX_SITE_URL=https://<your-production-deployment>.convex.site`
 - `RESEND_API_KEY=<provider key>`
 - `RESEND_FROM=<verified sender>`
+- `MONITORING_REPORT_SECRET=<same random shared secret as Vercel>`
 - `MEDIA_S3_*` values for the media bucket
 - `ALLOW_LAN_TRUSTED_ORIGINS=false`
+
+Complete the Sentry alert, uptime, Resend webhook, and verification steps in
+[`docs/monitoring.md`](docs/monitoring.md) before public launch.
 
 ## Quality Gates
 
@@ -131,4 +145,4 @@ Current reference docs:
 ## Notes
 
 - Convex codegen output lives in `src/convex/_generated`.
-- The production app is expected to run as a long-lived Node server, not a static export.
+- The production app runs in Vercel Node functions, not as a static export.

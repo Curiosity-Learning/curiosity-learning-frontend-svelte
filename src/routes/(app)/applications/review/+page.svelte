@@ -6,6 +6,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -29,6 +30,11 @@
 			});
 			showGlobalSnackbar({ title: 'Review saved' });
 		} catch (error) {
+			captureUnexpectedOperationalError(error, {
+				area: 'admin',
+				operation: 'application-review:save',
+				identifiers: { applicationId }
+			});
 			showGlobalSnackbar({
 				title: 'Unable to save review',
 				description: error instanceof Error ? error.message : 'Please try again.'

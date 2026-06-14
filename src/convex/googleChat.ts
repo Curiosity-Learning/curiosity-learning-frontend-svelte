@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { internalAction } from './_generated/server';
+import { reportConvexError } from './monitoring';
 
 const GOOGLE_CHAT_WEBHOOK_URL_ENV = 'GOOGLE_CHAT_WEBHOOK_URL';
 
@@ -20,15 +21,7 @@ const postGoogleChatMessage = async (text: string) => {
 	});
 
 	if (!response.ok) {
-		let details = '';
-		try {
-			details = JSON.stringify(await response.json());
-		} catch {
-			details = await response.text().catch(() => '');
-		}
-		throw new Error(
-			`Google Chat webhook failed: ${response.status} ${response.statusText} ${details}`
-		);
+		throw new Error(`Google Chat webhook failed: ${response.status} ${response.statusText}`);
 	}
 };
 
@@ -42,17 +35,26 @@ export const notifyClubApplicationSubmitted = internalAction({
 		referralSource: v.optional(v.string())
 	},
 	handler: async (_ctx, args) => {
-		await postGoogleChatMessage(
-			compactLines([
-				'New Start Club application submitted',
-				`Club: ${args.name}`,
-				args.location ? `Location: ${args.location}` : undefined,
-				args.applicantName ? `Applicant: ${args.applicantName}` : undefined,
-				args.applicantRole ? `Role: ${args.applicantRole}` : undefined,
-				args.referralSource ? `Referral: ${args.referralSource}` : undefined,
-				`Application ID: ${args.applicationId}`
-			])
-		);
+		try {
+			await postGoogleChatMessage(
+				compactLines([
+					'New Start Club application submitted',
+					`Club: ${args.name}`,
+					args.location ? `Location: ${args.location}` : undefined,
+					args.applicantName ? `Applicant: ${args.applicantName}` : undefined,
+					args.applicantRole ? `Role: ${args.applicantRole}` : undefined,
+					args.referralSource ? `Referral: ${args.referralSource}` : undefined,
+					`Application ID: ${args.applicationId}`
+				])
+			);
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'google-chat:club-application',
+				identifiers: { applicationId: args.applicationId, provider: 'google-chat' }
+			});
+			throw error;
+		}
 	}
 });
 
@@ -63,13 +65,22 @@ export const notifyClubInterestSignupCreated = internalAction({
 		location: v.string()
 	},
 	handler: async (_ctx, args) => {
-		await postGoogleChatMessage(
-			compactLines([
-				'New club interest signup',
-				`Email: ${args.email}`,
-				`Location: ${args.location}`,
-				`Signup ID: ${args.signupId}`
-			])
-		);
+		try {
+			await postGoogleChatMessage(
+				compactLines([
+					'New club interest signup',
+					`Email: ${args.email}`,
+					`Location: ${args.location}`,
+					`Signup ID: ${args.signupId}`
+				])
+			);
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'google-chat:club-interest',
+				identifiers: { provider: 'google-chat' }
+			});
+			throw error;
+		}
 	}
 });
