@@ -58,7 +58,6 @@
 	const INITIAL_MESSAGE_LIMIT = 40;
 	const MESSAGE_LIMIT_INCREMENT = 40;
 	const TOP_LOAD_THRESHOLD_PX = 320;
-	const TOP_LOAD_THRESHOLD_VIEWPORT_RATIO = 0.8;
 	const BOTTOM_STICK_THRESHOLD_PX = 120;
 
 	const convexClient = useConvexClient();
@@ -308,11 +307,7 @@
 			scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight;
 		shouldStickToBottom = distanceFromBottom <= BOTTOM_STICK_THRESHOLD_PX;
 
-		const topLoadThreshold = Math.max(
-			TOP_LOAD_THRESHOLD_PX,
-			scrollElement.clientHeight * TOP_LOAD_THRESHOLD_VIEWPORT_RATIO
-		);
-		if (scrollElement.scrollTop <= topLoadThreshold) {
+		if (scrollElement.scrollTop <= TOP_LOAD_THRESHOLD_PX) {
 			loadOlderMessages();
 		}
 	};
