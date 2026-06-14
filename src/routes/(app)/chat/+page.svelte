@@ -241,7 +241,14 @@
 
 	const loadOlderMessages = () => {
 		const scrollElement = messageScrollRef;
-		if (!scrollElement || messagesResponse.isLoading || !hasMoreMessages) return;
+		if (
+			!scrollElement ||
+			messagesResponse.isLoading ||
+			!hasMoreMessages ||
+			pendingPrependScrollHeight !== null
+		) {
+			return;
+		}
 		pendingPrependScrollHeight = scrollElement.scrollHeight;
 		pendingPrependScrollTop = scrollElement.scrollTop;
 		shouldStickToBottom = false;
@@ -439,7 +446,7 @@
 							isDesktopViewport ? 'bg-[#fbfaf8] px-4 py-4' : 'bg-transparent px-0 py-0'
 						}`}
 					>
-						<div class="flex min-h-full flex-col justify-end">
+						<div class="flex min-h-full flex-col">
 							{#if activeRoom && !activeRoom.canSend}
 								<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 									<AlertTitle>This chat is read-only</AlertTitle>
@@ -469,7 +476,7 @@
 									</p>
 								{/if}
 								<p
-									class={`text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
+									class={`mt-auto text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
 								>
 									Today
 								</p>
