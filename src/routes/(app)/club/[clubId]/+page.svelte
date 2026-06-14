@@ -16,6 +16,7 @@
 	} from '$lib/app/connectivity';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { untrack } from 'svelte';
 	import { fromStore } from 'svelte/store';
 
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
@@ -58,12 +59,15 @@
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 	const canMutateOnlineState = fromStore(canMutateOnlineStore);
 
-	let clubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
+	let clubs = $derived(clubsResponse.data ?? []);
+	let routeClubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
+	let routeClubIdTyped = $derived(routeClubId ? (routeClubId as Id<'clubs'>) : null);
+	let switchingClubId = $state<Id<'clubs'> | null>(null);
+	let clubIdTyped = $derived(switchingClubId ?? routeClubIdTyped);
+	let clubId = $derived(clubIdTyped ? String(clubIdTyped) : null);
 	let clubPath = $derived(clubId ? `/club/${clubId}` : '/onboarding/get-started');
 
-	let clubItem = $derived(
-		clubId ? ((clubsResponse.data ?? []).find((club) => club.clubId === clubId) ?? null) : null
-	);
+	let clubItem = $derived(clubId ? (clubs.find((club) => club.clubId === clubId) ?? null) : null);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 	let canReadAttendance = $derived(clubPermissions.includes('attendance:read'));
@@ -75,35 +79,44 @@
 	let canEditClub = $derived(clubPermissions.includes('club:edit'));
 	let canShowSessionAttendees = $derived(canReadMembers && canReadAttendance);
 
-	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
-
 	const upcomingSessionCardsResponse = useStableQuery(
 		api.sessions.listCardPreviewsByClub,
 		() =>
 			clubIdTyped && canReadSessions
 				? { clubId: clubIdTyped, upcomingOnly: true, limit: 6, includeAttendees: true }
 				: 'skip',
-		{ cache: 'memory' }
+		{ cache: 'memory', keepPreviousData: false }
 	);
 	const projectsPreviewResponse = useStableQuery(
 		api.projects.listPreviewsByClub,
 		() => (clubIdTyped && canReadProjects ? { clubId: clubIdTyped, limit: 6 } : 'skip'),
-		{ cache: 'memory' }
+		{ cache: 'memory', keepPreviousData: false }
 	);
 	const learnersResponse = useStableQuery(
 		api.clubs.getMembers,
 		() =>
 			clubIdTyped && canReadMembers ? { clubId: clubIdTyped, roleKey: 'learner' as const } : 'skip',
-		{ cache: 'memory' }
+		{ cache: 'memory', keepPreviousData: false }
 	);
 
-	let visibleUpcomingSessionCards = $derived(upcomingSessionCardsResponse.data ?? []);
+	let visibleUpcomingSessionCards = $derived(
+		canReadSessions ? (upcomingSessionCardsResponse.data ?? []) : []
+	);
 	let canMutateOnline = $derived(canMutateOnlineState.current);
 
-	let visibleProjects = $derived(projectsPreviewResponse.data ?? []);
-	let visibleLearners = $derived((learnersResponse.data ?? []).slice(0, 8));
+	let visibleProjects = $derived(canReadProjects ? (projectsPreviewResponse.data ?? []) : []);
+	let visibleLearners = $derived(canReadMembers ? (learnersResponse.data ?? []).slice(0, 8) : []);
 	let hiddenLearnersCount = $derived(
 		Math.max((learnersResponse.data?.length ?? 0) - visibleLearners.length, 0)
+	);
+	let sessionsLoading = $derived(
+		Boolean(clubIdTyped && canReadSessions && upcomingSessionCardsResponse.data === undefined)
+	);
+	let projectsLoading = $derived(
+		Boolean(clubIdTyped && canReadProjects && projectsPreviewResponse.data === undefined)
+	);
+	let learnersLoading = $derived(
+		Boolean(clubIdTyped && canReadMembers && learnersResponse.data === undefined)
 	);
 	let createSessionDialogOpen = $state(false);
 	let createSessionPending = $state(false);
@@ -114,7 +127,6 @@
 		description: ''
 	});
 	let projectRailNode = $state<HTMLDivElement | null>(null);
-	let switchingClubId = $state<Id<'clubs'> | null>(null);
 
 	const PROJECT_RAIL_SCROLL_KEY_PREFIX = 'club-dashboard-projects-rail-scroll';
 	const SESSION_CREATE_TIMEOUT_MS = 6_000;
@@ -213,48 +225,44 @@
 		learner.username ||
 		'Learner';
 
-	let initialLearnerImageUrls = $derived.by(() => {
-		return new Map(
-			(data.initialLearnerImages ?? []).map((asset) => [asset.assetId, asset.signedUrl] as const)
-		);
-	});
-	let initialProjectPreviewImageUrls = $derived.by(() => {
-		return new Map(
-			(data.initialProjectPreviewImages ?? []).map(
-				(asset) => [asset.assetId, asset.signedUrl] as const
-			)
-		);
-	});
-	let initialSessionAttendeeImageUrls = $derived.by(() => {
-		return new Map(
-			(data.initialSessionAttendeeImages ?? []).map(
-				(asset) => [asset.assetId, asset.signedUrl] as const
-			)
-		);
-	});
-
-	const learnerImageUrl = (learner: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) => {
-		if (learner.profileImageMediaAssetId) {
-			return initialLearnerImageUrls.get(learner.profileImageMediaAssetId) ?? null;
-		}
-
-		return null;
+	type SignedProfileImageAsset = {
+		assetId: Id<'mediaAssets'>;
+		signedUrl: string;
 	};
-	const previewMemberImageUrl = (member: {
-		profileImageMediaAssetId?: Id<'mediaAssets'> | null;
-	}) => {
-		if (member.profileImageMediaAssetId) {
-			return initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? null;
-		}
 
-		return null;
+	let signedProfileImageUrls = $state<Record<string, string>>({});
+
+	const mergeSignedProfileImageUrls = (assets: SignedProfileImageAsset[]) => {
+		if (assets.length === 0) return;
+		const current = untrack(() => signedProfileImageUrls);
+		const next = { ...current };
+		let changed = false;
+		for (const asset of assets) {
+			if (next[asset.assetId] === asset.signedUrl) continue;
+			next[asset.assetId] = asset.signedUrl;
+			changed = true;
+		}
+		if (changed) signedProfileImageUrls = next;
 	};
+
+	$effect(() => {
+		mergeSignedProfileImageUrls([
+			...(data.initialLearnerImages ?? []),
+			...(data.initialProjectPreviewImages ?? []),
+			...(data.initialSessionAttendeeImages ?? [])
+		]);
+	});
+
+	const cachedProfileImageUrl = (assetId?: Id<'mediaAssets'> | null) => {
+		return assetId ? (signedProfileImageUrls[assetId] ?? null) : null;
+	};
+
+	const learnerImageUrl = (learner: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) =>
+		cachedProfileImageUrl(learner.profileImageMediaAssetId);
+	const previewMemberImageUrl = (member: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) =>
+		cachedProfileImageUrl(member.profileImageMediaAssetId);
 	const attendeeImageUrl = (attendee: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) => {
-		if (attendee.profileImageMediaAssetId) {
-			return initialSessionAttendeeImageUrls.get(attendee.profileImageMediaAssetId) ?? null;
-		}
-
-		return null;
+		return cachedProfileImageUrl(attendee.profileImageMediaAssetId);
 	};
 	let visibleUpcomingSessionCardsWithSignedAttendees = $derived(
 		visibleUpcomingSessionCards.map((entry) => ({
@@ -285,14 +293,19 @@
 			await convexClient.mutation(api.clubs.switchActiveClub, { clubId: nextClubId });
 			await goto(routes.clubHome(nextClubId));
 		} catch (error) {
+			switchingClubId = null;
 			showGlobalSnackbar({
 				title: 'Unable to switch club',
 				description: error instanceof Error ? error.message : 'Please try again.'
 			});
-		} finally {
-			switchingClubId = null;
 		}
 	};
+
+	$effect(() => {
+		if (!switchingClubId) return;
+		if (switchingClubId !== routeClubIdTyped) return;
+		switchingClubId = null;
+	});
 
 	const restoreProjectRailScroll = (node: HTMLDivElement) => {
 		if (!browser) return;
@@ -360,7 +373,7 @@
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" class="w-64">
 				<DropdownMenuLabel>Switch club</DropdownMenuLabel>
-				{#each clubsResponse.data ?? [] as club (club.clubId)}
+				{#each clubs as club (club.clubId)}
 					<DropdownMenuItem
 						class="justify-between gap-3 py-2"
 						disabled={switchingClubId !== null}
@@ -395,7 +408,7 @@
 	<section class="flex flex-col gap-4">
 		<HomeSectionHeader title="Sessions">
 			{#snippet action()}
-				{#if canCreateSession && !upcomingSessionCardsResponse.isLoading && visibleUpcomingSessionCards.length === 0}
+				{#if canCreateSession && !sessionsLoading && visibleUpcomingSessionCards.length === 0}
 					<Button
 						variant="ghost"
 						size="sm"
@@ -424,7 +437,7 @@
 				variant="plain"
 				minHeightClass="min-h-44 sm:min-h-48"
 			/>
-		{:else if upcomingSessionCardsResponse.isLoading}
+		{:else if sessionsLoading}
 			<LoadingState class="min-h-40 sm:min-h-44" label="Loading sessions" />
 		{:else if visibleUpcomingSessionCardsWithSignedAttendees.length === 0}
 			<HomeEmptyCard
@@ -507,7 +520,7 @@
 	<section class="flex flex-col gap-4">
 		<HomeSectionHeader title="Projects">
 			{#snippet action()}
-				{#if canCreateProject && !projectsPreviewResponse.isLoading && visibleProjects.length === 0}
+				{#if canCreateProject && !projectsLoading && visibleProjects.length === 0}
 					<Button
 						href={`${clubPath}/projects`}
 						variant="ghost"
@@ -535,7 +548,7 @@
 				variant="plain"
 				minHeightClass="min-h-44 sm:min-h-48"
 			/>
-		{:else if projectsPreviewResponse.isLoading}
+		{:else if projectsLoading}
 			<LoadingState class="min-h-40 sm:min-h-44" label="Loading projects" />
 		{:else if visibleProjectsWithSignedMembers.length === 0}
 			<HomeEmptyCard
@@ -580,7 +593,7 @@
 			{/snippet}
 		</HomeSectionHeader>
 
-		{#if clubId && canReadMembers && learnersResponse.isLoading}
+		{#if clubId && canReadMembers && learnersLoading}
 			<LoadingState class="min-h-32 sm:min-h-36" label="Loading learners" />
 		{:else if clubId && canReadMembers && visibleLearners.length > 0}
 			<div class="flex flex-col gap-4">
