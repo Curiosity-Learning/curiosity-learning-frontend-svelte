@@ -122,6 +122,7 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 			requireEmailVerification: true,
 			sendResetPassword: async ({ user, url, token }) => {
 				await sendEmail({
+					type: 'password-reset',
 					to: user.email,
 					...passwordResetEmail({ url, token })
 				});
@@ -140,6 +141,7 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 				overrideDefaultEmailVerification: true,
 				sendVerificationOTP: async ({ email, otp, type }) => {
 					await sendEmail({
+						type: 'verification-otp',
 						to: email,
 						...verificationOtpEmail({ otp, type })
 					});

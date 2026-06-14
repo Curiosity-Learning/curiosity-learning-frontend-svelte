@@ -323,13 +323,7 @@ export const listUsersForMessaging = query({
 			.withIndex('by_user_id', (q) => q.eq('userId', identity.subject))
 			.first();
 
-		console.log('[chat] Viewer profile:', {
-			userId: identity.subject,
-			activeClubId: viewerProfile?.activeClubId
-		});
-
 		if (!viewerProfile?.activeClubId) {
-			console.log('[chat] No active club found');
 			return [];
 		}
 
@@ -340,8 +334,6 @@ export const listUsersForMessaging = query({
 			.query('clubMembers')
 			.withIndex('by_club', (q) => q.eq('clubId', clubId))
 			.collect();
-
-		console.log('[chat] Club members found:', clubMembers.length);
 
 		// Add club members
 		for (const member of clubMembers) {
@@ -368,15 +360,11 @@ export const listUsersForMessaging = query({
 			}
 		}
 
-		console.log('[chat] Users after club members:', users.length);
-
 		// Get all projects in the club via projectClubs table
 		const projectLinks = await ctx.db
 			.query('projectClubs')
 			.withIndex('by_club', (q) => q.eq('clubId', clubId))
 			.collect();
-
-		console.log('[chat] Project links found:', projectLinks.length);
 
 		// Get all project members
 		for (const link of projectLinks) {
@@ -412,8 +400,6 @@ export const listUsersForMessaging = query({
 				}
 			}
 		}
-
-		console.log('[chat] Final users list:', users.length, users);
 
 		// Sort by display name
 		users.sort((a, b) => a.displayName.localeCompare(b.displayName));

@@ -2,6 +2,8 @@ import { useQuery as useConvexQuery } from 'convex-svelte';
 import { getFunctionName } from 'convex/server';
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from 'convex/server';
 import { convexToJson, type Value } from 'convex/values';
+import { SvelteSet } from 'svelte/reactivity';
+import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 
 export type StableQueryMode = 'content' | 'gate';
 export type StableQueryCacheMode = 'off' | 'memory';
@@ -14,6 +16,7 @@ export type UseStableQueryOptions<Query extends FunctionReference<'query'>> = {
 };
 
 const stableQueryMemoryCache: Record<string, unknown> = Object.create(null);
+const reportedQueryErrors = new SvelteSet<string>();
 
 function resolveCacheArgs<Query extends FunctionReference<'query'>>(
 	args?: FunctionArgs<Query> | 'skip' | (() => FunctionArgs<Query> | 'skip')
@@ -80,6 +83,20 @@ export function useStableQuery<Query extends FunctionReference<'query'>>(
 			initialData: seededInitialData,
 			keepPreviousData: keepPreviousData ?? mode === 'content'
 		};
+	});
+
+	$effect(() => {
+		if (!result.error) return;
+		const functionName = getFunctionName(query);
+		const reportKey = `${functionName}:${result.error.message}`;
+		if (reportedQueryErrors.has(reportKey)) return;
+		if (reportedQueryErrors.size >= 100) reportedQueryErrors.clear();
+		reportedQueryErrors.add(reportKey);
+		captureUnexpectedOperationalError(result.error, {
+			area: 'convex-query',
+			operation: 'convex:query',
+			identifiers: { functionName }
+		});
 	});
 
 	$effect(() => {

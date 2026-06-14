@@ -2,6 +2,7 @@
  * Auth error normalization and translation.
  * Converts raw server errors into user-friendly messages.
  */
+import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 
 export type AuthErrorType =
 	| 'invalid-credentials'
@@ -30,7 +31,15 @@ export function normalizeAuthError(error: unknown): NormalizedAuthError {
 	const errorMessage = getErrorMessage(error).toLowerCase().trim();
 
 	// Server/network errors
-	if (errorMessage.includes('500') || errorMessage.includes('internal') || errorMessage.includes('server')) {
+	if (
+		errorMessage.includes('500') ||
+		errorMessage.includes('internal') ||
+		errorMessage.includes('server')
+	) {
+		captureUnexpectedOperationalError(error, {
+			area: 'auth',
+			operation: 'auth:client'
+		});
 		return {
 			type: 'unknown-error',
 			message: errorMessage,
@@ -91,7 +100,9 @@ export function normalizeAuthError(error: unknown): NormalizedAuthError {
 	// Password too weak
 	if (
 		errorMessage.includes('password') &&
-		(errorMessage.includes('weak') || errorMessage.includes('strength') || errorMessage.includes('require'))
+		(errorMessage.includes('weak') ||
+			errorMessage.includes('strength') ||
+			errorMessage.includes('require'))
 	) {
 		return {
 			type: 'password-too-weak',
@@ -118,7 +129,10 @@ export function normalizeAuthError(error: unknown): NormalizedAuthError {
 		};
 	}
 
-	if (errorMessage.includes('code') && (errorMessage.includes('expire') || errorMessage.includes('expired'))) {
+	if (
+		errorMessage.includes('code') &&
+		(errorMessage.includes('expire') || errorMessage.includes('expired'))
+	) {
 		return {
 			type: 'code-expired',
 			message: errorMessage,
@@ -141,6 +155,10 @@ export function normalizeAuthError(error: unknown): NormalizedAuthError {
 	}
 
 	// Default case
+	captureUnexpectedOperationalError(error, {
+		area: 'auth',
+		operation: 'auth:client'
+	});
 	return {
 		type: 'unknown-error',
 		message: errorMessage || 'Unknown error',

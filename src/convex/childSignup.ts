@@ -6,6 +6,7 @@ import { action, internalMutation, mutation, query } from './_generated/server';
 import { syntheticEmailForUsername } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { parentConsentEmail } from './email/templates';
+import { reportConvexError } from './monitoring';
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 
@@ -33,6 +34,7 @@ const sendParentConsentEmail = async (args: {
 	consentUrl: string;
 }) => {
 	await sendEmail({
+		type: 'parent-consent',
 		to: args.parentEmail,
 		...parentConsentEmail({
 			childUsername: args.childUsername,
@@ -64,42 +66,52 @@ export const registerChild = action({
 		success: v.boolean()
 	}),
 	handler: async (ctx, args) => {
-		const username = normalizeUsername(args.username);
-		const parentEmail = normalizeEmail(args.parentEmail);
-		if (!/^[a-z0-9_]{3,30}$/.test(username)) {
-			throw new ConvexError(
-				'Username can only contain lowercase letters, numbers, and underscores'
-			);
-		}
-		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) {
-			throw new ConvexError('A valid parent email is required');
-		}
-		if (args.password.length < 8) {
-			throw new ConvexError('Password must be at least 8 characters');
-		}
+		try {
+			const username = normalizeUsername(args.username);
+			const parentEmail = normalizeEmail(args.parentEmail);
+			if (!/^[a-z0-9_]{3,30}$/.test(username)) {
+				throw new ConvexError(
+					'Username can only contain lowercase letters, numbers, and underscores'
+				);
+			}
+			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) {
+				throw new ConvexError('A valid parent email is required');
+			}
+			if (args.password.length < 8) {
+				throw new ConvexError('Password must be at least 8 characters');
+			}
 
-		const token = createConsentToken();
-		const passwordHash = await hashPassword(args.password);
-		await ctx.runMutation(internal.childSignup.createPendingChildAccount, {
-			username,
-			parentEmail,
-			passwordHash,
-			token,
-			dateOfBirth: args.dateOfBirth,
-			nextPath: args.nextPath,
-			startClubApplicationDraft: args.startClubApplicationDraft
-		});
+			const token = createConsentToken();
+			const passwordHash = await hashPassword(args.password);
+			await ctx.runMutation(internal.childSignup.createPendingChildAccount, {
+				username,
+				parentEmail,
+				passwordHash,
+				token,
+				dateOfBirth: args.dateOfBirth,
+				nextPath: args.nextPath,
+				startClubApplicationDraft: args.startClubApplicationDraft
+			});
 
-		const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
-		if (!baseUrl) {
-			throw new Error('BETTER_AUTH_URL or PUBLIC_CONVEX_SITE_URL is required for consent links');
+			const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
+			if (!baseUrl) {
+				throw new Error('BETTER_AUTH_URL or PUBLIC_CONVEX_SITE_URL is required for consent links');
+			}
+			await sendParentConsentEmail({
+				parentEmail,
+				childUsername: username,
+				consentUrl: `${baseUrl}/onboarding/parent-consent/${token}`
+			});
+			return { success: true };
+		} catch (error) {
+			if (!(error instanceof ConvexError)) {
+				await reportConvexError(error, {
+					area: 'auth',
+					operation: 'child-signup:register'
+				});
+			}
+			throw error;
 		}
-		await sendParentConsentEmail({
-			parentEmail,
-			childUsername: username,
-			consentUrl: `${baseUrl}/onboarding/parent-consent/${token}`
-		});
-		return { success: true };
 	}
 });
 

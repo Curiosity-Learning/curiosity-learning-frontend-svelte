@@ -5,6 +5,7 @@
 	import { LoadingState } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 	import { api } from '$convex/_generated/api';
 	import { useConvexClient } from 'convex-svelte';
 	import type { PageProps } from './$types';
@@ -33,6 +34,10 @@
 			});
 			await goto('/auth/sign-in');
 		} catch (error) {
+			captureUnexpectedOperationalError(error, {
+				area: 'auth',
+				operation: 'parent-consent:approve'
+			});
 			errorMessage = error instanceof Error ? error.message : 'Unable to approve this account.';
 		} finally {
 			pending = false;
