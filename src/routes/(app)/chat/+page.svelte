@@ -405,7 +405,7 @@
 				class={`min-h-0 w-full flex-col overflow-hidden lg:w-[22rem] ${
 					isMobileDetailView
 						? 'hidden lg:flex'
-						: 'flex rounded-[1.1rem] bg-white/85 shadow-sm ring-1 ring-black/5'
+						: 'flex rounded-[1.1rem] bg-white shadow-sm ring-1 ring-black/5'
 				}`}
 			>
 				{#if roomsResponse.isLoading}
@@ -468,7 +468,7 @@
 				<section
 					class={`min-h-0 flex-1 flex-col overflow-hidden ${
 						isDesktopViewport
-							? 'flex rounded-[1.1rem] bg-white/85 shadow-sm ring-1 ring-black/5'
+							? 'flex rounded-[1.1rem] bg-white shadow-sm ring-1 ring-black/5'
 							: 'flex'
 					}`}
 				>
@@ -576,10 +576,10 @@
 					</div>
 
 					<div
-						class={`shrink-0 bg-white/90 ${
+						class={`shrink-0 bg-white ${
 							isDesktopViewport
 								? 'border-t border-border/60 px-3 pt-2 pb-3 sm:px-4'
-								: 'rounded-[1.1rem] shadow-sm ring-1 ring-black/5'
+								: 'overflow-hidden rounded-[1.1rem] shadow-sm ring-1 ring-black/5'
 						}`}
 					>
 						<Input
@@ -587,7 +587,7 @@
 							bind:value={message}
 							placeholder="Send a message..."
 							maxlength={MAX_MESSAGE_LENGTH}
-							class={`border-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
+							class={`border-0 bg-transparent text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
 								isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
 							}`}
 							disabled={!selectedRoomId || !activeRoom?.canSend}
@@ -614,7 +614,7 @@
 				</section>
 			{:else}
 				<section
-					class="hidden flex-1 items-center justify-center rounded-[1.1rem] bg-white/65 px-6 shadow-sm ring-1 ring-black/5 lg:flex"
+					class="hidden flex-1 items-center justify-center rounded-[1.1rem] bg-white px-6 shadow-sm ring-1 ring-black/5 lg:flex"
 				>
 					<div class="max-w-sm text-center">
 						<p class="text-base font-semibold text-[#242424]">Select a chat</p>
