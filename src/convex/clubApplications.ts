@@ -51,7 +51,7 @@ const requireGuideSomewhere = async (ctx: Ctx, userId: string) => {
 	for (const membership of memberships) {
 		if (membership.leftAt) continue;
 		const role = await ctx.db.get(membership.roleId);
-		if (role?.key === 'guide' || (!role?.key && role?.name === 'Guide')) {
+		if (role?.key === 'guide') {
 			return;
 		}
 	}
@@ -164,7 +164,6 @@ const upsertIncompleteApplication = async (
 		await ctx.db.patch(existing._id, {
 			...normalized,
 			applicantProfileId: args.profileId,
-			applicantUserId: undefined,
 			updatedAt: now
 		});
 		return { applicationId: existing._id };
@@ -257,7 +256,7 @@ export const submitApplication = mutation({
 		} as const;
 
 		if (existing) {
-			await ctx.db.patch(existing._id, { ...payload, applicantUserId: undefined });
+			await ctx.db.patch(existing._id, payload);
 			await ctx.scheduler.runAfter(0, internal.googleChat.notifyClubApplicationSubmitted, {
 				applicationId: existing._id,
 				name: payload.name,
@@ -381,7 +380,6 @@ export const upsertApplicationReview = mutation({
 		if (existing) {
 			await ctx.db.patch(existing._id, {
 				reviewerProfileId: profile._id,
-				reviewerUserId: undefined,
 				score: args.score,
 				note,
 				updatedAt: now

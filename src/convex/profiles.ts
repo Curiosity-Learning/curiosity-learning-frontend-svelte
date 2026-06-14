@@ -150,7 +150,6 @@ export const updateMe = mutation({
 			if (membership.leftAt) continue;
 			await ctx.db.patch(membership._id, {
 				profileId: updated._id,
-				userId: undefined,
 				firstName: updated.firstName,
 				lastName: updated.lastName,
 				username: updated.username,
@@ -162,20 +161,10 @@ export const updateMe = mutation({
 			.query('projectMembers')
 			.withIndex('by_profile', (q) => q.eq('profileId', updated._id))
 			.collect();
-		const legacyProjectMemberships = await ctx.db
-			.query('projectMembers')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
-		const projectMemberships = [
-			...new Map(
-				[...projectMembershipsByProfile, ...legacyProjectMemberships].map((row) => [row._id, row])
-			).values()
-		];
-		for (const membership of projectMemberships) {
+		for (const membership of projectMembershipsByProfile) {
 			if (membership.leftAt) continue;
 			await ctx.db.patch(membership._id, {
 				profileId: updated._id,
-				userId: undefined,
 				firstName: updated.firstName,
 				lastName: updated.lastName,
 				username: updated.username,
@@ -187,19 +176,9 @@ export const updateMe = mutation({
 			.query('participants')
 			.withIndex('by_profile', (q) => q.eq('profileId', updated._id))
 			.collect();
-		const legacyParticipants = await ctx.db
-			.query('participants')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
-		const participantRows = [
-			...new Map(
-				[...participantsByProfile, ...legacyParticipants].map((row) => [row._id, row])
-			).values()
-		];
-		for (const participant of participantRows) {
+		for (const participant of participantsByProfile) {
 			await ctx.db.patch(participant._id, {
 				profileId: updated._id,
-				userId: undefined,
 				displayName,
 				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});

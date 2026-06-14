@@ -13,41 +13,31 @@ const sortProfiles = (profileIds: Array<Id<'profiles'>>) => [...new Set(profileI
 
 const listParticipantRows = async (
 	ctx: Parameters<typeof requireProfile>[0],
-	profileId: Id<'profiles'>,
-	authUserId: string
+	profileId: Id<'profiles'>
 ) => {
-	const byProfile = await ctx.db
+	return await ctx.db
 		.query('participants')
 		.withIndex('by_profile', (q) => q.eq('profileId', profileId))
 		.collect();
-	const legacy = await ctx.db
-		.query('participants')
-		.withIndex('by_user', (q) => q.eq('userId', authUserId))
-		.collect();
-	return [...new Map([...byProfile, ...legacy].map((row) => [row._id, row])).values()];
 };
 
 const getRoomParticipant = async (
 	ctx: Parameters<typeof requireProfile>[0],
 	roomId: Id<'rooms'>,
-	profileId: Id<'profiles'>,
-	authUserId: string
-) =>
-	(await ctx.db
+	profileId: Id<'profiles'>
+) => {
+	return await ctx.db
 		.query('participants')
 		.withIndex('by_room_and_profile', (q) => q.eq('roomId', roomId).eq('profileId', profileId))
-		.unique()) ??
-	(await ctx.db
-		.query('participants')
-		.withIndex('by_room_and_user', (q) => q.eq('roomId', roomId).eq('userId', authUserId))
-		.unique());
+		.unique();
+};
 
 export const listRooms = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const memberships = await listParticipantRows(ctx, profile._id, identity.subject);
+		const memberships = await listParticipantRows(ctx, profile._id);
 
 		const rooms = await Promise.all(memberships.map((membership) => ctx.db.get(membership.roomId)));
 		return rooms.filter((room): room is NonNullable<typeof room> => Boolean(room));
@@ -59,7 +49,7 @@ export const listRoomSummaries = query({
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const memberships = await listParticipantRows(ctx, profile._id, identity.subject);
+		const memberships = await listParticipantRows(ctx, profile._id);
 		const membershipByRoomId = new Map(
 			memberships.map((membership) => [membership.roomId, membership])
 		);
@@ -89,7 +79,7 @@ export const listRoomSummaries = query({
 				await Promise.all(
 					participants.map(async (participant) => ({
 						participant,
-						profile: await getRelatedProfile(ctx, participant.profileId, participant.userId)
+						profile: await getRelatedProfile(ctx, participant.profileId)
 					}))
 				)
 			).filter((entry): entry is typeof entry & { profile: NonNullable<typeof entry.profile> } =>
@@ -137,7 +127,7 @@ export const getUnreadSummary = query({
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const memberships = await listParticipantRows(ctx, profile._id, identity.subject);
+		const memberships = await listParticipantRows(ctx, profile._id);
 
 		let totalUnreadCount = 0;
 		let roomsWithUnreadCount = 0;
@@ -188,18 +178,8 @@ export const getOrCreateDirectRoom = mutation({
 				q.eq('directProfileAId', directProfileAId).eq('directProfileBId', directProfileBId)
 			)
 			.unique();
-		const otherAuthUserId = getProfileAuthUserId(otherProfile);
-		const legacyDirectKey = otherAuthUserId
-			? [identity.subject, otherAuthUserId].sort().join('|')
-			: null;
-		const legacyExisting = legacyDirectKey
-			? await ctx.db
-					.query('rooms')
-					.withIndex('by_direct_key', (q) => q.eq('directKey', legacyDirectKey))
-					.unique()
-			: null;
-		if ((existing ?? legacyExisting) && !(existing ?? legacyExisting)?.isGroupChat) {
-			return existing ?? legacyExisting;
+		if (existing && !existing.isGroupChat) {
+			return existing;
 		}
 
 		const now = Date.now();
@@ -250,7 +230,7 @@ export const listMessages = query({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const membership = await getRoomParticipant(ctx, args.roomId, profile._id, identity.subject);
+		const membership = await getRoomParticipant(ctx, args.roomId, profile._id);
 		if (!membership) {
 			throw new ConvexError('Not a participant in this room');
 		}
@@ -262,11 +242,11 @@ export const listMessages = query({
 			.take(args.limit ?? 50);
 		const resolved = await Promise.all(
 			records.map(async (message) => {
-				const author = await getRelatedProfile(ctx, message.profileId, message.userId);
+				const author = await getRelatedProfile(ctx, message.profileId);
 				return {
 					...message,
-					profileId: author?._id ?? message.profileId ?? null,
-					userId: author ? getProfileAuthUserId(author) : message.userId
+					profileId: author?._id ?? message.profileId,
+					userId: author ? getProfileAuthUserId(author) : 'unknown'
 				};
 			})
 		);
@@ -283,7 +263,7 @@ export const sendMessage = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const membership = await getRoomParticipant(ctx, args.roomId, profile._id, identity.subject);
+		const membership = await getRoomParticipant(ctx, args.roomId, profile._id);
 		if (!membership) {
 			throw new ConvexError('Not a participant in this room');
 		}
@@ -320,7 +300,7 @@ export const sendMessage = mutation({
 			participants.map((participant) =>
 				ctx.db.patch(
 					participant._id,
-					participant.profileId === profile._id || participant.userId === identity.subject
+					participant.profileId === profile._id
 						? {
 								lastReadAt: now,
 								unreadCount: 0
@@ -343,7 +323,7 @@ export const markRoomRead = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const membership = await getRoomParticipant(ctx, args.roomId, profile._id, identity.subject);
+		const membership = await getRoomParticipant(ctx, args.roomId, profile._id);
 		if (!membership) {
 			throw new ConvexError('Not a participant in this room');
 		}
@@ -397,7 +377,7 @@ export const listUsersForMessaging = query({
 		// Add club members
 		for (const member of clubMembers) {
 			if (member.leftAt) continue; // Skip members who left
-			const memberProfile = await getRelatedProfile(ctx, member.profileId, member.userId);
+			const memberProfile = await getRelatedProfile(ctx, member.profileId);
 			if (!memberProfile || memberProfile._id === viewerProfile._id) continue;
 			const memberAuthUserId = getProfileAuthUserId(memberProfile);
 			if (!memberAuthUserId) continue;
@@ -440,11 +420,7 @@ export const listUsersForMessaging = query({
 
 			for (const projectMember of projectMembers) {
 				if (projectMember.leftAt) continue; // Skip members who left
-				const memberProfile = await getRelatedProfile(
-					ctx,
-					projectMember.profileId,
-					projectMember.userId
-				);
+				const memberProfile = await getRelatedProfile(ctx, projectMember.profileId);
 				if (!memberProfile || memberProfile._id === viewerProfile._id) continue;
 				const memberAuthUserId = getProfileAuthUserId(memberProfile);
 				if (!memberAuthUserId) continue;

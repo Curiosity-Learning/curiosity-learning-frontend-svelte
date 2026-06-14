@@ -3,7 +3,6 @@ import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import {
 	hasPermission,
-	getProfileAuthUserId,
 	getProjectRoleByKey,
 	getRelatedProfile,
 	isProjectPermissionAllowed,
@@ -102,7 +101,7 @@ export const listPreviewsByClub = query({
 
 			const members = await Promise.all(
 				activeMemberships.map(async (membership) => {
-					const profile = await getRelatedProfile(ctx, membership.profileId, membership.userId);
+					const profile = await getRelatedProfile(ctx, membership.profileId);
 					const fullName = [membership.firstName, membership.lastName]
 						.filter(Boolean)
 						.join(' ')
@@ -259,7 +258,7 @@ export const listMembers = query({
 		const result = [];
 		for (const membership of activeMemberships) {
 			const role = await ctx.db.get(membership.roleId);
-			const profile = await getRelatedProfile(ctx, membership.profileId, membership.userId);
+			const profile = await getRelatedProfile(ctx, membership.profileId);
 			if (!profile) continue;
 			result.push({
 				projectMemberId: membership._id,
@@ -307,9 +306,7 @@ export const getMemberProfileDeliveryAssets = query({
 			.collect();
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
 		const profiles = await Promise.all(
-			activeMemberships.map((membership) =>
-				getRelatedProfile(ctx, membership.profileId, membership.userId)
-			)
+			activeMemberships.map((membership) => getRelatedProfile(ctx, membership.profileId))
 		);
 
 		const allowedAssetIds = new Set(
@@ -376,25 +373,8 @@ export const addMember = mutation({
 				q.eq('projectId', args.projectId).eq('profileId', args.profileId)
 			)
 			.collect();
-		const legacyAuthUserId = getProfileAuthUserId(profile);
-		const legacyMemberships = legacyAuthUserId
-			? await ctx.db
-					.query('projectMembers')
-					.withIndex('by_project_and_user', (q) =>
-						q.eq('projectId', args.projectId).eq('userId', legacyAuthUserId)
-					)
-					.collect()
-			: [];
-		const memberships = [
-			...new Map(
-				[...existingMemberships, ...legacyMemberships].map((membership) => [
-					membership._id,
-					membership
-				])
-			).values()
-		];
-		const activeMembership = memberships.find((membership) => !membership.leftAt);
-		const historicalMembership = memberships.find((membership) => membership.leftAt);
+		const activeMembership = existingMemberships.find((membership) => !membership.leftAt);
+		const historicalMembership = existingMemberships.find((membership) => membership.leftAt);
 
 		if (activeMembership) {
 			throw new ConvexError('User is already a project member');
@@ -403,7 +383,6 @@ export const addMember = mutation({
 		if (historicalMembership) {
 			await ctx.db.patch(historicalMembership._id, {
 				profileId: args.profileId,
-				userId: undefined,
 				leftAt: undefined,
 				roleId: role._id,
 				firstName: profile.firstName,

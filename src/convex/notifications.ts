@@ -7,19 +7,11 @@ export const list = query({
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const byProfile = await ctx.db
+		return await ctx.db
 			.query('notifications')
 			.withIndex('by_profile_and_created', (q) => q.eq('profileId', profile._id))
 			.order('desc')
 			.take(100);
-		const legacy = await ctx.db
-			.query('notifications')
-			.withIndex('by_user_and_created', (q) => q.eq('userId', identity.subject))
-			.order('desc')
-			.take(100);
-		return [...new Map([...byProfile, ...legacy].map((row) => [row._id, row])).values()]
-			.sort((a, b) => b.createdAt - a.createdAt)
-			.slice(0, 100);
 	}
 });
 
@@ -31,12 +23,7 @@ export const markRead = mutation({
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
 		const notification = await ctx.db.get(args.notificationId);
-		if (
-			!notification ||
-			(notification.profileId
-				? notification.profileId !== profile._id
-				: notification.userId !== identity.subject)
-		) {
+		if (!notification || notification.profileId !== profile._id) {
 			return { success: false };
 		}
 
@@ -54,19 +41,11 @@ export const markAllRead = mutation({
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
 		// Bound the work; the UI currently shows at most 100 notifications.
-		const byProfile = await ctx.db
+		const notifications = await ctx.db
 			.query('notifications')
 			.withIndex('by_profile_and_created', (q) => q.eq('profileId', profile._id))
 			.order('desc')
 			.take(100);
-		const legacy = await ctx.db
-			.query('notifications')
-			.withIndex('by_user_and_created', (q) => q.eq('userId', identity.subject))
-			.order('desc')
-			.take(100);
-		const notifications = [
-			...new Map([...byProfile, ...legacy].map((row) => [row._id, row])).values()
-		].slice(0, 100);
 
 		for (const notification of notifications) {
 			if (notification.isRead) continue;

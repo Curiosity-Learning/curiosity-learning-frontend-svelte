@@ -5,9 +5,7 @@ import { clubRoleKeyValidator, projectRoleKeyValidator } from './roles';
 
 export default defineSchema({
 	profiles: defineTable({
-		authUserId: v.optional(v.string()),
-		// Legacy Better Auth identifier. New code uses authUserId at the auth boundary.
-		userId: v.optional(v.string()),
+		authUserId: v.string(),
 		firstName: v.optional(v.string()),
 		lastName: v.optional(v.string()),
 		username: v.optional(v.string()),
@@ -33,12 +31,11 @@ export default defineSchema({
 		updatedAt: v.number()
 	})
 		.index('by_auth_user_id', ['authUserId'])
-		.index('by_user_id', ['userId'])
 		.index('by_username', ['username'])
 		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
 
 	clubRoles: defineTable({
-		key: v.optional(clubRoleKeyValidator),
+		key: clubRoleKeyValidator,
 		name: v.string(),
 		description: v.optional(v.string()),
 		color: v.optional(v.string()),
@@ -62,13 +59,11 @@ export default defineSchema({
 		videoMediaAssetId: v.optional(v.id('mediaAssets')),
 		meetingDay: v.optional(v.string()),
 		meetingTime: v.optional(v.string()),
-		createdByProfileId: v.optional(v.id('profiles')),
-		createdByUserId: v.optional(v.string()),
+		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_created_by_profile', ['createdByProfileId'])
-		.index('by_created_by', ['createdByUserId'])
 		.index('by_club_code', ['clubCode'])
 		.index('by_video_media_asset', ['videoMediaAssetId']),
 
@@ -85,8 +80,7 @@ export default defineSchema({
 
 	clubMembers: defineTable({
 		clubId: v.id('clubs'),
-		profileId: v.optional(v.id('profiles')),
-		userId: v.optional(v.string()),
+		profileId: v.id('profiles'),
 		roleId: v.id('clubRoles'),
 		// Denormalized profile fields for faster member lists.
 		firstName: v.optional(v.string()),
@@ -98,12 +92,9 @@ export default defineSchema({
 	})
 		.index('by_club', ['clubId'])
 		.index('by_profile', ['profileId'])
-		.index('by_club_and_profile', ['clubId', 'profileId'])
-		.index('by_user', ['userId'])
-		.index('by_club_and_user', ['clubId', 'userId']),
+		.index('by_club_and_profile', ['clubId', 'profileId']),
 
 	clubApplications: defineTable({
-		applicantUserId: v.optional(v.string()),
 		applicantProfileId: v.id('profiles'),
 		status: v.union(v.literal('incomplete'), v.literal('pending'), v.literal('finalized')),
 		name: v.string(),
@@ -117,20 +108,16 @@ export default defineSchema({
 		referralOther: v.optional(v.string()),
 		createdClubId: v.optional(v.id('clubs')),
 		finalizedByProfileId: v.optional(v.id('profiles')),
-		finalizedByUserId: v.optional(v.string()),
 		finalizedAt: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_applicant_profile_id', ['applicantProfileId'])
-		.index('by_applicant_user_id', ['applicantUserId'])
-		.index('by_finalized_by_user_id', ['finalizedByUserId'])
 		.index('by_status_and_created_at', ['status', 'createdAt'])
 		.index('by_created_club_id', ['createdClubId']),
 
 	applicationReviews: defineTable({
 		applicationId: v.id('clubApplications'),
-		reviewerUserId: v.optional(v.string()),
 		reviewerProfileId: v.id('profiles'),
 		score: v.number(),
 		note: v.string(),
@@ -139,14 +126,10 @@ export default defineSchema({
 	})
 		.index('by_application_id', ['applicationId'])
 		.index('by_reviewer_profile_id', ['reviewerProfileId'])
-		.index('by_application_id_and_reviewer_profile_id', ['applicationId', 'reviewerProfileId'])
-		.index('by_reviewer_user_id', ['reviewerUserId'])
-		.index('by_application_id_and_reviewer_user_id', ['applicationId', 'reviewerUserId']),
+		.index('by_application_id_and_reviewer_profile_id', ['applicationId', 'reviewerProfileId']),
 
 	parentChildConsents: defineTable({
-		childUserId: v.optional(v.string()),
 		childProfileId: v.id('profiles'),
-		parentUserId: v.optional(v.string()),
 		parentProfileId: v.optional(v.id('profiles')),
 		parentEmail: v.string(),
 		status: v.union(v.literal('pending'), v.literal('approved')),
@@ -159,8 +142,6 @@ export default defineSchema({
 		updatedAt: v.number()
 	})
 		.index('by_child_profile_id', ['childProfileId'])
-		.index('by_child_user_id', ['childUserId'])
-		.index('by_parent_user_id', ['parentUserId'])
 		.index('by_parent_email', ['parentEmail'])
 		.index('by_token', ['token'])
 		.index('by_status_and_created_at', ['status', 'createdAt']),
@@ -170,13 +151,11 @@ export default defineSchema({
 		description: v.optional(v.string()),
 		startTime: v.number(),
 		endTime: v.number(),
-		createdByProfileId: v.optional(v.id('profiles')),
-		createdByUserId: v.optional(v.string()),
+		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_club', ['clubId'])
-		.index('by_created_by', ['createdByUserId'])
 		.index('by_club_and_start', ['clubId', 'startTime']),
 
 	buildingBlocks: defineTable({
@@ -194,10 +173,9 @@ export default defineSchema({
 		reviewedAt: v.optional(v.number()),
 		previousActivityId: v.optional(v.id('bookletActivities')),
 		createdByProfileId: v.optional(v.id('profiles')),
-		createdByUserId: v.optional(v.string()),
 		createdAt: v.number(),
 		updatedAt: v.number()
-	}).index('by_created_by', ['createdByUserId']),
+	}),
 
 	bookletActivityBuildingBlocks: defineTable({
 		activityId: v.id('bookletActivities'),
@@ -213,14 +191,11 @@ export default defineSchema({
 		content: v.optional(v.string()),
 		minutes: v.optional(v.number()),
 		order: v.optional(v.number()),
-		createdByProfileId: v.optional(v.id('profiles')),
-		createdByUserId: v.optional(v.string()),
+		createdByProfileId: v.id('profiles'),
 		bookletActivityId: v.optional(v.id('bookletActivities')),
 		createdAt: v.number(),
 		updatedAt: v.number()
-	})
-		.index('by_session', ['sessionId'])
-		.index('by_created_by', ['createdByUserId']),
+	}).index('by_session', ['sessionId']),
 
 	sessionActivityBuildingBlocks: defineTable({
 		sessionActivityId: v.id('sessionActivities'),
@@ -235,20 +210,15 @@ export default defineSchema({
 
 	attendances: defineTable({
 		sessionId: v.id('sessions'),
-		profileId: v.optional(v.id('profiles')),
-		userId: v.optional(v.string()),
-		createdByProfileId: v.optional(v.id('profiles')),
-		createdByUserId: v.optional(v.string()),
+		profileId: v.id('profiles'),
+		createdByProfileId: v.id('profiles'),
 		createdAt: v.number()
 	})
 		.index('by_session', ['sessionId'])
-		.index('by_user', ['userId'])
-		.index('by_created_by', ['createdByUserId'])
-		.index('by_session_and_profile', ['sessionId', 'profileId'])
-		.index('by_session_and_user', ['sessionId', 'userId']),
+		.index('by_session_and_profile', ['sessionId', 'profileId']),
 
 	projectRoles: defineTable({
-		key: v.optional(projectRoleKeyValidator),
+		key: projectRoleKeyValidator,
 		permissions: v.array(v.string()),
 		name: v.string(),
 		order: v.number(),
@@ -262,11 +232,10 @@ export default defineSchema({
 		dueDate: v.number(),
 		doneDate: v.optional(v.number()),
 		description: v.optional(v.string()),
-		createdByProfileId: v.optional(v.id('profiles')),
-		createdByUserId: v.optional(v.string()),
+		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
-	}).index('by_created_by', ['createdByUserId']),
+	}),
 
 	projectClubs: defineTable({
 		projectId: v.id('projects'),
@@ -279,8 +248,7 @@ export default defineSchema({
 
 	projectMembers: defineTable({
 		projectId: v.id('projects'),
-		profileId: v.optional(v.id('profiles')),
-		userId: v.optional(v.string()),
+		profileId: v.id('profiles'),
 		leftAt: v.optional(v.number()),
 		roleId: v.id('projectRoles'),
 		// Denormalized profile fields for faster member lists.
@@ -292,9 +260,7 @@ export default defineSchema({
 	})
 		.index('by_project', ['projectId'])
 		.index('by_profile', ['profileId'])
-		.index('by_project_and_profile', ['projectId', 'profileId'])
-		.index('by_user', ['userId'])
-		.index('by_project_and_user', ['projectId', 'userId']),
+		.index('by_project_and_profile', ['projectId', 'profileId']),
 
 	questions: defineTable({
 		content: v.string(),
@@ -304,15 +270,13 @@ export default defineSchema({
 	updates: defineTable({
 		projectId: v.optional(v.id('projects')),
 		content: v.string(),
-		createdByProfileId: v.optional(v.id('profiles')),
-		createdByUserId: v.optional(v.string()),
+		createdByProfileId: v.id('profiles'),
 		questionId: v.optional(v.id('questions')),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_project', ['projectId'])
-		.index('by_project_and_created', ['projectId', 'createdAt'])
-		.index('by_created_by', ['createdByUserId']),
+		.index('by_project_and_created', ['projectId', 'createdAt']),
 
 	updateClubs: defineTable({
 		updateId: v.id('updates'),
@@ -337,8 +301,7 @@ export default defineSchema({
 		.index('by_source_object_key', ['sourceObjectKey']),
 
 	notifications: defineTable({
-		profileId: v.optional(v.id('profiles')),
-		userId: v.optional(v.string()),
+		profileId: v.id('profiles'),
 		clubId: v.optional(v.id('clubs')),
 		title: v.string(),
 		message: v.string(),
@@ -347,13 +310,10 @@ export default defineSchema({
 		createdAt: v.number()
 	})
 		.index('by_profile', ['profileId'])
-		.index('by_profile_and_created', ['profileId', 'createdAt'])
-		.index('by_user', ['userId'])
-		.index('by_user_and_created', ['userId', 'createdAt']),
+		.index('by_profile_and_created', ['profileId', 'createdAt']),
 
 	userPreferences: defineTable({
-		profileId: v.optional(v.id('profiles')),
-		userId: v.optional(v.string()),
+		profileId: v.id('profiles'),
 		activeClubId: v.optional(v.id('clubs')),
 		theme: v.union(v.literal('light'), v.literal('dark'), v.literal('system')),
 		notificationsEnabled: v.boolean(),
@@ -369,9 +329,7 @@ export default defineSchema({
 			chatMessages: v.boolean()
 		}),
 		updatedAt: v.number()
-	})
-		.index('by_profile', ['profileId'])
-		.index('by_user', ['userId']),
+	}).index('by_profile', ['profileId']),
 
 	privacyPolicy: defineTable({
 		title: v.string(),
@@ -422,19 +380,14 @@ export default defineSchema({
 		name: v.optional(v.string()),
 		directProfileAId: v.optional(v.id('profiles')),
 		directProfileBId: v.optional(v.id('profiles')),
-		// For direct rooms: stable lookup key of the two participants.
-		directKey: v.optional(v.string()),
 		lastMessageAt: v.optional(v.number()),
 		lastMessagePreview: v.optional(v.string()),
 		createdAt: v.number()
-	})
-		.index('by_direct_profiles', ['directProfileAId', 'directProfileBId'])
-		.index('by_direct_key', ['directKey']),
+	}).index('by_direct_profiles', ['directProfileAId', 'directProfileBId']),
 
 	participants: defineTable({
 		roomId: v.id('rooms'),
-		profileId: v.optional(v.id('profiles')),
-		userId: v.optional(v.string()),
+		profileId: v.id('profiles'),
 		isAdmin: v.boolean(),
 		// Denormalized profile fields for faster room summaries.
 		displayName: v.optional(v.string()),
@@ -445,14 +398,11 @@ export default defineSchema({
 	})
 		.index('by_room', ['roomId'])
 		.index('by_profile', ['profileId'])
-		.index('by_room_and_profile', ['roomId', 'profileId'])
-		.index('by_user', ['userId'])
-		.index('by_room_and_user', ['roomId', 'userId']),
+		.index('by_room_and_profile', ['roomId', 'profileId']),
 
 	messages: defineTable({
 		roomId: v.id('rooms'),
-		profileId: v.optional(v.id('profiles')),
-		userId: v.optional(v.string()),
+		profileId: v.id('profiles'),
 		content: v.optional(v.string()),
 		type: v.union(v.literal('text'), v.literal('media')),
 		mediaUrl: v.optional(v.string()),
@@ -460,6 +410,5 @@ export default defineSchema({
 		createdAt: v.number()
 	})
 		.index('by_room', ['roomId'])
-		.index('by_user', ['userId'])
 		.index('by_room_and_created', ['roomId', 'createdAt'])
 });

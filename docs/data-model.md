@@ -27,9 +27,9 @@ Schema source: `src/convex/schema.ts`
 
 | Table                           | Purpose                            | Key Fields                                                                           | Indexes                                                  |
 | ------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| `sessions`                      | Session event within a club        | `clubId`, `startTime`, `endTime`, `description?`, `createdByUserId`                  | `by_club`, `by_club_and_start`                           |
+| `sessions`                      | Session event within a club        | `clubId`, `startTime`, `endTime`, `description?`, `createdByProfileId`               | `by_club`, `by_club_and_start`                           |
 | `buildingBlocks`                | Global taxonomy for activities     | `name`, `slug`                                                                       | `by_slug`                                                |
-| `bookletActivities`             | Reusable activity templates        | `name?`, `content?`, `minutes?`, `status?`, `createdByUserId?`                       | `by_created_by`                                          |
+| `bookletActivities`             | Reusable activity templates        | `name?`, `content?`, `minutes?`, `status?`, `createdByProfileId?`                    |                                                          |
 | `bookletActivityBuildingBlocks` | Join: activities ↔ building blocks | `activityId`, `buildingBlockId`                                                      | `by_activity`, `by_building_block`                       |
 | `sessionActivities`             | Activities inside a session        | `sessionId`, `name`, `slug?`, `content?`, `minutes?`, `order?`, `bookletActivityId?` | `by_session`                                             |
 | `sessionActivityBuildingBlocks` | Join: session activities ↔ blocks  | `sessionActivityId`, `sessionId?`, `buildingBlockId`                                 | `by_session_activity`, `by_session`, `by_building_block` |
@@ -40,7 +40,7 @@ Schema source: `src/convex/schema.ts`
 | Table            | Purpose                                 | Key Fields                                                           | Indexes                                              |
 | ---------------- | --------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------- |
 | `projectRoles`   | Project role definitions                | `key`, `name`, `permissions[]`                                       | `by_key`, `by_name`                                  |
-| `projects`       | Project record                          | `name`, `description?`, `dueDate`, `doneDate?`, `createdByProfileId` | `by_created_by`                                      |
+| `projects`       | Project record                          | `name`, `description?`, `dueDate`, `doneDate?`, `createdByProfileId` |                                                      |
 | `projectClubs`   | Join: projects ↔ clubs                  | `projectId`, `clubId`                                                | `by_project`, `by_club`, `by_club_and_project`       |
 | `projectMembers` | Profile membership in a project         | `projectId`, `profileId`, `roleId`, `leftAt?`                        | `by_project`, `by_profile`, `by_project_and_profile` |
 | `questions`      | Question prompts for updates            | `content`, `createdAt`                                               |                                                      |
@@ -58,7 +58,7 @@ Schema source: `src/convex/schema.ts`
 
 | Table            | Purpose                                     | Key Fields                                                           | Indexes                                                                        |
 | ---------------- | ------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `notifications`  | Per-user notifications                      | `userId`, `clubId?`, `title`, `message`, `url?`, `isRead`            | `by_user`, `by_user_and_created`                                               |
+| `notifications`  | Per-profile notifications                   | `profileId`, `clubId?`, `title`, `message`, `url?`, `isRead`         | `by_profile`, `by_profile_and_created`                                         |
 | `legalDocuments` | Versioned legal docs (privacy/terms/cookie) | `documentKey`, `fullName`, `title`, `content`, `version`, `isActive` | `by_document_key`, `by_document_key_and_active`, `by_document_key_and_updated` |
 | `privacyPolicy`  | Legacy compatibility wrapper source table   | `title`, `content`, `version`, `isActive`                            | `by_active`                                                                    |
 | `pledges`        | Onboarding pledge content                   | `key`, `title`, `description`, `bullets[]`, `order`, `isActive`      | `by_key`, `by_active_and_order`                                                |
@@ -71,4 +71,4 @@ Schema source: `src/convex/schema.ts`
 | `participants` | Room membership    | `roomId`, `profileId`, `isAdmin`, `displayName?`, `lastReadAt?`, `unreadCount?`                           | `by_room`, `by_profile`, `by_room_and_profile` |
 | `messages`     | Messages in a room | `roomId`, `profileId`, `content?`, `type`, `mediaUrl?`, `isDeleted`                                       | `by_room`, `by_room_and_created`               |
 
-Legacy auth-user string fields remain optional during the rollout. Run the internal paginated `migrations.backfillProfileRelationships` mutation and `roles.backfillStableKeys` before removing those compatibility fields.
+Profile-owned relationships use `profiles._id` columns. Auth-user strings remain only at auth and media ownership boundaries such as `profiles.authUserId` and `mediaAssets.ownerUserId`.

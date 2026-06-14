@@ -10,7 +10,7 @@ const makeSession = (id: string, startTime: number): Doc<'sessions'> =>
 		description: `Session ${id}`,
 		startTime,
 		endTime: startTime + 3_600_000,
-		createdByUserId: 'user_1',
+		createdByProfileId: 'profile_1' as Id<'profiles'>,
 		createdAt: Date.now(),
 		updatedAt: Date.now()
 	}) satisfies Doc<'sessions'>;

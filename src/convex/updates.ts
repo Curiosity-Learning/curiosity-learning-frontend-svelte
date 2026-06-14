@@ -32,10 +32,9 @@ const listUpdateMediaAssetIds = async (ctx: Ctx, updateId: Id<'updates'>) => {
 const resolveAuthorSummary = async (
 	ctx: QueryCtx,
 	profileId: Id<'profiles'> | undefined,
-	legacyAuthUserId: string | undefined,
 	cache: Map<string, AuthorSummary>
 ) => {
-	const cacheKey = profileId ?? legacyAuthUserId;
+	const cacheKey = profileId;
 	if (!cacheKey) {
 		return {
 			name: 'Unknown',
@@ -48,8 +47,8 @@ const resolveAuthorSummary = async (
 	const cached = cache.get(cacheKey);
 	if (cached) return cached;
 
-	const profile = await getRelatedProfile(ctx, profileId, legacyAuthUserId);
-	const authUserId = profile ? getProfileAuthUserId(profile) : (legacyAuthUserId ?? null);
+	const profile = await getRelatedProfile(ctx, profileId);
+	const authUserId = profile ? getProfileAuthUserId(profile) : null;
 	const name =
 		[profile?.firstName ?? '', profile?.lastName ?? ''].join(' ').trim() ||
 		profile?.username ||
@@ -150,12 +149,7 @@ export const listByClub = query({
 			if (!update) continue;
 			const projectId = row.projectId ?? update.projectId ?? null;
 			const project = projectId ? await ctx.db.get(projectId) : null;
-			const author = await resolveAuthorSummary(
-				ctx,
-				update.createdByProfileId,
-				update.createdByUserId,
-				authorCache
-			);
+			const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
 
 			items.push({
 				updateId: update._id,
@@ -261,12 +255,7 @@ export const listForViewer = query({
 					questionContent = null;
 				}
 			}
-			const author = await resolveAuthorSummary(
-				ctx,
-				update.createdByProfileId,
-				update.createdByUserId,
-				authorCache
-			);
+			const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
 
 			items.push({
 				updateId: update._id,
@@ -350,25 +339,14 @@ export const listMine = query({
 			seen.add(row.updateId);
 
 			const update = await ctx.db.get(row.updateId);
-			if (
-				!update ||
-				(update.createdByProfileId
-					? update.createdByProfileId !== viewerProfile._id
-					: update.createdByUserId !== identity.subject)
-			)
-				continue;
+			if (!update || update.createdByProfileId !== viewerProfile._id) continue;
 
 			const club = await ctx.db.get(row.clubId);
 			const projectId = row.projectId ?? update.projectId ?? null;
 			const project = projectId ? await ctx.db.get(projectId) : null;
 			const questionId = update.questionId ?? null;
 			const question = questionId ? await ctx.db.get(questionId) : null;
-			const author = await resolveAuthorSummary(
-				ctx,
-				update.createdByProfileId,
-				update.createdByUserId,
-				authorCache
-			);
+			const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
 
 			items.push({
 				updateId: update._id,
@@ -459,12 +437,7 @@ export const getViewerAuthorDeliveryAssets = query({
 			const update = await ctx.db.get(row.updateId);
 			if (!update) continue;
 
-			const author = await resolveAuthorSummary(
-				ctx,
-				update.createdByProfileId,
-				update.createdByUserId,
-				authorCache
-			);
+			const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
 			const assetId = author.imageAssetId;
 			if (!assetId || !requestedAssetIdSet.has(assetId) || delivered.has(assetId)) {
 				continue;

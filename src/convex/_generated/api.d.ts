@@ -27,7 +27,6 @@ import type * as mediaNode from "../mediaNode.js";
 import type * as mediaPipeline from "../mediaPipeline.js";
 import type * as mediaShared from "../mediaShared.js";
 import type * as mediaStorage from "../mediaStorage.js";
-import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as permissions from "../permissions.js";
 import type * as pledges from "../pledges.js";
@@ -66,7 +65,6 @@ declare const fullApi: ApiFromModules<{
   mediaPipeline: typeof mediaPipeline;
   mediaShared: typeof mediaShared;
   mediaStorage: typeof mediaStorage;
-  migrations: typeof migrations;
   notifications: typeof notifications;
   permissions: typeof permissions;
   pledges: typeof pledges;

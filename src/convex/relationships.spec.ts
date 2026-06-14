@@ -2,7 +2,7 @@
 
 import { convexTest } from 'convex-test';
 import { describe, expect, it } from 'vitest';
-import { api, internal } from './_generated/api';
+import { api } from './_generated/api';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
@@ -122,7 +122,7 @@ describe('relational integrity', () => {
 		).rejects.toThrow('Attendee must be an active club member');
 	});
 
-	it('stores attendance as a profile relationship without a duplicate auth user id', async () => {
+	it('stores attendance as a profile relationship', async () => {
 		const { t, roleId, firstClubId, firstSessionId } = await seedSessionFixture();
 		const learnerProfileId = await t.run(async (ctx) => {
 			const profileId = await ctx.db.insert('profiles', {
@@ -155,7 +155,6 @@ describe('relational integrity', () => {
 				.unique()
 		);
 		expect(attendance?.profileId).toBe(learnerProfileId);
-		expect(attendance?.userId).toBeUndefined();
 	});
 
 	it('uses a stable role key for application review authorization and reviewer relationships', async () => {
@@ -214,7 +213,6 @@ describe('relational integrity', () => {
 		});
 		const review = await t.run((ctx) => ctx.db.get(result.reviewId));
 		expect(review?.reviewerProfileId).toBe(ids.guideProfileId);
-		expect(review?.reviewerUserId).toBeUndefined();
 	});
 
 	it('adds project members through profile and role ids', async () => {
@@ -256,10 +254,9 @@ describe('relational integrity', () => {
 		});
 		expect(member?.profileId).toBe(ids.targetProfileId);
 		expect(member?.roleId).toBe(ids.projectRoleId);
-		expect(member?.userId).toBeUndefined();
 	});
 
-	it('reuses and migrates a historical legacy project membership', async () => {
+	it('reuses a historical project membership keyed by profile id', async () => {
 		const { t, profileId, firstClubId } = await seedSessionFixture();
 		const ids = await t.run(async (ctx) => {
 			const now = Date.now();
@@ -290,7 +287,7 @@ describe('relational integrity', () => {
 			});
 			const historicalMembershipId = await ctx.db.insert('projectMembers', {
 				projectId,
-				userId: 'returning-project-member',
+				profileId: targetProfileId,
 				roleId: projectRoleId,
 				leftAt: now,
 				createdAt: now
@@ -305,11 +302,10 @@ describe('relational integrity', () => {
 		});
 		expect(member?._id).toBe(ids.historicalMembershipId);
 		expect(member?.profileId).toBe(ids.targetProfileId);
-		expect(member?.userId).toBeUndefined();
 		expect(member?.leftAt).toBeUndefined();
 	});
 
-	it('creates direct rooms with profile relationships from legacy club membership rows', async () => {
+	it('creates direct rooms with profile relationships', async () => {
 		const t = convexTest(schema, modules);
 		const ids = await t.run(async (ctx) => {
 			const now = Date.now();
@@ -341,7 +337,7 @@ describe('relational integrity', () => {
 			});
 			await ctx.db.insert('clubMembers', {
 				clubId,
-				userId: 'chat-other',
+				profileId: otherProfileId,
 				roleId,
 				createdAt: now
 			});
@@ -355,7 +351,6 @@ describe('relational integrity', () => {
 		expect(new Set([room?.directProfileAId, room?.directProfileBId])).toEqual(
 			new Set([ids.viewerProfileId, ids.otherProfileId])
 		);
-		expect(room?.directKey).toBeUndefined();
 
 		const participants = await t.run((ctx) =>
 			ctx.db
@@ -364,53 +359,55 @@ describe('relational integrity', () => {
 				.collect()
 		);
 		expect(participants).toHaveLength(2);
-		expect(participants.every((participant) => participant.profileId && !participant.userId)).toBe(
-			true
+		expect(participants.map((participant) => participant.profileId).sort()).toEqual(
+			[ids.viewerProfileId, ids.otherProfileId].sort()
 		);
 	});
 
-	it('keeps the sender read state correct in legacy chat rooms', async () => {
+	it('keeps the sender read state correct in profile-keyed chat rooms', async () => {
 		const t = convexTest(schema, modules);
 		const ids = await t.run(async (ctx) => {
 			const now = Date.now();
 			const viewerProfileId = await ctx.db.insert('profiles', {
-				authUserId: 'legacy-chat-viewer',
+				authUserId: 'chat-viewer',
 				isVerified: true,
 				firstLoginCompleted: true,
 				updatedAt: now
 			});
-			await ctx.db.insert('profiles', {
-				authUserId: 'legacy-chat-other',
+			const otherProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'chat-other',
 				isVerified: true,
 				firstLoginCompleted: true,
 				updatedAt: now
 			});
+			const [directProfileAId, directProfileBId] = [viewerProfileId, otherProfileId].sort();
 			const roomId = await ctx.db.insert('rooms', {
 				isGroupChat: false,
-				directKey: 'legacy-chat-other|legacy-chat-viewer',
+				directProfileAId,
+				directProfileBId,
 				createdAt: now
 			});
 			const viewerParticipantId = await ctx.db.insert('participants', {
 				roomId,
-				userId: 'legacy-chat-viewer',
+				profileId: viewerProfileId,
 				isAdmin: true,
 				unreadCount: 4,
 				createdAt: now
 			});
 			const otherParticipantId = await ctx.db.insert('participants', {
 				roomId,
-				userId: 'legacy-chat-other',
+				profileId: otherProfileId,
 				isAdmin: false,
 				unreadCount: 2,
 				createdAt: now
 			});
 			return { viewerProfileId, roomId, viewerParticipantId, otherParticipantId };
 		});
-		const viewer = t.withIdentity({ subject: 'legacy-chat-viewer' });
+		const viewer = t.withIdentity({ subject: 'chat-viewer' });
 
 		const message = await viewer.mutation(api.chat.sendMessage, {
 			roomId: ids.roomId,
-			content: 'Legacy-compatible message'
+			content: 'Profile-keyed message'
 		});
 		const participants = await t.run(async (ctx) => ({
 			viewer: await ctx.db.get(ids.viewerParticipantId),
@@ -418,149 +415,7 @@ describe('relational integrity', () => {
 		}));
 
 		expect(message?.profileId).toBe(ids.viewerProfileId);
-		expect(message?.userId).toBeUndefined();
 		expect(participants.viewer?.unreadCount).toBe(0);
 		expect(participants.other?.unreadCount).toBe(3);
-	});
-
-	it('backfills relationships from a retired auth user id without changing the current profile auth id', async () => {
-		const t = convexTest(schema, modules);
-		const ids = await t.run(async (ctx) => {
-			const now = Date.now();
-			const profileId = await ctx.db.insert('profiles', {
-				authUserId: 'current-auth-user',
-				isVerified: true,
-				firstLoginCompleted: true,
-				updatedAt: now
-			});
-			const projectId = await ctx.db.insert('projects', {
-				name: 'Retired auth relationship',
-				dueDate: now + 60_000,
-				createdByUserId: 'retired-auth-user',
-				createdAt: now,
-				updatedAt: now
-			});
-			const roleId = await ctx.db.insert('projectRoles', {
-				key: 'creator',
-				name: 'Creator',
-				permissions: [],
-				order: 0,
-				createdAt: now
-			});
-			const memberId = await ctx.db.insert('projectMembers', {
-				projectId,
-				userId: 'retired-auth-user',
-				roleId,
-				createdAt: now
-			});
-			const preferenceId = await ctx.db.insert('userPreferences', {
-				userId: 'retired-auth-user',
-				theme: 'system',
-				notificationsEnabled: true,
-				notificationPreferences: {
-					clubMemberChanges: true,
-					projectDeadlineReminder: true,
-					projectMemberAdded: true,
-					projectCompleted: true,
-					sessionReminder: true,
-					sessionActivityChanges: true,
-					updateLikes: true,
-					updateComments: true,
-					chatMessages: true
-				},
-				updatedAt: now
-			});
-			return { profileId, projectId, memberId, preferenceId };
-		});
-
-		const result = await t.mutation(internal.migrations.backfillRetiredAuthUserRelationships, {
-			retiredAuthUserId: 'retired-auth-user',
-			profileId: ids.profileId
-		});
-		const migrated = await t.run(async (ctx) => ({
-			profile: await ctx.db.get(ids.profileId),
-			project: await ctx.db.get(ids.projectId),
-			member: await ctx.db.get(ids.memberId),
-			preference: await ctx.db.get(ids.preferenceId)
-		}));
-
-		expect(result.relationshipsMigrated).toBe(3);
-		expect(migrated.profile?.authUserId).toBe('current-auth-user');
-		expect(migrated.project?.createdByProfileId).toBe(ids.profileId);
-		expect(migrated.project?.createdByUserId).toBeUndefined();
-		expect(migrated.member?.profileId).toBe(ids.profileId);
-		expect(migrated.member?.userId).toBeUndefined();
-		expect(migrated.preference?.profileId).toBe(ids.profileId);
-		expect(migrated.preference?.userId).toBeUndefined();
-	});
-
-	it('backfills legacy person relationships and stable role keys', async () => {
-		const t = convexTest(schema, modules);
-		const ids = await t.run(async (ctx) => {
-			const now = Date.now();
-			const profileId = await ctx.db.insert('profiles', {
-				userId: 'legacy-user',
-				isVerified: true,
-				firstLoginCompleted: true,
-				updatedAt: now
-			});
-			const roleId = await ctx.db.insert('clubRoles', {
-				name: 'Guide',
-				permissions: [],
-				order: 0,
-				createdAt: now
-			});
-			const clubId = await ctx.db.insert('clubs', {
-				name: 'Legacy club',
-				createdByUserId: 'legacy-user',
-				createdAt: now,
-				updatedAt: now
-			});
-			const membershipId = await ctx.db.insert('clubMembers', {
-				clubId,
-				userId: 'legacy-user',
-				roleId,
-				createdAt: now
-			});
-			const sessionId = await ctx.db.insert('sessions', {
-				clubId,
-				startTime: now,
-				endTime: now + 60_000,
-				createdByUserId: 'legacy-user',
-				createdAt: now,
-				updatedAt: now
-			});
-			const attendanceId = await ctx.db.insert('attendances', {
-				sessionId,
-				userId: 'legacy-user',
-				createdByUserId: 'legacy-user',
-				createdAt: now
-			});
-			return { profileId, roleId, clubId, membershipId, attendanceId };
-		});
-
-		await t.mutation(internal.roles.backfillStableKeys, {});
-		await t.mutation(internal.migrations.backfillProfileRelationships, {
-			paginationOpts: { numItems: 10, cursor: null }
-		});
-
-		const result = await t.run(async (ctx) => ({
-			profile: await ctx.db.get(ids.profileId),
-			role: await ctx.db.get(ids.roleId),
-			club: await ctx.db.get(ids.clubId),
-			membership: await ctx.db.get(ids.membershipId),
-			attendance: await ctx.db.get(ids.attendanceId)
-		}));
-		expect(result.profile?.authUserId).toBe('legacy-user');
-		expect(result.profile?.userId).toBeUndefined();
-		expect(result.role?.key).toBe('guide');
-		expect(result.club?.createdByProfileId).toBe(ids.profileId);
-		expect(result.club?.createdByUserId).toBeUndefined();
-		expect(result.membership?.profileId).toBe(ids.profileId);
-		expect(result.membership?.userId).toBeUndefined();
-		expect(result.attendance?.profileId).toBe(ids.profileId);
-		expect(result.attendance?.createdByProfileId).toBe(ids.profileId);
-		expect(result.attendance?.userId).toBeUndefined();
-		expect(result.attendance?.createdByUserId).toBeUndefined();
 	});
 });

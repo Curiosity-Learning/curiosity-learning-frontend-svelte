@@ -1,12 +1,7 @@
 import { ConvexError } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { ActionCtx, QueryCtx, MutationCtx } from './_generated/server';
-import {
-	legacyClubRoleName,
-	legacyProjectRoleName,
-	type ClubRoleKey,
-	type ProjectRoleKey
-} from './roles';
+import type { ClubRoleKey, ProjectRoleKey } from './roles';
 
 type AuthCtx = QueryCtx | MutationCtx | ActionCtx;
 type DbCtx = QueryCtx | MutationCtx;
@@ -19,21 +14,12 @@ export const requireIdentity = async (ctx: AuthCtx) => {
 	return identity;
 };
 
-export const getProfileAuthUserId = (profile: Doc<'profiles'>) =>
-	profile.authUserId ?? profile.userId ?? null;
+export const getProfileAuthUserId = (profile: Doc<'profiles'>) => profile.authUserId;
 
 export const getProfileByAuthUserId = async (ctx: DbCtx, authUserId: string) => {
-	const profile = await ctx.db
-		.query('profiles')
-		.withIndex('by_auth_user_id', (q) => q.eq('authUserId', authUserId))
-		.unique();
-	if (profile) {
-		return profile;
-	}
-
 	return await ctx.db
 		.query('profiles')
-		.withIndex('by_user_id', (q) => q.eq('userId', authUserId))
+		.withIndex('by_auth_user_id', (q) => q.eq('authUserId', authUserId))
 		.unique();
 };
 
@@ -45,49 +31,24 @@ export const requireProfile = async (ctx: DbCtx, authUserId: string) => {
 	return profile;
 };
 
-export const getRelatedProfile = async (
-	ctx: DbCtx,
-	profileId?: Id<'profiles'>,
-	legacyAuthUserId?: string
-) => {
-	if (profileId) {
-		return await ctx.db.get(profileId);
-	}
-	return legacyAuthUserId ? await getProfileByAuthUserId(ctx, legacyAuthUserId) : null;
-};
+export const getRelatedProfile = async (ctx: DbCtx, profileId?: Id<'profiles'>) =>
+	profileId ? await ctx.db.get(profileId) : null;
 
-export const requireProfileAuthUserId = (profile: Doc<'profiles'>) => {
-	const authUserId = getProfileAuthUserId(profile);
-	if (!authUserId) {
-		throw new ConvexError('Profile is not linked to an auth user');
-	}
-	return authUserId;
-};
+export const requireProfileAuthUserId = (profile: Doc<'profiles'>) => profile.authUserId;
 
 export const getMembershipByProfileId = async (
 	ctx: DbCtx,
 	clubId: Id<'clubs'>,
 	profileId: Id<'profiles'>
 ) => {
-	const memberships = await ctx.db
-		.query('clubMembers')
-		.withIndex('by_club_and_profile', (q) => q.eq('clubId', clubId).eq('profileId', profileId))
-		.collect();
-	const membership = memberships.find((row) => !row.leftAt) ?? null;
-	if (membership) {
-		return membership.leftAt ? null : membership;
-	}
-
-	const profile = await ctx.db.get(profileId);
-	const authUserId = profile ? getProfileAuthUserId(profile) : null;
-	if (!authUserId) {
-		return null;
-	}
-	const legacyMemberships = await ctx.db
-		.query('clubMembers')
-		.withIndex('by_club_and_user', (q) => q.eq('clubId', clubId).eq('userId', authUserId))
-		.collect();
-	return legacyMemberships.find((row) => !row.leftAt) ?? null;
+	return (
+		(
+			await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) => q.eq('clubId', clubId).eq('profileId', profileId))
+				.collect()
+		).find((row) => !row.leftAt) ?? null
+	);
 };
 
 export const getMembership = async (ctx: DbCtx, clubId: Id<'clubs'>, authUserId: string) => {
@@ -96,18 +57,10 @@ export const getMembership = async (ctx: DbCtx, clubId: Id<'clubs'>, authUserId:
 };
 
 export const listMembershipsForProfile = async (ctx: DbCtx, profile: Doc<'profiles'>) => {
-	const byProfile = await ctx.db
+	return await ctx.db
 		.query('clubMembers')
 		.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
 		.collect();
-	const authUserId = getProfileAuthUserId(profile);
-	const legacy = authUserId
-		? await ctx.db
-				.query('clubMembers')
-				.withIndex('by_user', (q) => q.eq('userId', authUserId))
-				.collect()
-		: [];
-	return [...new Map([...byProfile, ...legacy].map((row) => [row._id, row])).values()];
 };
 
 export const hasPermission = async (
@@ -130,30 +83,16 @@ export const hasPermission = async (
 };
 
 export const getClubRoleByKey = async (ctx: DbCtx, key: ClubRoleKey) => {
-	const role = await ctx.db
-		.query('clubRoles')
-		.withIndex('by_key', (q) => q.eq('key', key))
-		.unique();
-	if (role) {
-		return role;
-	}
 	return await ctx.db
 		.query('clubRoles')
-		.withIndex('by_name', (q) => q.eq('name', legacyClubRoleName[key]))
+		.withIndex('by_key', (q) => q.eq('key', key))
 		.unique();
 };
 
 export const getProjectRoleByKey = async (ctx: DbCtx, key: ProjectRoleKey) => {
-	const role = await ctx.db
-		.query('projectRoles')
-		.withIndex('by_key', (q) => q.eq('key', key))
-		.unique();
-	if (role) {
-		return role;
-	}
 	return await ctx.db
 		.query('projectRoles')
-		.withIndex('by_name', (q) => q.eq('name', legacyProjectRoleName[key]))
+		.withIndex('by_key', (q) => q.eq('key', key))
 		.unique();
 };
 
@@ -184,11 +123,7 @@ export const isProjectPermissionAllowed = async (
 			q.eq('projectId', projectId).eq('profileId', profile._id)
 		)
 		.collect();
-	const legacyMemberships = await ctx.db
-		.query('projectMembers')
-		.withIndex('by_project_and_user', (q) => q.eq('projectId', projectId).eq('userId', userId))
-		.collect();
-	const membership = [...memberships, ...legacyMemberships].find((row) => !row.leftAt) ?? null;
+	const membership = memberships.find((row) => !row.leftAt) ?? null;
 	if (!membership || membership.leftAt) {
 		return false;
 	}
@@ -213,10 +148,5 @@ export const roleFromPermissions = (role: Doc<'clubRoles'> | null) => {
 	if (!role) {
 		return null;
 	}
-	if (role.key) {
-		return role.key === 'guide' ? 'Guide' : 'Learner';
-	}
-	return role.permissions.some((permission) => permission.includes(':create'))
-		? 'Guide'
-		: 'Learner';
+	return role.key === 'guide' ? 'Guide' : 'Learner';
 };

@@ -9,6 +9,7 @@ import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	hasPermission,
 	getClubRoleByKey,
+	getProfileByAuthUserId,
 	getProfileAuthUserId,
 	getRelatedProfile,
 	getMembership,
@@ -112,7 +113,7 @@ const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
 
 const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'clubMembers'>) => {
 	const role = await ctx.db.get(membership.roleId);
-	const profile = await getRelatedProfile(ctx, membership.profileId, membership.userId);
+	const profile = await getRelatedProfile(ctx, membership.profileId);
 	const clubVideoUrl = await resolveClubVideoUrl(ctx, club);
 
 	return {
@@ -128,7 +129,7 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubCode: club.clubCode ?? null,
 		memberId: membership._id,
 		memberProfileId: profile?._id ?? null,
-		memberUserId: profile ? getProfileAuthUserId(profile) : membership.userId,
+		memberUserId: profile ? getProfileAuthUserId(profile) : null,
 		memberLeftAt: membership.leftAt ?? null,
 		roleId: role?._id ?? null,
 		roleName: role?.name ?? null,
@@ -166,7 +167,7 @@ const resolveUniqueUsername = async (
 		.query('profiles')
 		.withIndex('by_username', (q) => q.eq('username', preferred))
 		.first();
-	if (!firstMatch || firstMatch.userId === userId) {
+	if (!firstMatch || firstMatch.authUserId === userId) {
 		return preferred;
 	}
 
@@ -176,7 +177,7 @@ const resolveUniqueUsername = async (
 			.query('profiles')
 			.withIndex('by_username', (q) => q.eq('username', candidate))
 			.first();
-		if (!match || match.userId === userId) {
+		if (!match || match.authUserId === userId) {
 			return candidate;
 		}
 	}
@@ -185,7 +186,7 @@ const resolveUniqueUsername = async (
 };
 
 const getOrCreateProfile = async (ctx: MutationCtx, userId: string) => {
-	const existing = await getRelatedProfile(ctx, undefined, userId);
+	const existing = await getProfileByAuthUserId(ctx, userId);
 	if (existing) {
 		return existing;
 	}
@@ -527,7 +528,7 @@ export const getActiveClubContext = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const profile = await getRelatedProfile(ctx, undefined, identity.subject);
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) {
 			return {
 				activeClubId: null,
@@ -666,15 +667,13 @@ export const getMembers = query({
 
 		for (const member of activeMembers) {
 			const role = await ctx.db.get(member.roleId);
-			const legacyRoleKey =
-				role?.name === 'Guide' ? 'guide' : role?.name === 'Learner' ? 'learner' : null;
-			if (args.roleKey && (role?.key ?? legacyRoleKey) !== args.roleKey) {
+			if (args.roleKey && role?.key !== args.roleKey) {
 				continue;
 			}
 
-			const profile = await getRelatedProfile(ctx, member.profileId, member.userId);
-			const authUserId = profile ? getProfileAuthUserId(profile) : member.userId;
-			if (!profile || !authUserId) continue;
+			const profile = await getRelatedProfile(ctx, member.profileId);
+			if (!profile) continue;
+			const authUserId = getProfileAuthUserId(profile);
 
 			// Fall back to the profiles table when denormalized fields are missing
 			let { firstName, lastName, username } = member;
@@ -731,7 +730,7 @@ export const getMemberProfileDeliveryAssets = query({
 			.collect();
 		const activeMembers = members.filter((member) => !member.leftAt);
 		const profiles = await Promise.all(
-			activeMembers.map((member) => getRelatedProfile(ctx, member.profileId, member.userId))
+			activeMembers.map((member) => getRelatedProfile(ctx, member.profileId))
 		);
 
 		const allowedAssetIds = new Set(
@@ -788,7 +787,7 @@ export const getProfileDeliveryAssets = query({
 			.collect();
 		const activeMembers = members.filter((member) => !member.leftAt);
 		const profiles = await Promise.all(
-			activeMembers.map((member) => getRelatedProfile(ctx, member.profileId, member.userId))
+			activeMembers.map((member) => getRelatedProfile(ctx, member.profileId))
 		);
 
 		const allowedAssetIds = new Set(

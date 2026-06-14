@@ -19,15 +19,10 @@ export const get = query({
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const current =
-			(await ctx.db
-				.query('userPreferences')
-				.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
-				.unique()) ??
-			(await ctx.db
-				.query('userPreferences')
-				.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-				.unique());
+		const current = await ctx.db
+			.query('userPreferences')
+			.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+			.unique();
 		if (current) {
 			return current;
 		}
@@ -65,21 +60,15 @@ export const upsert = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const existing =
-			(await ctx.db
-				.query('userPreferences')
-				.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
-				.unique()) ??
-			(await ctx.db
-				.query('userPreferences')
-				.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-				.unique());
+		const existing = await ctx.db
+			.query('userPreferences')
+			.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+			.unique();
 
 		const now = Date.now();
 		if (existing) {
 			await ctx.db.patch(existing._id, {
 				profileId: profile._id,
-				userId: undefined,
 				theme: args.theme ?? existing.theme,
 				notificationsEnabled: args.notificationsEnabled ?? existing.notificationsEnabled,
 				notificationPreferences: args.notificationPreferences ?? existing.notificationPreferences,

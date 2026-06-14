@@ -37,10 +37,11 @@ const getSessionAttendeePreviews = async (ctx: Ctx, sessionId: Id<'sessions'>, l
 	for (const row of attendanceRows) {
 		if (attendees.length >= limit) break;
 
-		const profile = await getRelatedProfile(ctx, row.profileId, row.userId);
-		const authUserId = profile ? getProfileAuthUserId(profile) : row.userId;
+		const profile = await getRelatedProfile(ctx, row.profileId);
+		if (!profile) continue;
+		const authUserId = getProfileAuthUserId(profile);
 		const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-		const name = profile ? fullName || profile.username || authUserId || 'Member' : 'Past member';
+		const name = fullName || profile.username || authUserId || 'Member';
 		attendees.push({
 			name,
 			imageUrl: null,
@@ -67,18 +68,18 @@ const getSessionAttendanceAttendees = async (ctx: Ctx, sessionId: Id<'sessions'>
 	}> = [];
 
 	for (const row of attendanceRows) {
-		const profile = await getRelatedProfile(ctx, row.profileId, row.userId);
-		const authUserId = profile ? getProfileAuthUserId(profile) : row.userId;
-		if (!authUserId) continue;
+		const profile = await getRelatedProfile(ctx, row.profileId);
+		if (!profile) continue;
+		const authUserId = getProfileAuthUserId(profile);
 
 		attendees.push({
-			profileId: profile?._id ?? null,
+			profileId: profile._id,
 			userId: authUserId,
 			firstName: profile?.firstName ?? null,
 			lastName: profile?.lastName ?? null,
 			username: profile?.username ?? null,
 			profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
-			isPastMember: !profile
+			isPastMember: false
 		});
 	}
 
@@ -128,19 +129,12 @@ export const countAttendedForViewer = query({
 				.collect();
 
 			for (const session of sessions) {
-				const attendance =
-					(await ctx.db
-						.query('attendances')
-						.withIndex('by_session_and_profile', (q) =>
-							q.eq('sessionId', session._id).eq('profileId', profile._id)
-						)
-						.unique()) ??
-					(await ctx.db
-						.query('attendances')
-						.withIndex('by_session_and_user', (q) =>
-							q.eq('sessionId', session._id).eq('userId', identity.subject)
-						)
-						.unique());
+				const attendance = await ctx.db
+					.query('attendances')
+					.withIndex('by_session_and_profile', (q) =>
+						q.eq('sessionId', session._id).eq('profileId', profile._id)
+					)
+					.unique();
 				if (attendance) {
 					count += 1;
 				}
@@ -643,11 +637,11 @@ export const listAttendance = query({
 			.collect();
 		return await Promise.all(
 			rows.map(async (row) => {
-				const profile = await getRelatedProfile(ctx, row.profileId, row.userId);
+				const profile = await getRelatedProfile(ctx, row.profileId);
 				return {
 					...row,
-					profileId: profile?._id ?? row.profileId ?? null,
-					userId: profile ? getProfileAuthUserId(profile) : row.userId
+					profileId: profile?._id ?? row.profileId,
+					userId: profile ? getProfileAuthUserId(profile) : 'unknown'
 				};
 			})
 		);
@@ -686,19 +680,12 @@ export const setAttendance = mutation({
 		}
 		const creatorProfile = await requireProfile(ctx, identity.subject);
 
-		const existing =
-			(await ctx.db
-				.query('attendances')
-				.withIndex('by_session_and_profile', (q) =>
-					q.eq('sessionId', args.sessionId).eq('profileId', args.profileId)
-				)
-				.unique()) ??
-			(await ctx.db
-				.query('attendances')
-				.withIndex('by_session_and_user', (q) =>
-					q.eq('sessionId', args.sessionId).eq('userId', getProfileAuthUserId(targetProfile) ?? '')
-				)
-				.unique());
+		const existing = await ctx.db
+			.query('attendances')
+			.withIndex('by_session_and_profile', (q) =>
+				q.eq('sessionId', args.sessionId).eq('profileId', args.profileId)
+			)
+			.unique();
 
 		if (args.attending) {
 			if (!existing) {
