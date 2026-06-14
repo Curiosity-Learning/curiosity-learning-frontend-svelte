@@ -1,18 +1,32 @@
 <script lang="ts">
 	import { Tabs as TabsPrimitive } from 'bits-ui';
 	import { cn } from '$lib/utils.js';
+	import { box } from 'svelte-toolbelt';
+	import { useTabs } from './tabs.svelte.js';
+
+	const uid = $props.id();
 
 	let {
 		ref = $bindable(null),
 		value = $bindable(''),
+		id = uid,
 		class: className,
 		...restProps
-	}: TabsPrimitive.RootProps = $props();
+	}: Omit<TabsPrimitive.RootProps, 'orientation' | 'id'> & { id?: string } = $props();
+
+	useTabs({
+		value: box.with(
+			() => value,
+			(v) => (value = v)
+		),
+		id: box.with(() => id)
+	});
 </script>
 
 <TabsPrimitive.Root
 	bind:ref
 	bind:value
+	orientation="horizontal"
 	data-slot="tabs"
 	class={cn('flex flex-col gap-2', className)}
 	{...restProps}
