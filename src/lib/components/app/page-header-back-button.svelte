@@ -10,14 +10,15 @@
 		enabled?: boolean;
 		fallbackHref?: string;
 		ariaLabel?: string;
+		preferFallback?: boolean;
 	};
 
-	let { enabled = true, fallbackHref, ariaLabel }: Props = $props();
+	let { enabled = true, fallbackHref, ariaLabel, preferFallback = false }: Props = $props();
 
 	const controller = getContext<PageHeaderController | undefined>(PAGE_HEADER_CTX);
 	$effect(() => {
 		if (!controller) return;
-		const value: HeaderBackConfig = enabled ? { fallbackHref, ariaLabel } : null;
+		const value: HeaderBackConfig = enabled ? { fallbackHref, ariaLabel, preferFallback } : null;
 		controller.setBackConfig(value);
 		return () => controller.clearBackConfig();
 	});
