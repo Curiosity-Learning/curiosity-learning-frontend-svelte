@@ -20,6 +20,7 @@ import {
 	roleFromPermissions
 } from './permissions';
 import { authComponent } from './auth';
+import { ensureClubRoom } from './chatModel';
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -430,6 +431,7 @@ export const createClub = mutation({
 			createdAt: now,
 			updatedAt: now
 		});
+		await ensureClubRoom(ctx, clubId);
 
 		const guideRole = await getRoleByKey(ctx, 'guide');
 		await ctx.db.insert('clubMembers', {
@@ -476,6 +478,7 @@ export const joinClubWithCode = mutation({
 		}
 
 		const profile = await getOrCreateProfile(ctx, identity.subject);
+		await ensureClubRoom(ctx, club._id);
 
 		const learnerRole = await getRoleByKey(ctx, 'learner');
 		await ctx.db.insert('clubMembers', {

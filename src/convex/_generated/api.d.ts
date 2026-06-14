@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as booklet from "../booklet.js";
 import type * as chat from "../chat.js";
+import type * as chatModel from "../chatModel.js";
 import type * as childAccounts from "../childAccounts.js";
 import type * as childSignup from "../childSignup.js";
 import type * as clubApplications from "../clubApplications.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   booklet: typeof booklet;
   chat: typeof chat;
+  chatModel: typeof chatModel;
   childAccounts: typeof childAccounts;
   childSignup: typeof childSignup;
   clubApplications: typeof clubApplications;

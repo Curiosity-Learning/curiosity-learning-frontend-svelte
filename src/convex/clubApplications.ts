@@ -10,6 +10,7 @@ import {
 	requireIdentity,
 	requireProfile
 } from './permissions';
+import { ensureClubApplicationRoom, ensureClubRoom } from './chatModel';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -257,6 +258,7 @@ export const submitApplication = mutation({
 
 		if (existing) {
 			await ctx.db.patch(existing._id, payload);
+			await ensureClubApplicationRoom(ctx, existing._id);
 			await ctx.scheduler.runAfter(0, internal.googleChat.notifyClubApplicationSubmitted, {
 				applicationId: existing._id,
 				name: payload.name,
@@ -272,6 +274,7 @@ export const submitApplication = mutation({
 			...payload,
 			createdAt: now
 		});
+		await ensureClubApplicationRoom(ctx, applicationId);
 
 		await ctx.scheduler.runAfter(0, internal.googleChat.notifyClubApplicationSubmitted, {
 			applicationId,
@@ -384,6 +387,7 @@ export const upsertApplicationReview = mutation({
 				note,
 				updatedAt: now
 			});
+			await ensureClubApplicationRoom(ctx, args.applicationId);
 			return { reviewId: existing._id };
 		}
 
@@ -395,6 +399,7 @@ export const upsertApplicationReview = mutation({
 			createdAt: now,
 			updatedAt: now
 		});
+		await ensureClubApplicationRoom(ctx, args.applicationId);
 		return { reviewId };
 	}
 });
@@ -443,6 +448,7 @@ export const finalizeApplication = mutation({
 			createdAt: now,
 			updatedAt: now
 		});
+		await ensureClubRoom(ctx, clubId);
 
 		const guideRole = await getRoleByKey(ctx, 'guide');
 		const existingMembership = await getMembershipByProfileId(

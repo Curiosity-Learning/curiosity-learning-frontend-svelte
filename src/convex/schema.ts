@@ -375,40 +375,29 @@ export default defineSchema({
 		.index('by_key', ['key'])
 		.index('by_active_and_order', ['isActive', 'order']),
 
-	rooms: defineTable({
-		isGroupChat: v.boolean(),
-		name: v.optional(v.string()),
-		directProfileAId: v.optional(v.id('profiles')),
-		directProfileBId: v.optional(v.id('profiles')),
-		lastMessageAt: v.optional(v.number()),
-		lastMessagePreview: v.optional(v.string()),
-		createdAt: v.number()
-	}).index('by_direct_profiles', ['directProfileAId', 'directProfileBId']),
-
-	participants: defineTable({
-		roomId: v.id('rooms'),
-		profileId: v.id('profiles'),
-		isAdmin: v.boolean(),
-		// Denormalized profile fields for faster room summaries.
-		displayName: v.optional(v.string()),
-		coverPhotoUrl: v.optional(v.string()),
-		lastReadAt: v.optional(v.number()),
-		unreadCount: v.optional(v.number()),
-		createdAt: v.number()
-	})
-		.index('by_room', ['roomId'])
-		.index('by_profile', ['profileId'])
-		.index('by_room_and_profile', ['roomId', 'profileId']),
+	rooms: defineTable(
+		v.union(
+			v.object({
+				contextType: v.literal('club'),
+				clubId: v.id('clubs')
+			}),
+			v.object({
+				contextType: v.literal('project'),
+				projectId: v.id('projects')
+			}),
+			v.object({
+				contextType: v.literal('clubApplication'),
+				clubApplicationId: v.id('clubApplications')
+			})
+		)
+	)
+		.index('by_club_id', ['clubId'])
+		.index('by_project_id', ['projectId'])
+		.index('by_club_application_id', ['clubApplicationId']),
 
 	messages: defineTable({
 		roomId: v.id('rooms'),
 		profileId: v.id('profiles'),
-		content: v.optional(v.string()),
-		type: v.union(v.literal('text'), v.literal('media')),
-		mediaUrl: v.optional(v.string()),
-		isDeleted: v.boolean(),
-		createdAt: v.number()
-	})
-		.index('by_room', ['roomId'])
-		.index('by_room_and_created', ['roomId', 'createdAt'])
+		content: v.string()
+	}).index('by_room', ['roomId'])
 });

@@ -139,12 +139,7 @@ export const updateMe = mutation({
 		const resolvedCoverPhotoUrl = await resolveProfileImageUrl(ctx, updated);
 		const denormalizedCoverPhotoUrl = resolvedCoverPhotoUrl ?? undefined;
 
-		const displayName =
-			updated.username ||
-			[updated.firstName, updated.lastName].filter(Boolean).join(' ').trim() ||
-			identity.subject;
-
-		// Keep denormalized member/profile fields in sync for faster reads.
+		// Keep denormalized club and project membership fields in sync for faster reads.
 		const clubMemberships = await listMembershipsForProfile(ctx, updated);
 		for (const membership of clubMemberships) {
 			if (membership.leftAt) continue;
@@ -168,18 +163,6 @@ export const updateMe = mutation({
 				firstName: updated.firstName,
 				lastName: updated.lastName,
 				username: updated.username,
-				coverPhotoUrl: denormalizedCoverPhotoUrl
-			});
-		}
-
-		const participantsByProfile = await ctx.db
-			.query('participants')
-			.withIndex('by_profile', (q) => q.eq('profileId', updated._id))
-			.collect();
-		for (const participant of participantsByProfile) {
-			await ctx.db.patch(participant._id, {
-				profileId: updated._id,
-				displayName,
 				coverPhotoUrl: denormalizedCoverPhotoUrl
 			});
 		}
