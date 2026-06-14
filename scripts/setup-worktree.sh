@@ -155,13 +155,15 @@ setup_convex() {
 		ref="$WORKTREE_CONVEX_PROJECT_REF:$ref"
 	fi
 
-	local expiration_args=()
+	echo "Selecting isolated Convex deployment $ref."
+	local create_status=0
 	if [ -n "${WORKTREE_CONVEX_EXPIRATION:-}" ] && convex_cli_supports "deployment create" "--expiration"; then
-		expiration_args=(--expiration "$WORKTREE_CONVEX_EXPIRATION")
+		npx convex deployment create "$ref" --type dev --select --expiration "$WORKTREE_CONVEX_EXPIRATION" || create_status=$?
+	else
+		npx convex deployment create "$ref" --type dev --select || create_status=$?
 	fi
 
-	echo "Selecting isolated Convex deployment $ref."
-	if ! npx convex deployment create "$ref" --type dev --select "${expiration_args[@]}"; then
+	if [ "$create_status" -ne 0 ]; then
 		echo "Deployment already exists or could not be created; trying to select it."
 		npx convex deployment select "$ref"
 	fi
