@@ -182,7 +182,7 @@
 				return;
 			}
 
-			if (stickToBottom || messageCount <= INITIAL_MESSAGE_LIMIT) {
+			if (stickToBottom && messageCount > 0) {
 				scrollElement.scrollTop = scrollElement.scrollHeight;
 			}
 		});
