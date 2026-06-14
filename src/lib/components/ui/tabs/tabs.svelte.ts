@@ -1,4 +1,3 @@
-import { Tabs as TabsPrimitive } from 'bits-ui';
 import { Context } from 'runed';
 import { crossfade } from 'svelte/transition';
 import type { ReadableBoxedValues, WritableBoxedValues } from 'svelte-toolbelt';
@@ -15,20 +14,11 @@ type TabsRootProps = WritableBoxedValues<{
 	}>;
 
 class TabsRootState {
-	hoveredTab = $state<string | null>(null);
-	isHovered = $state(false);
-
-	constructor(readonly opts: TabsRootProps) {
-		this.hoveredTab = this.opts.value.current;
-	}
+	constructor(readonly opts: TabsRootProps) {}
 }
 
 type TabsTriggerProps = ReadableBoxedValues<{
 	value: string;
-	onmouseenter: TabsPrimitive.TriggerProps['onmouseenter'];
-	onmouseleave: TabsPrimitive.TriggerProps['onmouseleave'];
-	onfocus: TabsPrimitive.TriggerProps['onfocus'];
-	onblur: TabsPrimitive.TriggerProps['onblur'];
 }>;
 
 class TabsTriggerState {
@@ -37,43 +27,8 @@ class TabsTriggerState {
 		readonly rootState: TabsRootState
 	) {}
 
-	handleFocus() {
-		this.rootState.isHovered = true;
-		this.rootState.hoveredTab = this.opts.value.current;
-	}
-
-	handleBlur() {
-		if (this.rootState.hoveredTab === this.opts.value.current) {
-			this.rootState.isHovered = false;
-		}
-	}
-
-	onmouseenter(event: Parameters<NonNullable<TabsPrimitive.TriggerProps['onmouseenter']>>[0]) {
-		this.handleFocus();
-		this.opts.onmouseenter.current?.(event);
-	}
-
-	onmouseleave(event: Parameters<NonNullable<TabsPrimitive.TriggerProps['onmouseleave']>>[0]) {
-		this.handleBlur();
-		this.opts.onmouseleave.current?.(event);
-	}
-
-	onfocus(event: Parameters<NonNullable<TabsPrimitive.TriggerProps['onfocus']>>[0]) {
-		this.handleFocus();
-		this.opts.onfocus.current?.(event);
-	}
-
-	onblur(event: Parameters<NonNullable<TabsPrimitive.TriggerProps['onblur']>>[0]) {
-		this.handleBlur();
-		this.opts.onblur.current?.(event);
-	}
-
 	props = $derived.by(() => ({
-		value: this.opts.value.current,
-		onmouseenter: this.onmouseenter.bind(this),
-		onmouseleave: this.onmouseleave.bind(this),
-		onfocus: this.onfocus.bind(this),
-		onblur: this.onblur.bind(this)
+		value: this.opts.value.current
 	}));
 }
 
