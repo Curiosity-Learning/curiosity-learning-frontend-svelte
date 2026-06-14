@@ -7,6 +7,7 @@
 	import { api } from '$convex/_generated/api';
 	import {
 		LoadingState,
+		PageBottomNavVisibility,
 		PageHeaderBackButton,
 		PageHeaderSearch,
 		PageHeaderTitle,
@@ -381,6 +382,7 @@
 		</p>
 	</div>
 </PageHeaderTitleContent>
+<PageBottomNavVisibility hidden={isMobileDetailView} />
 
 {#if !$session.data}
 	<Alert>
@@ -388,7 +390,7 @@
 		<AlertDescription>Sign in to view chats.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="flex w-full flex-col gap-4">
+	<div class="flex min-h-0 w-full flex-1 flex-col gap-4">
 		{#if errorMessage}
 			<Alert variant="destructive">
 				<AlertTitle>Chat action failed</AlertTitle>
@@ -396,7 +398,7 @@
 			</Alert>
 		{/if}
 
-		<div class="flex h-[calc(100dvh-10.5rem)] min-h-0 gap-4 overflow-hidden">
+		<div class="flex min-h-0 flex-1 gap-4 overflow-hidden">
 			<section
 				class={`min-h-0 w-full flex-col overflow-hidden lg:w-[22rem] ${
 					isMobileDetailView
