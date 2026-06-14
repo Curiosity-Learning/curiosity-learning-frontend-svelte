@@ -42,7 +42,7 @@
 
 <nav aria-label={ariaLabel} class="flex w-full justify-center lg:justify-start">
 	<Tabs value={activeTabHref} onValueChange={handleValueChange} class="w-full">
-		<TabsList class="justify-center lg:justify-start">
+		<TabsList class="-mb-px justify-center lg:justify-start">
 			{#each tabs as tab (tab.href)}
 				<TabsTrigger value={tab.href}>{tab.label}</TabsTrigger>
 			{/each}

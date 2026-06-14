@@ -32,7 +32,7 @@
 	</TabsPrimitive.Trigger>
 	{#if state.rootState.opts.value.current === value}
 		<div
-			class="absolute -bottom-px z-1 h-0.5 w-full bg-orange-500"
+			class="absolute bottom-0 z-1 h-0.5 w-full bg-orange-500"
 			in:receive={{ key: `${state.rootState.opts.id.current}-tab-active-border`, duration: 200 }}
 			out:send={{ key: `${state.rootState.opts.id.current}-tab-active-border`, duration: 200 }}
 		></div>
