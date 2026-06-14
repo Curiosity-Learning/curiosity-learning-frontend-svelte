@@ -14,6 +14,7 @@ export type HeaderSearchOverride = HeaderSearchConfig | null;
 export type HeaderBackConfig = {
 	fallbackHref?: string;
 	ariaLabel?: string;
+	preferFallback?: boolean;
 } | null;
 export type HeaderTitleOverride = string | null;
 export type HeaderTitleContentOverride = import('svelte').Snippet | null;

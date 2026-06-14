@@ -99,7 +99,7 @@
 	};
 </script>
 
-<PageHeaderBackButton fallbackHref={clubId ? routes.clubHome(clubId) : '/'} />
+<PageHeaderBackButton fallbackHref={clubId ? routes.clubHome(clubId) : '/'} preferFallback />
 <PageHeaderTitle title="Club settings" />
 
 {#if clubsResponse.isLoading}

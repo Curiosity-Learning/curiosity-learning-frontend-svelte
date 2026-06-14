@@ -108,6 +108,10 @@
 
 	const handleBack = async () => {
 		if (!headerBack) return;
+		if (headerBack.preferFallback && headerBack.fallbackHref) {
+			await goto(headerBack.fallbackHref);
+			return;
+		}
 		if (canUseInternalHistoryBack({ initialHistoryIndex })) {
 			window.history.back();
 			return;
