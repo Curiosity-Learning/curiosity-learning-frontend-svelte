@@ -129,7 +129,7 @@ push_convex_env() {
 	build_convex_env_file "$temp_env" "${sources[@]}"
 
 	if [ -s "$temp_env" ]; then
-		npx convex env set --from-file "$temp_env"
+		npx convex env set --from-file "$temp_env" --force
 	fi
 
 	rm -f "$temp_env"
@@ -195,7 +195,7 @@ fi
 restore_env
 
 if [ "${WORKTREE_SETUP_INSTALL:-1}" != "0" ]; then
-	npm install
+	WORKTREE_POSTINSTALL_SETUP=0 npm install
 fi
 
 setup_convex
