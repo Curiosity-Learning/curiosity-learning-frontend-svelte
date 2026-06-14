@@ -31,6 +31,22 @@
 		lastMessageAt: number;
 		canSend: boolean;
 	};
+	type LocalMessage = {
+		localId: string;
+		roomId: Id<'rooms'>;
+		profileId: Id<'profiles'> | null;
+		content: string;
+		createdAt: number;
+		status: 'sending' | 'failed';
+		serverId?: Id<'messages'>;
+	};
+	type VisibleMessage = {
+		key: string;
+		profileId: Id<'profiles'> | null;
+		content: string;
+		createdAt: number;
+		status?: LocalMessage['status'];
+	};
 
 	const DESKTOP_BREAKPOINT = 1024;
 	const MAX_MESSAGE_LENGTH = 1_000;
@@ -44,11 +60,12 @@
 	);
 
 	let message = $state('');
-	let pending = $state(false);
 	let errorMessage = $state('');
 	let roomSearchQuery = $state('');
 	let isDesktopViewport = $state(false);
 	let messageInputRef = $state<HTMLInputElement | null>(null);
+	let localMessages = $state<LocalMessage[]>([]);
+	let localMessageCounter = 0;
 
 	$effect(() => {
 		if (!browser) return;
@@ -93,6 +110,41 @@
 	const messagesResponse = useStableQuery(api.chat.listMessages, () =>
 		$session.data && selectedRoomId ? { roomId: selectedRoomId, limit: 100 } : 'skip'
 	);
+	let visibleMessages = $derived.by(() => {
+		const serverMessages = messagesResponse.data ?? [];
+		const serverIds = new Set(serverMessages.map((entry) => entry._id));
+		const localEntries = localMessages.filter(
+			(entry) =>
+				entry.roomId === selectedRoomId && (!entry.serverId || !serverIds.has(entry.serverId))
+		);
+		const entries: VisibleMessage[] = [
+			...serverMessages.map((entry) => ({
+				key: entry._id,
+				profileId: entry.profileId,
+				content: entry.content,
+				createdAt: entry._creationTime
+			})),
+			...localEntries.map((entry) => ({
+				key: entry.localId,
+				profileId: entry.profileId,
+				content: entry.content,
+				createdAt: entry.createdAt,
+				status: entry.status
+			}))
+		];
+
+		return entries.sort((left, right) => left.createdAt - right.createdAt);
+	});
+
+	$effect(() => {
+		const serverIds = new Set((messagesResponse.data ?? []).map((entry) => entry._id));
+		const nextLocalMessages = localMessages.filter(
+			(entry) => !entry.serverId || !serverIds.has(entry.serverId)
+		);
+		if (nextLocalMessages.length !== localMessages.length) {
+			localMessages = nextLocalMessages;
+		}
+	});
 
 	const initialsFromName = (name: string) =>
 		name
@@ -152,23 +204,37 @@
 			return;
 		}
 
-		pending = true;
+		const localId = `${Date.now()}-${(localMessageCounter += 1)}`;
+		localMessages = [
+			...localMessages,
+			{
+				localId,
+				roomId: targetRoomId,
+				profileId: viewer.data?._id ?? null,
+				content: trimmedMessage,
+				createdAt: Date.now(),
+				status: 'sending'
+			}
+		];
+		message = '';
 		errorMessage = '';
-		let sent = false;
+		focusMessageInput();
+
 		try {
-			await convexClient.mutation(api.chat.sendMessage, {
+			const sentMessage = await convexClient.mutation(api.chat.sendMessage, {
 				roomId: targetRoomId,
 				content: trimmedMessage
 			});
-			message = '';
-			sent = true;
+			localMessages = localMessages.map((entry) =>
+				entry.localId === localId && sentMessage?._id
+					? { ...entry, status: 'sending', serverId: sentMessage._id }
+					: entry
+			);
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to send message.';
-		} finally {
-			pending = false;
-			if (sent) {
-				focusMessageInput();
-			}
+			localMessages = localMessages.map((entry) =>
+				entry.localId === localId ? { ...entry, status: 'failed' } : entry
+			);
 		}
 	};
 
@@ -317,7 +383,7 @@
 
 						{#if messagesResponse.isLoading}
 							<LoadingState label="Loading messages" />
-						{:else if (messagesResponse.data?.length ?? 0) === 0}
+						{:else if visibleMessages.length === 0}
 							<p class="px-4 text-sm text-muted-foreground lg:px-0">
 								{activeRoom?.canSend ? 'No messages yet. Send the first one.' : 'No messages yet.'}
 							</p>
@@ -328,7 +394,7 @@
 								Today
 							</p>
 							<div class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'}`}>
-								{#each messagesResponse.data ?? [] as entry (entry._id)}
+								{#each visibleMessages as entry (entry.key)}
 									<div
 										class={`flex ${
 											entry.profileId === viewer.data?._id
@@ -359,7 +425,13 @@
 											<p
 												class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
 											>
-												{formatClockTime(entry._creationTime)}
+												{#if entry.status === 'sending'}
+													Sending...
+												{:else if entry.status === 'failed'}
+													Failed to send
+												{:else}
+													{formatClockTime(entry.createdAt)}
+												{/if}
 											</p>
 										</div>
 									</div>
@@ -383,7 +455,7 @@
 							class={`border-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
 								isDesktopViewport ? 'px-0' : 'h-10 px-4 py-0'
 							}`}
-							disabled={pending || !selectedRoomId || !activeRoom?.canSend}
+							disabled={!selectedRoomId || !activeRoom?.canSend}
 							onkeydown={handleMessageComposerKeydown}
 						/>
 						<div
@@ -396,7 +468,7 @@
 										? 'text-orange-500 hover:text-orange-600'
 										: 'text-orange-400 hover:text-orange-500'
 								}`}
-								disabled={pending || !selectedRoomId || !activeRoom?.canSend || !message.trim()}
+								disabled={!selectedRoomId || !activeRoom?.canSend || !message.trim()}
 								onclick={() => void sendMessage()}
 								aria-label="Send message"
 							>
