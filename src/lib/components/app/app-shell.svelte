@@ -22,7 +22,6 @@
 		CollapsibleContent,
 		CollapsibleTrigger
 	} from '$lib/components/ui/collapsible';
-	import { Separator } from '$lib/components/ui/separator';
 	import ConnectivityOverlay from './connectivity-overlay.svelte';
 	import AppNavItem from './app-nav-item.svelte';
 	import type { AppNavItem as AppNavItemType, AppNavKey } from './navigation';
@@ -503,7 +502,6 @@
 							/>
 						{/each}
 					</nav>
-					<Separator class="hidden sm:block" />
 				</div>
 			</footer>
 		</div>
