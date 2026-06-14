@@ -57,7 +57,7 @@
 	const MAX_MESSAGE_LENGTH = 1_000;
 	const INITIAL_MESSAGE_LIMIT = 40;
 	const MESSAGE_LIMIT_INCREMENT = 40;
-	const TOP_LOAD_THRESHOLD_PX = 640;
+	const TOP_LOAD_THRESHOLD_PX = 960;
 	const BOTTOM_STICK_THRESHOLD_PX = 120;
 
 	const convexClient = useConvexClient();
