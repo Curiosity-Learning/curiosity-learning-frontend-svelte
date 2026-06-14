@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import { convexTest } from 'convex-test';
 import { describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
@@ -134,11 +136,12 @@ describe('context room chat', () => {
 		const { roomId, viewer } = await seedClubChatFixture({ viewerLeftAt: Date.now() });
 
 		const summaries = await viewer.query(api.chat.listRoomSummaries, {});
-		const messages = await viewer.query(api.chat.listMessages, { roomId });
+		const result = await viewer.query(api.chat.listMessages, { roomId });
 
 		expect(summaries).toHaveLength(1);
 		expect(summaries[0].canSend).toBe(false);
-		expect(messages.map((entry) => entry.content)).toEqual(['Welcome']);
+		expect(result.messages.map((entry) => entry.content)).toEqual(['Welcome']);
+		expect(result.hasMore).toBe(false);
 		await expect(
 			viewer.mutation(api.chat.sendMessage, { roomId, content: 'I should not send' })
 		).rejects.toThrow('You can no longer send messages in this chat');
@@ -183,10 +186,19 @@ describe('context room chat', () => {
 			roomId,
 			content: 'Second message'
 		});
-		const messages = await viewer.query(api.chat.listMessages, { roomId });
+		const result = await viewer.query(api.chat.listMessages, { roomId });
 
-		expect(messages.map((message) => message._id)).toEqual([firstMessageId, sent?._id]);
-		expect(messages.map((message) => message.content)).toEqual(['Welcome', 'Second message']);
+		expect(result.messages.map((message) => message._id)).toEqual([firstMessageId, sent?._id]);
+		expect(result.messages.map((message) => message.content)).toEqual([
+			'Welcome',
+			'Second message'
+		]);
+		expect(result.hasMore).toBe(false);
+
+		const latestPage = await viewer.query(api.chat.listMessages, { roomId, limit: 1 });
+
+		expect(latestPage.messages.map((message) => message._id)).toEqual([sent?._id]);
+		expect(latestPage.hasMore).toBe(true);
 	});
 
 	it('allows done project members to chat and removed project members to read only', async () => {
@@ -288,7 +300,9 @@ describe('context room chat', () => {
 			profileId: ids.viewerProfileId,
 			roomId: ids.doneRoomId
 		});
-		expect(removedMessages.map((entry) => entry.content)).toEqual(['Historical project message']);
+		expect(removedMessages.messages.map((entry) => entry.content)).toEqual([
+			'Historical project message'
+		]);
 		await expect(
 			viewer.mutation(api.chat.sendMessage, { roomId: ids.removedRoomId, content: 'Blocked' })
 		).rejects.toThrow('You can no longer send messages in this chat');

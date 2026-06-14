@@ -50,6 +50,10 @@
 
 	const DESKTOP_BREAKPOINT = 1024;
 	const MAX_MESSAGE_LENGTH = 1_000;
+	const INITIAL_MESSAGE_LIMIT = 40;
+	const MESSAGE_LIMIT_INCREMENT = 40;
+	const TOP_LOAD_THRESHOLD_PX = 96;
+	const BOTTOM_STICK_THRESHOLD_PX = 120;
 
 	const convexClient = useConvexClient();
 	const session = authClient.useSession();
@@ -64,6 +68,12 @@
 	let roomSearchQuery = $state('');
 	let isDesktopViewport = $state(false);
 	let messageInputRef = $state<HTMLInputElement | null>(null);
+	let messageScrollRef = $state<HTMLDivElement | null>(null);
+	let messageLimit = $state(INITIAL_MESSAGE_LIMIT);
+	let selectedRoomForScroll = $state<Id<'rooms'> | null>(null);
+	let shouldStickToBottom = $state(true);
+	let pendingPrependScrollHeight = $state<number | null>(null);
+	let pendingPrependScrollTop = $state(0);
 	let localMessages = $state<LocalMessage[]>([]);
 	let localMessageCounter = 0;
 
@@ -108,10 +118,11 @@
 	});
 
 	const messagesResponse = useStableQuery(api.chat.listMessages, () =>
-		$session.data && selectedRoomId ? { roomId: selectedRoomId, limit: 100 } : 'skip'
+		$session.data && selectedRoomId ? { roomId: selectedRoomId, limit: messageLimit } : 'skip'
 	);
+	let serverMessages = $derived(messagesResponse.data?.messages ?? []);
+	let hasMoreMessages = $derived(Boolean(messagesResponse.data?.hasMore));
 	let visibleMessages = $derived.by(() => {
-		const serverMessages = messagesResponse.data ?? [];
 		const serverIds = new Set(serverMessages.map((entry) => entry._id));
 		const localEntries = localMessages.filter(
 			(entry) =>
@@ -137,13 +148,44 @@
 	});
 
 	$effect(() => {
-		const serverIds = new Set((messagesResponse.data ?? []).map((entry) => entry._id));
+		const serverIds = new Set(serverMessages.map((entry) => entry._id));
 		const nextLocalMessages = localMessages.filter(
 			(entry) => !entry.serverId || !serverIds.has(entry.serverId)
 		);
 		if (nextLocalMessages.length !== localMessages.length) {
 			localMessages = nextLocalMessages;
 		}
+	});
+
+	$effect(() => {
+		if (selectedRoomForScroll === selectedRoomId) return;
+		selectedRoomForScroll = selectedRoomId;
+		messageLimit = INITIAL_MESSAGE_LIMIT;
+		shouldStickToBottom = true;
+		pendingPrependScrollHeight = null;
+	});
+
+	$effect(() => {
+		const messageCount = visibleMessages.length;
+		const loading = messagesResponse.isLoading;
+		const scrollElement = messageScrollRef;
+		const prependScrollHeight = pendingPrependScrollHeight;
+		const prependScrollTop = pendingPrependScrollTop;
+		const stickToBottom = shouldStickToBottom;
+		if (!browser || !scrollElement || loading) return;
+
+		requestAnimationFrame(() => {
+			if (prependScrollHeight !== null) {
+				scrollElement.scrollTop =
+					scrollElement.scrollHeight - prependScrollHeight + prependScrollTop;
+				pendingPrependScrollHeight = null;
+				return;
+			}
+
+			if (stickToBottom || messageCount <= INITIAL_MESSAGE_LIMIT) {
+				scrollElement.scrollTop = scrollElement.scrollHeight;
+			}
+		});
 	});
 
 	const initialsFromName = (name: string) =>
@@ -197,6 +239,28 @@
 		requestAnimationFrame(() => messageInputRef?.focus());
 	};
 
+	const loadOlderMessages = () => {
+		const scrollElement = messageScrollRef;
+		if (!scrollElement || messagesResponse.isLoading || !hasMoreMessages) return;
+		pendingPrependScrollHeight = scrollElement.scrollHeight;
+		pendingPrependScrollTop = scrollElement.scrollTop;
+		shouldStickToBottom = false;
+		messageLimit += MESSAGE_LIMIT_INCREMENT;
+	};
+
+	const handleMessagesScroll = () => {
+		const scrollElement = messageScrollRef;
+		if (!scrollElement) return;
+
+		const distanceFromBottom =
+			scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight;
+		shouldStickToBottom = distanceFromBottom <= BOTTOM_STICK_THRESHOLD_PX;
+
+		if (scrollElement.scrollTop <= TOP_LOAD_THRESHOLD_PX) {
+			loadOlderMessages();
+		}
+	};
+
 	const sendMessage = async () => {
 		const targetRoomId = selectedRoomId;
 		const trimmedMessage = message.trim();
@@ -218,6 +282,7 @@
 		];
 		message = '';
 		errorMessage = '';
+		shouldStickToBottom = true;
 		focusMessageInput();
 
 		try {
@@ -282,7 +347,7 @@
 			</Alert>
 		{/if}
 
-		<div class="flex min-h-[calc(100dvh-10.5rem)] gap-4">
+		<div class="flex h-[calc(100dvh-10.5rem)] min-h-0 gap-4 overflow-hidden">
 			<section
 				class={`min-h-0 w-full flex-col overflow-hidden lg:w-[22rem] ${
 					isMobileDetailView
@@ -368,80 +433,96 @@
 					</div>
 
 					<div
-						class={`flex-1 overflow-y-auto ${
+						bind:this={messageScrollRef}
+						onscroll={handleMessagesScroll}
+						class={`min-h-0 flex-1 overflow-y-auto ${
 							isDesktopViewport ? 'bg-[#fbfaf8] px-4 py-4' : 'bg-transparent px-0 py-0'
 						}`}
 					>
-						{#if activeRoom && !activeRoom.canSend}
-							<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
-								<AlertTitle>This chat is read-only</AlertTitle>
-								<AlertDescription>
-									You can still view the message history, but you can no longer send messages here.
-								</AlertDescription>
-							</Alert>
-						{/if}
+						<div class="flex min-h-full flex-col justify-end">
+							{#if activeRoom && !activeRoom.canSend}
+								<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+									<AlertTitle>This chat is read-only</AlertTitle>
+									<AlertDescription>
+										You can still view the message history, but you can no longer send messages
+										here.
+									</AlertDescription>
+								</Alert>
+							{/if}
 
-						{#if messagesResponse.isLoading}
-							<LoadingState label="Loading messages" />
-						{:else if visibleMessages.length === 0}
-							<p class="px-4 text-sm text-muted-foreground lg:px-0">
-								{activeRoom?.canSend ? 'No messages yet. Send the first one.' : 'No messages yet.'}
-							</p>
-						{:else}
-							<p
-								class={`text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
-							>
-								Today
-							</p>
-							<div class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'}`}>
-								{#each visibleMessages as entry (entry.key)}
-									<div
-										class={`flex ${
-											entry.profileId === viewer.data?._id
-												? isDesktopViewport
-													? 'justify-end'
-													: 'justify-end pl-11'
-												: isDesktopViewport
-													? 'justify-start'
-													: 'justify-start pr-11'
-										}`}
-									>
+							{#if messagesResponse.isLoading && visibleMessages.length === 0}
+								<LoadingState label="Loading messages" />
+							{:else if visibleMessages.length === 0}
+								<p class="px-4 text-sm text-muted-foreground lg:px-0">
+									{activeRoom?.canSend
+										? 'No messages yet. Send the first one.'
+										: 'No messages yet.'}
+								</p>
+							{:else}
+								{#if messagesResponse.isLoading && visibleMessages.length > 0}
+									<p class="mb-3 text-center text-xs text-muted-foreground">
+										Loading older messages...
+									</p>
+								{:else if hasMoreMessages}
+									<p class="mb-3 text-center text-xs text-muted-foreground">
+										Scroll up to load older messages
+									</p>
+								{/if}
+								<p
+									class={`text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
+								>
+									Today
+								</p>
+								<div class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'}`}>
+									{#each visibleMessages as entry (entry.key)}
 										<div
-											class={`${
-												isDesktopViewport
-													? 'max-w-[85%] rounded-2xl px-3 py-2'
-													: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
-											} ${
+											class={`flex ${
 												entry.profileId === viewer.data?._id
-													? 'bg-[#f5e2d2] text-[#2b2b2b]'
-													: 'bg-[#e7e9f3] text-[#2b2b2b]'
+													? isDesktopViewport
+														? 'justify-end'
+														: 'justify-end pl-11'
+													: isDesktopViewport
+														? 'justify-start'
+														: 'justify-start pr-11'
 											}`}
 										>
-											<p
-												class={`${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}
+											<div
+												class={`${
+													isDesktopViewport
+														? 'max-w-[85%] rounded-2xl px-3 py-2'
+														: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
+												} ${
+													entry.profileId === viewer.data?._id
+														? 'bg-[#f5e2d2] text-[#2b2b2b]'
+														: 'bg-[#e7e9f3] text-[#2b2b2b]'
+												}`}
 											>
-												{entry.content}
-											</p>
-											<p
-												class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
-											>
-												{#if entry.status === 'sending'}
-													Sending...
-												{:else if entry.status === 'failed'}
-													Failed to send
-												{:else}
-													{formatClockTime(entry.createdAt)}
-												{/if}
-											</p>
+												<p
+													class={`${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}
+												>
+													{entry.content}
+												</p>
+												<p
+													class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
+												>
+													{#if entry.status === 'sending'}
+														Sending...
+													{:else if entry.status === 'failed'}
+														Failed to send
+													{:else}
+														{formatClockTime(entry.createdAt)}
+													{/if}
+												</p>
+											</div>
 										</div>
-									</div>
-								{/each}
-							</div>
-						{/if}
+									{/each}
+								</div>
+							{/if}
+						</div>
 					</div>
 
 					<div
-						class={`bg-white/90 ${
+						class={`shrink-0 bg-white/90 ${
 							isDesktopViewport
 								? 'border-t border-border/60 px-3 pt-2 pb-3 sm:px-4'
 								: 'rounded-[1.1rem] shadow-sm ring-1 ring-black/5'

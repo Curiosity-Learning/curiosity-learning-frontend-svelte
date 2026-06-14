@@ -5,6 +5,7 @@ import { mutation, query } from './_generated/server';
 import { requireIdentity, requireProfile } from './permissions';
 
 const MAX_MESSAGE_LENGTH = 1_000;
+const DEFAULT_MESSAGE_LIMIT = 50;
 type Ctx = QueryCtx | MutationCtx;
 type RoomAccess = { canRead: boolean; canSend: boolean };
 
@@ -276,12 +277,18 @@ export const listMessages = query({
 		const profile = await requireProfile(ctx, identity.subject);
 		await requireRoomAccess(ctx, args.roomId, profile._id, 'read');
 
+		const requestedLimit = Math.floor(args.limit ?? DEFAULT_MESSAGE_LIMIT);
+		const limit = Math.max(requestedLimit, 1);
 		const records = await ctx.db
 			.query('messages')
 			.withIndex('by_room', (q) => q.eq('roomId', args.roomId))
 			.order('desc')
-			.take(args.limit ?? 50);
-		return records.reverse();
+			.take(limit + 1);
+		const hasMore = records.length > limit;
+		return {
+			messages: records.slice(0, limit).reverse(),
+			hasMore
+		};
 	}
 });
 
