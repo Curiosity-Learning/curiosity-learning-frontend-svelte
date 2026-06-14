@@ -47,6 +47,11 @@
 		createdAt: number;
 		status?: LocalMessage['status'];
 	};
+	type ScrollAnchor = {
+		key: string;
+		top: number;
+		serverMessageCount: number;
+	};
 
 	const DESKTOP_BREAKPOINT = 1024;
 	const MAX_MESSAGE_LENGTH = 1_000;
@@ -74,6 +79,7 @@
 	let shouldStickToBottom = $state(true);
 	let pendingPrependScrollHeight = $state<number | null>(null);
 	let pendingPrependScrollTop = $state(0);
+	let pendingPrependAnchor = $state<ScrollAnchor | null>(null);
 	let localMessages = $state<LocalMessage[]>([]);
 	let localMessageCounter = 0;
 
@@ -163,22 +169,43 @@
 		messageLimit = INITIAL_MESSAGE_LIMIT;
 		shouldStickToBottom = true;
 		pendingPrependScrollHeight = null;
+		pendingPrependAnchor = null;
 	});
 
 	$effect(() => {
 		const messageCount = visibleMessages.length;
+		const serverMessageCount = serverMessages.length;
 		const loading = messagesResponse.isLoading;
 		const scrollElement = messageScrollRef;
 		const prependScrollHeight = pendingPrependScrollHeight;
 		const prependScrollTop = pendingPrependScrollTop;
+		const prependAnchor = pendingPrependAnchor;
 		const stickToBottom = shouldStickToBottom;
 		if (!browser || !scrollElement || loading) return;
+		if (
+			prependScrollHeight !== null &&
+			serverMessageCount <= (prependAnchor?.serverMessageCount ?? 0)
+		) {
+			return;
+		}
 
 		requestAnimationFrame(() => {
 			if (prependScrollHeight !== null) {
-				scrollElement.scrollTop =
-					scrollElement.scrollHeight - prependScrollHeight + prependScrollTop;
+				const anchorElement = prependAnchor
+					? getMessageElements(scrollElement).find(
+							(element) => element.dataset.messageKey === prependAnchor.key
+						)
+					: null;
+				if (anchorElement && prependAnchor) {
+					const containerTop = scrollElement.getBoundingClientRect().top;
+					const nextTop = anchorElement.getBoundingClientRect().top - containerTop;
+					scrollElement.scrollTop += nextTop - prependAnchor.top;
+				} else {
+					scrollElement.scrollTop =
+						scrollElement.scrollHeight - prependScrollHeight + prependScrollTop;
+				}
 				pendingPrependScrollHeight = null;
+				pendingPrependAnchor = null;
 				return;
 			}
 
@@ -239,6 +266,22 @@
 		requestAnimationFrame(() => messageInputRef?.focus());
 	};
 
+	const getMessageElements = (scrollElement: HTMLDivElement) =>
+		Array.from(scrollElement.querySelectorAll<HTMLElement>('[data-message-key]'));
+
+	const getFirstVisibleMessageAnchor = (scrollElement: HTMLDivElement): ScrollAnchor | null => {
+		const containerTop = scrollElement.getBoundingClientRect().top;
+		const firstVisibleMessage = getMessageElements(scrollElement).find(
+			(element) => element.getBoundingClientRect().bottom > containerTop
+		);
+		if (!firstVisibleMessage?.dataset.messageKey) return null;
+		return {
+			key: firstVisibleMessage.dataset.messageKey,
+			top: firstVisibleMessage.getBoundingClientRect().top - containerTop,
+			serverMessageCount: serverMessages.length
+		};
+	};
+
 	const loadOlderMessages = () => {
 		const scrollElement = messageScrollRef;
 		if (
@@ -251,6 +294,7 @@
 		}
 		pendingPrependScrollHeight = scrollElement.scrollHeight;
 		pendingPrependScrollTop = scrollElement.scrollTop;
+		pendingPrependAnchor = getFirstVisibleMessageAnchor(scrollElement);
 		shouldStickToBottom = false;
 		messageLimit += MESSAGE_LIMIT_INCREMENT;
 	};
@@ -483,6 +527,7 @@
 								<div class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'}`}>
 									{#each visibleMessages as entry (entry.key)}
 										<div
+											data-message-key={entry.key}
 											class={`flex ${
 												entry.profileId === viewer.data?._id
 													? isDesktopViewport
