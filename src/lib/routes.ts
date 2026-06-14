@@ -23,6 +23,7 @@ export const routes = {
 	clubSessions: (clubId: string) => `/club/${clubId}/sessions`,
 	clubProjects: (clubId: string) => `/club/${clubId}/projects`,
 	clubMembers: (clubId: string) => `/club/${clubId}/members`,
+	clubSettings: (clubId: string) => `/club/${clubId}/settings`,
 	sessionDetail: (sessionId: string) => `/session/${sessionId}/activities`,
 	projectDetail: (projectId: string) => `/project/${projectId}/overview`,
 	activityBooklet: '/activity-booklet',

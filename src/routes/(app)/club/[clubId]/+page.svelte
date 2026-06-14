@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { api } from '$convex/_generated/api';
@@ -18,7 +21,12 @@
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
 	import HomeEmptyCard from '$lib/components/app/home/home-empty-card.svelte';
-	import { LoadingState } from '$lib/components/app';
+	import {
+		LoadingState,
+		PageHeaderActions,
+		PageHeaderTitleContent,
+		showGlobalSnackbar
+	} from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import ClubProjectCard from '$lib/components/app/projects/club-project-card.svelte';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
@@ -33,6 +41,13 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import {
+		DropdownMenu,
+		DropdownMenuContent,
+		DropdownMenuItem,
+		DropdownMenuLabel,
+		DropdownMenuTrigger
+	} from '$lib/components/ui/dropdown-menu';
 	import { page } from '$app/state';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
 	import type { PageProps } from './$types';
@@ -57,6 +72,7 @@
 	let canCreateSession = $derived(clubPermissions.includes('session:create'));
 	let canCreateProject = $derived(clubPermissions.includes('project:create'));
 	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
+	let canEditClub = $derived(clubPermissions.includes('club:edit'));
 	let canShowSessionAttendees = $derived(canReadMembers && canReadAttendance);
 
 	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
@@ -98,6 +114,7 @@
 		description: ''
 	});
 	let projectRailNode = $state<HTMLDivElement | null>(null);
+	let switchingClubId = $state<Id<'clubs'> | null>(null);
 
 	const PROJECT_RAIL_SCROLL_KEY_PREFIX = 'club-dashboard-projects-rail-scroll';
 	const SESSION_CREATE_TIMEOUT_MS = 6_000;
@@ -261,6 +278,22 @@
 	const getProjectRailScrollKey = () =>
 		clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null;
 
+	const switchClub = async (nextClubId: Id<'clubs'>) => {
+		if (nextClubId === clubIdTyped || switchingClubId) return;
+		switchingClubId = nextClubId;
+		try {
+			await convexClient.mutation(api.clubs.switchActiveClub, { clubId: nextClubId });
+			await goto(routes.clubHome(nextClubId));
+		} catch (error) {
+			showGlobalSnackbar({
+				title: 'Unable to switch club',
+				description: error instanceof Error ? error.message : 'Please try again.'
+			});
+		} finally {
+			switchingClubId = null;
+		}
+	};
+
 	const restoreProjectRailScroll = (node: HTMLDivElement) => {
 		if (!browser) return;
 		const key = getProjectRailScrollKey();
@@ -310,6 +343,48 @@
 		sessionStorage.removeItem(key);
 	};
 </script>
+
+<PageHeaderTitleContent enabled={Boolean(clubItem)}>
+	<DropdownMenu>
+		<DropdownMenuTrigger>
+			<Button
+				variant="ghost"
+				class="-ml-2 max-w-full min-w-0 justify-start gap-2 px-2 text-[#262626] hover:text-[#262626]"
+				aria-label={`Switch club from ${clubItem?.clubName ?? 'current club'}`}
+			>
+				<span class="type-step-title truncate">{clubItem?.clubName ?? 'Club'}</span>
+				<ChevronDownIcon class="size-5 shrink-0 text-muted-foreground" />
+			</Button>
+		</DropdownMenuTrigger>
+		<DropdownMenuContent align="start" class="w-64">
+			<DropdownMenuLabel>Switch club</DropdownMenuLabel>
+			{#each clubsResponse.data ?? [] as club (club.clubId)}
+				<DropdownMenuItem
+					class="justify-between gap-3 py-2"
+					disabled={switchingClubId !== null}
+					onSelect={() => void switchClub(club.clubId)}
+				>
+					<span class="truncate">{club.clubName}</span>
+					{#if club.clubId === clubIdTyped}
+						<CheckIcon class="size-4 text-orange-500" />
+					{/if}
+				</DropdownMenuItem>
+			{/each}
+		</DropdownMenuContent>
+	</DropdownMenu>
+</PageHeaderTitleContent>
+
+<PageHeaderActions none={!canEditClub}>
+	<Button
+		variant="ghost"
+		size="icon-sm"
+		aria-label="Open club settings"
+		class="text-[#767b92] hover:text-[#565b72]"
+		href={clubId ? routes.clubSettings(clubId) : undefined}
+	>
+		<SettingsIcon class="size-5" />
+	</Button>
+</PageHeaderActions>
 
 <div
 	class="-mx-4 flex min-h-full flex-col gap-8 px-4 py-4 sm:-mx-6 sm:px-6 sm:py-5 lg:-mx-8 lg:px-8 lg:py-6"
