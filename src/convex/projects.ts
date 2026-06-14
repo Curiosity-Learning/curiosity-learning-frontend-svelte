@@ -10,6 +10,7 @@ import {
 	requireIdentity,
 	requireProfile
 } from './permissions';
+import { ensureProjectRoom } from './chatModel';
 
 export const listByClub = query({
 	args: {
@@ -171,6 +172,7 @@ export const create = mutation({
 			createdAt: now,
 			updatedAt: now
 		});
+		await ensureProjectRoom(ctx, projectId);
 
 		await ctx.db.insert('projectClubs', {
 			projectId,
@@ -381,6 +383,7 @@ export const addMember = mutation({
 		}
 
 		if (historicalMembership) {
+			await ensureProjectRoom(ctx, args.projectId);
 			await ctx.db.patch(historicalMembership._id, {
 				profileId: args.profileId,
 				leftAt: undefined,
@@ -393,6 +396,7 @@ export const addMember = mutation({
 			return await ctx.db.get(historicalMembership._id);
 		}
 
+		await ensureProjectRoom(ctx, args.projectId);
 		const memberId = await ctx.db.insert('projectMembers', {
 			projectId: args.projectId,
 			profileId: args.profileId,
