@@ -123,6 +123,8 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubName: club.name,
 		clubDescription: club.description ?? null,
 		clubLocation: club.location ?? null,
+		clubLocationLatitude: club.locationLatitude ?? null,
+		clubLocationLongitude: club.locationLongitude ?? null,
 		clubTime: club.time ?? null,
 		clubVideoUrl,
 		clubMeetingDay: club.meetingDay ?? null,
@@ -594,13 +596,13 @@ export const updateClub = mutation({
 	args: {
 		clubId: v.id('clubs'),
 		name: v.optional(v.string()),
-		description: v.optional(v.string()),
-		location: v.optional(v.string()),
-		locationLatitude: v.optional(v.number()),
-		locationLongitude: v.optional(v.number()),
+		description: v.optional(v.union(v.string(), v.null())),
+		location: v.optional(v.union(v.string(), v.null())),
+		locationLatitude: v.optional(v.union(v.number(), v.null())),
+		locationLongitude: v.optional(v.union(v.number(), v.null())),
 		videoMediaAssetId: v.optional(v.id('mediaAssets')),
-		meetingDay: v.optional(v.string()),
-		meetingTime: v.optional(v.string())
+		meetingDay: v.optional(v.union(v.string(), v.null())),
+		meetingTime: v.optional(v.union(v.string(), v.null()))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -615,15 +617,33 @@ export const updateClub = mutation({
 			await requireOwnedReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
 		}
 
+		const normalizeRequired = (value: string | undefined, fallback: string) => {
+			if (value === undefined) return fallback;
+			const normalized = value.trim();
+			if (!normalized) {
+				throw new ConvexError('Club name is required');
+			}
+			return normalized;
+		};
+		const normalizeOptional = (value: string | null | undefined, fallback?: string) => {
+			if (value === undefined) return fallback;
+			if (value === null) return undefined;
+			return value.trim() || undefined;
+		};
+		const optionalNumber = (value: number | null | undefined, fallback?: number) => {
+			if (value === undefined) return fallback;
+			return value === null ? undefined : value;
+		};
+
 		await ctx.db.patch(args.clubId, {
-			name: args.name ?? club.name,
-			description: args.description ?? club.description,
-			location: args.location ?? club.location,
-			locationLatitude: args.locationLatitude ?? club.locationLatitude,
-			locationLongitude: args.locationLongitude ?? club.locationLongitude,
+			name: normalizeRequired(args.name, club.name),
+			description: normalizeOptional(args.description, club.description),
+			location: normalizeOptional(args.location, club.location),
+			locationLatitude: optionalNumber(args.locationLatitude, club.locationLatitude),
+			locationLongitude: optionalNumber(args.locationLongitude, club.locationLongitude),
 			videoMediaAssetId: args.videoMediaAssetId ?? club.videoMediaAssetId,
-			meetingDay: args.meetingDay ?? club.meetingDay,
-			meetingTime: args.meetingTime ?? club.meetingTime,
+			meetingDay: normalizeOptional(args.meetingDay, club.meetingDay),
+			meetingTime: normalizeOptional(args.meetingTime, club.meetingTime),
 			updatedAt: Date.now()
 		});
 

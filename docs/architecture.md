@@ -16,7 +16,7 @@ Current app structure and conventions. Keep this file short; use commit history 
 - Public auth: `/auth/sign-in`, `/auth/sign-up`, `/auth/reset-password`
 - Onboarding: `/onboarding/get-started`, `/onboarding/join-club`, `/onboarding/join-club/[code]`, `/onboarding/join-club/public-clubs`, `/onboarding/start-club`, `/onboarding/post-signup`, `/onboarding/parent-consent/[token]`
 - Authenticated routes live in `src/routes/(app)`; the `(app)` group is not part of the URL.
-- Main app URLs: `/no-club`, `/club/[clubId]`, `/club/[clubId]/sessions`, `/club/[clubId]/projects`, `/club/[clubId]/members`, `/applications/review`, `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
+- Main app URLs: `/no-club`, `/club/[clubId]`, `/club/[clubId]/sessions`, `/club/[clubId]/projects`, `/club/[clubId]/members`, `/club/[clubId]/settings`, `/applications/review`, `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
 - Detail URLs: `/session/[sessionId]/activities`, `/session/[sessionId]/attendees`, `/project/[projectId]/overview`, `/project/[projectId]/members`, `/activity-booklet`, `/activity-booklet/[activityId]`
 - Legal pages: `/privacy`, `/terms`, `/cookies`
 

@@ -29,7 +29,8 @@ export type AppNavigationOptions = {
 };
 
 // Route structure:
-// - Club scoped: /club/[clubId], /club/[clubId]/sessions, /club/[clubId]/projects, /club/[clubId]/members
+// - Club scoped sidebar: /club/[clubId], /club/[clubId]/sessions, /club/[clubId]/projects, /club/[clubId]/members
+// - Club settings: /club/[clubId]/settings (header action only)
 // - Non-club: /feed, /chat, /profile, /settings, /notifications
 export const buildAppNavigation = (
 	clubId: string | null | undefined,
