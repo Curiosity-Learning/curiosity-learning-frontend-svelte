@@ -4,6 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
+		"predev": "bash scripts/ensure-worktree-ready.sh",
 		"dev": "vite dev",
 		"dev:backend": "convex dev",
 		"build": "vite build",
