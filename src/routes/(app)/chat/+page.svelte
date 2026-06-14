@@ -588,7 +588,7 @@
 							placeholder="Send a message..."
 							maxlength={MAX_MESSAGE_LENGTH}
 							class={`border-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
-								isDesktopViewport ? 'px-0' : 'h-10 px-4 py-0'
+								isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
 							}`}
 							disabled={!selectedRoomId || !activeRoom?.canSend}
 							onkeydown={handleMessageComposerKeydown}
