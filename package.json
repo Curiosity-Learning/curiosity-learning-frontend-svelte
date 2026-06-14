@@ -22,9 +22,9 @@
 		"test:e2e": "playwright test",
 		"test:e2e:local": "playwright test --config playwright.local.config.ts",
 		"convex:codegen": "convex codegen",
-		"worktree:seed": "scripts/setup-worktree.sh --seed-env",
-		"worktree:setup": "scripts/setup-worktree.sh",
-		"worktree:add": "scripts/add-worktree.sh",
+		"worktree:seed": "bash scripts/setup-worktree.sh --seed-env",
+		"worktree:setup": "bash scripts/setup-worktree.sh",
+		"worktree:add": "bash scripts/add-worktree.sh",
 		"ci": "npm run check && npm run lint:ci && npm run build"
 	},
 	"devDependencies": {
