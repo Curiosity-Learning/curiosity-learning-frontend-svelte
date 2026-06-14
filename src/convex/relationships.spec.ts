@@ -423,6 +423,77 @@ describe('relational integrity', () => {
 		expect(participants.other?.unreadCount).toBe(3);
 	});
 
+	it('backfills relationships from a retired auth user id without changing the current profile auth id', async () => {
+		const t = convexTest(schema, modules);
+		const ids = await t.run(async (ctx) => {
+			const now = Date.now();
+			const profileId = await ctx.db.insert('profiles', {
+				authUserId: 'current-auth-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Retired auth relationship',
+				dueDate: now + 60_000,
+				createdByUserId: 'retired-auth-user',
+				createdAt: now,
+				updatedAt: now
+			});
+			const roleId = await ctx.db.insert('projectRoles', {
+				key: 'creator',
+				name: 'Creator',
+				permissions: [],
+				order: 0,
+				createdAt: now
+			});
+			const memberId = await ctx.db.insert('projectMembers', {
+				projectId,
+				userId: 'retired-auth-user',
+				roleId,
+				createdAt: now
+			});
+			const preferenceId = await ctx.db.insert('userPreferences', {
+				userId: 'retired-auth-user',
+				theme: 'system',
+				notificationsEnabled: true,
+				notificationPreferences: {
+					clubMemberChanges: true,
+					projectDeadlineReminder: true,
+					projectMemberAdded: true,
+					projectCompleted: true,
+					sessionReminder: true,
+					sessionActivityChanges: true,
+					updateLikes: true,
+					updateComments: true,
+					chatMessages: true
+				},
+				updatedAt: now
+			});
+			return { profileId, projectId, memberId, preferenceId };
+		});
+
+		const result = await t.mutation(internal.migrations.backfillRetiredAuthUserRelationships, {
+			retiredAuthUserId: 'retired-auth-user',
+			profileId: ids.profileId
+		});
+		const migrated = await t.run(async (ctx) => ({
+			profile: await ctx.db.get(ids.profileId),
+			project: await ctx.db.get(ids.projectId),
+			member: await ctx.db.get(ids.memberId),
+			preference: await ctx.db.get(ids.preferenceId)
+		}));
+
+		expect(result.relationshipsMigrated).toBe(3);
+		expect(migrated.profile?.authUserId).toBe('current-auth-user');
+		expect(migrated.project?.createdByProfileId).toBe(ids.profileId);
+		expect(migrated.project?.createdByUserId).toBeUndefined();
+		expect(migrated.member?.profileId).toBe(ids.profileId);
+		expect(migrated.member?.userId).toBeUndefined();
+		expect(migrated.preference?.profileId).toBe(ids.profileId);
+		expect(migrated.preference?.userId).toBeUndefined();
+	});
+
 	it('backfills legacy person relationships and stable role keys', async () => {
 		const t = convexTest(schema, modules);
 		const ids = await t.run(async (ctx) => {
