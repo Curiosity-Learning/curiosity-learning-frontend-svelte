@@ -65,10 +65,9 @@ Schema source: `src/convex/schema.ts`
 
 ## Chat
 
-| Table          | Purpose            | Key Fields                                                                                                | Indexes                                        |
-| -------------- | ------------------ | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `rooms`        | Chat rooms         | `isGroupChat`, `name?`, `directProfileAId?`, `directProfileBId?`, `lastMessageAt?`, `lastMessagePreview?` | `by_direct_profiles`                           |
-| `participants` | Room membership    | `roomId`, `profileId`, `isAdmin`, `displayName?`, `lastReadAt?`, `unreadCount?`                           | `by_room`, `by_profile`, `by_room_and_profile` |
-| `messages`     | Messages in a room | `roomId`, `profileId`, `content?`, `type`, `mediaUrl?`, `isDeleted`                                       | `by_room`, `by_room_and_created`               |
+| Table      | Purpose                  | Key Fields                                                   | Indexes                                                 |
+| ---------- | ------------------------ | ------------------------------------------------------------ | ------------------------------------------------------- |
+| `rooms`    | Context-backed chat room | `contextType`, `clubId?`, `projectId?`, `clubApplicationId?` | `by_club_id`, `by_project_id`, `by_club_application_id` |
+| `messages` | Text messages            | `roomId`, `profileId`, `content`                             | `by_room`                                               |
 
-Profile-owned relationships use `profiles._id` columns. Auth-user strings remain only at auth and media ownership boundaries such as `profiles.authUserId` and `mediaAssets.ownerUserId`.
+Chat uses Convex system fields `_id` and `_creationTime` instead of storing duplicate IDs or timestamps. Room access is derived from the source context tables (`clubMembers`, `projectMembers`, `projectClubs`, `clubApplications`, and `applicationReviews`) instead of a separate participants table. Profile-owned relationships use `profiles._id` columns. Auth-user strings remain only at auth and media ownership boundaries such as `profiles.authUserId` and `mediaAssets.ownerUserId`.

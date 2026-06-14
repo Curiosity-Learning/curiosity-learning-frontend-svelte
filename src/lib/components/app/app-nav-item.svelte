@@ -11,13 +11,10 @@
 		active: boolean;
 		Icon?: Component<{ class?: string }>;
 		nav: AppNavVariant;
-		badgeCount?: number;
 		disabled?: boolean;
 	};
 
-	let { href, label, active, Icon, nav, badgeCount = 0, disabled }: Props = $props();
-	let hasBadge = $derived(badgeCount > 0);
-	let badgeLabel = $derived(badgeCount > 99 ? '99+' : String(badgeCount));
+	let { href, label, active, Icon, nav, disabled }: Props = $props();
 
 	let base = $derived(
 		nav === 'bottom'
@@ -53,20 +50,13 @@
 	data-sveltekit-preload-data="hover"
 >
 	{#if active && nav !== 'bottom'}
-		<span class="bg-orange-500 absolute inset-y-0 left-0 w-1 rounded-r-sm" aria-hidden="true"></span>
+		<span class="absolute inset-y-0 left-0 w-1 rounded-r-sm bg-orange-500" aria-hidden="true"
+		></span>
 	{/if}
 	{#if nav === 'bottom'}
 		<div class="relative">
 			{#if Icon}
 				<Icon class="size-6" />
-			{/if}
-			{#if hasBadge}
-				<span
-					class="absolute -right-2 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-[#5f6297] px-1 text-[10px] leading-4 font-bold text-white"
-					aria-label={`${badgeLabel} unread chats`}
-				>
-					{badgeLabel}
-				</span>
 			{/if}
 		</div>
 		<span class="type-caption-medium">{label}</span>
@@ -77,14 +67,6 @@
 			{/if}
 			<span class="truncate">{label}</span>
 		</div>
-		{#if hasBadge}
-			<span
-				class="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-[#5f6297] px-1.5 text-[11px] leading-5 font-bold text-white"
-				aria-label={`${badgeLabel} unread chats`}
-			>
-				{badgeLabel}
-			</span>
-		{/if}
 	{:else}
 		<span>{label}</span>
 	{/if}

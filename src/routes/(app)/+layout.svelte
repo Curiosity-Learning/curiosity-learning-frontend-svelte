@@ -39,9 +39,6 @@
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
 		isAuthReady ? {} : 'skip'
 	);
-	const unreadSummaryResponse = useStableQuery(api.chat.getUnreadSummary, () =>
-		isAuthReady ? {} : 'skip'
-	);
 	const profileResponse = useStableQuery(api.profiles.getMe, () => (isAuthReady ? {} : 'skip'));
 	let clubs = $derived(clubsResponse.data ?? []);
 	let sidebarProfileName = $derived.by(() => {
@@ -112,11 +109,9 @@
 
 	let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
 	let hasClubAccess = $derived(clubs.length > 0);
-	let chatUnreadCount = $derived(unreadSummaryResponse.data?.totalUnreadCount ?? 0);
 	let navigation = $derived(
 		buildAppNavigation(clubIdForNav, {
-			hasClubAccess,
-			badgeCounts: { chatUnreadCount }
+			hasClubAccess
 		})
 	);
 	let navState = $derived(deriveNavState(navigation, activePath));

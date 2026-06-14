@@ -115,12 +115,11 @@ Notes:
 
 ### Chat
 
-| Endpoint                                            | Auth | Permission         | Notes                                                 |
-| --------------------------------------------------- | ---- | ------------------ | ----------------------------------------------------- |
-| `chat.listRooms/listRoomSummaries/getUnreadSummary` | Yes  | —                  | Scoped to user's `participants`                       |
-| `chat.getOrCreateDirectRoom`                        | Yes  | active shared club | Requires the other user to be in viewer's active club |
-| `chat.listMessages/sendMessage/markRoomRead`        | Yes  | —                  | Must be room participant                              |
-| `chat.listUsersForMessaging`                        | Yes  | —                  | Lists users in viewer's active club                   |
+| Endpoint                 | Auth | Permission | Notes                                                                       |
+| ------------------------ | ---- | ---------- | --------------------------------------------------------------------------- |
+| `chat.listRoomSummaries` | Yes  | —          | Rooms are derived from the viewer's club, project, and application contexts |
+| `chat.listMessages`      | Yes  | —          | Requires current or historical access to the room context                   |
+| `chat.sendMessage`       | Yes  | —          | Requires active access to the room context                                  |
 
 ## Known Gaps
 

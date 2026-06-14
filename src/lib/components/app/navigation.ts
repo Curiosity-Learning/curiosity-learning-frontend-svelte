@@ -20,18 +20,12 @@ export type AppNavItem = {
 	label: string;
 	href: string;
 	icon: Component<{ class?: string }>;
-	badgeCount?: number;
 	placement?: AppNavPlacement;
 	children?: AppNavChildItem[];
 };
 
-export type AppNavBadgeCounts = {
-	chatUnreadCount?: number;
-};
-
 export type AppNavigationOptions = {
 	hasClubAccess?: boolean;
-	badgeCounts?: AppNavBadgeCounts;
 };
 
 // Route structure:
@@ -42,8 +36,6 @@ export const buildAppNavigation = (
 	options: AppNavigationOptions = {}
 ): AppNavItem[] => {
 	const hasClubAccess = options.hasClubAccess ?? Boolean(clubId);
-	const badgeCounts = options.badgeCounts ?? {};
-	const chatBadgeCount = Math.max(badgeCounts.chatUnreadCount ?? 0, 0) || undefined;
 	const items: AppNavItem[] = [];
 
 	if (hasClubAccess && clubId) {
@@ -65,8 +57,7 @@ export const buildAppNavigation = (
 				key: 'chat',
 				label: 'Chat',
 				href: routes.chat,
-				icon: MessageCircleIcon,
-				badgeCount: chatBadgeCount
+				icon: MessageCircleIcon
 			}
 		);
 	} else {
@@ -78,19 +69,17 @@ export const buildAppNavigation = (
 		});
 	}
 
-	items.push(
-		{
-			key: 'profile',
-			label: 'Profile',
-			href: routes.profile,
-			icon: UserRoundIcon,
-			placement: 'bottom',
-			children: [
-				{ key: 'settings', label: 'Settings', href: routes.settings },
-				{ key: 'notifications', label: 'Notifications', href: routes.notifications }
-			]
-		}
-	);
+	items.push({
+		key: 'profile',
+		label: 'Profile',
+		href: routes.profile,
+		icon: UserRoundIcon,
+		placement: 'bottom',
+		children: [
+			{ key: 'settings', label: 'Settings', href: routes.settings },
+			{ key: 'notifications', label: 'Notifications', href: routes.notifications }
+		]
+	});
 
 	return items;
 };
