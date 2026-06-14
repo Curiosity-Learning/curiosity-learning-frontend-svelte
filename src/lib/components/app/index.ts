@@ -10,6 +10,7 @@ import PageHeaderActions from './page-header-actions.svelte';
 import PageHeaderBackButton from './page-header-back-button.svelte';
 import PageHeaderBanner from './page-header-banner.svelte';
 import PageBottomNavVisibility from './page-bottom-nav-visibility.svelte';
+import PageContentMode from './page-content-mode.svelte';
 import PageHeaderSearch from './page-header-search.svelte';
 import PageHeaderTitleContent from './page-header-title-content.svelte';
 import PageHeaderTitle from './page-header-title.svelte';
@@ -33,6 +34,7 @@ export {
 	PageHeaderBackButton,
 	PageHeaderBanner,
 	PageBottomNavVisibility,
+	PageContentMode,
 	PageHeaderSearch,
 	PageHeaderTitleContent,
 	PageHeaderTitle,

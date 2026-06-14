@@ -18,6 +18,8 @@ export type HeaderBackConfig = {
 export type HeaderTitleOverride = string | null;
 export type HeaderTitleContentOverride = import('svelte').Snippet | null;
 export type BottomNavHiddenOverride = boolean | null;
+export type PageContentMode = 'scroll' | 'viewport';
+export type PageContentModeOverride = PageContentMode | null;
 
 export type PageHeaderController = {
 	setActions(value: HeaderActionsOverride): void;
@@ -34,4 +36,6 @@ export type PageHeaderController = {
 	clearTitleContent(): void;
 	setBottomNavHidden(value: BottomNavHiddenOverride): void;
 	clearBottomNavHidden(): void;
+	setContentMode(value: PageContentModeOverride): void;
+	clearContentMode(): void;
 };

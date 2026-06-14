@@ -25,6 +25,7 @@
 		type HeaderSearchOverride,
 		type HeaderTitleContentOverride,
 		type HeaderTitleOverride,
+		type PageContentModeOverride,
 		type PageHeaderController
 	} from '$lib/app/page-header';
 
@@ -153,6 +154,7 @@
 	let titleOverride: HeaderTitleOverride = $state(null);
 	let titleContentOverride: HeaderTitleContentOverride = $state(null);
 	let bottomNavHiddenOverride: BottomNavHiddenOverride = $state(null);
+	let contentModeOverride: PageContentModeOverride = $state(null);
 
 	setContext(PAGE_HEADER_CTX, {
 		setActions: (value) => {
@@ -196,6 +198,12 @@
 		},
 		clearBottomNavHidden: () => {
 			bottomNavHiddenOverride = null;
+		},
+		setContentMode: (value) => {
+			contentModeOverride = value;
+		},
+		clearContentMode: () => {
+			contentModeOverride = null;
 		}
 	} satisfies PageHeaderController);
 </script>
@@ -212,6 +220,7 @@
 		? undefined
 		: actionsOverride}
 	headerSearch={searchOverride ?? undefined}
+	contentMode={contentModeOverride ?? undefined}
 	banner={bannerOverride ?? undefined}
 	{sidebarProfileName}
 	{sidebarProfileImageUrl}

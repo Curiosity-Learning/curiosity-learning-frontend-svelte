@@ -8,6 +8,7 @@
 	import {
 		LoadingState,
 		PageBottomNavVisibility,
+		PageContentMode,
 		PageHeaderBackButton,
 		PageHeaderSearch,
 		PageHeaderTitle,
@@ -383,6 +384,7 @@
 	</div>
 </PageHeaderTitleContent>
 <PageBottomNavVisibility hidden={isMobileDetailView} />
+<PageContentMode mode="viewport" />
 
 {#if !$session.data}
 	<Alert>
