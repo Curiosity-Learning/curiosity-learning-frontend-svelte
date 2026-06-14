@@ -7,7 +7,6 @@
 	import { api } from '$convex/_generated/api';
 	import {
 		LoadingState,
-		PageBottomNavVisibility,
 		PageHeaderBackButton,
 		PageHeaderSearch,
 		PageHeaderTitle,
@@ -382,7 +381,6 @@
 		</p>
 	</div>
 </PageHeaderTitleContent>
-<PageBottomNavVisibility hidden={isMobileDetailView} />
 
 {#if !$session.data}
 	<Alert>
