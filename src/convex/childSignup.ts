@@ -6,6 +6,12 @@ import { action, internalMutation, mutation, query } from './_generated/server';
 import { syntheticEmailForUsername } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { parentConsentEmail } from './email/templates';
+import {
+	getClubRoleByKey,
+	getMembershipByProfileId,
+	getProfileAuthUserId,
+	getProfileByAuthUserId
+} from './permissions';
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 
@@ -172,7 +178,7 @@ export const createPendingChildAccount = internalMutation({
 		});
 
 		const profileId = await ctx.db.insert('profiles', {
-			userId: authUser._id,
+			authUserId: authUser._id,
 			username: args.username,
 			dateOfBirth: args.dateOfBirth,
 			isVerified: false,
@@ -183,7 +189,6 @@ export const createPendingChildAccount = internalMutation({
 		});
 
 		await ctx.db.insert('parentChildConsents', {
-			childUserId: authUser._id,
 			childProfileId: profileId,
 			parentEmail: args.parentEmail,
 			status: 'pending',
@@ -194,7 +199,6 @@ export const createPendingChildAccount = internalMutation({
 		});
 		if (args.startClubApplicationDraft) {
 			await ctx.runMutation(internal.clubApplications.saveIncompleteApplicationForUser, {
-				userId: authUser._id,
 				profileId,
 				draft: args.startClubApplicationDraft
 			});
@@ -279,14 +283,11 @@ export const approveConsent = mutation({
 			});
 		}
 
-		const existingParentProfile = await ctx.db
-			.query('profiles')
-			.withIndex('by_user_id', (q) => q.eq('userId', parentAuthUser._id))
-			.first();
+		const existingParentProfile = await getProfileByAuthUserId(ctx, parentAuthUser._id);
 		const parentProfileId =
 			existingParentProfile?._id ??
 			(await ctx.db.insert('profiles', {
-				userId: parentAuthUser._id,
+				authUserId: parentAuthUser._id,
 				firstName: displayNameFromEmail(parentAuthUser.email),
 				isVerified: true,
 				firstLoginCompleted: false,
@@ -295,7 +296,7 @@ export const approveConsent = mutation({
 
 		if (existingParentProfile) {
 			await ctx.db.patch(existingParentProfile._id, {
-				userId: parentAuthUser._id,
+				authUserId: parentAuthUser._id,
 				isVerified: true,
 				updatedAt: now
 			});
@@ -313,23 +314,19 @@ export const approveConsent = mutation({
 				.withIndex('by_club_code', (q) => q.eq('clubCode', joinCode))
 				.first();
 			if (club) {
-				const existingMembership = await ctx.db
-					.query('clubMembers')
-					.withIndex('by_club_and_user', (q) =>
-						q.eq('clubId', club._id).eq('userId', consent.childUserId)
-					)
-					.first();
+				const existingMembership = await getMembershipByProfileId(
+					ctx,
+					club._id,
+					consent.childProfileId
+				);
 				if (!existingMembership) {
-					const learnerRole = await ctx.db
-						.query('clubRoles')
-						.withIndex('by_name', (q) => q.eq('name', 'Learner'))
-						.first();
+					const learnerRole = await getClubRoleByKey(ctx, 'learner');
 					if (!learnerRole) {
 						throw new ConvexError('Default role Learner is not configured');
 					}
 					await ctx.db.insert('clubMembers', {
 						clubId: club._id,
-						userId: consent.childUserId,
+						profileId: consent.childProfileId,
 						roleId: learnerRole._id,
 						firstName: childProfile.firstName,
 						lastName: childProfile.lastName,
@@ -344,7 +341,6 @@ export const approveConsent = mutation({
 
 		await ctx.db.patch(consent._id, {
 			status: 'approved',
-			parentUserId: parentAuthUser._id,
 			parentProfileId,
 			termsAcceptedAt: now,
 			privacyPolicyAcceptedAt: now,
@@ -360,10 +356,14 @@ export const approveConsent = mutation({
 			pendingRole: undefined,
 			updatedAt: now
 		});
+		const childAuthUserId = getProfileAuthUserId(childProfile);
+		if (!childAuthUserId) {
+			throw new ConvexError('Child profile is not linked to an auth user');
+		}
 		await ctx.runMutation(components.betterAuth.adapter.updateOne, {
 			input: {
 				model: 'user',
-				where: [{ field: '_id', value: consent.childUserId }],
+				where: [{ field: '_id', value: childAuthUserId }],
 				update: {
 					emailVerified: true,
 					updatedAt: now

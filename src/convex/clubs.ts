@@ -8,9 +8,14 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	hasPermission,
+	getClubRoleByKey,
+	getProfileAuthUserId,
+	getRelatedProfile,
 	getMembership,
+	listMembershipsForProfile,
 	requireIdentity,
 	requirePermission,
+	requireProfile,
 	roleFromPermissions
 } from './permissions';
 import { authComponent } from './auth';
@@ -65,13 +70,10 @@ const resolveClubByCode = async (ctx: Ctx, normalizedCode: string) => {
 	};
 };
 
-const getRoleByName = async (ctx: Ctx, name: 'Guide' | 'Learner') => {
-	const role = await ctx.db
-		.query('clubRoles')
-		.withIndex('by_name', (q) => q.eq('name', name))
-		.first();
+const getRoleByKey = async (ctx: Ctx, key: 'guide' | 'learner') => {
+	const role = await getClubRoleByKey(ctx, key);
 	if (!role) {
-		throw new ConvexError(`Default role ${name} is not configured`);
+		throw new ConvexError(`Default role ${key} is not configured`);
 	}
 	return role;
 };
@@ -110,6 +112,7 @@ const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
 
 const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'clubMembers'>) => {
 	const role = await ctx.db.get(membership.roleId);
+	const profile = await getRelatedProfile(ctx, membership.profileId, membership.userId);
 	const clubVideoUrl = await resolveClubVideoUrl(ctx, club);
 
 	return {
@@ -124,7 +127,8 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubMeetingTime: club.meetingTime ?? null,
 		clubCode: club.clubCode ?? null,
 		memberId: membership._id,
-		memberProfileId: membership.userId,
+		memberProfileId: profile?._id ?? null,
+		memberUserId: profile ? getProfileAuthUserId(profile) : membership.userId,
 		memberLeftAt: membership.leftAt ?? null,
 		roleId: role?._id ?? null,
 		roleName: role?.name ?? null,
@@ -181,10 +185,7 @@ const resolveUniqueUsername = async (
 };
 
 const getOrCreateProfile = async (ctx: MutationCtx, userId: string) => {
-	const existing = await ctx.db
-		.query('profiles')
-		.withIndex('by_user_id', (q) => q.eq('userId', userId))
-		.first();
+	const existing = await getRelatedProfile(ctx, undefined, userId);
 	if (existing) {
 		return existing;
 	}
@@ -195,7 +196,7 @@ const getOrCreateProfile = async (ctx: MutationCtx, userId: string) => {
 	const { firstName, lastName } = splitNameParts(authUser.name);
 
 	const profileId = await ctx.db.insert('profiles', {
-		userId: authUser._id,
+		authUserId: authUser._id,
 		firstName,
 		lastName,
 		username,
@@ -216,10 +217,8 @@ export const getMyClubs = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const memberships = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const profile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, profile);
 
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
 		const clubs = await Promise.all(
@@ -426,15 +425,15 @@ export const createClub = mutation({
 			videoMediaAssetId: args.videoMediaAssetId,
 			meetingDay: args.meetingDay,
 			meetingTime: args.meetingTime,
-			createdByUserId: identity.subject,
+			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
 		});
 
-		const guideRole = await getRoleByName(ctx, 'Guide');
+		const guideRole = await getRoleByKey(ctx, 'guide');
 		await ctx.db.insert('clubMembers', {
 			clubId,
-			userId: identity.subject,
+			profileId: profile._id,
 			roleId: guideRole._id,
 			firstName: profile.firstName,
 			lastName: profile.lastName,
@@ -477,10 +476,10 @@ export const joinClubWithCode = mutation({
 
 		const profile = await getOrCreateProfile(ctx, identity.subject);
 
-		const learnerRole = await getRoleByName(ctx, 'Learner');
+		const learnerRole = await getRoleByKey(ctx, 'learner');
 		await ctx.db.insert('clubMembers', {
 			clubId: club._id,
-			userId: identity.subject,
+			profileId: profile._id,
 			roleId: learnerRole._id,
 			firstName: profile.firstName,
 			lastName: profile.lastName,
@@ -528,10 +527,7 @@ export const getActiveClubContext = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const profile = await ctx.db
-			.query('profiles')
-			.withIndex('by_user_id', (q) => q.eq('userId', identity.subject))
-			.first();
+		const profile = await getRelatedProfile(ctx, undefined, identity.subject);
 		if (!profile) {
 			return {
 				activeClubId: null,
@@ -634,7 +630,7 @@ export const updateClub = mutation({
 export const getMembers = query({
 	args: {
 		clubId: v.id('clubs'),
-		roleName: v.optional(v.union(v.literal('Guide'), v.literal('Learner')))
+		roleKey: v.optional(v.union(v.literal('guide'), v.literal('learner')))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -656,6 +652,7 @@ export const getMembers = query({
 		const activeMembers = members.filter((member) => !member.leftAt);
 		const output: Array<{
 			clubMemberId: Id<'clubMembers'>;
+			profileId: Id<'profiles'>;
 			userId: string;
 			roleId: Id<'clubRoles'>;
 			roleName: string | null;
@@ -669,14 +666,15 @@ export const getMembers = query({
 
 		for (const member of activeMembers) {
 			const role = await ctx.db.get(member.roleId);
-			if (args.roleName && role?.name !== args.roleName) {
+			const legacyRoleKey =
+				role?.name === 'Guide' ? 'guide' : role?.name === 'Learner' ? 'learner' : null;
+			if (args.roleKey && (role?.key ?? legacyRoleKey) !== args.roleKey) {
 				continue;
 			}
 
-			const profile = await ctx.db
-				.query('profiles')
-				.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
-				.first();
+			const profile = await getRelatedProfile(ctx, member.profileId, member.userId);
+			const authUserId = profile ? getProfileAuthUserId(profile) : member.userId;
+			if (!profile || !authUserId) continue;
 
 			// Fall back to the profiles table when denormalized fields are missing
 			let { firstName, lastName, username } = member;
@@ -688,7 +686,8 @@ export const getMembers = query({
 
 			output.push({
 				clubMemberId: member._id,
-				userId: member.userId,
+				profileId: profile._id,
+				userId: authUserId,
 				roleId: member.roleId,
 				roleName: role?.name ?? null,
 				rolePermissions: role?.permissions ?? [],
@@ -732,12 +731,7 @@ export const getMemberProfileDeliveryAssets = query({
 			.collect();
 		const activeMembers = members.filter((member) => !member.leftAt);
 		const profiles = await Promise.all(
-			activeMembers.map((member) =>
-				ctx.db
-					.query('profiles')
-					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
-					.first()
-			)
+			activeMembers.map((member) => getRelatedProfile(ctx, member.profileId, member.userId))
 		);
 
 		const allowedAssetIds = new Set(
@@ -794,12 +788,7 @@ export const getProfileDeliveryAssets = query({
 			.collect();
 		const activeMembers = members.filter((member) => !member.leftAt);
 		const profiles = await Promise.all(
-			activeMembers.map((member) =>
-				ctx.db
-					.query('profiles')
-					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
-					.first()
-			)
+			activeMembers.map((member) => getRelatedProfile(ctx, member.profileId, member.userId))
 		);
 
 		const allowedAssetIds = new Set(

@@ -3,7 +3,11 @@ import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import {
 	hasPermission,
+	getProfileAuthUserId,
+	getProjectRoleByKey,
+	getRelatedProfile,
 	isProjectPermissionAllowed,
+	listMembershipsForProfile,
 	requireIdentity,
 	requireProfile
 } from './permissions';
@@ -33,10 +37,8 @@ export const countForViewer = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const memberships = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const profile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, profile);
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
 		const seen = new Set<Id<'projects'>>();
 
@@ -100,10 +102,7 @@ export const listPreviewsByClub = query({
 
 			const members = await Promise.all(
 				activeMemberships.map(async (membership) => {
-					const profile = await ctx.db
-						.query('profiles')
-						.withIndex('by_user_id', (q) => q.eq('userId', membership.userId))
-						.first();
+					const profile = await getRelatedProfile(ctx, membership.profileId, membership.userId);
 					const fullName = [membership.firstName, membership.lastName]
 						.filter(Boolean)
 						.join(' ')
@@ -169,7 +168,7 @@ export const create = mutation({
 			name: args.name,
 			description: args.description,
 			dueDate: args.dueDate,
-			createdByUserId: identity.subject,
+			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
 		});
@@ -180,14 +179,11 @@ export const create = mutation({
 			createdAt: now
 		});
 
-		const creatorRole = await ctx.db
-			.query('projectRoles')
-			.withIndex('by_name', (q) => q.eq('name', 'Creator'))
-			.first();
+		const creatorRole = await getProjectRoleByKey(ctx, 'creator');
 		if (creatorRole) {
 			await ctx.db.insert('projectMembers', {
 				projectId,
-				userId: identity.subject,
+				profileId: profile._id,
 				roleId: creatorRole._id,
 				firstName: profile.firstName,
 				lastName: profile.lastName,
@@ -263,13 +259,11 @@ export const listMembers = query({
 		const result = [];
 		for (const membership of activeMemberships) {
 			const role = await ctx.db.get(membership.roleId);
-			const profile = await ctx.db
-				.query('profiles')
-				.withIndex('by_user_id', (q) => q.eq('userId', membership.userId))
-				.first();
+			const profile = await getRelatedProfile(ctx, membership.profileId, membership.userId);
+			if (!profile) continue;
 			result.push({
 				projectMemberId: membership._id,
-				profileId: membership.userId,
+				profileId: profile._id,
 				firstName: membership.firstName ?? profile?.firstName ?? '',
 				lastName: membership.lastName ?? profile?.lastName ?? null,
 				username: membership.username ?? profile?.username ?? null,
@@ -314,10 +308,7 @@ export const getMemberProfileDeliveryAssets = query({
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
 		const profiles = await Promise.all(
 			activeMemberships.map((membership) =>
-				ctx.db
-					.query('profiles')
-					.withIndex('by_user_id', (q) => q.eq('userId', membership.userId))
-					.first()
+				getRelatedProfile(ctx, membership.profileId, membership.userId)
 			)
 		);
 
@@ -355,8 +346,8 @@ export const getMemberProfileDeliveryAssets = query({
 export const addMember = mutation({
 	args: {
 		projectId: v.id('projects'),
-		userId: v.string(),
-		roleName: v.optional(v.union(v.literal('Creator'), v.literal('Contributor')))
+		profileId: v.id('profiles'),
+		roleId: v.id('projectRoles')
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -370,28 +361,49 @@ export const addMember = mutation({
 			throw new ConvexError('Permission denied');
 		}
 
-		const role = await ctx.db
-			.query('projectRoles')
-			.withIndex('by_name', (q) => q.eq('name', args.roleName ?? 'Contributor'))
-			.first();
+		const role = await ctx.db.get(args.roleId);
 		if (!role) {
 			throw new ConvexError('Role not found');
 		}
+		const profile = await ctx.db.get(args.profileId);
+		if (!profile) {
+			throw new ConvexError('Profile not found');
+		}
 
-		const existing = await ctx.db
+		const existingMemberships = await ctx.db
 			.query('projectMembers')
-			.withIndex('by_project_and_user', (q) =>
-				q.eq('projectId', args.projectId).eq('userId', args.userId)
+			.withIndex('by_project_and_profile', (q) =>
+				q.eq('projectId', args.projectId).eq('profileId', args.profileId)
 			)
-			.first();
+			.collect();
+		const legacyAuthUserId = getProfileAuthUserId(profile);
+		const legacyMemberships = legacyAuthUserId
+			? await ctx.db
+					.query('projectMembers')
+					.withIndex('by_project_and_user', (q) =>
+						q.eq('projectId', args.projectId).eq('userId', legacyAuthUserId)
+					)
+					.collect()
+			: [];
+		const memberships = [
+			...new Map(
+				[...existingMemberships, ...legacyMemberships].map((membership) => [
+					membership._id,
+					membership
+				])
+			).values()
+		];
+		const activeMembership = memberships.find((membership) => !membership.leftAt);
+		const historicalMembership = memberships.find((membership) => membership.leftAt);
 
-		if (existing && !existing.leftAt) {
+		if (activeMembership) {
 			throw new ConvexError('User is already a project member');
 		}
 
-		if (existing && existing.leftAt) {
-			const profile = await requireProfile(ctx, args.userId);
-			await ctx.db.patch(existing._id, {
+		if (historicalMembership) {
+			await ctx.db.patch(historicalMembership._id, {
+				profileId: args.profileId,
+				userId: undefined,
 				leftAt: undefined,
 				roleId: role._id,
 				firstName: profile.firstName,
@@ -399,13 +411,12 @@ export const addMember = mutation({
 				username: profile.username,
 				coverPhotoUrl: profile.coverPhotoUrl
 			});
-			return await ctx.db.get(existing._id);
+			return await ctx.db.get(historicalMembership._id);
 		}
 
-		const profile = await requireProfile(ctx, args.userId);
 		const memberId = await ctx.db.insert('projectMembers', {
 			projectId: args.projectId,
-			userId: args.userId,
+			profileId: args.profileId,
 			roleId: role._id,
 			firstName: profile.firstName,
 			lastName: profile.lastName,

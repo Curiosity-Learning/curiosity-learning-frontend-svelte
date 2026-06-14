@@ -1,7 +1,10 @@
 import type { Id } from '$convex/_generated/dataModel';
 import { api } from '$convex/_generated/api';
 import { getConvexServerClient } from '$lib/server/convex';
-import { getSignedClubMemberProfileAssets, getSignedClubProfileAssets } from '$lib/server/signed-media';
+import {
+	getSignedClubMemberProfileAssets,
+	getSignedClubProfileAssets
+} from '$lib/server/signed-media';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -35,7 +38,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		canReadMembers
 			? convex.query(api.clubs.getMembers, {
 					clubId,
-					roleName: 'Learner'
+					roleKey: 'learner'
 				})
 			: [],
 		canReadProjects ? convex.query(api.projects.listPreviewsByClub, { clubId, limit: 6 }) : [],

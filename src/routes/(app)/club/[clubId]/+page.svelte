@@ -77,9 +77,7 @@
 	const learnersResponse = useStableQuery(
 		api.clubs.getMembers,
 		() =>
-			clubIdTyped && canReadMembers
-				? { clubId: clubIdTyped, roleName: 'Learner' as const }
-				: 'skip',
+			clubIdTyped && canReadMembers ? { clubId: clubIdTyped, roleKey: 'learner' as const } : 'skip',
 		{ cache: 'memory' }
 	);
 

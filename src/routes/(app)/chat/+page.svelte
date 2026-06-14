@@ -147,6 +147,7 @@
 	let contactSuggestions = $derived.by(() => {
 		const messagingUsers = messagingUsersResponse.data ?? [];
 		return messagingUsers.map((user) => ({
+			profileId: user.profileId,
 			userId: user.userId,
 			label: user.displayName
 		}));
@@ -228,7 +229,7 @@
 		errorMessage = '';
 		try {
 			const room = await convexClient.mutation(api.chat.getOrCreateDirectRoom, {
-				otherUserId: selectedOtherUserId.trim()
+				otherProfileId: selectedOtherUserId.trim() as Id<'profiles'>
 			});
 			if (room?._id) {
 				await openRoom(room._id);
@@ -507,12 +508,12 @@
 							No contacts found
 						</div>
 					{:else}
-						{#each filteredContacts as contact (contact.userId)}
+						{#each filteredContacts as contact (contact.profileId)}
 							<button
 								type="button"
 								class="flex w-full items-center gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors hover:bg-[#f7f8fc] sm:px-6"
 								onclick={() => {
-									selectedOtherUserId = contact.userId;
+									selectedOtherUserId = contact.profileId;
 									void openDirectRoom();
 								}}
 							>

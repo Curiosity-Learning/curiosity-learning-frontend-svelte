@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
-import { requireIdentity, requirePermission } from './permissions';
+import { requireIdentity, requirePermission, requireProfile } from './permissions';
 
 export const listActivities = query({
 	args: {},
@@ -80,6 +80,7 @@ export const addToSession = mutation({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 
 		const session = await ctx.db.get(args.sessionId);
 		if (!session) {
@@ -99,7 +100,7 @@ export const addToSession = mutation({
 			content: bookletActivity.content,
 			minutes: bookletActivity.minutes,
 			bookletActivityId: args.bookletActivityId,
-			createdByUserId: identity.subject,
+			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
 		});

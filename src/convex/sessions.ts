@@ -2,7 +2,16 @@ import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { hasPermission, requireIdentity, requirePermission } from './permissions';
+import {
+	getMembershipByProfileId,
+	getProfileAuthUserId,
+	getRelatedProfile,
+	hasPermission,
+	listMembershipsForProfile,
+	requireIdentity,
+	requirePermission,
+	requireProfile
+} from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -14,31 +23,24 @@ const getSession = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
 	return session;
 };
 
-const getSessionAttendeePreviews = async (
-	ctx: Ctx,
-	sessionId: Id<'sessions'>,
-	limit = 6
-) => {
+const getSessionAttendeePreviews = async (ctx: Ctx, sessionId: Id<'sessions'>, limit = 6) => {
 	const attendanceRows = await ctx.db
 		.query('attendances')
 		.withIndex('by_session', (q) => q.eq('sessionId', sessionId))
 		.collect();
-	const userIds = [...new Set(attendanceRows.map((row) => row.userId))];
 	const attendees: Array<{
 		name: string;
 		imageUrl: string | null;
 		profileImageMediaAssetId: Id<'mediaAssets'> | null;
 	}> = [];
 
-	for (const userId of userIds) {
+	for (const row of attendanceRows) {
 		if (attendees.length >= limit) break;
 
-		const profile = await ctx.db
-			.query('profiles')
-			.withIndex('by_user_id', (q) => q.eq('userId', userId))
-			.first();
+		const profile = await getRelatedProfile(ctx, row.profileId, row.userId);
+		const authUserId = profile ? getProfileAuthUserId(profile) : row.userId;
 		const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-		const name = profile ? fullName || profile.username || userId : 'Past member';
+		const name = profile ? fullName || profile.username || authUserId || 'Member' : 'Past member';
 		attendees.push({
 			name,
 			imageUrl: null,
@@ -54,8 +56,8 @@ const getSessionAttendanceAttendees = async (ctx: Ctx, sessionId: Id<'sessions'>
 		.query('attendances')
 		.withIndex('by_session', (q) => q.eq('sessionId', sessionId))
 		.collect();
-	const userIds = [...new Set(attendanceRows.map((row) => row.userId))];
 	const attendees: Array<{
+		profileId: Id<'profiles'> | null;
 		userId: string;
 		firstName: string | null;
 		lastName: string | null;
@@ -64,14 +66,14 @@ const getSessionAttendanceAttendees = async (ctx: Ctx, sessionId: Id<'sessions'>
 		isPastMember: boolean;
 	}> = [];
 
-	for (const userId of userIds) {
-		const profile = await ctx.db
-			.query('profiles')
-			.withIndex('by_user_id', (q) => q.eq('userId', userId))
-			.first();
+	for (const row of attendanceRows) {
+		const profile = await getRelatedProfile(ctx, row.profileId, row.userId);
+		const authUserId = profile ? getProfileAuthUserId(profile) : row.userId;
+		if (!authUserId) continue;
 
 		attendees.push({
-			userId,
+			profileId: profile?._id ?? null,
+			userId: authUserId,
 			firstName: profile?.firstName ?? null,
 			lastName: profile?.lastName ?? null,
 			username: profile?.username ?? null,
@@ -110,10 +112,8 @@ export const countAttendedForViewer = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const memberships = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const profile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, profile);
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
 
 		let count = 0;
@@ -128,12 +128,19 @@ export const countAttendedForViewer = query({
 				.collect();
 
 			for (const session of sessions) {
-				const attendance = await ctx.db
-					.query('attendances')
-					.withIndex('by_session_and_user', (q) =>
-						q.eq('sessionId', session._id).eq('userId', identity.subject)
-					)
-					.first();
+				const attendance =
+					(await ctx.db
+						.query('attendances')
+						.withIndex('by_session_and_profile', (q) =>
+							q.eq('sessionId', session._id).eq('profileId', profile._id)
+						)
+						.unique()) ??
+					(await ctx.db
+						.query('attendances')
+						.withIndex('by_session_and_user', (q) =>
+							q.eq('sessionId', session._id).eq('userId', identity.subject)
+						)
+						.unique());
 				if (attendance) {
 					count += 1;
 				}
@@ -166,6 +173,7 @@ export const create = mutation({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 		await requirePermission(ctx, args.clubId, identity.subject, 'session:create');
 
 		if (args.endTime <= args.startTime) {
@@ -178,7 +186,7 @@ export const create = mutation({
 			startTime: args.startTime,
 			endTime: args.endTime,
 			description: args.description,
-			createdByUserId: identity.subject,
+			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
 		});
@@ -494,6 +502,7 @@ export const upsertActivity = mutation({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 		const session = await getSession(ctx, args.sessionId);
 		const permission = args.activityId ? 'session_activity:update' : 'session_activity:create';
 		await requirePermission(ctx, session.clubId, identity.subject, permission);
@@ -501,6 +510,10 @@ export const upsertActivity = mutation({
 		const now = Date.now();
 		let activityId = args.activityId;
 		if (activityId) {
+			const activity = await ctx.db.get(activityId);
+			if (!activity || activity.sessionId !== args.sessionId) {
+				throw new ConvexError('Activity does not belong to this session');
+			}
 			await ctx.db.patch(activityId, {
 				name: args.name,
 				slug: args.slug,
@@ -515,7 +528,7 @@ export const upsertActivity = mutation({
 				slug: args.slug,
 				content: args.content,
 				minutes: args.minutes,
-				createdByUserId: identity.subject,
+				createdByProfileId: profile._id,
 				createdAt: now,
 				updatedAt: now
 			});
@@ -592,7 +605,12 @@ export const reorderActivities = mutation({
 
 		const now = Date.now();
 		for (let i = 0; i < args.activityIds.length; i++) {
-			await ctx.db.patch(args.activityIds[i], {
+			const activityId = args.activityIds[i];
+			const activity = await ctx.db.get(activityId);
+			if (!activity || activity.sessionId !== args.sessionId) {
+				throw new ConvexError('Activity does not belong to this session');
+			}
+			await ctx.db.patch(activityId, {
 				order: i,
 				updatedAt: now
 			});
@@ -619,10 +637,20 @@ export const listAttendance = query({
 		const session = await getSession(ctx, args.sessionId);
 		await requirePermission(ctx, session.clubId, identity.subject, 'attendance:read');
 
-		return await ctx.db
+		const rows = await ctx.db
 			.query('attendances')
 			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
 			.collect();
+		return await Promise.all(
+			rows.map(async (row) => {
+				const profile = await getRelatedProfile(ctx, row.profileId, row.userId);
+				return {
+					...row,
+					profileId: profile?._id ?? row.profileId ?? null,
+					userId: profile ? getProfileAuthUserId(profile) : row.userId
+				};
+			})
+		);
 	}
 });
 
@@ -642,27 +670,42 @@ export const listAttendanceAttendees = query({
 export const setAttendance = mutation({
 	args: {
 		sessionId: v.id('sessions'),
-		userId: v.string(),
+		profileId: v.id('profiles'),
 		attending: v.boolean()
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const session = await getSession(ctx, args.sessionId);
 		await requirePermission(ctx, session.clubId, identity.subject, 'attendance:create');
+		const targetProfile = await ctx.db.get(args.profileId);
+		if (!targetProfile) {
+			throw new ConvexError('Profile not found');
+		}
+		if (!(await getMembershipByProfileId(ctx, session.clubId, args.profileId))) {
+			throw new ConvexError('Attendee must be an active club member');
+		}
+		const creatorProfile = await requireProfile(ctx, identity.subject);
 
-		const existing = await ctx.db
-			.query('attendances')
-			.withIndex('by_session_and_user', (q) =>
-				q.eq('sessionId', args.sessionId).eq('userId', args.userId)
-			)
-			.first();
+		const existing =
+			(await ctx.db
+				.query('attendances')
+				.withIndex('by_session_and_profile', (q) =>
+					q.eq('sessionId', args.sessionId).eq('profileId', args.profileId)
+				)
+				.unique()) ??
+			(await ctx.db
+				.query('attendances')
+				.withIndex('by_session_and_user', (q) =>
+					q.eq('sessionId', args.sessionId).eq('userId', getProfileAuthUserId(targetProfile) ?? '')
+				)
+				.unique());
 
 		if (args.attending) {
 			if (!existing) {
 				await ctx.db.insert('attendances', {
 					sessionId: args.sessionId,
-					userId: args.userId,
-					createdByUserId: identity.subject,
+					profileId: args.profileId,
+					createdByProfileId: creatorProfile._id,
 					createdAt: Date.now()
 				});
 			}

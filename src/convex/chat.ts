@@ -1,19 +1,53 @@
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
-import { requireIdentity, requireProfile } from './permissions';
+import {
+	getMembershipByProfileId,
+	getProfileAuthUserId,
+	getRelatedProfile,
+	requireIdentity,
+	requireProfile
+} from './permissions';
 
-const sortUsers = (userIds: string[]) => [...new Set(userIds)].sort();
-const directKeyFor = (userA: string, userB: string) => sortUsers([userA, userB]).join('|');
+const sortProfiles = (profileIds: Array<Id<'profiles'>>) => [...new Set(profileIds)].sort();
+
+const listParticipantRows = async (
+	ctx: Parameters<typeof requireProfile>[0],
+	profileId: Id<'profiles'>,
+	authUserId: string
+) => {
+	const byProfile = await ctx.db
+		.query('participants')
+		.withIndex('by_profile', (q) => q.eq('profileId', profileId))
+		.collect();
+	const legacy = await ctx.db
+		.query('participants')
+		.withIndex('by_user', (q) => q.eq('userId', authUserId))
+		.collect();
+	return [...new Map([...byProfile, ...legacy].map((row) => [row._id, row])).values()];
+};
+
+const getRoomParticipant = async (
+	ctx: Parameters<typeof requireProfile>[0],
+	roomId: Id<'rooms'>,
+	profileId: Id<'profiles'>,
+	authUserId: string
+) =>
+	(await ctx.db
+		.query('participants')
+		.withIndex('by_room_and_profile', (q) => q.eq('roomId', roomId).eq('profileId', profileId))
+		.unique()) ??
+	(await ctx.db
+		.query('participants')
+		.withIndex('by_room_and_user', (q) => q.eq('roomId', roomId).eq('userId', authUserId))
+		.unique());
 
 export const listRooms = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const memberships = await ctx.db
-			.query('participants')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const profile = await requireProfile(ctx, identity.subject);
+		const memberships = await listParticipantRows(ctx, profile._id, identity.subject);
 
 		const rooms = await Promise.all(memberships.map((membership) => ctx.db.get(membership.roomId)));
 		return rooms.filter((room): room is NonNullable<typeof room> => Boolean(room));
@@ -24,10 +58,8 @@ export const listRoomSummaries = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const memberships = await ctx.db
-			.query('participants')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const profile = await requireProfile(ctx, identity.subject);
+		const memberships = await listParticipantRows(ctx, profile._id, identity.subject);
 		const membershipByRoomId = new Map(
 			memberships.map((membership) => [membership.roomId, membership])
 		);
@@ -53,14 +85,25 @@ export const listRoomSummaries = query({
 				.query('participants')
 				.withIndex('by_room', (q) => q.eq('roomId', room._id))
 				.collect();
-			const otherUserIds = participants
-				.map((participant) => participant.userId)
-				.filter((userId) => userId !== identity.subject);
+			const otherParticipants = (
+				await Promise.all(
+					participants.map(async (participant) => ({
+						participant,
+						profile: await getRelatedProfile(ctx, participant.profileId, participant.userId)
+					}))
+				)
+			).filter((entry): entry is typeof entry & { profile: NonNullable<typeof entry.profile> } =>
+				Boolean(entry.profile && entry.profile._id !== profile._id)
+			);
+			const otherUserIds = otherParticipants
+				.map(({ profile: participantProfile }) => getProfileAuthUserId(participantProfile))
+				.filter((userId): userId is string => Boolean(userId));
 
 			const participantDisplayNames = [] as string[];
-			for (const userId of otherUserIds) {
-				const participant = participants.find((p) => p.userId === userId);
-				participantDisplayNames.push(participant?.displayName ?? userId);
+			for (const { participant, profile: participantProfile } of otherParticipants) {
+				participantDisplayNames.push(
+					participant?.displayName ?? participantProfile.username ?? 'Member'
+				);
 			}
 
 			const lastMessagePreview = room.lastMessagePreview ?? null;
@@ -93,10 +136,8 @@ export const getUnreadSummary = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const memberships = await ctx.db
-			.query('participants')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const profile = await requireProfile(ctx, identity.subject);
+		const memberships = await listParticipantRows(ctx, profile._id, identity.subject);
 
 		let totalUnreadCount = 0;
 		let roomsWithUnreadCount = 0;
@@ -115,50 +156,63 @@ export const getUnreadSummary = query({
 
 export const getOrCreateDirectRoom = mutation({
 	args: {
-		otherUserId: v.string()
+		otherProfileId: v.id('profiles')
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		if (identity.subject === args.otherUserId) {
+		const viewerProfile = await requireProfile(ctx, identity.subject);
+		if (viewerProfile._id === args.otherProfileId) {
 			throw new ConvexError('Cannot create a direct room with yourself');
 		}
-		const viewerProfile = await requireProfile(ctx, identity.subject);
+		const otherProfile = await ctx.db.get(args.otherProfileId);
+		if (!otherProfile) {
+			throw new ConvexError('Profile not found');
+		}
 		if (!viewerProfile.activeClubId) {
 			throw new ConvexError('An active club is required to start a new chat');
 		}
 		const activeClubId = viewerProfile.activeClubId;
-		const sharedMembership = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_club_and_user', (q) =>
-				q.eq('clubId', activeClubId).eq('userId', args.otherUserId)
-			)
-			.first();
-		if (!sharedMembership || sharedMembership.leftAt) {
+		const sharedMembership = await getMembershipByProfileId(ctx, activeClubId, args.otherProfileId);
+		if (!sharedMembership) {
 			throw new ConvexError('You can only start chats with members of your active club');
 		}
 
-		const directKey = directKeyFor(identity.subject, args.otherUserId);
+		const [directProfileAId, directProfileBId] = sortProfiles([
+			viewerProfile._id,
+			args.otherProfileId
+		]);
 
 		const existing = await ctx.db
 			.query('rooms')
-			.withIndex('by_direct_key', (q) => q.eq('directKey', directKey))
-			.first();
-		if (existing && !existing.isGroupChat) {
-			return existing;
+			.withIndex('by_direct_profiles', (q) =>
+				q.eq('directProfileAId', directProfileAId).eq('directProfileBId', directProfileBId)
+			)
+			.unique();
+		const otherAuthUserId = getProfileAuthUserId(otherProfile);
+		const legacyDirectKey = otherAuthUserId
+			? [identity.subject, otherAuthUserId].sort().join('|')
+			: null;
+		const legacyExisting = legacyDirectKey
+			? await ctx.db
+					.query('rooms')
+					.withIndex('by_direct_key', (q) => q.eq('directKey', legacyDirectKey))
+					.unique()
+			: null;
+		if ((existing ?? legacyExisting) && !(existing ?? legacyExisting)?.isGroupChat) {
+			return existing ?? legacyExisting;
 		}
 
 		const now = Date.now();
 		const roomId = await ctx.db.insert('rooms', {
 			isGroupChat: false,
-			directKey,
+			directProfileAId,
+			directProfileBId,
 			createdAt: now
 		});
 
-		const otherProfile = await requireProfile(ctx, args.otherUserId);
-
 		await ctx.db.insert('participants', {
 			roomId,
-			userId: identity.subject,
+			profileId: viewerProfile._id,
 			isAdmin: true,
 			displayName:
 				viewerProfile.username ||
@@ -171,12 +225,13 @@ export const getOrCreateDirectRoom = mutation({
 		});
 		await ctx.db.insert('participants', {
 			roomId,
-			userId: args.otherUserId,
+			profileId: otherProfile._id,
 			isAdmin: false,
 			displayName:
 				otherProfile.username ||
 				[otherProfile.firstName, otherProfile.lastName].filter(Boolean).join(' ').trim() ||
-				args.otherUserId,
+				getProfileAuthUserId(otherProfile) ||
+				'Member',
 			coverPhotoUrl: otherProfile.coverPhotoUrl,
 			lastReadAt: now,
 			unreadCount: 0,
@@ -194,12 +249,8 @@ export const listMessages = query({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const membership = await ctx.db
-			.query('participants')
-			.withIndex('by_room_and_user', (q) =>
-				q.eq('roomId', args.roomId).eq('userId', identity.subject)
-			)
-			.first();
+		const profile = await requireProfile(ctx, identity.subject);
+		const membership = await getRoomParticipant(ctx, args.roomId, profile._id, identity.subject);
 		if (!membership) {
 			throw new ConvexError('Not a participant in this room');
 		}
@@ -209,7 +260,17 @@ export const listMessages = query({
 			.withIndex('by_room_and_created', (q) => q.eq('roomId', args.roomId))
 			.order('desc')
 			.take(args.limit ?? 50);
-		return records.reverse();
+		const resolved = await Promise.all(
+			records.map(async (message) => {
+				const author = await getRelatedProfile(ctx, message.profileId, message.userId);
+				return {
+					...message,
+					profileId: author?._id ?? message.profileId ?? null,
+					userId: author ? getProfileAuthUserId(author) : message.userId
+				};
+			})
+		);
+		return resolved.reverse();
 	}
 });
 
@@ -221,12 +282,8 @@ export const sendMessage = mutation({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const membership = await ctx.db
-			.query('participants')
-			.withIndex('by_room_and_user', (q) =>
-				q.eq('roomId', args.roomId).eq('userId', identity.subject)
-			)
-			.first();
+		const profile = await requireProfile(ctx, identity.subject);
+		const membership = await getRoomParticipant(ctx, args.roomId, profile._id, identity.subject);
 		if (!membership) {
 			throw new ConvexError('Not a participant in this room');
 		}
@@ -238,7 +295,7 @@ export const sendMessage = mutation({
 		const now = Date.now();
 		const messageId = await ctx.db.insert('messages', {
 			roomId: args.roomId,
-			userId: identity.subject,
+			profileId: profile._id,
 			content: args.content,
 			type: args.mediaUrl ? 'media' : 'text',
 			mediaUrl: args.mediaUrl,
@@ -263,7 +320,7 @@ export const sendMessage = mutation({
 			participants.map((participant) =>
 				ctx.db.patch(
 					participant._id,
-					participant.userId === identity.subject
+					participant.profileId === profile._id || participant.userId === identity.subject
 						? {
 								lastReadAt: now,
 								unreadCount: 0
@@ -285,12 +342,8 @@ export const markRoomRead = mutation({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const membership = await ctx.db
-			.query('participants')
-			.withIndex('by_room_and_user', (q) =>
-				q.eq('roomId', args.roomId).eq('userId', identity.subject)
-			)
-			.first();
+		const profile = await requireProfile(ctx, identity.subject);
+		const membership = await getRoomParticipant(ctx, args.roomId, profile._id, identity.subject);
 		if (!membership) {
 			throw new ConvexError('Not a participant in this room');
 		}
@@ -313,15 +366,13 @@ export const listUsersForMessaging = query({
 		const identity = await requireIdentity(ctx);
 		const userIdSet = new Set<string>();
 		const users: Array<{
+			profileId: Id<'profiles'>;
 			userId: string;
 			displayName: string;
 		}> = [];
 
 		// Get viewer's active club from profile
-		const viewerProfile = await ctx.db
-			.query('profiles')
-			.withIndex('by_user_id', (q) => q.eq('userId', identity.subject))
-			.first();
+		const viewerProfile = await requireProfile(ctx, identity.subject);
 
 		console.log('[chat] Viewer profile:', {
 			userId: identity.subject,
@@ -346,23 +397,22 @@ export const listUsersForMessaging = query({
 		// Add club members
 		for (const member of clubMembers) {
 			if (member.leftAt) continue; // Skip members who left
-			if (member.userId === identity.subject) continue; // Skip self
+			const memberProfile = await getRelatedProfile(ctx, member.profileId, member.userId);
+			if (!memberProfile || memberProfile._id === viewerProfile._id) continue;
+			const memberAuthUserId = getProfileAuthUserId(memberProfile);
+			if (!memberAuthUserId) continue;
 
-			if (!userIdSet.has(member.userId)) {
-				userIdSet.add(member.userId);
-
-				const memberProfile = await ctx.db
-					.query('profiles')
-					.withIndex('by_user_id', (q) => q.eq('userId', member.userId))
-					.first();
+			if (!userIdSet.has(memberAuthUserId)) {
+				userIdSet.add(memberAuthUserId);
 
 				const displayName =
 					memberProfile?.username ||
 					[memberProfile?.firstName, memberProfile?.lastName].filter(Boolean).join(' ').trim() ||
-					member.userId;
+					memberAuthUserId;
 
 				users.push({
-					userId: member.userId,
+					profileId: memberProfile._id,
+					userId: memberAuthUserId,
 					displayName
 				});
 			}
@@ -390,23 +440,26 @@ export const listUsersForMessaging = query({
 
 			for (const projectMember of projectMembers) {
 				if (projectMember.leftAt) continue; // Skip members who left
-				if (projectMember.userId === identity.subject) continue; // Skip self
+				const memberProfile = await getRelatedProfile(
+					ctx,
+					projectMember.profileId,
+					projectMember.userId
+				);
+				if (!memberProfile || memberProfile._id === viewerProfile._id) continue;
+				const memberAuthUserId = getProfileAuthUserId(memberProfile);
+				if (!memberAuthUserId) continue;
 
-				if (!userIdSet.has(projectMember.userId)) {
-					userIdSet.add(projectMember.userId);
-
-					const memberProfile = await ctx.db
-						.query('profiles')
-						.withIndex('by_user_id', (q) => q.eq('userId', projectMember.userId))
-						.first();
+				if (!userIdSet.has(memberAuthUserId)) {
+					userIdSet.add(memberAuthUserId);
 
 					const displayName =
 						memberProfile?.username ||
 						[memberProfile?.firstName, memberProfile?.lastName].filter(Boolean).join(' ').trim() ||
-						projectMember.userId;
+						memberAuthUserId;
 
 					users.push({
-						userId: projectMember.userId,
+						profileId: memberProfile._id,
+						userId: memberAuthUserId,
 						displayName
 					});
 				}

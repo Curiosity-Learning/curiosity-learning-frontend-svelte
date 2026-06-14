@@ -6,7 +6,7 @@
 
 - **Provider:** Better Auth with Convex integration.
 - **Token flow:** SvelteKit `hooks.server.ts` populates `event.locals.token` from Better Auth cookies. Server-side Convex client is created with this token.
-- **Identity:** `identity.subject` is the canonical `userId` string used across all tables.
+- **Identity:** `identity.subject` is resolved to `profiles.authUserId` at the auth boundary. App-owned relationships use `profiles._id`.
 - **Trusted origins:** Configured in `src/convex/auth.ts`. LAN origins only enabled when `ALLOW_LAN_TRUSTED_ORIGINS === 'true'`.
 
 ## Permissions Model
@@ -14,9 +14,9 @@
 Source: `src/convex/permissions.ts`
 
 - `requireIdentity(ctx)` — base auth gate.
-- Club permissions: `clubMembers` → `clubRoles.permissions[]`.
-- Project permissions: club-level via `projectClubs` OR project-membership via `projectMembers` → `projectRoles.permissions[]`.
-- Default role records are managed directly in the database: Club has `Guide` and `Learner`; Project has `Creator` and `Contributor`.
+- Club permissions: `clubMembers.profileId` → `clubRoles.permissions[]`.
+- Project permissions: club-level via `projectClubs` OR `projectMembers.profileId` → `projectRoles.permissions[]`.
+- Stable role keys drive system behavior: club roles use `guide`/`learner`; project roles use `creator`/`contributor`. Display names may change.
 
 ## Access Control Matrix
 
@@ -80,23 +80,23 @@ All require auth + club permission via `requirePermission`:
 
 ### Updates
 
-| Endpoint                           | Auth | Permission       | Notes                                         |
-| ---------------------------------- | ---- | ---------------- | --------------------------------------------- |
-| `updates.listByProject`            | Yes  | `project:read`   | Via linked clubs OR project membership         |
-| `updates.listByClub`               | Yes  | `project:read`   | Aggregates across linked projects             |
-| `updates.listForViewer`            | Yes  | `project:read`   | Aggregates viewer-readable club feed updates  |
-| `updates.create/update`            | Yes  | `project:update` |                                               |
-| `updates.attachFiles`              | Yes  | `project:update` |                                               |
-| `updates.listFiles`                | Yes  | `project:read`   | Via linked clubs OR project membership        |
-| `updates.getProjectDeliveryAssets` | Yes  | `project:read`   | Project-scoped signed media lookup            |
+| Endpoint                           | Auth | Permission       | Notes                                        |
+| ---------------------------------- | ---- | ---------------- | -------------------------------------------- |
+| `updates.listByProject`            | Yes  | `project:read`   | Via linked clubs OR project membership       |
+| `updates.listByClub`               | Yes  | `project:read`   | Aggregates across linked projects            |
+| `updates.listForViewer`            | Yes  | `project:read`   | Aggregates viewer-readable club feed updates |
+| `updates.create/update`            | Yes  | `project:update` |                                              |
+| `updates.attachFiles`              | Yes  | `project:update` |                                              |
+| `updates.listFiles`                | Yes  | `project:read`   | Via linked clubs OR project membership       |
+| `updates.getProjectDeliveryAssets` | Yes  | `project:read`   | Project-scoped signed media lookup           |
 
 ### Media Delivery
 
-| Endpoint                                                                                             | Auth | Permission       | Notes                                                             |
-| ---------------------------------------------------------------------------------------------------- | ---- | ---------------- | ----------------------------------------------------------------- |
-| `media.beginUpload/finalizeUpload/cancelUpload/retryProcessing/deleteUpload/getUpload/listMyUploads` | Yes  | owner-scoped     | Upload control plane is always scoped to the asset owner          |
-| `POST /api/media/refresh` (`owned`)                                                                  | Yes  | owner-scoped     | Mints signed URLs only for caller-owned ready assets              |
-| `POST /api/media/refresh` (`project`)                                                                | Yes  | `project:read`   | Uses `updates.getProjectDeliveryAssets`                           |
+| Endpoint                                                                                             | Auth | Permission     | Notes                                                    |
+| ---------------------------------------------------------------------------------------------------- | ---- | -------------- | -------------------------------------------------------- |
+| `media.beginUpload/finalizeUpload/cancelUpload/retryProcessing/deleteUpload/getUpload/listMyUploads` | Yes  | owner-scoped   | Upload control plane is always scoped to the asset owner |
+| `POST /api/media/refresh` (`owned`)                                                                  | Yes  | owner-scoped   | Mints signed URLs only for caller-owned ready assets     |
+| `POST /api/media/refresh` (`project`)                                                                | Yes  | `project:read` | Uses `updates.getProjectDeliveryAssets`                  |
 
 Notes:
 

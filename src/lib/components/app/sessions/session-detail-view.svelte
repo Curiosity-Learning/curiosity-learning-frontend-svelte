@@ -406,11 +406,11 @@
 		}
 	};
 
-	const setAttendance = async (userId: string, attending: boolean) => {
+	const setAttendance = async (profileId: Id<'profiles'>, userId: string, attending: boolean) => {
 		if (!sessionIdTyped) return;
 		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		errorMessage = '';
-		const mutationArgs = { sessionId: sessionIdTyped, userId, attending };
+		const mutationArgs = { sessionId: sessionIdTyped, profileId, attending };
 		try {
 			await convexClient.mutation(api.sessions.setAttendance, mutationArgs, {
 				optimisticUpdate: (localStore) => {
@@ -418,20 +418,21 @@
 					const currentAttendance = localStore.getQuery(api.sessions.listAttendance, queryArgs);
 					if (!currentAttendance) return;
 
-					const existing = currentAttendance.find((entry) => entry.userId === mutationArgs.userId);
+					const existing = currentAttendance.find((entry) => entry.userId === userId);
 					if (mutationArgs.attending) {
 						if (existing) return;
 						const now = Date.now();
 						const optimisticId =
-							`optimistic-attendance-${mutationArgs.sessionId}-${mutationArgs.userId}` as Id<'attendances'>;
+							`optimistic-attendance-${mutationArgs.sessionId}-${userId}` as Id<'attendances'>;
 						localStore.setQuery(api.sessions.listAttendance, queryArgs, [
 							...currentAttendance,
 							{
 								_id: optimisticId,
 								_creationTime: now,
 								sessionId: mutationArgs.sessionId,
-								userId: mutationArgs.userId,
-								createdByUserId: mutationArgs.userId,
+								profileId: mutationArgs.profileId,
+								userId,
+								createdByProfileId: mutationArgs.profileId,
 								createdAt: now
 							}
 						]);
@@ -441,7 +442,7 @@
 					localStore.setQuery(
 						api.sessions.listAttendance,
 						queryArgs,
-						currentAttendance.filter((entry) => entry.userId !== mutationArgs.userId)
+						currentAttendance.filter((entry) => entry.userId !== userId)
 					);
 				}
 			});
@@ -693,13 +694,11 @@
 									id={`attendance-${member.clubMemberId}`}
 									class="size-6 rounded-md [&>[data-slot=checkbox-indicator]>svg]:size-4"
 									checked={isUserAttending(member.userId)}
-									aria-label={`Mark ${
-										formatDisplayName(member)
-									} as attending`}
+									aria-label={`Mark ${formatDisplayName(member)} as attending`}
 									disabled={!canManageAttendanceOnline}
 									onCheckedChange={(checked) => {
 										if (!canManageAttendanceOnline) return;
-										void setAttendance(member.userId, checked === true);
+										void setAttendance(member.profileId, member.userId, checked === true);
 									}}
 								/>
 							</div>

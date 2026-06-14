@@ -18,17 +18,22 @@ export const get = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const current = await ctx.db
-			.query('userPreferences')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.first();
+		const profile = await requireProfile(ctx, identity.subject);
+		const current =
+			(await ctx.db
+				.query('userPreferences')
+				.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+				.unique()) ??
+			(await ctx.db
+				.query('userPreferences')
+				.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+				.unique());
 		if (current) {
 			return current;
 		}
 
-		const profile = await requireProfile(ctx, identity.subject);
 		return {
-			userId: identity.subject,
+			profileId: profile._id,
 			activeClubId: profile.activeClubId,
 			theme: 'system' as const,
 			notificationsEnabled: true,
@@ -59,14 +64,22 @@ export const upsert = mutation({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const existing = await ctx.db
-			.query('userPreferences')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.first();
+		const profile = await requireProfile(ctx, identity.subject);
+		const existing =
+			(await ctx.db
+				.query('userPreferences')
+				.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+				.unique()) ??
+			(await ctx.db
+				.query('userPreferences')
+				.withIndex('by_user', (q) => q.eq('userId', identity.subject))
+				.unique());
 
 		const now = Date.now();
 		if (existing) {
 			await ctx.db.patch(existing._id, {
+				profileId: profile._id,
+				userId: undefined,
 				theme: args.theme ?? existing.theme,
 				notificationsEnabled: args.notificationsEnabled ?? existing.notificationsEnabled,
 				notificationPreferences: args.notificationPreferences ?? existing.notificationPreferences,
@@ -77,7 +90,7 @@ export const upsert = mutation({
 		}
 
 		const id = await ctx.db.insert('userPreferences', {
-			userId: identity.subject,
+			profileId: profile._id,
 			theme: args.theme ?? 'system',
 			notificationsEnabled: args.notificationsEnabled ?? true,
 			notificationPreferences: args.notificationPreferences ?? defaultPreferences,

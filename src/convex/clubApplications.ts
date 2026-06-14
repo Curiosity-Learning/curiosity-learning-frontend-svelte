@@ -3,7 +3,13 @@ import type { Id } from './_generated/dataModel';
 import { components, internal } from './_generated/api';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
-import { getMembership, requireIdentity, requireProfile } from './permissions';
+import {
+	getClubRoleByKey,
+	getMembershipByProfileId,
+	listMembershipsForProfile,
+	requireIdentity,
+	requireProfile
+} from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -30,27 +36,22 @@ type ApplicationDraft = {
 	referralOther?: string;
 };
 
-const getRoleByName = async (ctx: Ctx, name: 'Guide' | 'Learner') => {
-	const role = await ctx.db
-		.query('clubRoles')
-		.withIndex('by_name', (q) => q.eq('name', name))
-		.first();
+const getRoleByKey = async (ctx: Ctx, key: 'guide' | 'learner') => {
+	const role = await getClubRoleByKey(ctx, key);
 	if (!role) {
-		throw new ConvexError(`Default role ${name} is not configured`);
+		throw new ConvexError(`Default role ${key} is not configured`);
 	}
 	return role;
 };
 
 const requireGuideSomewhere = async (ctx: Ctx, userId: string) => {
-	const memberships = await ctx.db
-		.query('clubMembers')
-		.withIndex('by_user', (q) => q.eq('userId', userId))
-		.collect();
+	const profile = await requireProfile(ctx, userId);
+	const memberships = await listMembershipsForProfile(ctx, profile);
 
 	for (const membership of memberships) {
 		if (membership.leftAt) continue;
 		const role = await ctx.db.get(membership.roleId);
-		if (role?.name === 'Guide') {
+		if (role?.key === 'guide' || (!role?.key && role?.name === 'Guide')) {
 			return;
 		}
 	}
@@ -140,10 +141,10 @@ const profileDisplayName = (profile: {
 	return fullName || profile.username || undefined;
 };
 
-const getLatestIncompleteApplication = async (ctx: Ctx, userId: string) => {
+const getLatestIncompleteApplication = async (ctx: Ctx, profileId: Id<'profiles'>) => {
 	const applications = await ctx.db
 		.query('clubApplications')
-		.withIndex('by_applicant_user_id', (q) => q.eq('applicantUserId', userId))
+		.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', profileId))
 		.order('desc')
 		.collect();
 	return applications.find((application) => application.status === 'incomplete') ?? null;
@@ -152,24 +153,24 @@ const getLatestIncompleteApplication = async (ctx: Ctx, userId: string) => {
 const upsertIncompleteApplication = async (
 	ctx: MutationCtx,
 	args: {
-		userId: string;
 		profileId: Id<'profiles'>;
 		draft: ApplicationDraft;
 	}
 ) => {
 	const now = Date.now();
 	const normalized = normalizeDraft(args.draft);
-	const existing = await getLatestIncompleteApplication(ctx, args.userId);
+	const existing = await getLatestIncompleteApplication(ctx, args.profileId);
 	if (existing) {
 		await ctx.db.patch(existing._id, {
 			...normalized,
+			applicantProfileId: args.profileId,
+			applicantUserId: undefined,
 			updatedAt: now
 		});
 		return { applicationId: existing._id };
 	}
 
 	const applicationId = await ctx.db.insert('clubApplications', {
-		applicantUserId: args.userId,
 		applicantProfileId: args.profileId,
 		status: 'incomplete',
 		...normalized,
@@ -181,7 +182,6 @@ const upsertIncompleteApplication = async (
 
 export const saveIncompleteApplicationForUser = internalMutation({
 	args: {
-		userId: v.string(),
 		profileId: v.id('profiles'),
 		draft: applicationDraftValidator
 	},
@@ -202,7 +202,6 @@ export const saveIncompleteApplication = mutation({
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
 		return await upsertIncompleteApplication(ctx, {
-			userId: identity.subject,
 			profileId: profile._id,
 			draft: args
 		});
@@ -232,7 +231,7 @@ export const submitApplication = mutation({
 		}
 		const pendingConsent = await ctx.db
 			.query('parentChildConsents')
-			.withIndex('by_child_user_id', (q) => q.eq('childUserId', identity.subject))
+			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', profile._id))
 			.order('desc')
 			.first();
 		if (pendingConsent?.status === 'pending') {
@@ -241,9 +240,8 @@ export const submitApplication = mutation({
 		await assertReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
 
 		const now = Date.now();
-		const existing = await getLatestIncompleteApplication(ctx, identity.subject);
+		const existing = await getLatestIncompleteApplication(ctx, profile._id);
 		const payload = {
-			applicantUserId: identity.subject,
 			applicantProfileId: profile._id,
 			status: 'pending',
 			name: args.name.trim(),
@@ -259,7 +257,7 @@ export const submitApplication = mutation({
 		} as const;
 
 		if (existing) {
-			await ctx.db.patch(existing._id, payload);
+			await ctx.db.patch(existing._id, { ...payload, applicantUserId: undefined });
 			await ctx.scheduler.runAfter(0, internal.googleChat.notifyClubApplicationSubmitted, {
 				applicationId: existing._id,
 				name: payload.name,
@@ -294,7 +292,8 @@ export const getMyIncompleteApplication = query({
 	returns: v.any(),
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		return await getLatestIncompleteApplication(ctx, identity.subject);
+		const profile = await requireProfile(ctx, identity.subject);
+		return await getLatestIncompleteApplication(ctx, profile._id);
 	}
 });
 
@@ -303,9 +302,10 @@ export const listMyApplications = query({
 	returns: v.any(),
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 		return await ctx.db
 			.query('clubApplications')
-			.withIndex('by_applicant_user_id', (q) => q.eq('applicantUserId', identity.subject))
+			.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', profile._id))
 			.order('desc')
 			.collect();
 	}
@@ -329,10 +329,10 @@ export const listReviewableApplications = query({
 			if (application.applicantProfileId === profile._id) continue;
 			const existingReview = await ctx.db
 				.query('applicationReviews')
-				.withIndex('by_application_id_and_reviewer_user_id', (q) =>
-					q.eq('applicationId', application._id).eq('reviewerUserId', identity.subject)
+				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+					q.eq('applicationId', application._id).eq('reviewerProfileId', profile._id)
 				)
-				.first();
+				.unique();
 			items.push({ ...application, myReview: existingReview ?? null });
 		}
 		return items;
@@ -359,7 +359,7 @@ export const upsertApplicationReview = mutation({
 		if (application.status !== 'pending') {
 			throw new ConvexError('This application is no longer reviewable');
 		}
-		if (application.applicantUserId === identity.subject) {
+		if (application.applicantProfileId === profile._id) {
 			throw new ConvexError('You cannot review your own application');
 		}
 		if (!Number.isInteger(args.score) || args.score < 0 || args.score > 10) {
@@ -373,19 +373,24 @@ export const upsertApplicationReview = mutation({
 		const now = Date.now();
 		const existing = await ctx.db
 			.query('applicationReviews')
-			.withIndex('by_application_id_and_reviewer_user_id', (q) =>
-				q.eq('applicationId', args.applicationId).eq('reviewerUserId', identity.subject)
+			.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+				q.eq('applicationId', args.applicationId).eq('reviewerProfileId', profile._id)
 			)
-			.first();
+			.unique();
 
 		if (existing) {
-			await ctx.db.patch(existing._id, { score: args.score, note, updatedAt: now });
+			await ctx.db.patch(existing._id, {
+				reviewerProfileId: profile._id,
+				reviewerUserId: undefined,
+				score: args.score,
+				note,
+				updatedAt: now
+			});
 			return { reviewId: existing._id };
 		}
 
 		const reviewId = await ctx.db.insert('applicationReviews', {
 			applicationId: args.applicationId,
-			reviewerUserId: identity.subject,
 			reviewerProfileId: profile._id,
 			score: args.score,
 			note,
@@ -405,7 +410,7 @@ export const finalizeApplication = mutation({
 	}),
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		await requireProfile(ctx, identity.subject);
+		const finalizerProfile = await requireProfile(ctx, identity.subject);
 		await requireApplicationFinalizer(ctx, identity.subject);
 
 		const application = await ctx.db.get(args.applicationId);
@@ -436,17 +441,21 @@ export const finalizeApplication = mutation({
 			locationLatitude: application.locationLatitude,
 			locationLongitude: application.locationLongitude,
 			videoMediaAssetId: application.videoMediaAssetId,
-			createdByUserId: application.applicantUserId,
+			createdByProfileId: application.applicantProfileId,
 			createdAt: now,
 			updatedAt: now
 		});
 
-		const guideRole = await getRoleByName(ctx, 'Guide');
-		const existingMembership = await getMembership(ctx, clubId, application.applicantUserId);
+		const guideRole = await getRoleByKey(ctx, 'guide');
+		const existingMembership = await getMembershipByProfileId(
+			ctx,
+			clubId,
+			application.applicantProfileId
+		);
 		if (!existingMembership) {
 			await ctx.db.insert('clubMembers', {
 				clubId,
-				userId: application.applicantUserId,
+				profileId: application.applicantProfileId,
 				roleId: guideRole._id,
 				firstName: applicantProfile.firstName,
 				lastName: applicantProfile.lastName,
@@ -459,7 +468,7 @@ export const finalizeApplication = mutation({
 		await ctx.db.patch(application._id, {
 			status: 'finalized',
 			createdClubId: clubId,
-			finalizedByUserId: identity.subject,
+			finalizedByProfileId: finalizerProfile._id,
 			finalizedAt: now,
 			updatedAt: now
 		});

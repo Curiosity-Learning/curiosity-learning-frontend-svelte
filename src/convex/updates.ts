@@ -2,13 +2,22 @@ import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { hasPermission, isProjectPermissionAllowed, requireIdentity } from './permissions';
+import {
+	getProfileAuthUserId,
+	getRelatedProfile,
+	hasPermission,
+	isProjectPermissionAllowed,
+	listMembershipsForProfile,
+	requireIdentity,
+	requireProfile
+} from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
 	name: string;
 	imageUrl: string | null;
 	imageAssetId: Id<'mediaAssets'> | null;
+	authUserId: string | null;
 };
 
 const listUpdateMediaAssetIds = async (ctx: Ctx, updateId: Id<'updates'>) => {
@@ -22,41 +31,38 @@ const listUpdateMediaAssetIds = async (ctx: Ctx, updateId: Id<'updates'>) => {
 
 const resolveAuthorSummary = async (
 	ctx: QueryCtx,
-	userId: string,
+	profileId: Id<'profiles'> | undefined,
+	legacyAuthUserId: string | undefined,
 	cache: Map<string, AuthorSummary>
 ) => {
-	if (!userId) {
+	const cacheKey = profileId ?? legacyAuthUserId;
+	if (!cacheKey) {
 		return {
 			name: 'Unknown',
 			imageUrl: null,
-			imageAssetId: null
+			imageAssetId: null,
+			authUserId: null
 		};
 	}
 
-	const cached = cache.get(userId);
+	const cached = cache.get(cacheKey);
 	if (cached) return cached;
 
-	let profile = null;
-	try {
-		profile = await ctx.db
-			.query('profiles')
-			.withIndex('by_user_id', (q) => q.eq('userId', userId))
-			.first();
-	} catch {
-		// Preserve feed rendering even if legacy profile data is malformed.
-		profile = null;
-	}
+	const profile = await getRelatedProfile(ctx, profileId, legacyAuthUserId);
+	const authUserId = profile ? getProfileAuthUserId(profile) : (legacyAuthUserId ?? null);
 	const name =
 		[profile?.firstName ?? '', profile?.lastName ?? ''].join(' ').trim() ||
 		profile?.username ||
-		userId;
+		authUserId ||
+		'Unknown';
 	const summary = {
 		name,
 		imageUrl: null,
-		imageAssetId: profile?.profileImageMediaAssetId ?? null
+		imageAssetId: profile?.profileImageMediaAssetId ?? null,
+		authUserId
 	};
 
-	cache.set(userId, summary);
+	cache.set(cacheKey, summary);
 	return summary;
 };
 
@@ -126,6 +132,7 @@ export const listByClub = query({
 			.take(limit);
 
 		const seen = new Set<Id<'updates'>>();
+		const authorCache = new Map<string, AuthorSummary>();
 		const items: Array<{
 			updateId: Id<'updates'>;
 			projectId: Id<'projects'> | null;
@@ -143,6 +150,12 @@ export const listByClub = query({
 			if (!update) continue;
 			const projectId = row.projectId ?? update.projectId ?? null;
 			const project = projectId ? await ctx.db.get(projectId) : null;
+			const author = await resolveAuthorSummary(
+				ctx,
+				update.createdByProfileId,
+				update.createdByUserId,
+				authorCache
+			);
 
 			items.push({
 				updateId: update._id,
@@ -150,7 +163,7 @@ export const listByClub = query({
 				projectName: project?.name ?? null,
 				content: update.content,
 				createdAt: update.createdAt,
-				createdByUserId: update.createdByUserId
+				createdByUserId: author.authUserId ?? 'unknown'
 			});
 		}
 
@@ -167,10 +180,8 @@ export const listForViewer = query({
 		const limit = args.limit ?? 50;
 		const authorCache = new Map<string, AuthorSummary>();
 
-		const memberships = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const viewerProfile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
 		if (!activeMemberships.length) {
 			return [];
@@ -250,7 +261,12 @@ export const listForViewer = query({
 					questionContent = null;
 				}
 			}
-			const author = await resolveAuthorSummary(ctx, update.createdByUserId, authorCache);
+			const author = await resolveAuthorSummary(
+				ctx,
+				update.createdByProfileId,
+				update.createdByUserId,
+				authorCache
+			);
 
 			items.push({
 				updateId: update._id,
@@ -265,7 +281,7 @@ export const listForViewer = query({
 				authorImageMediaAssetId: author.imageAssetId,
 				content: update.content,
 				createdAt: update.createdAt,
-				createdByUserId: update.createdByUserId
+				createdByUserId: author.authUserId ?? 'unknown'
 			});
 		}
 
@@ -282,10 +298,8 @@ export const listMine = query({
 		const limit = args.limit;
 		const authorCache = new Map<string, AuthorSummary>();
 
-		const memberships = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const viewerProfile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
 		if (!activeMemberships.length) {
 			return [];
@@ -336,14 +350,25 @@ export const listMine = query({
 			seen.add(row.updateId);
 
 			const update = await ctx.db.get(row.updateId);
-			if (!update || update.createdByUserId !== identity.subject) continue;
+			if (
+				!update ||
+				(update.createdByProfileId
+					? update.createdByProfileId !== viewerProfile._id
+					: update.createdByUserId !== identity.subject)
+			)
+				continue;
 
 			const club = await ctx.db.get(row.clubId);
 			const projectId = row.projectId ?? update.projectId ?? null;
 			const project = projectId ? await ctx.db.get(projectId) : null;
 			const questionId = update.questionId ?? null;
 			const question = questionId ? await ctx.db.get(questionId) : null;
-			const author = await resolveAuthorSummary(ctx, update.createdByUserId, authorCache);
+			const author = await resolveAuthorSummary(
+				ctx,
+				update.createdByProfileId,
+				update.createdByUserId,
+				authorCache
+			);
 
 			items.push({
 				updateId: update._id,
@@ -358,7 +383,7 @@ export const listMine = query({
 				authorImageMediaAssetId: author.imageAssetId,
 				content: update.content,
 				createdAt: update.createdAt,
-				createdByUserId: update.createdByUserId
+				createdByUserId: author.authUserId ?? 'unknown'
 			});
 		}
 
@@ -381,10 +406,8 @@ export const getViewerAuthorDeliveryAssets = query({
 
 		const limit = args.limit ?? 50;
 
-		const memberships = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_user', (q) => q.eq('userId', identity.subject))
-			.collect();
+		const viewerProfile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
 		if (!activeMemberships.length) {
 			return [];
@@ -436,7 +459,12 @@ export const getViewerAuthorDeliveryAssets = query({
 			const update = await ctx.db.get(row.updateId);
 			if (!update) continue;
 
-			const author = await resolveAuthorSummary(ctx, update.createdByUserId, authorCache);
+			const author = await resolveAuthorSummary(
+				ctx,
+				update.createdByProfileId,
+				update.createdByUserId,
+				authorCache
+			);
 			const assetId = author.imageAssetId;
 			if (!assetId || !requestedAssetIdSet.has(assetId) || delivered.has(assetId)) {
 				continue;
@@ -471,6 +499,7 @@ export const create = mutation({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 		const allowed = await canManageProject(ctx, args.projectId, identity.subject);
 		if (!allowed) {
 			throw new ConvexError('Permission denied');
@@ -480,7 +509,7 @@ export const create = mutation({
 		const updateId = await ctx.db.insert('updates', {
 			projectId: args.projectId,
 			content: args.content,
-			createdByUserId: identity.subject,
+			createdByProfileId: profile._id,
 			questionId: args.questionId,
 			createdAt: now,
 			updatedAt: now

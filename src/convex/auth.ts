@@ -10,7 +10,7 @@ import { mutation, query } from './_generated/server';
 import authConfig from './auth.config';
 import { sendEmail } from './email/resend';
 import { passwordResetEmail, verificationOtpEmail } from './email/templates';
-import { requireIdentity } from './permissions';
+import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 
 export const authComponent = createClient(components.betterAuth);
 
@@ -192,12 +192,7 @@ export const getSignupAccountStatusByEmail = query({
 			where: [{ field: 'email', value: normalizedEmail }]
 		})) as { _id: string; emailVerified?: boolean } | null;
 
-		const profile = authUser?._id
-			? await ctx.db
-					.query('profiles')
-					.withIndex('by_user_id', (q) => q.eq('userId', authUser._id))
-					.first()
-			: null;
+		const profile = authUser?._id ? await getProfileByAuthUserId(ctx, authUser._id) : null;
 
 		if (!authUser) {
 			return {
@@ -299,7 +294,7 @@ export const getUsernameLoginStatus = query({
 		}
 		const consent = await ctx.db
 			.query('parentChildConsents')
-			.withIndex('by_child_user_id', (q) => q.eq('childUserId', profile.userId))
+			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', profile._id))
 			.order('desc')
 			.first();
 		return {
@@ -318,10 +313,7 @@ export const ensureProfile = mutation({
 		if (!authUser) {
 			return null;
 		}
-		const existing = await ctx.db
-			.query('profiles')
-			.withIndex('by_user_id', (q) => q.eq('userId', authUser._id))
-			.first();
+		const existing = await getProfileByAuthUserId(ctx, authUser._id);
 
 		const now = Date.now();
 		const username = authUser.email.split('@')[0].toLowerCase();
@@ -339,7 +331,7 @@ export const ensureProfile = mutation({
 		}
 
 		const profileId = await ctx.db.insert('profiles', {
-			userId: authUser._id,
+			authUserId: authUser._id,
 			firstName,
 			lastName,
 			username,
@@ -385,17 +377,14 @@ export const completeSignupProfile = mutation({
 		const { firstName, lastName } = splitNameParts(authUser.name);
 		const pending = resolvePendingClubIntent(args.nextPath);
 
-		const existing = await ctx.db
-			.query('profiles')
-			.withIndex('by_user_id', (q) => q.eq('userId', authUser._id))
-			.first();
+		const existing = await getProfileByAuthUserId(ctx, authUser._id);
 
 		if (desiredUsername) {
 			const conflicting = await ctx.db
 				.query('profiles')
 				.withIndex('by_username', (q) => q.eq('username', desiredUsername))
 				.first();
-			if (conflicting && conflicting.userId !== authUser._id) {
+			if (conflicting && getProfileAuthUserId(conflicting) !== authUser._id) {
 				throw new ConvexError('Username is already taken');
 			}
 		}
@@ -430,7 +419,6 @@ export const completeSignupProfile = mutation({
 			}
 			if (args.startClubApplicationDraft) {
 				await ctx.runMutation(internal.clubApplications.saveIncompleteApplicationForUser, {
-					userId: authUser._id,
 					profileId: existing._id,
 					draft: args.startClubApplicationDraft
 				});
@@ -439,7 +427,7 @@ export const completeSignupProfile = mutation({
 		}
 
 		const profileId = await ctx.db.insert('profiles', {
-			userId: authUser._id,
+			authUserId: authUser._id,
 			firstLoginCompleted: false,
 			...patch
 		});
@@ -458,7 +446,6 @@ export const completeSignupProfile = mutation({
 		}
 		if (args.startClubApplicationDraft) {
 			await ctx.runMutation(internal.clubApplications.saveIncompleteApplicationForUser, {
-				userId: authUser._id,
 				profileId,
 				draft: args.startClubApplicationDraft
 			});
