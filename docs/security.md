@@ -80,28 +80,40 @@ All require auth + club permission via `requirePermission`:
 
 ### Updates
 
-| Endpoint                           | Auth | Permission       | Notes                                         |
-| ---------------------------------- | ---- | ---------------- | --------------------------------------------- |
-| `updates.listByProject`            | Yes  | `project:read`   | Via linked clubs OR project membership         |
-| `updates.listByClub`               | Yes  | `project:read`   | Aggregates across linked projects             |
-| `updates.listForViewer`            | Yes  | `project:read`   | Aggregates viewer-readable club feed updates  |
-| `updates.create/update`            | Yes  | `project:update` |                                               |
-| `updates.attachFiles`              | Yes  | `project:update` |                                               |
-| `updates.listFiles`                | Yes  | `project:read`   | Via linked clubs OR project membership        |
-| `updates.getProjectDeliveryAssets` | Yes  | `project:read`   | Project-scoped signed media lookup            |
+| Endpoint                           | Auth | Permission       | Notes                                        |
+| ---------------------------------- | ---- | ---------------- | -------------------------------------------- |
+| `updates.listByProject`            | Yes  | `project:read`   | Via linked clubs OR project membership       |
+| `updates.listByClub`               | Yes  | `project:read`   | Aggregates across linked projects            |
+| `updates.listForViewer`            | Yes  | `project:read`   | Aggregates viewer-readable club feed updates |
+| `updates.create/update`            | Yes  | `project:update` |                                              |
+| `updates.attachFiles`              | Yes  | `project:update` |                                              |
+| `updates.listFiles`                | Yes  | `project:read`   | Via linked clubs OR project membership       |
+| `updates.getProjectDeliveryAssets` | Yes  | `project:read`   | Project-scoped signed media lookup           |
 
 ### Media Delivery
 
-| Endpoint                                                                                             | Auth | Permission       | Notes                                                             |
-| ---------------------------------------------------------------------------------------------------- | ---- | ---------------- | ----------------------------------------------------------------- |
-| `media.beginUpload/finalizeUpload/cancelUpload/retryProcessing/deleteUpload/getUpload/listMyUploads` | Yes  | owner-scoped     | Upload control plane is always scoped to the asset owner          |
-| `POST /api/media/refresh` (`owned`)                                                                  | Yes  | owner-scoped     | Mints signed URLs only for caller-owned ready assets              |
-| `POST /api/media/refresh` (`project`)                                                                | Yes  | `project:read`   | Uses `updates.getProjectDeliveryAssets`                           |
+| Endpoint                                                                                             | Auth | Permission     | Notes                                                    |
+| ---------------------------------------------------------------------------------------------------- | ---- | -------------- | -------------------------------------------------------- |
+| `media.beginUpload/finalizeUpload/cancelUpload/retryProcessing/deleteUpload/getUpload/listMyUploads` | Yes  | owner-scoped   | Upload control plane is always scoped to the asset owner |
+| `POST /api/media/refresh` (`owned`)                                                                  | Yes  | owner-scoped   | Mints signed URLs only for caller-owned ready assets     |
+| `POST /api/media/refresh` (`project`)                                                                | Yes  | `project:read` | Uses `updates.getProjectDeliveryAssets`                  |
 
 Notes:
 
 - Client upload constraints sent to Convex must stay limited to the backend validator shape (`acceptedContentTypes`, `maxBytes`, processing flags). UI helpers such as HTML `accept` strings are client-only metadata and must not be forwarded through `media.beginUpload`.
 - Signed delivery is URL-based via `/api/media/refresh`; the app no longer relies on a shared `/media/[assetId]` route or CloudFront signed cookies.
+
+### Operational Monitoring
+
+| Endpoint                               | Auth                       | Notes                                                                |
+| -------------------------------------- | -------------------------- | -------------------------------------------------------------------- |
+| `POST /api/internal/monitoring/report` | `MONITORING_REPORT_SECRET` | Accepts only size-limited, allowlisted, redacted Convex failure data |
+| `POST /api/webhooks/resend`            | Resend webhook signature   | Captures delivery failures without storing recipient or message data |
+
+- Sentry default PII collection, tracing, replay, and Sentry logs are disabled.
+- Monitoring redacts cookies, authorization headers, request bodies, query strings, emails, consent/reset tokens, and signed URL parameters.
+- Entity IDs, operation names, provider names, statuses, and failure codes are allowed when needed to debug an operational failure.
+- `MONITORING_REPORT_SECRET`, `RESEND_WEBHOOK_SECRET`, and `SENTRY_AUTH_TOKEN` must remain outside the repository.
 
 ### Preferences / Notifications / Legal Documents
 

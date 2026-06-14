@@ -40,6 +40,14 @@ Use helpers in `src/lib/routes.ts` for app navigation instead of hand-built stri
 - Initial page renders should receive authorized signed media URLs from server loads via `src/lib/server/signed-media.ts`.
 - `/api/media/refresh` is for explicit renewal on long-lived pages, not default initial rendering.
 
+## Monitoring
+
+- Sentry is the single production error inbox for browser, SvelteKit server, targeted Convex, and Resend delivery failures.
+- Browser and SvelteKit server errors are captured by `@sentry/sveltekit`; default PII, tracing, replay, and Sentry logs are disabled.
+- Convex Starter actions report allowlisted failure context through the shared-secret `/api/internal/monitoring/report` endpoint.
+- Resend delivery failures arrive through the verified `/api/webhooks/resend` endpoint.
+- Monitoring payloads may include entity IDs and failure codes, but never emails, tokens, request bodies, signed URLs, or media object keys.
+
 ## UI
 
 - Use shared shadcn-svelte primitives in `src/lib/components/ui`.
