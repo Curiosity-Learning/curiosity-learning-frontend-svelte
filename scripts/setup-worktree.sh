@@ -10,7 +10,7 @@ Options:
   --seed-env  Save this worktree's ignored env files into the private git env store.
 
 Environment overrides:
-  WORKTREE_SETUP_INSTALL=0        Skip npm ci.
+  WORKTREE_SETUP_INSTALL=0        Skip npm install.
   WORKTREE_SETUP_CONVEX=0         Skip Convex deployment creation/selection.
   WORKTREE_SETUP_CONVEX_ENV=0     Skip pushing env vars to the selected Convex deployment.
   WORKTREE_CONVEX_PROJECT_REF=... Prefix refs with team:project, e.g. my-team:my-project.
@@ -193,7 +193,7 @@ fi
 restore_env
 
 if [ "${WORKTREE_SETUP_INSTALL:-1}" != "0" ]; then
-	npm ci
+	npm install
 fi
 
 setup_convex
