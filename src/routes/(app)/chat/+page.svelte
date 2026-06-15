@@ -579,7 +579,7 @@
 						class={`shrink-0 bg-white/90 ${
 							isDesktopViewport
 								? 'border-t border-border/60 px-3 pt-2 pb-3 sm:px-4'
-								: 'rounded-[1.1rem] border border-border/70 bg-clip-padding [-moz-background-clip:padding]'
+								: 'rounded-[1.1rem] bg-clip-padding shadow-sm ring-1 ring-black/5 [-moz-background-clip:padding]'
 						}`}
 					>
 						<Input
