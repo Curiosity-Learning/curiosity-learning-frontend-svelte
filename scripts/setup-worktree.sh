@@ -14,6 +14,7 @@ Environment overrides:
   WORKTREE_SETUP_CONVEX=0         Skip Convex deployment creation/selection.
   WORKTREE_SETUP_CONVEX_ENV=0     Skip pushing env vars to the selected Convex deployment.
   WORKTREE_CONVEX_PROJECT_REF=... Prefix refs with team:project, e.g. my-team:my-project.
+                                  Defaults to the seeded CONVEX_DEPLOYMENT team/project comment.
   WORKTREE_CONVEX_REF_PREFIX=...  Default: dev/<user>-worktree.
   WORKTREE_CONVEX_EXPIRATION=...  Used only when the installed Convex CLI supports --expiration.
 EOF
@@ -96,6 +97,30 @@ remove_convex_selectors() {
 	done
 }
 
+detect_convex_project_ref() {
+	local env_file line team project
+
+	for env_file in .env.local .env "$env_store/env.local" "$env_store/env"; do
+		if [ ! -f "$env_file" ]; then
+			continue
+		fi
+
+		line="$(grep -m 1 '^CONVEX_DEPLOYMENT=.*#.*team:.*project:' "$env_file" || true)"
+		if [ -z "$line" ]; then
+			continue
+		fi
+
+		team="$(printf '%s\n' "$line" | sed -E 's/.*team:[[:space:]]*([^,[:space:]]+).*/\1/')"
+		project="$(printf '%s\n' "$line" | sed -E 's/.*project:[[:space:]]*([^,[:space:]]+).*/\1/')"
+		if [ -n "$team" ] && [ -n "$project" ] && [ "$team" != "$line" ] && [ "$project" != "$line" ]; then
+			printf '%s:%s\n' "$team" "$project"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
 convex_cli_supports() {
 	local command="$1"
 	local option="$2"
@@ -159,21 +184,26 @@ setup_convex() {
 		return 0
 	fi
 
-	local raw_user raw_name user_slug name_slug ref
+	local raw_user raw_name user_slug name_slug project_ref ref
 	raw_user="${USER:-dev}"
 	raw_name="$(basename "${CODEX_WORKTREE_PATH:-$PWD}")"
 	user_slug="$(slugify "$raw_user")"
 	name_slug="$(slugify "$raw_name")"
+	project_ref="${WORKTREE_CONVEX_PROJECT_REF:-}"
 
 	if [ -z "$name_slug" ]; then
 		name_slug="worktree"
 	fi
 
+	if [ -z "$project_ref" ]; then
+		project_ref="$(detect_convex_project_ref || true)"
+	fi
+
 	remove_convex_selectors
 
 	ref="${WORKTREE_CONVEX_REF_PREFIX:-dev/${user_slug:-dev}-worktree}/$name_slug"
-	if [ -n "${WORKTREE_CONVEX_PROJECT_REF:-}" ]; then
-		ref="$WORKTREE_CONVEX_PROJECT_REF:$ref"
+	if [ -n "$project_ref" ]; then
+		ref="$project_ref:$ref"
 	fi
 
 	echo "Selecting isolated Convex deployment $ref."
