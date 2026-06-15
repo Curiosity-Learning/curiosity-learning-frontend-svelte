@@ -579,7 +579,7 @@
 						class={`shrink-0 bg-white/90 ${
 							isDesktopViewport
 								? 'border-t border-border/60 px-3 pt-2 pb-3 sm:px-4'
-								: 'rounded-[1.1rem] border border-border/70'
+								: 'rounded-[1.1rem] border border-border/70 bg-clip-padding [-moz-background-clip:padding]'
 						}`}
 					>
 						<Input
@@ -587,7 +587,7 @@
 							bind:value={message}
 							placeholder="Send a message..."
 							maxlength={MAX_MESSAGE_LENGTH}
-							class={`border-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
+							class={`border-0 bg-clip-padding text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 [-moz-background-clip:padding] ${
 								isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
 							}`}
 							disabled={!selectedRoomId || !activeRoom?.canSend}
