@@ -121,6 +121,43 @@ detect_convex_project_ref() {
 	return 1
 }
 
+read_env_value() {
+	local env_file="$1"
+	local key="$2"
+
+	if [ ! -f "$env_file" ]; then
+		return 0
+	fi
+
+	awk -F= -v key="$key" '
+		$1 == key {
+			value = substr($0, index($0, "=") + 1)
+			sub(/[[:space:]]+#.*$/, "", value)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			print value
+			exit
+		}
+	' "$env_file"
+}
+
+run_selected_convex() {
+	local deployment public_url site_url
+
+	deployment="$(read_env_value .env.local CONVEX_DEPLOYMENT)"
+	public_url="$(read_env_value .env.local PUBLIC_CONVEX_URL)"
+	site_url="$(read_env_value .env.local PUBLIC_CONVEX_SITE_URL)"
+
+	if [ -n "$deployment" ]; then
+		env \
+			CONVEX_DEPLOYMENT="$deployment" \
+			PUBLIC_CONVEX_URL="$public_url" \
+			PUBLIC_CONVEX_SITE_URL="$site_url" \
+			npx convex "$@"
+	else
+		npx convex "$@"
+	fi
+}
+
 convex_cli_supports() {
 	local command="$1"
 	local option="$2"
@@ -173,7 +210,7 @@ push_convex_env() {
 	build_convex_env_file "$temp_env" "${sources[@]}"
 
 	if [ -s "$temp_env" ]; then
-		npx convex env set --from-file "$temp_env" --force
+		run_selected_convex env set --from-file "$temp_env" --force
 	fi
 
 	rm -f "$temp_env"
@@ -222,10 +259,10 @@ setup_convex() {
 	push_convex_env
 
 	if npx convex deployment --help 2>/dev/null | grep -Eq '(^|[[:space:]])token([[:space:]]|$)'; then
-		npx convex deployment token create agent-token --save-env || true
+		run_selected_convex deployment token create agent-token --save-env || true
 	fi
 
-	npx convex dev --once
+	run_selected_convex dev --once
 }
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
