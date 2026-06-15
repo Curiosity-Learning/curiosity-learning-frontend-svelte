@@ -14,6 +14,7 @@ Environment overrides:
   WORKTREE_SETUP_CONVEX=0         Skip Convex deployment creation/selection.
   WORKTREE_SETUP_CONVEX_ENV=0     Skip pushing env vars to the selected Convex deployment.
   WORKTREE_CONVEX_PROJECT_REF=... Prefix refs with team:project, e.g. my-team:my-project.
+                                  Defaults to the seeded CONVEX_DEPLOYMENT team/project comment.
   WORKTREE_CONVEX_REF_PREFIX=...  Default: dev/<user>-worktree.
   WORKTREE_CONVEX_EXPIRATION=...  Used only when the installed Convex CLI supports --expiration.
 EOF
@@ -77,6 +78,132 @@ restore_env() {
 	done
 }
 
+remove_convex_selectors() {
+	local env_file temp_file mode
+
+	for env_file in .env .env.local; do
+		if [ ! -f "$env_file" ]; then
+			continue
+		fi
+
+		temp_file="$(mktemp)"
+		awk '
+			/^(CONVEX_DEPLOYMENT|CONVEX_DEPLOY_KEY|PUBLIC_CONVEX_URL|PUBLIC_CONVEX_SITE_URL)=/ { next }
+			{ print }
+		' "$env_file" >"$temp_file"
+		mode="$(stat -f '%Lp' "$env_file" 2>/dev/null || stat -c '%a' "$env_file")"
+		mv "$temp_file" "$env_file"
+		chmod "$mode" "$env_file"
+	done
+}
+
+detect_convex_project_ref() {
+	local env_file line team project
+
+	for env_file in .env.local .env "$env_store/env.local" "$env_store/env"; do
+		if [ ! -f "$env_file" ]; then
+			continue
+		fi
+
+		line="$(grep -m 1 '^CONVEX_DEPLOYMENT=.*#.*team:.*project:' "$env_file" || true)"
+		if [ -z "$line" ]; then
+			continue
+		fi
+
+		team="$(printf '%s\n' "$line" | sed -E 's/.*team:[[:space:]]*([^,[:space:]]+).*/\1/')"
+		project="$(printf '%s\n' "$line" | sed -E 's/.*project:[[:space:]]*([^,[:space:]]+).*/\1/')"
+		if [ -n "$team" ] && [ -n "$project" ] && [ "$team" != "$line" ] && [ "$project" != "$line" ]; then
+			printf '%s:%s\n' "$team" "$project"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+read_env_value() {
+	local env_file="$1"
+	local key="$2"
+
+	if [ ! -f "$env_file" ]; then
+		return 0
+	fi
+
+	awk -F= -v key="$key" '
+		$1 == key {
+			value = substr($0, index($0, "=") + 1)
+			sub(/[[:space:]]+#.*$/, "", value)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			print value
+			exit
+		}
+	' "$env_file"
+}
+
+write_convex_selector_file() {
+	local env_file="$1"
+	local deployment="$2"
+	local public_url="$3"
+	local site_url="$4"
+
+	cat >"$env_file" <<EOF
+# Deployment used by \`npx convex dev\`
+CONVEX_DEPLOYMENT=$deployment
+PUBLIC_CONVEX_URL=$public_url
+PUBLIC_CONVEX_SITE_URL=$site_url
+EOF
+}
+
+run_selected_convex() {
+	local command deployment deployment_name deploy_key public_url site_url temp_selector
+
+	command="$1"
+	shift
+	deployment="$(read_env_value .env.local CONVEX_DEPLOYMENT)"
+	deployment_name="${deployment#*:}"
+	deploy_key="$(read_env_value .env.local CONVEX_DEPLOY_KEY)"
+	public_url="$(read_env_value .env.local PUBLIC_CONVEX_URL)"
+	site_url="$(read_env_value .env.local PUBLIC_CONVEX_SITE_URL)"
+
+	if [ -n "$deployment" ]; then
+		case "$command" in
+			dev)
+				if [ -n "$deploy_key" ]; then
+					npx convex dev "$@" --env-file .env.local
+					return
+				fi
+
+				temp_selector="$(mktemp)"
+				write_convex_selector_file "$temp_selector" "$deployment" "$public_url" "$site_url"
+				if npx convex dev "$@" --env-file "$temp_selector"; then
+					rm -f "$temp_selector"
+				else
+					local exit_code=$?
+					rm -f "$temp_selector"
+					return "$exit_code"
+				fi
+				;;
+			deployment)
+				npx convex deployment "$@" --deployment "$deployment_name"
+				;;
+			env)
+				if npx convex env "$@" --deployment "$deployment_name"; then
+					write_convex_selector_file .env.local "$deployment" "$public_url" "$site_url"
+				else
+					local exit_code=$?
+					write_convex_selector_file .env.local "$deployment" "$public_url" "$site_url"
+					return "$exit_code"
+				fi
+				;;
+			*)
+				npx convex "$command" "$@"
+				;;
+		esac
+	else
+		npx convex "$command" "$@"
+	fi
+}
+
 convex_cli_supports() {
 	local command="$1"
 	local option="$2"
@@ -93,7 +220,7 @@ build_convex_env_file() {
 			key = $1
 			value = substr($0, index($0, "=") + 1)
 			if (value == "" || value == "...") next
-			if (key ~ /^(CONVEX_DEPLOYMENT|CONVEX_DEPLOY_KEY|PUBLIC_CONVEX_URL|PUBLIC_MAPBOX_ACCESS_TOKEN|PUBLIC_SENTRY_DSN|PUBLIC_SENTRY_ENVIRONMENT|SENTRY_ENVIRONMENT)$/) next
+			if (key ~ /^(CONVEX_DEPLOYMENT|CONVEX_DEPLOY_KEY|PUBLIC_CONVEX_URL|PUBLIC_CONVEX_SITE_URL|PUBLIC_MAPBOX_ACCESS_TOKEN|PUBLIC_SENTRY_DSN|PUBLIC_SENTRY_ENVIRONMENT|SENTRY_ENVIRONMENT)$/) next
 			vars[key] = value
 			if (!(key in seen)) {
 				order[++count] = key
@@ -129,7 +256,7 @@ push_convex_env() {
 	build_convex_env_file "$temp_env" "${sources[@]}"
 
 	if [ -s "$temp_env" ]; then
-		npx convex env set --from-file "$temp_env" --force
+		run_selected_convex env set --from-file "$temp_env" --force
 	fi
 
 	rm -f "$temp_env"
@@ -140,19 +267,26 @@ setup_convex() {
 		return 0
 	fi
 
-	local raw_user raw_name user_slug name_slug ref
+	local raw_user raw_name user_slug name_slug project_ref ref
 	raw_user="${USER:-dev}"
 	raw_name="$(basename "${CODEX_WORKTREE_PATH:-$PWD}")"
 	user_slug="$(slugify "$raw_user")"
 	name_slug="$(slugify "$raw_name")"
+	project_ref="${WORKTREE_CONVEX_PROJECT_REF:-}"
 
 	if [ -z "$name_slug" ]; then
 		name_slug="worktree"
 	fi
 
+	if [ -z "$project_ref" ]; then
+		project_ref="$(detect_convex_project_ref || true)"
+	fi
+
+	remove_convex_selectors
+
 	ref="${WORKTREE_CONVEX_REF_PREFIX:-dev/${user_slug:-dev}-worktree}/$name_slug"
-	if [ -n "${WORKTREE_CONVEX_PROJECT_REF:-}" ]; then
-		ref="$WORKTREE_CONVEX_PROJECT_REF:$ref"
+	if [ -n "$project_ref" ]; then
+		ref="$project_ref:$ref"
 	fi
 
 	echo "Selecting isolated Convex deployment $ref."
@@ -171,10 +305,10 @@ setup_convex() {
 	push_convex_env
 
 	if npx convex deployment --help 2>/dev/null | grep -Eq '(^|[[:space:]])token([[:space:]]|$)'; then
-		npx convex deployment token create agent-token --save-env || true
+		run_selected_convex deployment token create agent-token --save-env || true
 	fi
 
-	npx convex dev --once
+	run_selected_convex dev --once
 }
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
