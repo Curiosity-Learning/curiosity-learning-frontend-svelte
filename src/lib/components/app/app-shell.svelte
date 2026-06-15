@@ -9,7 +9,8 @@
 	import type {
 		HeaderBackConfig,
 		HeaderSearchConfig,
-		HeaderSearchMode
+		HeaderSearchMode,
+		PageContentMode
 	} from '$lib/app/page-header';
 	import { Button } from '$lib/components/ui/button';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
@@ -21,7 +22,6 @@
 		CollapsibleContent,
 		CollapsibleTrigger
 	} from '$lib/components/ui/collapsible';
-	import { Separator } from '$lib/components/ui/separator';
 	import ConnectivityOverlay from './connectivity-overlay.svelte';
 	import AppNavItem from './app-nav-item.svelte';
 	import type { AppNavItem as AppNavItemType, AppNavKey } from './navigation';
@@ -36,6 +36,7 @@
 		hideBottomNav?: boolean;
 		headerActions?: import('svelte').Snippet;
 		headerSearch?: HeaderSearchConfig;
+		contentMode?: PageContentMode;
 		sidebarProfileName?: string | null;
 		sidebarProfileImageUrl?: string | null;
 		sidebarProfileInitials?: string | null;
@@ -53,6 +54,7 @@
 		hideBottomNav = false,
 		headerActions,
 		headerSearch,
+		contentMode = 'scroll',
 		sidebarProfileName = null,
 		sidebarProfileImageUrl = null,
 		sidebarProfileInitials = null,
@@ -92,6 +94,7 @@
 	let showOverlaySearchField = $derived(
 		resolvedSearchMode === 'overlay' && (searchFieldOpen || searchHasValue)
 	);
+	let isViewportContent = $derived(contentMode === 'viewport');
 
 	if (browser) {
 		const value = window.history.state?.['sveltekit:history'];
@@ -184,13 +187,19 @@
      (lg:) the sidebar replaces the bottom nav so the padding is removed. -->
 <div
 	class={cn(
-		'relative flex min-h-screen flex-col bg-white lg:pb-0',
+		'relative flex flex-col bg-white lg:pb-0',
+		isViewportContent ? 'h-[100dvh] overflow-hidden' : 'min-h-screen',
 		hideBottomNav ? 'pb-0' : 'pb-[var(--bottom-nav-h)]'
 	)}
 	style="--bottom-nav-h: 4.5rem;"
 >
 	<ConnectivityOverlay />
-	<div class="flex min-h-screen flex-1 flex-col lg:flex-row">
+	<div
+		class={cn(
+			'flex flex-1 flex-col lg:flex-row',
+			isViewportContent ? 'min-h-0' : 'min-h-screen'
+		)}
+	>
 		<aside
 			class="hidden w-60 flex-col border-r border-border bg-[#f6f7f9] lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
 		>
@@ -318,8 +327,13 @@
 			</div>
 		</aside>
 
-		<div class="app-texture-background flex min-h-screen min-w-0 flex-1 flex-col">
-			<header class="sticky top-0 z-20 flex justify-center border-b border-border bg-white">
+		<div
+			class={cn(
+				'app-texture-background flex min-w-0 flex-1 flex-col',
+				isViewportContent ? 'min-h-0' : 'min-h-screen'
+			)}
+		>
+			<header class="sticky top-0 z-20 flex shrink-0 justify-center border-b border-border bg-white">
 				<div
 					class={cn(
 						'flex w-full max-w-6xl flex-col gap-3 px-4 sm:px-6 lg:px-8',
@@ -458,8 +472,18 @@
 				</div>
 			</header>
 
-			<main class="app-texture-background flex w-full flex-1 justify-center">
-				<div class="flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+			<main
+				class={cn(
+					'app-texture-background flex w-full flex-1 justify-center',
+					isViewportContent ? 'min-h-0 overflow-hidden' : undefined
+				)}
+			>
+				<div
+					class={cn(
+						'flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8',
+						isViewportContent ? 'min-h-0 overflow-hidden' : undefined
+					)}
+				>
 					{@render children()}
 				</div>
 			</main>
@@ -482,7 +506,6 @@
 							/>
 						{/each}
 					</nav>
-					<Separator class="hidden sm:block" />
 				</div>
 			</footer>
 		</div>

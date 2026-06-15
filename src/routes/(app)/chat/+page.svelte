@@ -8,6 +8,7 @@
 	import {
 		LoadingState,
 		PageBottomNavVisibility,
+		PageContentMode,
 		PageHeaderBackButton,
 		PageHeaderSearch,
 		PageHeaderTitle,
@@ -383,6 +384,7 @@
 	</div>
 </PageHeaderTitleContent>
 <PageBottomNavVisibility hidden={isMobileDetailView} />
+<PageContentMode mode="viewport" />
 
 {#if !$session.data}
 	<Alert>
@@ -390,7 +392,7 @@
 		<AlertDescription>Sign in to view chats.</AlertDescription>
 	</Alert>
 {:else}
-	<div class="flex w-full flex-col gap-4">
+	<div class="flex min-h-0 w-full flex-1 flex-col gap-4">
 		{#if errorMessage}
 			<Alert variant="destructive">
 				<AlertTitle>Chat action failed</AlertTitle>
@@ -398,7 +400,7 @@
 			</Alert>
 		{/if}
 
-		<div class="flex h-[calc(100dvh-10.5rem)] min-h-0 gap-4 overflow-hidden">
+		<div class="flex min-h-0 flex-1 gap-4 overflow-hidden">
 			<section
 				class={`min-h-0 w-full flex-col overflow-hidden lg:w-[22rem] ${
 					isMobileDetailView
@@ -577,7 +579,7 @@
 						class={`shrink-0 bg-white/90 ${
 							isDesktopViewport
 								? 'border-t border-border/60 px-3 pt-2 pb-3 sm:px-4'
-								: 'rounded-[1.1rem] shadow-sm ring-1 ring-black/5'
+								: 'rounded-[1.1rem] bg-clip-padding shadow-sm ring-1 ring-black/5 [-moz-background-clip:padding]'
 						}`}
 					>
 						<Input
@@ -585,8 +587,8 @@
 							bind:value={message}
 							placeholder="Send a message..."
 							maxlength={MAX_MESSAGE_LENGTH}
-							class={`border-0 text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 ${
-								isDesktopViewport ? 'px-0' : 'h-10 px-4 py-0'
+							class={`border-0 bg-clip-padding text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 [-moz-background-clip:padding] ${
+								isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
 							}`}
 							disabled={!selectedRoomId || !activeRoom?.canSend}
 							onkeydown={handleMessageComposerKeydown}
