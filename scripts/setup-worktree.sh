@@ -77,6 +77,25 @@ restore_env() {
 	done
 }
 
+remove_convex_selectors() {
+	local env_file temp_file mode
+
+	for env_file in .env .env.local; do
+		if [ ! -f "$env_file" ]; then
+			continue
+		fi
+
+		temp_file="$(mktemp)"
+		awk '
+			/^(CONVEX_DEPLOYMENT|CONVEX_DEPLOY_KEY|PUBLIC_CONVEX_URL|PUBLIC_CONVEX_SITE_URL)=/ { next }
+			{ print }
+		' "$env_file" >"$temp_file"
+		mode="$(stat -f '%Lp' "$env_file" 2>/dev/null || stat -c '%a' "$env_file")"
+		mv "$temp_file" "$env_file"
+		chmod "$mode" "$env_file"
+	done
+}
+
 convex_cli_supports() {
 	local command="$1"
 	local option="$2"
@@ -93,7 +112,7 @@ build_convex_env_file() {
 			key = $1
 			value = substr($0, index($0, "=") + 1)
 			if (value == "" || value == "...") next
-			if (key ~ /^(CONVEX_DEPLOYMENT|CONVEX_DEPLOY_KEY|PUBLIC_CONVEX_URL|PUBLIC_MAPBOX_ACCESS_TOKEN|PUBLIC_SENTRY_DSN|PUBLIC_SENTRY_ENVIRONMENT|SENTRY_ENVIRONMENT)$/) next
+			if (key ~ /^(CONVEX_DEPLOYMENT|CONVEX_DEPLOY_KEY|PUBLIC_CONVEX_URL|PUBLIC_CONVEX_SITE_URL|PUBLIC_MAPBOX_ACCESS_TOKEN|PUBLIC_SENTRY_DSN|PUBLIC_SENTRY_ENVIRONMENT|SENTRY_ENVIRONMENT)$/) next
 			vars[key] = value
 			if (!(key in seen)) {
 				order[++count] = key
@@ -149,6 +168,8 @@ setup_convex() {
 	if [ -z "$name_slug" ]; then
 		name_slug="worktree"
 	fi
+
+	remove_convex_selectors
 
 	ref="${WORKTREE_CONVEX_REF_PREFIX:-dev/${user_slug:-dev}-worktree}/$name_slug"
 	if [ -n "${WORKTREE_CONVEX_PROJECT_REF:-}" ]; then
