@@ -141,20 +141,27 @@ read_env_value() {
 }
 
 run_selected_convex() {
-	local deployment public_url site_url
+	local command deployment deployment_name
 
+	command="$1"
+	shift
 	deployment="$(read_env_value .env.local CONVEX_DEPLOYMENT)"
-	public_url="$(read_env_value .env.local PUBLIC_CONVEX_URL)"
-	site_url="$(read_env_value .env.local PUBLIC_CONVEX_SITE_URL)"
+	deployment_name="${deployment#*:}"
 
 	if [ -n "$deployment" ]; then
-		env \
-			CONVEX_DEPLOYMENT="$deployment" \
-			PUBLIC_CONVEX_URL="$public_url" \
-			PUBLIC_CONVEX_SITE_URL="$site_url" \
-			npx convex "$@"
+		case "$command" in
+			dev)
+				npx convex dev "$@" --env-file .env.local
+				;;
+			env)
+				npx convex env "$@" --deployment "$deployment_name"
+				;;
+			*)
+				npx convex "$command" "$@"
+				;;
+		esac
 	else
-		npx convex "$@"
+		npx convex "$command" "$@"
 	fi
 }
 
