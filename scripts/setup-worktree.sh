@@ -155,18 +155,24 @@ EOF
 }
 
 run_selected_convex() {
-	local command deployment deployment_name public_url site_url temp_selector
+	local command deployment deployment_name deploy_key public_url site_url temp_selector
 
 	command="$1"
 	shift
 	deployment="$(read_env_value .env.local CONVEX_DEPLOYMENT)"
 	deployment_name="${deployment#*:}"
+	deploy_key="$(read_env_value .env.local CONVEX_DEPLOY_KEY)"
 	public_url="$(read_env_value .env.local PUBLIC_CONVEX_URL)"
 	site_url="$(read_env_value .env.local PUBLIC_CONVEX_SITE_URL)"
 
 	if [ -n "$deployment" ]; then
 		case "$command" in
 			dev)
+				if [ -n "$deploy_key" ]; then
+					npx convex dev "$@" --env-file .env.local
+					return
+				fi
+
 				temp_selector="$(mktemp)"
 				write_convex_selector_file "$temp_selector" "$deployment" "$public_url" "$site_url"
 				if npx convex dev "$@" --env-file "$temp_selector"; then
@@ -176,6 +182,9 @@ run_selected_convex() {
 					rm -f "$temp_selector"
 					return "$exit_code"
 				fi
+				;;
+			deployment)
+				npx convex deployment "$@" --deployment "$deployment_name"
 				;;
 			env)
 				if npx convex env "$@" --deployment "$deployment_name"; then
