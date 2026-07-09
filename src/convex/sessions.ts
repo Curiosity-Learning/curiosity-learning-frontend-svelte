@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
-import { mutation, query } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import {
@@ -17,9 +17,12 @@ import {
 type Ctx = QueryCtx | MutationCtx;
 
 const rsvpStatusValidator = v.union(v.literal('going'), v.literal('not_going'));
+const attendanceStatusValidator = v.union(v.literal('present'), v.literal('absent'));
 
 const HOUR_MS = 60 * 60 * 1000;
 const SESSION_PHOTO_POST_SESSION_WINDOW_MS = 12 * HOUR_MS;
+const ATTENDANCE_LOCK_WINDOW_MS = 12 * HOUR_MS;
+const ATTENDANCE_REMINDER_DELAY_MS = HOUR_MS;
 const MAX_SESSION_PHOTOS = 4;
 
 const getRsvpForSessionAndProfile = async (
@@ -57,6 +60,36 @@ const getSession = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
 	return session;
 };
 
+const requireAttendanceWindowOpen = (session: {
+	startTime: number;
+	endTime: number;
+	cancelled?: boolean;
+}) => {
+	if (session.cancelled) {
+		throw new ConvexError('Cannot mark attendance for a cancelled session');
+	}
+	const now = Date.now();
+	if (now < session.startTime) {
+		throw new ConvexError('Attendance opens when the session starts');
+	}
+	if (now > session.endTime + ATTENDANCE_LOCK_WINDOW_MS) {
+		throw new ConvexError('Attendance is locked for this session');
+	}
+};
+
+// Roster snapshot: members who were part of the club at the session's start time,
+// i.e. joined at/before startTime and (still active OR left after startTime).
+const getRosterAtSessionStart = async (ctx: Ctx, clubId: Id<'clubs'>, startTime: number) => {
+	const members = await ctx.db
+		.query('clubMembers')
+		.withIndex('by_club', (q) => q.eq('clubId', clubId))
+		.collect();
+
+	return members.filter(
+		(member) => member.createdAt <= startTime && (!member.leftAt || member.leftAt > startTime)
+	);
+};
+
 const getSessionAttendeePreviews = async (ctx: Ctx, sessionId: Id<'sessions'>, limit = 6) => {
 	const attendanceRows = await ctx.db
 		.query('attendances')
@@ -69,6 +102,7 @@ const getSessionAttendeePreviews = async (ctx: Ctx, sessionId: Id<'sessions'>, l
 	}> = [];
 
 	for (const row of attendanceRows) {
+		if (row.status !== 'present') continue;
 		if (attendees.length >= limit) break;
 
 		const profile = await getRelatedProfile(ctx, row.profileId);
@@ -86,38 +120,70 @@ const getSessionAttendeePreviews = async (ctx: Ctx, sessionId: Id<'sessions'>, l
 	return attendees;
 };
 
-const getSessionAttendanceAttendees = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
+type AttendanceRosterEntry = {
+	profileId: Id<'profiles'>;
+	userId: string;
+	firstName: string | null;
+	lastName: string | null;
+	username: string | null;
+	profileImageMediaAssetId: Id<'mediaAssets'> | null;
+	status: 'present' | 'absent' | null;
+	// True when this person has an attendance record but is no longer in the roster snapshot
+	// (e.g. they left the club after the session but before the sheet was viewed again).
+	isPastMember: boolean;
+};
+
+// Combines the roster snapshot (who was in the club at session start) with any recorded
+// attendance rows, so the UI can render "not yet recorded" vs present/absent per person.
+// Also surfaces attendance records for people the roster snapshot doesn't include (defensive:
+// keeps historical records visible even if the snapshot logic or data ever diverges).
+const getAttendanceRoster = async (
+	ctx: Ctx,
+	session: { _id: Id<'sessions'>; clubId: Id<'clubs'>; startTime: number }
+): Promise<AttendanceRosterEntry[]> => {
+	const rosterMembers = await getRosterAtSessionStart(ctx, session.clubId, session.startTime);
 	const attendanceRows = await ctx.db
 		.query('attendances')
-		.withIndex('by_session', (q) => q.eq('sessionId', sessionId))
+		.withIndex('by_session', (q) => q.eq('sessionId', session._id))
 		.collect();
-	const attendees: Array<{
-		profileId: Id<'profiles'> | null;
-		userId: string;
-		firstName: string | null;
-		lastName: string | null;
-		username: string | null;
-		profileImageMediaAssetId: Id<'mediaAssets'> | null;
-		isPastMember: boolean;
-	}> = [];
+	const attendanceByProfileId = new Map(attendanceRows.map((row) => [row.profileId, row] as const));
 
-	for (const row of attendanceRows) {
-		const profile = await getRelatedProfile(ctx, row.profileId);
+	const entries: AttendanceRosterEntry[] = [];
+	const seenProfileIds = new Set<Id<'profiles'>>();
+
+	for (const member of rosterMembers) {
+		const profile = await getRelatedProfile(ctx, member.profileId);
 		if (!profile) continue;
-		const authUserId = getProfileAuthUserId(profile);
-
-		attendees.push({
+		seenProfileIds.add(member.profileId);
+		const attendance = attendanceByProfileId.get(member.profileId);
+		entries.push({
 			profileId: profile._id,
-			userId: authUserId,
-			firstName: profile?.firstName ?? null,
-			lastName: profile?.lastName ?? null,
-			username: profile?.username ?? null,
-			profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
+			userId: getProfileAuthUserId(profile),
+			firstName: member.firstName ?? profile.firstName ?? null,
+			lastName: member.lastName ?? profile.lastName ?? null,
+			username: member.username ?? profile.username ?? null,
+			profileImageMediaAssetId: profile.profileImageMediaAssetId ?? null,
+			status: attendance?.status ?? null,
 			isPastMember: false
 		});
 	}
 
-	return attendees;
+	for (const row of attendanceRows) {
+		if (seenProfileIds.has(row.profileId)) continue;
+		const profile = await getRelatedProfile(ctx, row.profileId);
+		entries.push({
+			profileId: row.profileId,
+			userId: profile ? getProfileAuthUserId(profile) : 'unknown',
+			firstName: profile?.firstName ?? null,
+			lastName: profile?.lastName ?? null,
+			username: profile?.username ?? null,
+			profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
+			status: row.status,
+			isPastMember: true
+		});
+	}
+
+	return entries;
 };
 
 export const listByClub = query({
@@ -170,7 +236,7 @@ export const countAttendedForViewer = query({
 						q.eq('sessionId', session._id).eq('profileId', profile._id)
 					)
 					.unique();
-				if (attendance) {
+				if (attendance?.status === 'present') {
 					count += 1;
 				}
 			}
@@ -192,6 +258,37 @@ export const getById = query({
 		return session;
 	}
 });
+
+// Cancels any previously scheduled "attendance unmarked" reminder for a session and, if the
+// (possibly new) startTime is still in the future, schedules a fresh one for startTime + 1h.
+// Scheduling only ever targets future sessions: existing past sessions are never backfilled.
+const rescheduleAttendanceReminder = async (
+	ctx: MutationCtx,
+	sessionId: Id<'sessions'>,
+	existingJobId: Id<'_scheduled_functions'> | undefined,
+	startTime: number,
+	options: { cancelledOnly?: boolean } = {}
+) => {
+	if (existingJobId) {
+		try {
+			await ctx.scheduler.cancel(existingJobId);
+		} catch {
+			// Job may have already run or been cancelled; ignore.
+		}
+	}
+
+	if (options.cancelledOnly || startTime <= Date.now()) {
+		await ctx.db.patch(sessionId, { attendanceReminderJobId: undefined });
+		return;
+	}
+
+	const jobId = await ctx.scheduler.runAt(
+		startTime + ATTENDANCE_REMINDER_DELAY_MS,
+		internal.sessions.sendAttendanceReminderIfUnmarked,
+		{ sessionId }
+	);
+	await ctx.db.patch(sessionId, { attendanceReminderJobId: jobId });
+};
 
 export const create = mutation({
 	args: {
@@ -221,6 +318,8 @@ export const create = mutation({
 			createdAt: now,
 			updatedAt: now
 		});
+
+		await rescheduleAttendanceReminder(ctx, sessionId, undefined, args.startTime);
 
 		return await ctx.db.get(sessionId);
 	}
@@ -257,6 +356,15 @@ export const update = mutation({
 			updatedAt: Date.now()
 		});
 
+		if (session.startTime !== args.startTime) {
+			await rescheduleAttendanceReminder(
+				ctx,
+				args.sessionId,
+				session.attendanceReminderJobId,
+				args.startTime
+			);
+		}
+
 		return await ctx.db.get(args.sessionId);
 	}
 });
@@ -285,6 +393,14 @@ export const cancel = mutation({
 			cancelledByProfileId: profile._id,
 			updatedAt: now
 		});
+
+		await rescheduleAttendanceReminder(
+			ctx,
+			args.sessionId,
+			session.attendanceReminderJobId,
+			session.startTime,
+			{ cancelledOnly: true }
+		);
 
 		const club = await ctx.db.get(session.clubId);
 		const rsvps = await ctx.db
@@ -691,7 +807,9 @@ export const listBuildingBlocks = query({
 	}
 });
 
-export const listAttendance = query({
+// Roster snapshot (people who were in the club at session start) merged with any recorded
+// attendance status. `status` is null when attendance hasn't been recorded for that person yet.
+export const listAttendanceRoster = query({
 	args: {
 		sessionId: v.id('sessions')
 	},
@@ -700,33 +818,7 @@ export const listAttendance = query({
 		const session = await getSession(ctx, args.sessionId);
 		await requirePermission(ctx, session.clubId, identity.subject, 'attendance:read');
 
-		const rows = await ctx.db
-			.query('attendances')
-			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
-			.collect();
-		return await Promise.all(
-			rows.map(async (row) => {
-				const profile = await getRelatedProfile(ctx, row.profileId);
-				return {
-					...row,
-					profileId: profile?._id ?? row.profileId,
-					userId: profile ? getProfileAuthUserId(profile) : 'unknown'
-				};
-			})
-		);
-	}
-});
-
-export const listAttendanceAttendees = query({
-	args: {
-		sessionId: v.id('sessions')
-	},
-	handler: async (ctx, args) => {
-		const identity = await requireIdentity(ctx);
-		const session = await getSession(ctx, args.sessionId);
-		await requirePermission(ctx, session.clubId, identity.subject, 'attendance:read');
-
-		return await getSessionAttendanceAttendees(ctx, args.sessionId);
+		return await getAttendanceRoster(ctx, session);
 	}
 });
 
@@ -734,21 +826,25 @@ export const setAttendance = mutation({
 	args: {
 		sessionId: v.id('sessions'),
 		profileId: v.id('profiles'),
-		attending: v.boolean()
+		status: attendanceStatusValidator
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const session = await getSession(ctx, args.sessionId);
 		await requirePermission(ctx, session.clubId, identity.subject, 'attendance:create');
+		requireAttendanceWindowOpen(session);
+
 		const targetProfile = await ctx.db.get(args.profileId);
 		if (!targetProfile) {
 			throw new ConvexError('Profile not found');
 		}
-		if (!(await getMembershipByProfileId(ctx, session.clubId, args.profileId))) {
-			throw new ConvexError('Attendee must be an active club member');
-		}
-		const creatorProfile = await requireProfile(ctx, identity.subject);
 
+		const roster = await getRosterAtSessionStart(ctx, session.clubId, session.startTime);
+		if (!roster.some((member) => member.profileId === args.profileId)) {
+			throw new ConvexError('Attendee was not a club member when the session started');
+		}
+
+		const recorderProfile = await requireProfile(ctx, identity.subject);
 		const existing = await ctx.db
 			.query('attendances')
 			.withIndex('by_session_and_profile', (q) =>
@@ -756,20 +852,67 @@ export const setAttendance = mutation({
 			)
 			.unique();
 
-		if (args.attending) {
-			if (!existing) {
-				await ctx.db.insert('attendances', {
-					sessionId: args.sessionId,
-					profileId: args.profileId,
-					createdByProfileId: creatorProfile._id,
-					createdAt: Date.now()
-				});
-			}
-		} else if (existing) {
-			await ctx.db.delete(existing._id);
+		const now = Date.now();
+		if (existing) {
+			await ctx.db.patch(existing._id, {
+				status: args.status,
+				recordedByProfileId: recorderProfile._id,
+				recordedAt: now
+			});
+		} else {
+			await ctx.db.insert('attendances', {
+				sessionId: args.sessionId,
+				profileId: args.profileId,
+				status: args.status,
+				recordedByProfileId: recorderProfile._id,
+				recordedAt: now
+			});
 		}
 
 		return { success: true };
+	}
+});
+
+// Internal: checks whether attendance was recorded for a session ~1 hour after it started,
+// and if not (and the session isn't cancelled), notifies every Guide of the club.
+export const sendAttendanceReminderIfUnmarked = internalMutation({
+	args: {
+		sessionId: v.id('sessions')
+	},
+	handler: async (ctx, args) => {
+		const session = await ctx.db.get(args.sessionId);
+		if (!session || session.cancelled) return;
+
+		const existingAttendance = await ctx.db
+			.query('attendances')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.first();
+		if (existingAttendance) return;
+
+		const members = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', session.clubId))
+			.collect();
+
+		const sessionDateLabel = new Date(session.startTime).toLocaleDateString(undefined, {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric'
+		});
+
+		for (const member of members) {
+			if (member.leftAt) continue;
+			const role = await ctx.db.get(member.roleId);
+			if (role?.key !== 'guide') continue;
+
+			await ctx.runMutation(internal.notifications.createSystemNotification, {
+				profileId: member.profileId,
+				clubId: session.clubId,
+				title: 'Attendance not recorded',
+				message: `Attendance for the session on ${sessionDateLabel} hasn't been recorded yet.`,
+				url: `/session/${args.sessionId}/attendees`
+			});
+		}
 	}
 });
 
@@ -1069,5 +1212,41 @@ export const getSessionPhotoDeliveryAssets = query({
 		);
 
 		return deliveryAssets.filter(Boolean);
+	}
+});
+
+// One-time backfill for the CL-719 attendance model change: legacy `attendances` rows only
+// existed for members marked present (checkbox semantics), so every pre-existing row becomes
+// status: 'present', recordedBy/recordedAt derived from the old createdByProfileId/createdAt.
+// Run once via `npx convex run sessions:backfillAttendanceStatus` after deploying the schema change.
+export const backfillAttendanceStatus = internalMutation({
+	args: {},
+	handler: async (ctx) => {
+		const rows = await ctx.db.query('attendances').collect();
+		let updated = 0;
+		for (const row of rows) {
+			const legacyRow = row as unknown as {
+				status?: 'present' | 'absent';
+				recordedByProfileId?: Id<'profiles'>;
+				recordedAt?: number;
+				createdByProfileId?: Id<'profiles'>;
+				createdAt?: number;
+			};
+			const hasLegacyFields = legacyRow.createdAt !== undefined || legacyRow.createdByProfileId !== undefined;
+			const isFullyMigrated =
+				legacyRow.status && legacyRow.recordedByProfileId && legacyRow.recordedAt && !hasLegacyFields;
+			if (isFullyMigrated) continue;
+			// Use replace (not patch) so legacy fields like createdAt/createdByProfileId are
+			// dropped rather than left dangling as extra fields once the schema is tightened.
+			await ctx.db.replace(row._id, {
+				sessionId: row.sessionId,
+				profileId: row.profileId,
+				status: legacyRow.status ?? 'present',
+				recordedByProfileId: legacyRow.recordedByProfileId ?? legacyRow.createdByProfileId ?? row.profileId,
+				recordedAt: legacyRow.recordedAt ?? legacyRow.createdAt ?? Date.now()
+			});
+			updated += 1;
+		}
+		return { updated, total: rows.length };
 	}
 });

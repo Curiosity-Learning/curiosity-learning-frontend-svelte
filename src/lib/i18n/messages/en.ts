@@ -176,6 +176,16 @@ const en = {
 		locationLabel: 'Location',
 		locationPlaceholder: 'Address, description, or meeting URL'
 	},
+	sessionAttendance: {
+		present: 'Present',
+		absent: 'Absent',
+		notRecorded: 'Not recorded',
+		windowNotStarted: 'Attendance opens when the session starts.',
+		windowLocked: 'Attendance is locked for this session.',
+		windowCancelled: 'Attendance cannot be marked for a cancelled session.',
+		updateFailure: 'Failed to update attendance.',
+		emptyState: 'No one was in the club when this session started.'
+	},
 	authLayout: {
 		description: 'Sign in to continue your club experience.'
 	},

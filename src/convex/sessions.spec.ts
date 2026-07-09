@@ -1,16 +1,23 @@
 import { convexTest } from 'convex-test';
-import { describe, expect, it } from 'vitest';
-import { api } from './_generated/api';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api, internal } from './_generated/api';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
 
 const HOUR = 60 * 60 * 1000;
 
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 const seedSessionFixture = async () => {
 	const t = convexTest(schema, modules);
 	const ids = await t.run(async (ctx) => {
 		const now = Date.now();
+		// Members "join" well in the past so tests can freely patch a session's startTime into
+		// the recent past/future without accidentally putting the join after the session start.
+		const memberJoinedAt = now - 30 * 24 * 60 * 60 * 1000;
 		const guideRoleId = await ctx.db.insert('clubRoles', {
 			key: 'guide',
 			name: 'Guide',
@@ -22,7 +29,9 @@ const seedSessionFixture = async () => {
 				'session:cancel',
 				'session_rsvp:set',
 				'session_rsvp:read_all',
-				'session_activity:read'
+				'session_activity:read',
+				'attendance:read',
+				'attendance:create'
 			],
 			order: 0,
 			createdAt: now
@@ -63,13 +72,13 @@ const seedSessionFixture = async () => {
 			clubId,
 			profileId: guideProfileId,
 			roleId: guideRoleId,
-			createdAt: now
+			createdAt: memberJoinedAt
 		});
 		await ctx.db.insert('clubMembers', {
 			clubId,
 			profileId: learnerProfileId,
 			roleId: learnerRoleId,
-			createdAt: now
+			createdAt: memberJoinedAt
 		});
 		return { clubId, guideProfileId, learnerProfileId, outsiderProfileId };
 	});
@@ -337,5 +346,435 @@ describe('sessions.setRsvp', () => {
 			.withIdentity({ subject: 'learner-user' })
 			.query(api.sessions.getSessionCardData, { sessionId: session._id });
 		expect(learnerCardData.myRsvpStatus).toBe('going');
+	});
+});
+
+describe('sessions.setAttendance timing rules', () => {
+	it('rejects marking attendance before the session starts', async () => {
+		const { t, clubId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId, {
+			startTime: Date.now() + HOUR,
+			endTime: Date.now() + 2 * HOUR
+		});
+
+		await expect(
+			t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+				sessionId: session._id,
+				profileId: learnerProfileId,
+				status: 'present'
+			})
+		).rejects.toThrow('Attendance opens when the session starts');
+	});
+
+	it('rejects marking attendance more than 12 hours after the session ends', async () => {
+		const { t, clubId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId, {
+			startTime: Date.now() + HOUR,
+			endTime: Date.now() + 2 * HOUR
+		});
+
+		await t.run(async (ctx) => {
+			await ctx.db.patch(session._id, {
+				startTime: Date.now() - 20 * HOUR,
+				endTime: Date.now() - 13 * HOUR
+			});
+		});
+
+		await expect(
+			t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+				sessionId: session._id,
+				profileId: learnerProfileId,
+				status: 'present'
+			})
+		).rejects.toThrow('Attendance is locked for this session');
+	});
+
+	it('allows marking attendance once the session has started and before the lock', async () => {
+		const { t, clubId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId, {
+			startTime: Date.now() + HOUR,
+			endTime: Date.now() + 2 * HOUR
+		});
+
+		await t.run(async (ctx) => {
+			await ctx.db.patch(session._id, {
+				startTime: Date.now() - HOUR,
+				endTime: Date.now() - 30 * 60 * 1000
+			});
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.setAttendance, {
+				sessionId: session._id,
+				profileId: learnerProfileId,
+				status: 'present'
+			});
+		expect(result.success).toBe(true);
+	});
+
+	it('rejects marking attendance for a cancelled session', async () => {
+		const { t, clubId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await t.run(async (ctx) => {
+			await ctx.db.patch(session._id, {
+				startTime: Date.now() - HOUR,
+				endTime: Date.now() - 30 * 60 * 1000,
+				cancelled: true
+			});
+		});
+
+		await expect(
+			t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+				sessionId: session._id,
+				profileId: learnerProfileId,
+				status: 'present'
+			})
+		).rejects.toThrow('Cannot mark attendance for a cancelled session');
+	});
+
+	it('records the recorder and lets attendance be changed', async () => {
+		const { t, clubId, learnerProfileId, guideProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId, {
+			startTime: Date.now() + HOUR,
+			endTime: Date.now() + 2 * HOUR
+		});
+		await t.run(async (ctx) => {
+			await ctx.db.patch(session._id, {
+				startTime: Date.now() - HOUR,
+				endTime: Date.now() - 30 * 60 * 1000
+			});
+		});
+
+		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+			sessionId: session._id,
+			profileId: learnerProfileId,
+			status: 'present'
+		});
+
+		let row = await t.run((ctx) =>
+			ctx.db
+				.query('attendances')
+				.withIndex('by_session_and_profile', (q) =>
+					q.eq('sessionId', session._id).eq('profileId', learnerProfileId)
+				)
+				.unique()
+		);
+		expect(row?.status).toBe('present');
+		expect(row?.recordedByProfileId).toBe(guideProfileId);
+
+		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+			sessionId: session._id,
+			profileId: learnerProfileId,
+			status: 'absent'
+		});
+
+		row = await t.run((ctx) =>
+			ctx.db
+				.query('attendances')
+				.withIndex('by_session_and_profile', (q) =>
+					q.eq('sessionId', session._id).eq('profileId', learnerProfileId)
+				)
+				.unique()
+		);
+		expect(row?.status).toBe('absent');
+	});
+});
+
+describe('sessions.listAttendanceRoster snapshot', () => {
+	it('excludes members who joined after the session started', async () => {
+		const { t, clubId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId, {
+			startTime: Date.now() + HOUR,
+			endTime: Date.now() + 2 * HOUR
+		});
+		await t.run(async (ctx) => {
+			await ctx.db.patch(session._id, {
+				startTime: Date.now() - HOUR,
+				endTime: Date.now() + HOUR
+			});
+		});
+
+		const learnerRoleId = await t.run(async (ctx) => {
+			const membership = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', clubId).eq('profileId', learnerProfileId)
+				)
+				.first();
+			return membership!.roleId;
+		});
+		const lateJoinerProfileId = await t.run(async (ctx) => {
+			const profileId = await ctx.db.insert('profiles', {
+				authUserId: 'late-joiner',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId,
+				roleId: learnerRoleId,
+				createdAt: Date.now() + 30 * 60 * 1000 // joined 30 min after session started
+			});
+			return profileId;
+		});
+
+		const roster = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listAttendanceRoster, { sessionId: session._id });
+
+		expect(roster.some((entry) => entry.profileId === learnerProfileId)).toBe(true);
+		expect(roster.some((entry) => entry.profileId === lateJoinerProfileId)).toBe(false);
+	});
+
+	it('excludes members who left before the session started', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId, {
+			startTime: Date.now() + HOUR,
+			endTime: Date.now() + 2 * HOUR
+		});
+		await t.run(async (ctx) => {
+			await ctx.db.patch(session._id, {
+				startTime: Date.now() - HOUR,
+				endTime: Date.now() + HOUR
+			});
+		});
+
+		const learnerRoleId = await t.run(async (ctx) => {
+			const role = await ctx.db
+				.query('clubRoles')
+				.withIndex('by_key', (q) => q.eq('key', 'learner'))
+				.unique();
+			return role!._id;
+		});
+		const formerMemberProfileId = await t.run(async (ctx) => {
+			const profileId = await ctx.db.insert('profiles', {
+				authUserId: 'former-member',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId,
+				roleId: learnerRoleId,
+				createdAt: Date.now() - 2 * HOUR,
+				leftAt: Date.now() - 90 * 60 * 1000 // left before session started
+			});
+			return profileId;
+		});
+
+		const roster = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listAttendanceRoster, { sessionId: session._id });
+
+		expect(roster.some((entry) => entry.profileId === formerMemberProfileId)).toBe(false);
+	});
+
+	it('includes members who left after the session, still showing their recorded attendance', async () => {
+		const { t, clubId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId, {
+			startTime: Date.now() + HOUR,
+			endTime: Date.now() + 2 * HOUR
+		});
+		await t.run(async (ctx) => {
+			await ctx.db.patch(session._id, {
+				startTime: Date.now() - 2 * HOUR,
+				endTime: Date.now() - HOUR
+			});
+		});
+
+		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+			sessionId: session._id,
+			profileId: learnerProfileId,
+			status: 'present'
+		});
+
+		// Learner leaves the club after the session.
+		await t.run(async (ctx) => {
+			const membership = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', clubId).eq('profileId', learnerProfileId)
+				)
+				.first();
+			await ctx.db.patch(membership!._id, { leftAt: Date.now() });
+		});
+
+		const roster = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listAttendanceRoster, { sessionId: session._id });
+
+		const entry = roster.find((row) => row.profileId === learnerProfileId);
+		expect(entry).toBeDefined();
+		expect(entry?.status).toBe('present');
+	});
+});
+
+describe('sessions attendance reminder scheduling', () => {
+	it('notifies every guide when attendance is unmarked 1 hour after start', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, guideProfileId } = await seedSessionFixture();
+
+		const startTime = Date.now() + HOUR;
+		const endTime = startTime + HOUR;
+		const session = await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.create, { clubId, startTime, endTime });
+		if (!session) throw new Error('session not created');
+
+		await vi.advanceTimersByTimeAsync(2 * HOUR);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		const notifications = await t.run((ctx) =>
+			ctx.db
+				.query('notifications')
+				.withIndex('by_profile', (q) => q.eq('profileId', guideProfileId))
+				.collect()
+		);
+		expect(notifications).toHaveLength(1);
+		expect(notifications[0].message).toContain("hasn't been recorded yet");
+	});
+
+	it('does not notify when attendance was recorded before the reminder fires', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, guideProfileId, learnerProfileId } = await seedSessionFixture();
+
+		const startTime = Date.now() + HOUR;
+		const endTime = startTime + HOUR;
+		const session = await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.create, { clubId, startTime, endTime });
+		if (!session) throw new Error('session not created');
+
+		// Advance just past the session's start so attendance can be marked, but still
+		// well before the startTime + 1h reminder would fire.
+		await vi.advanceTimersByTimeAsync(HOUR + 5 * 60 * 1000);
+		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+			sessionId: session._id,
+			profileId: learnerProfileId,
+			status: 'present'
+		});
+
+		await vi.advanceTimersByTimeAsync(2 * HOUR);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		const notifications = await t.run((ctx) =>
+			ctx.db
+				.query('notifications')
+				.withIndex('by_profile', (q) => q.eq('profileId', guideProfileId))
+				.collect()
+		);
+		expect(notifications).toHaveLength(0);
+	});
+
+	it('does not fire the reminder for a cancelled session', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, guideProfileId } = await seedSessionFixture();
+
+		const startTime = Date.now() + HOUR;
+		const endTime = startTime + HOUR;
+		const session = await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.create, { clubId, startTime, endTime });
+		if (!session) throw new Error('session not created');
+
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.cancel, { sessionId: session._id });
+
+		await vi.advanceTimersByTimeAsync(3 * HOUR);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		const notifications = await t.run((ctx) =>
+			ctx.db
+				.query('notifications')
+				.withIndex('by_profile', (q) => q.eq('profileId', guideProfileId))
+				.collect()
+		);
+		expect(notifications).toHaveLength(0);
+	});
+
+	it('reschedules the reminder when the session start time changes', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, guideProfileId } = await seedSessionFixture();
+
+		const startTime = Date.now() + HOUR;
+		const endTime = startTime + HOUR;
+		const session = await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.create, { clubId, startTime, endTime });
+		if (!session) throw new Error('session not created');
+
+		// Push the session further into the future; the original startTime+1h reminder must not fire.
+		const newStartTime = startTime + 3 * HOUR;
+		const newEndTime = newStartTime + HOUR;
+		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.update, {
+			sessionId: session._id,
+			startTime: newStartTime,
+			endTime: newEndTime
+		});
+
+		// The original job (startTime + 1h) must have been cancelled by the update, and only the
+		// rescheduled one (newStartTime + 1h) should remain pending.
+		const scheduledJobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect());
+		expect(scheduledJobs).toHaveLength(2);
+		const originalJob = scheduledJobs.find((job) => job.scheduledTime === startTime + HOUR);
+		const rescheduledJob = scheduledJobs.find(
+			(job) => job.scheduledTime === newStartTime + HOUR
+		);
+		expect(originalJob?.state.kind).toBe('canceled');
+		expect(rescheduledJob?.state.kind).toBe('pending');
+
+		// `finishAllScheduledFunctions` drains the entire scheduler queue (not just up to a given
+		// point in time), so it can only be used once, at the end, to assert the final state.
+		await vi.advanceTimersByTimeAsync(5 * HOUR);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		const notifications = await t.run((ctx) =>
+			ctx.db
+				.query('notifications')
+				.withIndex('by_profile', (q) => q.eq('profileId', guideProfileId))
+				.collect()
+		);
+		expect(notifications).toHaveLength(1);
+	});
+});
+
+describe('sessions.backfillAttendanceStatus', () => {
+	// The schema now requires `status`, so a genuinely pre-migration row (missing it) can't be
+	// constructed through the validated test db. This confirms the backfill is a safe no-op
+	// against already-migrated data; the one-time production backfill is exercised via
+	// `npx convex run sessions:backfillAttendanceStatus` against the real dev deployment (see report).
+	it('is a no-op for rows that already have a status', async () => {
+		const { t, clubId, guideProfileId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId, {
+			startTime: Date.now() - HOUR,
+			endTime: Date.now() - 30 * 60 * 1000
+		});
+
+		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+			sessionId: session._id,
+			profileId: learnerProfileId,
+			status: 'absent'
+		});
+
+		const result = await t.run((ctx) =>
+			ctx.runMutation(internal.sessions.backfillAttendanceStatus, {})
+		);
+		expect(result.updated).toBe(0);
+
+		const row = await t.run((ctx) =>
+			ctx.db
+				.query('attendances')
+				.withIndex('by_session_and_profile', (q) =>
+					q.eq('sessionId', session._id).eq('profileId', learnerProfileId)
+				)
+				.unique()
+		);
+		expect(row?.status).toBe('absent');
+		expect(row?.recordedByProfileId).toBe(guideProfileId);
 	});
 });

@@ -168,6 +168,9 @@ export default defineSchema({
 		cancelled: v.optional(v.boolean()),
 		cancelledAt: v.optional(v.number()),
 		cancelledByProfileId: v.optional(v.id('profiles')),
+		// Scheduled function id for the "attendance unmarked" reminder (fires at startTime + 1h).
+		// Tracked so it can be cancelled and rescheduled if the session's startTime changes or it's cancelled.
+		attendanceReminderJobId: v.optional(v.id('_scheduled_functions')),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
@@ -238,8 +241,9 @@ export default defineSchema({
 	attendances: defineTable({
 		sessionId: v.id('sessions'),
 		profileId: v.id('profiles'),
-		createdByProfileId: v.id('profiles'),
-		createdAt: v.number()
+		status: v.union(v.literal('present'), v.literal('absent')),
+		recordedByProfileId: v.id('profiles'),
+		recordedAt: v.number()
 	})
 		.index('by_session', ['sessionId'])
 		.index('by_session_and_profile', ['sessionId', 'profileId']),
