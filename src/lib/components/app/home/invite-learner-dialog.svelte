@@ -1,41 +1,73 @@
 <script lang="ts">
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import CopyIcon from '@lucide/svelte/icons/copy';
+	import { api } from '$convex/_generated/api';
+	import type { Id } from '$convex/_generated/dataModel';
+	import { useConvexClient } from 'convex-svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import * as Tabs from '$lib/components/ui/tabs';
+	import { _, t } from '$lib/i18n';
 	import { cn } from '$lib/utils.js';
 
 	type Props = {
+		clubId?: Id<'clubs'> | null;
 		clubCode: string | null | undefined;
+		guideInviteCode?: string | null;
+		canInviteGuide?: boolean;
 		triggerLabel?: string;
 		triggerStyle?: 'link' | 'card' | 'button';
 		cardMinHeightClass?: string;
 	};
 
 	let {
+		clubId = null,
 		clubCode,
-		triggerLabel = 'Invite a learner',
+		guideInviteCode = null,
+		canInviteGuide = false,
+		triggerLabel,
 		triggerStyle = 'link',
 		cardMinHeightClass = 'min-h-56'
 	}: Props = $props();
 
+	const convexClient = useConvexClient();
+
 	let open = $state(false);
-	let copied = $state(false);
+	let copiedField = $state<string | null>(null);
+	let roleTab = $state<'learner' | 'guide'>('learner');
+	let generatingGuideCode = $state(false);
+	let generateError = $state('');
 
-	let joinUrl = $derived(clubCode ? `/onboarding/join-club/${clubCode}` : '');
+	let learnerJoinUrl = $derived(clubCode ? `/onboarding/join-club/${clubCode}` : '');
+	let guideJoinUrl = $derived(guideInviteCode ? `/onboarding/join-club/${guideInviteCode}` : '');
+	let resolvedTriggerLabel = $derived(triggerLabel ?? t('inviteLearnerDialog.triggerLabel'));
 
-	const copyText = async (value: string) => {
+	const copyText = async (value: string, field: string) => {
 		try {
 			await navigator.clipboard.writeText(value);
-			copied = true;
+			copiedField = field;
 			window.setTimeout(() => {
-				copied = false;
+				copiedField = null;
 			}, 1200);
 		} catch {
 			// Ignore clipboard errors; users can still select + copy manually.
+		}
+	};
+
+	const generateGuideCode = async () => {
+		if (!clubId) return;
+		generatingGuideCode = true;
+		generateError = '';
+		try {
+			await convexClient.mutation(api.clubs.createOrRotateGuideInviteCode, { clubId });
+		} catch (error) {
+			generateError =
+				error instanceof Error ? error.message : t('inviteLearnerDialog.generateGuideCodeFailure');
+		} finally {
+			generatingGuideCode = false;
 		}
 	};
 </script>
@@ -51,13 +83,13 @@
 							variant="ghost"
 							class="h-full w-full justify-center rounded-xl type-lead-medium text-foreground hover:bg-accent/60"
 						>
-							{triggerLabel}
+							{resolvedTriggerLabel}
 						</Button>
 					</CardContent>
 				</Card>
 			{:else if triggerStyle === 'button'}
 				<Button {...props} variant="outline" class="w-fit">
-					{triggerLabel}
+					{resolvedTriggerLabel}
 				</Button>
 			{:else}
 				<Button
@@ -67,7 +99,7 @@
 					class="px-0 py-0 type-sm-bold text-orange-500 hover:bg-transparent hover:text-orange-600"
 				>
 					<PlusIcon class="size-4" />
-					<span>{triggerLabel}</span>
+					<span>{resolvedTriggerLabel}</span>
 				</Button>
 			{/if}
 		{/snippet}
@@ -75,40 +107,120 @@
 
 	<Dialog.Content class="flex flex-col gap-5">
 		<Dialog.Header class="flex flex-col gap-2">
-			<Dialog.Title>Invite a learner</Dialog.Title>
-			<Dialog.Description>Share your invite code or a join link.</Dialog.Description>
+			<Dialog.Title>{$_('inviteLearnerDialog.dialogTitle')}</Dialog.Title>
+			<Dialog.Description>{$_('inviteLearnerDialog.dialogDescription')}</Dialog.Description>
 		</Dialog.Header>
 
-		{#if !clubCode}
-			<p class="type-sm text-muted-foreground">This club does not have an invite code yet.</p>
+		{#if canInviteGuide}
+			<Tabs.Root bind:value={roleTab}>
+				<Tabs.List class="grid w-full grid-cols-2">
+					<Tabs.Trigger value="learner">{$_('inviteLearnerDialog.roleTabLearner')}</Tabs.Trigger>
+					<Tabs.Trigger value="guide">{$_('inviteLearnerDialog.roleTabGuide')}</Tabs.Trigger>
+				</Tabs.List>
+			</Tabs.Root>
+		{/if}
+
+		{#if roleTab === 'learner' || !canInviteGuide}
+			{#if !clubCode}
+				<p class="type-sm text-muted-foreground">{$_('inviteLearnerDialog.noLearnerCode')}</p>
+			{:else}
+				<div class="flex flex-col gap-4">
+					<div class="flex flex-col gap-2">
+						<Label for="inviteCode">{$_('inviteLearnerDialog.learnerCodeLabel')}</Label>
+						<div class="flex items-center gap-2">
+							<Input id="inviteCode" readonly value={clubCode} class="type-code" />
+							<Button variant="outline" onclick={() => void copyText(clubCode, 'learnerCode')}>
+								<CopyIcon class="size-4" />
+								<span class="hidden sm:inline"
+									>{copiedField === 'learnerCode'
+										? $_('inviteLearnerDialog.copied')
+										: $_('inviteLearnerDialog.copy')}</span
+								>
+							</Button>
+						</div>
+					</div>
+
+					<div class="flex flex-col gap-2">
+						<Label for="joinLink">{$_('inviteLearnerDialog.joinLinkLabel')}</Label>
+						<div class="flex items-center gap-2">
+							<Input
+								id="joinLink"
+								readonly
+								value={learnerJoinUrl}
+								class={cn('type-code', !learnerJoinUrl && 'opacity-70')}
+							/>
+							<Button
+								variant="outline"
+								onclick={() => void copyText(learnerJoinUrl, 'learnerLink')}
+								disabled={!learnerJoinUrl}
+							>
+								<CopyIcon class="size-4" />
+								<span class="hidden sm:inline"
+									>{copiedField === 'learnerLink'
+										? $_('inviteLearnerDialog.copied')
+										: $_('inviteLearnerDialog.copy')}</span
+								>
+							</Button>
+						</div>
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<div class="flex flex-col gap-4">
-				<div class="flex flex-col gap-2">
-					<Label for="inviteCode">Invite code</Label>
-					<div class="flex items-center gap-2">
-						<Input id="inviteCode" readonly value={clubCode} class="type-code" />
-						<Button variant="outline" onclick={() => void copyText(clubCode)}>
-							<CopyIcon class="size-4" />
-							<span class="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
-						</Button>
+				{#if generateError}
+					<p class="type-sm text-destructive">{generateError}</p>
+				{/if}
+				{#if !guideInviteCode}
+					<p class="type-sm text-muted-foreground">{$_('inviteLearnerDialog.noGuideCode')}</p>
+					<Button
+						variant="outline"
+						class="w-fit"
+						disabled={generatingGuideCode}
+						onclick={() => void generateGuideCode()}
+					>
+						{$_('inviteLearnerDialog.generateGuideCodeButton')}
+					</Button>
+				{:else}
+					<div class="flex flex-col gap-2">
+						<Label for="guideInviteCode">{$_('inviteLearnerDialog.guideCodeLabel')}</Label>
+						<div class="flex items-center gap-2">
+							<Input id="guideInviteCode" readonly value={guideInviteCode} class="type-code" />
+							<Button variant="outline" onclick={() => void copyText(guideInviteCode, 'guideCode')}>
+								<CopyIcon class="size-4" />
+								<span class="hidden sm:inline"
+									>{copiedField === 'guideCode'
+										? $_('inviteLearnerDialog.copied')
+										: $_('inviteLearnerDialog.copy')}</span
+								>
+							</Button>
+						</div>
 					</div>
-				</div>
 
-				<div class="flex flex-col gap-2">
-					<Label for="joinLink">Join link</Label>
-					<div class="flex items-center gap-2">
-						<Input
-							id="joinLink"
-							readonly
-							value={joinUrl}
-							class={cn('type-code', !joinUrl && 'opacity-70')}
-						/>
-						<Button variant="outline" onclick={() => void copyText(joinUrl)} disabled={!joinUrl}>
-							<CopyIcon class="size-4" />
-							<span class="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
-						</Button>
+					<div class="flex flex-col gap-2">
+						<Label for="guideJoinLink">{$_('inviteLearnerDialog.joinLinkLabel')}</Label>
+						<div class="flex items-center gap-2">
+							<Input id="guideJoinLink" readonly value={guideJoinUrl} class="type-code" />
+							<Button variant="outline" onclick={() => void copyText(guideJoinUrl, 'guideLink')}>
+								<CopyIcon class="size-4" />
+								<span class="hidden sm:inline"
+									>{copiedField === 'guideLink'
+										? $_('inviteLearnerDialog.copied')
+										: $_('inviteLearnerDialog.copy')}</span
+								>
+							</Button>
+						</div>
 					</div>
-				</div>
+
+					<Button
+						variant="ghost"
+						size="sm"
+						class="w-fit px-0"
+						disabled={generatingGuideCode}
+						onclick={() => void generateGuideCode()}
+					>
+						{$_('inviteLearnerDialog.generateGuideCodeButton')}
+					</Button>
+				{/if}
 			</div>
 		{/if}
 	</Dialog.Content>

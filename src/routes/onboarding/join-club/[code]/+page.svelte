@@ -109,9 +109,14 @@
 				return;
 			}
 			if (auth.isAuthenticated) {
-				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
-					code: data.code
-				});
+				const result =
+					club?.joinRole === 'guide'
+						? await convexClient.mutation(api.clubs.joinClubWithGuideInviteCode, {
+								code: data.code
+							})
+						: await convexClient.mutation(api.clubs.joinClubWithCode, {
+								code: data.code
+							});
 				if (!result.ok) {
 					errorMessage =
 						result.error === 'rate_limited'
@@ -246,7 +251,9 @@
 				>
 					{pending
 						? $_('onboarding.joinClubDetails.continuing')
-						: $_('onboarding.joinClubDetails.joinAsLearner')}
+						: club?.joinRole === 'guide'
+							? $_('onboarding.joinClubDetails.joinAsGuide')
+							: $_('onboarding.joinClubDetails.joinAsLearner')}
 				</Button>
 			</div>
 		{/if}

@@ -457,6 +457,7 @@ const nl = {
 			defaultDescription:
 				'Word lid van deze Curiosity Club om te leren, samen te werken en projecten te bouwen met een lokale leergemeenschap.',
 			joinAsLearner: 'Word lid als leerling',
+			joinAsGuide: 'Word lid als Begeleider',
 			continuing: 'Bezig met doorgaan...',
 			checkingSession: 'Je sessie wordt gecontroleerd. Probeer het opnieuw.',
 			continueFailure: 'Kan nu niet doorgaan.'
@@ -552,6 +553,59 @@ const nl = {
 			loadPledgesFailedTitle: 'Kon pledges niet laden',
 			loadPledgesFailedDescription: 'Probeer het opnieuw.'
 		}
+	},
+	membersPage: {
+		title: 'Clubleden',
+		description: 'Leerlingen en begeleiders die momenteel actief zijn in deze club.',
+		searchLabel: 'Zoek leden',
+		searchPlaceholder: 'Naam, rol, e-mail',
+		noMatches: 'Geen leden komen overeen met je filter.',
+		accessDeniedTitle: 'Toegang geweigerd',
+		accessDeniedDescription: 'Je hebt geen toestemming om de leden van deze club te bekijken.',
+		actionFailedTitle: 'Actie mislukt',
+		roleGuide: 'Begeleider',
+		roleLearner: 'Leerling',
+		youBadge: 'Jij',
+		openActionsLabel: 'Ledenacties openen',
+		promoteAction: 'Promoveren tot Begeleider',
+		promoteFailure: 'Kan lid niet promoveren.',
+		promoteSuccess: 'Lid gepromoveerd tot Begeleider.',
+		removeAction: 'Lid verwijderen',
+		removeDialogTitle: 'Lid verwijderen',
+		removeDialogDescription:
+			'Dit lid verliest onmiddellijk toegang tot de club. Ze krijgen een melding met de onderstaande reden.',
+		removeReasonLabel: 'Reden',
+		removeReasonPlaceholder: 'Leg uit waarom dit lid wordt verwijderd (max. 500 tekens)',
+		removeReasonRequired: 'Een reden is verplicht.',
+		removeConfirmAction: 'Lid verwijderen',
+		removeCancelAction: 'Annuleren',
+		removeFailure: 'Kon lid niet verwijderen.',
+		demoteSelfAction: 'Mezelf degraderen tot Leerling',
+		demoteSelfConfirm: 'Jezelf degraderen tot Leerling in deze club?',
+		demoteSelfFailure: 'Kan jezelf niet degraderen.',
+		leaveClubAction: 'Club verlaten',
+		leaveClubConfirm: 'Weet je zeker dat je deze club wilt verlaten?',
+		leaveClubAbandonWarning:
+			'Je bent de laatste Begeleider en er zijn geen Leerlingen. Als je vertrekt, wordt deze club als verlaten gemarkeerd — de uitnodigingscodes werken dan niet meer en de club verdwijnt van de kaart.',
+		leaveClubBlockedLastGuide: 'Promoveer een Leerling tot Begeleider voordat je vertrekt.',
+		leaveClubFailure: 'Kon de club niet verlaten.',
+		leaveClubAbandonedNotice: 'Deze club is gemarkeerd als verlaten.'
+	},
+	inviteLearnerDialog: {
+		triggerLabel: 'Nodig een leerling uit',
+		dialogTitle: 'Nodig een lid uit',
+		dialogDescription: 'Deel een uitnodigingscode of een join-link.',
+		roleTabLearner: 'Leerling',
+		roleTabGuide: 'Begeleider',
+		noLearnerCode: 'Deze club heeft nog geen uitnodigingscode voor leerlingen.',
+		noGuideCode: 'Genereer een begeleiders-uitnodigingscode om direct een nieuwe Begeleider uit te nodigen.',
+		generateGuideCodeButton: 'Begeleiders-uitnodigingscode genereren',
+		generateGuideCodeFailure: 'Kan begeleiders-uitnodigingscode niet genereren.',
+		learnerCodeLabel: 'Uitnodigingscode voor leerlingen',
+		guideCodeLabel: 'Uitnodigingscode voor begeleiders',
+		joinLinkLabel: 'Join-link',
+		copy: 'Kopiëren',
+		copied: 'Gekopieerd'
 	}
 } as const;
 
