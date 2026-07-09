@@ -346,6 +346,62 @@ export const getClubPreviewByCode = query({
 	}
 });
 
+// Public preview by stable club id (CL-711): only ever resolves discoverable, non-abandoned
+// clubs so it can be linked to permanently (map pins, public club pages) without leaking
+// private clubs. Unlike getClubPreviewByCode, this never returns a join code — instant join
+// stays code-only; this preview only supports the "Request to join" entry point.
+export const getClubPreviewById = query({
+	args: {
+		clubId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		const club = await ctx.db.get(args.clubId);
+		if (!club || !club.discoverable || club.abandonedAt) {
+			return null;
+		}
+
+		const members = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', club._id))
+			.collect();
+
+		const identity = await ctx.auth.getUserIdentity();
+		let viewerIsMember = false;
+		let viewerPendingJoinRequestId: Id<'joinRequests'> | null = null;
+		if (identity) {
+			const profile = await getProfileByAuthUserId(ctx, identity.subject);
+			if (profile) {
+				const membership = await getMembership(ctx, club._id, identity.subject);
+				viewerIsMember = Boolean(membership);
+				const requests = await ctx.db
+					.query('joinRequests')
+					.withIndex('by_club_and_requester', (q) =>
+						q.eq('clubId', club._id).eq('requesterProfileId', profile._id)
+					)
+					.collect();
+				const pending = requests.find((request) => request.status === 'pending');
+				viewerPendingJoinRequestId = pending?._id ?? null;
+			}
+		}
+
+		return {
+			id: club._id,
+			name: club.name,
+			description: club.description ?? null,
+			videoMediaAssetId: club.videoMediaAssetId ?? null,
+			videoUrl: await resolveClubVideoUrl(ctx, club),
+			location: club.location ?? null,
+			locationLatitude: club.locationLatitude ?? null,
+			locationLongitude: club.locationLongitude ?? null,
+			scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
+			memberCount: members.filter((member) => !member.leftAt).length,
+			createdAt: club.createdAt,
+			viewerIsMember,
+			viewerPendingJoinRequestId
+		};
+	}
+});
+
 // Convex queries cannot write to the database, so rate-limit bookkeeping for the
 // (read-only) `getClubPreviewByCode` query is tracked by this companion mutation.
 // Callers must invoke this before running the preview query and stop if it reports

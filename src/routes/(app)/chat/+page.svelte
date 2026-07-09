@@ -19,15 +19,17 @@
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Avatar, AvatarFallback } from '$lib/components/ui/avatar';
+	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
+	import { _, t } from '$lib/i18n';
 
 	type RoomSummary = {
 		roomId: Id<'rooms'>;
 		roomName: string;
-		contextType: 'club' | 'project' | 'clubApplication';
+		contextType: 'club' | 'project' | 'clubApplication' | 'joinRequest';
 		lastMessagePreview: string | null;
 		lastMessageAt: number;
 		canSend: boolean;
@@ -127,6 +129,14 @@
 	const messagesResponse = useStableQuery(api.chat.listMessages, () =>
 		$session.data && selectedRoomId ? { roomId: selectedRoomId, limit: messageLimit } : 'skip'
 	);
+	const joinRequestResponse = useStableQuery(api.joinRequests.getJoinRequestForRoom, () =>
+		$session.data && selectedRoomId && activeRoom?.contextType === 'joinRequest'
+			? { roomId: selectedRoomId }
+			: 'skip'
+	);
+	let joinRequestInfo = $derived(joinRequestResponse.data ?? null);
+	let joinRequestActionPending = $state(false);
+	let joinRequestActionError = $state('');
 	let serverMessages = $derived(messagesResponse.data?.messages ?? []);
 	let hasMoreMessages = $derived(Boolean(messagesResponse.data?.hasMore));
 	let visibleMessages = $derived.by(() => {
@@ -360,6 +370,54 @@
 		event.preventDefault();
 		void sendMessage();
 	};
+
+	const acceptJoinRequestAction = async () => {
+		if (!joinRequestInfo) return;
+		joinRequestActionPending = true;
+		joinRequestActionError = '';
+		try {
+			await convexClient.mutation(api.joinRequests.acceptJoinRequest, {
+				joinRequestId: joinRequestInfo.joinRequestId
+			});
+		} catch (error) {
+			joinRequestActionError =
+				error instanceof Error ? error.message : t('joinRequestChat.acceptFailure');
+		} finally {
+			joinRequestActionPending = false;
+		}
+	};
+
+	const declineJoinRequestAction = async () => {
+		if (!joinRequestInfo) return;
+		joinRequestActionPending = true;
+		joinRequestActionError = '';
+		try {
+			await convexClient.mutation(api.joinRequests.declineJoinRequest, {
+				joinRequestId: joinRequestInfo.joinRequestId
+			});
+		} catch (error) {
+			joinRequestActionError =
+				error instanceof Error ? error.message : t('joinRequestChat.declineFailure');
+		} finally {
+			joinRequestActionPending = false;
+		}
+	};
+
+	const cancelJoinRequestAction = async () => {
+		if (!joinRequestInfo) return;
+		joinRequestActionPending = true;
+		joinRequestActionError = '';
+		try {
+			await convexClient.mutation(api.joinRequests.cancelJoinRequest, {
+				joinRequestId: joinRequestInfo.joinRequestId
+			});
+		} catch (error) {
+			joinRequestActionError =
+				error instanceof Error ? error.message : t('joinRequestChat.cancelFailure');
+		} finally {
+			joinRequestActionPending = false;
+		}
+	};
 </script>
 
 <PageHeaderBackButton enabled={isMobileDetailView} fallbackHref={routes.chat} />
@@ -493,7 +551,66 @@
 						}`}
 					>
 						<div class="flex min-h-full flex-col">
-							{#if activeRoom && !activeRoom.canSend}
+							{#if activeRoom?.contextType === 'joinRequest' && joinRequestInfo}
+								{#if joinRequestInfo.status === 'pending'}
+									{#if joinRequestInfo.canDecide}
+										<div class={`flex gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
+											<Button
+												type="button"
+												disabled={joinRequestActionPending}
+												onclick={() => void acceptJoinRequestAction()}
+											>
+												{joinRequestActionPending
+													? $_('joinRequestChat.accepting')
+													: $_('joinRequestChat.acceptButton')}
+											</Button>
+											<Button
+												type="button"
+												variant="outline"
+												disabled={joinRequestActionPending}
+												onclick={() => void declineJoinRequestAction()}
+											>
+												{joinRequestActionPending
+													? $_('joinRequestChat.declining')
+													: $_('joinRequestChat.declineButton')}
+											</Button>
+										</div>
+									{:else if joinRequestInfo.isRequester}
+										<div class={`flex ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
+											<Button
+												type="button"
+												variant="outline"
+												disabled={joinRequestActionPending}
+												onclick={() => void cancelJoinRequestAction()}
+											>
+												{joinRequestActionPending
+													? $_('joinRequestChat.cancelling')
+													: $_('joinRequestChat.cancelButton')}
+											</Button>
+										</div>
+									{/if}
+								{:else}
+									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<AlertTitle>
+											{#if joinRequestInfo.status === 'accepted'}
+												{$_('joinRequestChat.acceptedBanner')}
+											{:else if joinRequestInfo.status === 'declined'}
+												{$_('joinRequestChat.declinedBanner')}
+											{:else}
+												{$_('joinRequestChat.cancelledBanner')}
+											{/if}
+										</AlertTitle>
+										<AlertDescription>
+											{$_('joinRequestChat.requesterCancelledDescription')}
+										</AlertDescription>
+									</Alert>
+								{/if}
+								{#if joinRequestActionError}
+									<Alert variant="destructive" class={isDesktopViewport ? 'mb-4' : 'mb-4'}>
+										<AlertDescription>{joinRequestActionError}</AlertDescription>
+									</Alert>
+								{/if}
+							{:else if activeRoom && !activeRoom.canSend}
 								<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 									<AlertTitle>This chat is read-only</AlertTitle>
 									<AlertDescription>

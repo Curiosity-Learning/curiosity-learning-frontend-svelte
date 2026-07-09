@@ -48,3 +48,21 @@ export const ensureClubApplicationRoom = async (
 		clubApplicationId
 	});
 };
+
+export const ensureJoinRequestRoom = async (
+	ctx: MutationCtx,
+	joinRequestId: Id<'joinRequests'>
+) => {
+	const existing = await ctx.db
+		.query('rooms')
+		.withIndex('by_join_request_id', (q) => q.eq('joinRequestId', joinRequestId))
+		.first();
+	if (existing) {
+		return existing._id;
+	}
+
+	return await ctx.db.insert('rooms', {
+		contextType: 'joinRequest',
+		joinRequestId
+	});
+};

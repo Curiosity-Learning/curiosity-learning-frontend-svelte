@@ -21,6 +21,7 @@ import type * as email_resend from "../email/resend.js";
 import type * as email_templates from "../email/templates.js";
 import type * as googleChat from "../googleChat.js";
 import type * as http from "../http.js";
+import type * as joinRequests from "../joinRequests.js";
 import type * as legalContent from "../legalContent.js";
 import type * as legalDocuments from "../legalDocuments.js";
 import type * as media from "../media.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   "email/templates": typeof email_templates;
   googleChat: typeof googleChat;
   http: typeof http;
+  joinRequests: typeof joinRequests;
   legalContent: typeof legalContent;
   legalDocuments: typeof legalDocuments;
   media: typeof media;
