@@ -160,6 +160,19 @@ const nl = {
 		cancelledTitle: 'Sessie geannuleerd',
 		cancelledDescription: 'Deze sessie is geannuleerd en staat niet meer gepland.'
 	},
+	sessionPhotos: {
+		title: "Foto's",
+		emptyState: "Nog geen foto's.",
+		uploadLabel: 'Foto toevoegen',
+		uploading: 'Uploaden...',
+		uploadFailure: 'Foto toevoegen mislukt.',
+		deleteConfirm: 'Deze foto verwijderen?',
+		deleteFailure: 'Foto verwijderen mislukt.',
+		limitReached: 'Deze sessie heeft al het maximum van 4 foto\'s.',
+		windowClosedBeforeStart: "Foto's kunnen worden toegevoegd zodra de sessie begint.",
+		windowClosedAfterLock: "Foto's kunnen niet meer worden toegevoegd voor deze sessie.",
+		cancelledNotice: "Foto's kunnen niet worden toegevoegd aan een geannuleerde sessie."
+	},
 	sessionEditor: {
 		locationLabel: 'Locatie',
 		locationPlaceholder: 'Adres, beschrijving of vergaderlink'

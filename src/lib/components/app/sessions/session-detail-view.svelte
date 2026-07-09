@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
@@ -22,12 +23,14 @@
 	import { routes } from '$lib/routes';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
 	import { t } from '$lib/i18n';
+	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
+	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Input } from '$lib/components/ui/input';
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
@@ -36,13 +39,14 @@
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import BanIcon from '@lucide/svelte/icons/ban';
+	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
 	import { fromStore } from 'svelte/store';
 
 	type Props = {
-		view: 'activities' | 'attendees';
+		view: 'activities' | 'attendees' | 'photos';
 	};
 
 	let { view }: Props = $props();
@@ -81,6 +85,7 @@
 	let canManageAttendance = $derived(clubPermissions.includes('attendance:create'));
 	let canReadAllRsvps = $derived(clubPermissions.includes('session_rsvp:read_all'));
 	let sessionHasStarted = $derived(Boolean(session && session.startTime <= Date.now()));
+	let hasSessionPhotoPermission = $derived(clubPermissions.includes('session_photo:create'));
 
 	const canMutateOnlineState = fromStore(canMutateOnlineStore);
 	const connectivityMessageState = fromStore(connectivityMessageStore);
@@ -129,6 +134,88 @@
 	);
 	let myRsvpStatus = $derived(sessionCardDataResponse.data?.myRsvpStatus ?? null);
 	let rsvpPending = $state(false);
+
+	const photosResponse = useStableQuery(api.sessions.listPhotos, () =>
+		sessionIdTyped && view === 'photos' ? { sessionId: sessionIdTyped } : 'skip'
+	);
+	const canUploadPhotoResponse = useStableQuery(api.sessions.canUploadSessionPhoto, () =>
+		sessionIdTyped && hasSessionPhotoPermission && view === 'photos'
+			? { sessionId: sessionIdTyped }
+			: 'skip'
+	);
+	let photos = $derived(photosResponse.data ?? []);
+	let canUploadPhotoNow = $derived(Boolean(canUploadPhotoResponse.data));
+	let canUploadPhotoOnline = $derived(canUploadPhotoNow && canMutateOnline);
+	let sessionPhotoLimitReached = $derived(photos.length >= 4);
+	let sessionPhotoField = createMediaField(convexClient, 'sessionPhoto', { mode: 'immediate' });
+	let photoUploadPending = $state(false);
+	let photoError = $state('');
+	let initialSessionPhotos = $derived(
+		(page.data.initialSessionPhotos as
+			| Array<{ assetId: Id<'mediaAssets'>; signedUrl: string }>
+			| undefined) ?? []
+	);
+	let initialSessionPhotosByAssetId = $derived(
+		new Map(initialSessionPhotos.map((asset) => [asset.assetId, asset.signedUrl] as const))
+	);
+	const photoUrlFor = (mediaAssetId: Id<'mediaAssets'>) =>
+		initialSessionPhotosByAssetId.get(mediaAssetId) ?? null;
+
+	onDestroy(() => {
+		sessionPhotoField.destroy();
+	});
+
+	const uploadSessionPhoto = async (files: File[]) => {
+		if (!sessionIdTyped) return;
+		if (!canUploadPhotoOnline) {
+			photoError = canMutateOnline ? '' : connectivityMessage;
+			return;
+		}
+		if (sessionPhotoLimitReached) {
+			photoError = t('sessionPhotos.limitReached');
+			return;
+		}
+
+		photoUploadPending = true;
+		photoError = '';
+		try {
+			await sessionPhotoField.selectFiles(files);
+			if (!sessionPhotoField.isReady || !sessionPhotoField.assetId) {
+				throw new Error(sessionPhotoField.errorMessage || t('sessionPhotos.uploadFailure'));
+			}
+			await sessionPhotoField.persistAttached(async (assetId) => {
+				if (!assetId) return;
+				await convexClient.mutation(api.sessions.addPhoto, {
+					sessionId: sessionIdTyped,
+					mediaAssetId: assetId
+				});
+			});
+			reportMutationSuccess();
+		} catch (error) {
+			reportMutationFailure(error);
+			let message = t('sessionPhotos.uploadFailure');
+			if (error instanceof Error) {
+				const match = error.message.match(/ConvexError:\s*(.+?)(?:\s+at\s+|$)/);
+				message = match ? match[1] : error.message;
+			}
+			photoError = message;
+		} finally {
+			photoUploadPending = false;
+		}
+	};
+
+	const deleteSessionPhoto = async (sessionPhotoId: Id<'sessionPhotos'>) => {
+		if (!window.confirm(t('sessionPhotos.deleteConfirm'))) return;
+		if (!ensureOnlineForMutation((message) => (photoError = message))) return;
+		photoError = '';
+		try {
+			await convexClient.mutation(api.sessions.deletePhoto, { sessionPhotoId });
+			reportMutationSuccess();
+		} catch (error) {
+			reportMutationFailure(error);
+			photoError = error instanceof Error ? error.message : t('sessionPhotos.deleteFailure');
+		}
+	};
 
 	let pending = $state(false);
 	let errorMessage = $state('');
@@ -726,7 +813,7 @@
 					</div>
 				</div>
 			{/if}
-		{:else}
+		{:else if view === 'attendees'}
 			<div class="flex flex-col gap-3">
 				{#if !canReadMembers && !canReadAttendance}
 					<p class="type-sm text-muted-foreground">You do not have access to attendees.</p>
@@ -799,6 +886,86 @@
 							</div>
 						</div>
 					{/each}
+				{/if}
+			</div>
+		{:else}
+			<div class="flex flex-col gap-4">
+				{#if isCancelled}
+					<p class="type-sm text-muted-foreground">{t('sessionPhotos.cancelledNotice')}</p>
+				{/if}
+				{#if photoError}
+					<Alert variant="destructive">
+						<AlertTitle>Photo error</AlertTitle>
+						<AlertDescription>{photoError}</AlertDescription>
+					</Alert>
+				{/if}
+
+				{#if hasSessionPhotoPermission && !isCancelled}
+					{#if canUploadPhotoOnline && !sessionPhotoLimitReached}
+						<FileDropZone.Root
+							accept={sessionPhotoField.accept}
+							maxFiles={1}
+							fileCount={0}
+							maxFileSize={sessionPhotoField.maxBytes}
+							disabled={photoUploadPending || sessionPhotoField.isBusy}
+							onUpload={uploadSessionPhoto}
+						>
+							<FileDropZone.Trigger>
+								<div
+									class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+								>
+									{photoUploadPending || sessionPhotoField.isBusy
+										? t('sessionPhotos.uploading')
+										: t('sessionPhotos.uploadLabel')}
+								</div>
+							</FileDropZone.Trigger>
+						</FileDropZone.Root>
+					{:else if sessionPhotoLimitReached}
+						<p class="type-sm text-muted-foreground">{t('sessionPhotos.limitReached')}</p>
+					{:else if !sessionHasStarted}
+						<p class="type-sm text-muted-foreground">
+							{t('sessionPhotos.windowClosedBeforeStart')}
+						</p>
+					{:else if !canUploadPhotoNow}
+						<p class="type-sm text-muted-foreground">{t('sessionPhotos.windowClosedAfterLock')}</p>
+					{/if}
+				{/if}
+
+				{#if photosResponse.isLoading}
+					<LoadingState label="Loading photos" />
+				{:else if photos.length === 0}
+					<p class="type-sm text-muted-foreground">{t('sessionPhotos.emptyState')}</p>
+				{:else}
+					<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+						{#each photos as photo (photo.sessionPhotoId)}
+							{@const photoUrl = photoUrlFor(photo.mediaAssetId)}
+							<div
+								class="group relative aspect-square overflow-hidden rounded-xl border border-border bg-muted/20"
+							>
+								{#if photoUrl}
+									<img
+										src={photoUrl}
+										alt="Session"
+										class="h-full w-full object-cover"
+									/>
+								{:else}
+									<div class="flex h-full w-full items-center justify-center p-4">
+										<p class="text-xs text-muted-foreground">Preparing photo...</p>
+									</div>
+								{/if}
+								{#if photo.canDelete && canMutateOnline}
+									<button
+										type="button"
+										class="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+										aria-label="Remove photo"
+										onclick={() => void deleteSessionPhoto(photo.sessionPhotoId)}
+									>
+										<TrashIcon class="size-3.5" />
+									</button>
+								{/if}
+							</div>
+						{/each}
+					</div>
 				{/if}
 			</div>
 		{/if}
