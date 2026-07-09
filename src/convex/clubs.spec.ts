@@ -90,6 +90,34 @@ describe('club settings permissions', () => {
 	});
 });
 
+describe('resetClubCode', () => {
+	it('allows a guide to reset the invite code, invalidating the old one', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+
+		await t.run(async (ctx) => {
+			await ctx.db.patch(clubId, { clubCode: 'AAAAAA' });
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.clubs.resetClubCode, { clubId });
+
+		expect(result.code).not.toBe('AAAAAA');
+		expect(result.code).toMatch(/^[A-Z0-9]{6}$/);
+
+		const club = await t.run((ctx) => ctx.db.get(clubId));
+		expect(club?.clubCode).toBe(result.code);
+	});
+
+	it('rejects a learner resetting the invite code', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+
+		await expect(
+			t.withIdentity({ subject: 'learner-user' }).mutation(api.clubs.resetClubCode, { clubId })
+		).rejects.toThrow('Permission denied');
+	});
+});
+
 describe('active club switching', () => {
 	it('allows an active club member to switch', async () => {
 		const { t, clubId } = await seedClubPermissionFixture();

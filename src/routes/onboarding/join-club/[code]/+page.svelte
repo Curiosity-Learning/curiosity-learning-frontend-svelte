@@ -17,7 +17,7 @@
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
 	import { navigateBack } from '$lib/navigation/back';
-	import { formatWeeklyMeetingLabel } from '$lib/domain/date';
+	import { formatScheduleSlot } from '$lib/domain/schedule';
 	import type { SignedDeliveryAsset } from '$lib/server/signed-media';
 
 	let { data }: { data: PageProps['data'] & { initialClubVideo: SignedDeliveryAsset | null } } =
@@ -43,9 +43,7 @@
 			? 'flex w-full max-w-3xl flex-col gap-6'
 			: 'mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6'
 	);
-	let meetingLabel = $derived(
-		formatWeeklyMeetingLabel(club?.meetingDay ?? null, club?.meetingTime ?? null)
-	);
+	let scheduleLabels = $derived((club?.scheduleSlots ?? []).map(formatScheduleSlot));
 	let clubVideoUrl = $derived.by(() => {
 		const clubVideoAssetId = club?.videoMediaAssetId ?? null;
 		if (clubVideoAssetId && data.initialClubVideo?.assetId === clubVideoAssetId) {
@@ -195,14 +193,14 @@
 				</div>
 
 				<div class="flex flex-wrap gap-2">
-					{#if meetingLabel}
+					{#each scheduleLabels as scheduleLabel (scheduleLabel)}
 						<div
 							class="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-500"
 						>
 							<Clock3Icon class="size-4" />
-							<span>{meetingLabel}</span>
+							<span>{scheduleLabel}</span>
 						</div>
-					{/if}
+					{/each}
 				</div>
 
 				{#if clubVideoUrl && !videoLoadFailed}

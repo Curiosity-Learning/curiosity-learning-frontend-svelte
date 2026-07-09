@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 import { mediaAssetFields } from './mediaModel';
 import { clubRoleKeyValidator, projectRoleKeyValidator } from './roles';
+import { dayOfWeekValidator } from './scheduleModel';
 
 export default defineSchema({
 	profiles: defineTable({
@@ -57,8 +58,6 @@ export default defineSchema({
 		// Legacy Convex storage field kept optional for backward-compatibility with older records.
 		videoStorageId: v.optional(v.string()),
 		videoMediaAssetId: v.optional(v.id('mediaAssets')),
-		meetingDay: v.optional(v.string()),
-		meetingTime: v.optional(v.string()),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
@@ -66,6 +65,16 @@ export default defineSchema({
 		.index('by_created_by_profile', ['createdByProfileId'])
 		.index('by_club_code', ['clubCode'])
 		.index('by_video_media_asset', ['videoMediaAssetId']),
+
+	clubScheduleSlots: defineTable({
+		clubId: v.id('clubs'),
+		dayOfWeek: dayOfWeekValidator,
+		startTime: v.string(),
+		endTime: v.string(),
+		location: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	}).index('by_club', ['clubId']),
 
 	clubInterestSignups: defineTable({
 		email: v.string(),
@@ -149,6 +158,7 @@ export default defineSchema({
 	sessions: defineTable({
 		clubId: v.id('clubs'),
 		description: v.optional(v.string()),
+		location: v.optional(v.string()),
 		startTime: v.number(),
 		endTime: v.number(),
 		createdByProfileId: v.id('profiles'),

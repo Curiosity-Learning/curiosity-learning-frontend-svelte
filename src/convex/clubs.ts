@@ -21,6 +21,7 @@ import {
 } from './permissions';
 import { authComponent } from './auth';
 import { ensureClubRoom } from './chatModel';
+import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -99,6 +100,13 @@ const requireOwnedReadyClubVideo = async (
 	return asset;
 };
 
+const listScheduleSlotsForClub = async (ctx: Ctx, clubId: Id<'clubs'>) => {
+	return await ctx.db
+		.query('clubScheduleSlots')
+		.withIndex('by_club', (q) => q.eq('clubId', clubId))
+		.collect();
+};
+
 const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
 	if (!club.videoMediaAssetId) {
 		return null;
@@ -116,6 +124,7 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 	const role = await ctx.db.get(membership.roleId);
 	const profile = await getRelatedProfile(ctx, membership.profileId);
 	const clubVideoUrl = await resolveClubVideoUrl(ctx, club);
+	const scheduleSlots = await listScheduleSlotsForClub(ctx, club._id);
 
 	return {
 		clubId: club._id,
@@ -127,8 +136,7 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubLocationLongitude: club.locationLongitude ?? null,
 		clubTime: club.time ?? null,
 		clubVideoUrl,
-		clubMeetingDay: club.meetingDay ?? null,
-		clubMeetingTime: club.meetingTime ?? null,
+		clubScheduleSlots: scheduleSlots,
 		clubCode: club.clubCode ?? null,
 		memberId: membership._id,
 		memberProfileId: profile?._id ?? null,
@@ -274,8 +282,7 @@ export const getClubPreviewByCode = query({
 			location: club.location ?? null,
 			locationLatitude: club.locationLatitude ?? null,
 			locationLongitude: club.locationLongitude ?? null,
-			meetingDay: club.meetingDay ?? null,
-			meetingTime: club.meetingTime ?? null,
+			scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
 			memberCount: members.filter((member) => !member.leftAt).length,
 			createdAt: club.createdAt,
 			code
@@ -336,8 +343,7 @@ export const listPublicClubs = query({
 					location: club.location ?? null,
 					locationLatitude: club.locationLatitude ?? null,
 					locationLongitude: club.locationLongitude ?? null,
-					meetingDay: club.meetingDay ?? null,
-					meetingTime: club.meetingTime ?? null,
+					scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
 					memberCount: members.filter((member) => !member.leftAt).length,
 					videoUrl: await resolveClubVideoUrl(ctx, club),
 					createdAt: club.createdAt
@@ -405,9 +411,17 @@ export const createClub = mutation({
 		location: v.optional(v.string()),
 		locationLatitude: v.optional(v.number()),
 		locationLongitude: v.optional(v.number()),
-		meetingDay: v.optional(v.string()),
-		meetingTime: v.optional(v.string()),
-		videoMediaAssetId: v.optional(v.id('mediaAssets'))
+		videoMediaAssetId: v.optional(v.id('mediaAssets')),
+		scheduleSlots: v.optional(
+			v.array(
+				v.object({
+					dayOfWeek: dayOfWeekValidator,
+					startTime: v.string(),
+					endTime: v.string(),
+					location: v.string()
+				})
+			)
+		)
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -420,6 +434,18 @@ export const createClub = mutation({
 			await requireOwnedReadyClubVideo(ctx, identity.subject, args.videoMediaAssetId);
 		}
 
+		for (const slot of args.scheduleSlots ?? []) {
+			if (!isValidTimeString(slot.startTime) || !isValidTimeString(slot.endTime)) {
+				throw new ConvexError('Times must be in HH:MM 24-hour format');
+			}
+			if (!isEndTimeAfterStartTime(slot.startTime, slot.endTime)) {
+				throw new ConvexError('End time must be after start time');
+			}
+			if (!slot.location.trim()) {
+				throw new ConvexError('Location is required');
+			}
+		}
+
 		const clubId = await ctx.db.insert('clubs', {
 			name: args.name,
 			clubCode: inviteCode,
@@ -428,12 +454,22 @@ export const createClub = mutation({
 			locationLatitude: args.locationLatitude,
 			locationLongitude: args.locationLongitude,
 			videoMediaAssetId: args.videoMediaAssetId,
-			meetingDay: args.meetingDay,
-			meetingTime: args.meetingTime,
 			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
 		});
+
+		for (const slot of args.scheduleSlots ?? []) {
+			await ctx.db.insert('clubScheduleSlots', {
+				clubId,
+				dayOfWeek: slot.dayOfWeek,
+				startTime: slot.startTime,
+				endTime: slot.endTime,
+				location: slot.location.trim(),
+				createdAt: now,
+				updatedAt: now
+			});
+		}
 		await ensureClubRoom(ctx, clubId);
 
 		const guideRole = await getRoleByKey(ctx, 'guide');
@@ -601,9 +637,7 @@ export const updateClub = mutation({
 		location: v.optional(v.union(v.string(), v.null())),
 		locationLatitude: v.optional(v.union(v.number(), v.null())),
 		locationLongitude: v.optional(v.union(v.number(), v.null())),
-		videoMediaAssetId: v.optional(v.id('mediaAssets')),
-		meetingDay: v.optional(v.union(v.string(), v.null())),
-		meetingTime: v.optional(v.union(v.string(), v.null()))
+		videoMediaAssetId: v.optional(v.id('mediaAssets'))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -643,12 +677,33 @@ export const updateClub = mutation({
 			locationLatitude: optionalNumber(args.locationLatitude, club.locationLatitude),
 			locationLongitude: optionalNumber(args.locationLongitude, club.locationLongitude),
 			videoMediaAssetId: args.videoMediaAssetId ?? club.videoMediaAssetId,
-			meetingDay: normalizeOptional(args.meetingDay, club.meetingDay),
-			meetingTime: normalizeOptional(args.meetingTime, club.meetingTime),
 			updatedAt: Date.now()
 		});
 
 		return await ctx.db.get(args.clubId);
+	}
+});
+
+export const resetClubCode = mutation({
+	args: {
+		clubId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		await requirePermission(ctx, args.clubId, identity.subject, 'club:edit');
+
+		const club = await ctx.db.get(args.clubId);
+		if (!club) {
+			throw new ConvexError('Club not found');
+		}
+
+		const newCode = await createInviteCode(ctx);
+		await ctx.db.patch(args.clubId, {
+			clubCode: newCode,
+			updatedAt: Date.now()
+		});
+
+		return { code: newCode };
 	}
 });
 

@@ -163,7 +163,8 @@ export const create = mutation({
 		clubId: v.id('clubs'),
 		startTime: v.number(),
 		endTime: v.number(),
-		description: v.optional(v.string())
+		description: v.optional(v.string()),
+		location: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -180,6 +181,7 @@ export const create = mutation({
 			startTime: args.startTime,
 			endTime: args.endTime,
 			description: args.description,
+			location: args.location,
 			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
@@ -194,7 +196,8 @@ export const update = mutation({
 		sessionId: v.id('sessions'),
 		startTime: v.number(),
 		endTime: v.number(),
-		description: v.optional(v.string())
+		description: v.optional(v.string()),
+		location: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -212,6 +215,7 @@ export const update = mutation({
 			startTime: args.startTime,
 			endTime: args.endTime,
 			description: args.description,
+			location: args.location,
 			updatedAt: Date.now()
 		});
 

@@ -13,6 +13,7 @@
 	import nodesIcon from '$lib/assets/nodes.svg';
 	import { authClient } from '$lib/auth-client';
 	import { clearClientSessionArtifacts } from '$lib/auth/onboarding-state';
+	import { formatScheduleSlot } from '$lib/domain/schedule';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -91,9 +92,16 @@
 		if (!value) return null;
 		return value.split(',')[0]?.trim() || value;
 	};
-	const meetingSchedule = (day?: string | null, time?: string | null) => {
-		if (day && time) return `${day} at ${time}`;
-		return day ?? time ?? null;
+	const primaryScheduleLabel = (
+		scheduleSlots: Array<{
+			dayOfWeek: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+			startTime: string;
+			endTime: string;
+			location: string;
+		}>
+	) => {
+		const [firstSlot] = scheduleSlots;
+		return firstSlot ? formatScheduleSlot(firstSlot) : null;
 	};
 	const statCardClasses =
 		'flex min-w-0 flex-col items-start gap-1 rounded-xl border border-transparent bg-[#f6f7f9] px-3 py-2 text-left';
@@ -201,14 +209,12 @@
 											<span class="truncate">{clubLocationLabel(club.clubLocation)}</span>
 										</Badge>
 									{/if}
-									{#if meetingSchedule(club.clubMeetingDay, club.clubMeetingTime)}
+									{#if primaryScheduleLabel(club.clubScheduleSlots)}
 										<Badge
 											class="w-fit max-w-full gap-1 rounded-full bg-orange-500 px-3 py-1 text-sm text-white"
 										>
 											<Clock3Icon class="size-3.5 shrink-0" />
-											<span class="truncate"
-												>{meetingSchedule(club.clubMeetingDay, club.clubMeetingTime)}</span
-											>
+											<span class="truncate">{primaryScheduleLabel(club.clubScheduleSlots)}</span>
 										</Badge>
 									{/if}
 								</div>

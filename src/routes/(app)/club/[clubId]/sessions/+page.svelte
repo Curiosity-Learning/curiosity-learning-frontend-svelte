@@ -18,12 +18,14 @@
 	} from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import { combineDateAndTime, nextScheduledSession } from '$lib/domain/schedule';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { FieldLabel } from '$lib/components/ui/field';
+	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -57,12 +59,40 @@
 		{ cache: 'memory' }
 	);
 
+	const scheduleSlotsResponse = useStableQuery(api.clubScheduleSlots.listByClub, () =>
+		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
+	);
+
 	const buildDefaultSessionForm = () => {
 		const now = Date.now();
+		const slots = scheduleSlotsResponse.data ?? [];
+
+		if (slots.length > 0) {
+			const lastSessionStart = (sessionCardsResponse.data ?? []).reduce<number | null>(
+				(latest, entry) =>
+					latest === null || entry.session.startTime > latest ? entry.session.startTime : latest,
+				null
+			);
+			const next = nextScheduledSession(
+				slots,
+				new Date(now),
+				lastSessionStart !== null ? new Date(lastSessionStart) : null
+			);
+			if (next) {
+				return {
+					startTime: combineDateAndTime(next.date, next.slot.startTime),
+					endTime: combineDateAndTime(next.date, next.slot.endTime),
+					description: '',
+					location: next.slot.location
+				};
+			}
+		}
+
 		return {
 			startTime: now + 3_600_000,
 			endTime: now + 7_200_000,
-			description: ''
+			description: '',
+			location: ''
 		};
 	};
 	const SESSION_CREATE_TIMEOUT_MS = 6_000;
@@ -147,12 +177,14 @@
 		errorMessage = '';
 		try {
 			const desc = sessionForm.description.trim();
+			const location = sessionForm.location.trim();
 			const session = await withTimeout(
 				convexClient.mutation(api.sessions.create, {
 					clubId: clubIdTyped,
 					startTime,
 					endTime,
-					...(desc ? { description: desc } : {})
+					...(desc ? { description: desc } : {}),
+					...(location ? { location } : {})
 				}),
 				SESSION_CREATE_TIMEOUT_MS,
 				'Request timed out. Check your connection and try again.'
@@ -269,6 +301,14 @@
 					bind:startTime={sessionForm.startTime}
 					bind:endTime={sessionForm.endTime}
 				/>
+				<div class="flex flex-col gap-2">
+					<FieldLabel for="sessionLocation">Location</FieldLabel>
+					<Input
+						id="sessionLocation"
+						bind:value={sessionForm.location}
+						placeholder="Address, description, or meeting URL"
+					/>
+				</div>
 				<div class="flex flex-col gap-2">
 					<FieldLabel for="sessionDescription">Description</FieldLabel>
 					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
