@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import {
 	getProfileAuthUserId,
@@ -84,6 +84,17 @@ export const listByProject = query({
 			throw new ConvexError('Permission denied');
 		}
 
+		const authorCache = new Map<string, AuthorSummary>();
+		const withAuthor = async (update: Doc<'updates'>) => {
+			const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
+			return {
+				...update,
+				mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id),
+				authorName: author.name,
+				authorImageAssetId: author.imageAssetId
+			};
+		};
+
 		const queryBuilder = ctx.db
 			.query('updates')
 			.withIndex('by_project_and_created', (q) => q.eq('projectId', args.projectId));
@@ -92,21 +103,11 @@ export const listByProject = query({
 			// Keep chronological ordering (oldest -> newest) while limiting.
 			const newestFirst = await queryBuilder.order('desc').take(args.limit);
 			const chronological = newestFirst.reverse();
-			return await Promise.all(
-				chronological.map(async (update) => ({
-					...update,
-					mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
-				}))
-			);
+			return await Promise.all(chronological.map(withAuthor));
 		}
 
 		const updates = await queryBuilder.collect();
-		return await Promise.all(
-			updates.map(async (update) => ({
-				...update,
-				mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
-			}))
-		);
+		return await Promise.all(updates.map(withAuthor));
 	}
 });
 
@@ -225,6 +226,7 @@ export const listForViewer = query({
 			content: string;
 			createdAt: number;
 			createdByUserId: string;
+			mediaAssetIds: Id<'mediaAssets'>[];
 		}> = [];
 
 		for (const row of rows) {
@@ -271,7 +273,8 @@ export const listForViewer = query({
 				authorImageMediaAssetId: author.imageAssetId,
 				content: update.content,
 				createdAt: update.createdAt,
-				createdByUserId: author.authUserId ?? 'unknown'
+				createdByUserId: author.authUserId ?? 'unknown',
+				mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
 			});
 		}
 
@@ -332,6 +335,7 @@ export const listMine = query({
 			content: string;
 			createdAt: number;
 			createdByUserId: string;
+			mediaAssetIds: Id<'mediaAssets'>[];
 		}> = [];
 
 		for (const row of rows) {
@@ -362,7 +366,8 @@ export const listMine = query({
 				authorImageMediaAssetId: author.imageAssetId,
 				content: update.content,
 				createdAt: update.createdAt,
-				createdByUserId: author.authUserId ?? 'unknown'
+				createdByUserId: author.authUserId ?? 'unknown',
+				mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
 			});
 		}
 
@@ -459,6 +464,91 @@ export const getViewerAuthorDeliveryAssets = query({
 				durationSeconds: asset.durationSeconds ?? null
 			});
 			delivered.add(assetId);
+		}
+
+		return deliveryAssets;
+	}
+});
+
+export const getViewerUpdateMediaDeliveryAssets = query({
+	args: {
+		assetIds: v.array(v.id('mediaAssets')),
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+
+		const limit = args.limit ?? 50;
+
+		const viewerProfile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		if (!activeMemberships.length) {
+			return [];
+		}
+
+		const readableClubIdSet = new Set<Id<'clubs'>>();
+		for (const membership of activeMemberships) {
+			const role = await ctx.db.get(membership.roleId);
+			if (role?.permissions.includes('project:read')) {
+				readableClubIdSet.add(membership.clubId);
+			}
+		}
+
+		const readableClubIds = [...readableClubIdSet];
+		if (!readableClubIds.length) {
+			return [];
+		}
+
+		const takePerClub = Math.min(limit, Math.ceil((limit * 2) / readableClubIds.length));
+		const rowsByClub = await Promise.all(
+			readableClubIds.map((clubId) =>
+				ctx.db
+					.query('updateClubs')
+					.withIndex('by_club_and_created', (q) => q.eq('clubId', clubId))
+					.order('desc')
+					.take(takePerClub)
+			)
+		);
+
+		const rows = rowsByClub.flat().sort((a, b) => b.createdAt - a.createdAt);
+		const seen = new Set<Id<'updates'>>();
+		const deliveryAssets: Array<{
+			assetId: Id<'mediaAssets'>;
+			storageProvider: 's3';
+			deliveryBucket: string | null;
+			deliveryObjectKey: string | null;
+			mediaKind: 'image' | 'video' | null;
+			contentType: string | null;
+			durationSeconds: number | null;
+		}> = [];
+
+		for (const row of rows) {
+			if (seen.size >= limit) break;
+			if (seen.has(row.updateId)) continue;
+			seen.add(row.updateId);
+
+			const mediaAssetIds = await listUpdateMediaAssetIds(ctx, row.updateId);
+			for (const assetId of mediaAssetIds) {
+				if (!requestedAssetIds.includes(assetId)) continue;
+
+				const asset = await ctx.db.get(assetId);
+				if (!asset || asset.status !== 'ready') continue;
+
+				deliveryAssets.push({
+					assetId: asset._id,
+					storageProvider: asset.storageProvider,
+					deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+					deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+					mediaKind: asset.mediaKind ?? null,
+					contentType: asset.contentType ?? null,
+					durationSeconds: asset.durationSeconds ?? null
+				});
+			}
 		}
 
 		return deliveryAssets;

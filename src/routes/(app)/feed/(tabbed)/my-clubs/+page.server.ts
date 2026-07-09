@@ -1,14 +1,18 @@
 import type { Id } from '$convex/_generated/dataModel';
 import { api } from '$convex/_generated/api';
 import { getConvexServerClient } from '$lib/server/convex';
-import { getSignedViewerUpdateAuthorAssets } from '$lib/server/signed-media';
+import {
+	getSignedViewerUpdateAuthorAssets,
+	getSignedViewerUpdateMediaAssets
+} from '$lib/server/signed-media';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.token) {
 		return {
 			initialUpdates: [],
-			initialUpdateAuthorImages: []
+			initialUpdateAuthorImages: [],
+			initialUpdateMedia: []
 		};
 	}
 
@@ -17,6 +21,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const authorAssetIds = initialUpdates
 		.map((item) => item.authorImageMediaAssetId)
 		.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null);
+	const mediaAssetIds = initialUpdates.flatMap((item) => item.mediaAssetIds);
 
 	return {
 		initialUpdates,
@@ -24,6 +29,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			convex,
 			authorAssetIds,
 			50
-		)
+		),
+		initialUpdateMedia: await getSignedViewerUpdateMediaAssets(convex, mediaAssetIds, 50)
 	};
 };

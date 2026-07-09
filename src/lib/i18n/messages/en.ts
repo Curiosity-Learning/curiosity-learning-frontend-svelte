@@ -676,6 +676,22 @@ const en = {
 		doneMemberEditNotice: 'Done members cannot edit project details or post updates.',
 		activityTitle: 'Activity',
 		activityEmpty: 'No activity yet.'
+	},
+	feed: {
+		unknownAuthor: 'Unknown',
+		readMore: 'Read more',
+		readLess: 'Read less',
+		mediaPreparing: 'Preparing media...',
+		videoAttachment: 'Video attachment',
+		playVideo: 'Play video',
+		attachmentAlt: 'Update attachment',
+		systemBadge: 'System',
+		myClubsEmptyTitle: 'No updates yet',
+		myClubsEmptyDescription: "Your clubs' project updates will show up here.",
+		globalEmptyTitle: 'Global feed is not wired yet',
+		globalEmptyDescription: 'Updates across the wider network will appear here soon.',
+		profileEmptyTitle: 'No updates yet',
+		profileEmptyDescription: 'Updates you post to your projects will show up here.'
 	}
 } as const;
 

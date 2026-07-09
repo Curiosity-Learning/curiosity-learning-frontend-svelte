@@ -6,8 +6,10 @@
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import { api } from '$convex/_generated/api';
+	import type { Id } from '$convex/_generated/dataModel';
 	import { PageHeaderActions, PageHeaderTitle } from '$lib/components/app';
 	import UpdateCard from '$lib/components/app/feed/update-card.svelte';
+	import type { UpdateCardMediaItem } from '$lib/components/app/feed/update-card.svelte';
 	import chessIcon from '$lib/assets/chess.svg';
 	import ideaIcon from '$lib/assets/idea.svg';
 	import nodesIcon from '$lib/assets/nodes.svg';
@@ -16,6 +18,7 @@
 	import { formatScheduleSlot } from '$lib/domain/schedule';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
+	import { t } from '$lib/i18n';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
@@ -82,7 +85,23 @@
 	};
 
 	let clubs = $derived(clubsResponse.data ?? []);
-	let updates = $derived(updatesResponse.data ?? []);
+	let initialUpdateMediaById = $derived.by(() => {
+		return new Map((data.initialUpdateMedia ?? []).map((asset) => [asset.assetId, asset] as const));
+	});
+	let updates = $derived.by(() => {
+		return (updatesResponse.data ?? []).map((item) => ({
+			...item,
+			media: (item.mediaAssetIds ?? []).map((assetId): UpdateCardMediaItem => {
+				const asset = initialUpdateMediaById.get(assetId as Id<'mediaAssets'>) ?? null;
+				const isVideo = asset?.mediaKind === 'video' || asset?.contentType?.startsWith('video/');
+				return {
+					assetId,
+					kind: isVideo ? 'video' : 'image',
+					url: asset?.signedUrl ?? null
+				};
+			})
+		}));
+	});
 	let updatesCount = $derived(updates.length);
 	let sessionsAttendedCount = $derived(sessionsAttendedResponse.data ?? 0);
 	let projectsCount = $derived(projectsCountResponse.data ?? 0);
@@ -245,7 +264,8 @@
 			</div>
 		{:else if updates.length === 0}
 			<div class="rounded-[1.1rem] border border-dashed border-border/80 bg-white px-4 py-6 text-center">
-				<p class="text-[1.02rem] text-[#6b6f80]">No updates yet.</p>
+				<p class="type-body-bold text-foreground">{t('feed.profileEmptyTitle')}</p>
+				<p class="type-sm mt-1 text-muted-foreground">{t('feed.profileEmptyDescription')}</p>
 			</div>
 		{:else}
 			<div class="flex flex-col gap-3">
@@ -255,6 +275,7 @@
 						authorImageUrl={item.authorImageUrl ?? profileImageUrl}
 						createdAt={item.createdAt}
 						content={item.content}
+						media={item.media}
 						relatedQuestion={item.questionContent ? { label: item.questionContent } : null}
 						relatedProject={item.projectId && item.projectName
 							? {
@@ -263,6 +284,16 @@
 									navigationState: {
 										headerTitleHint: item.projectName,
 										headerTitleHintPath: `/project/${item.projectId}`
+									}
+								}
+							: null}
+						relatedClub={item.clubName
+							? {
+									label: item.clubName,
+									href: routes.clubHome(item.clubId),
+									navigationState: {
+										headerTitleHint: item.clubName,
+										headerTitleHintPath: `/club/${item.clubId}`
 									}
 								}
 							: null}
