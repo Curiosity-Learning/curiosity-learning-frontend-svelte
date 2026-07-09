@@ -640,6 +640,16 @@ const nl = {
 		notFoundTitle: 'Club niet gevonden',
 		notFoundDescription: 'Deze club is niet beschikbaar om te bekijken.',
 		backToPublicClubs: 'Terug naar openbare clubs'
+	},
+	chatCore: {
+		archivedBannerTitle: 'Dit project is gearchiveerd',
+		archivedBannerDescription: 'Dit project is gearchiveerd; de chat is gesloten.',
+		notParticipantBannerTitle: 'Je maakt niet langer deel uit van deze chat',
+		notParticipantBannerDescription:
+			'Je kunt de berichtgeschiedenis nog wel lezen, maar je kunt hier geen berichten meer sturen.',
+		readOnlyBannerTitle: 'Deze chat is alleen-lezen',
+		readOnlyBannerDescription:
+			'Je kunt de berichtgeschiedenis nog wel bekijken, maar je kunt hier geen berichten meer sturen.'
 	}
 } as const;
 

@@ -25,6 +25,7 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { _, t } from '$lib/i18n';
+	import { linkifySegments } from '$lib/domain/linkify';
 
 	type RoomSummary = {
 		roomId: Id<'rooms'>;
@@ -33,6 +34,7 @@
 		lastMessagePreview: string | null;
 		lastMessageAt: number;
 		canSend: boolean;
+		sendBlockedReason: 'archived' | 'not_participant' | null;
 	};
 	type LocalMessage = {
 		localId: string;
@@ -610,13 +612,22 @@
 										<AlertDescription>{joinRequestActionError}</AlertDescription>
 									</Alert>
 								{/if}
+							{:else if activeRoom && !activeRoom.canSend && activeRoom.sendBlockedReason === 'archived'}
+								<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+									<AlertTitle>{$_('chatCore.archivedBannerTitle')}</AlertTitle>
+									<AlertDescription>{$_('chatCore.archivedBannerDescription')}</AlertDescription>
+								</Alert>
+							{:else if activeRoom && !activeRoom.canSend && activeRoom.sendBlockedReason === 'not_participant'}
+								<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+									<AlertTitle>{$_('chatCore.notParticipantBannerTitle')}</AlertTitle>
+									<AlertDescription>
+										{$_('chatCore.notParticipantBannerDescription')}
+									</AlertDescription>
+								</Alert>
 							{:else if activeRoom && !activeRoom.canSend}
 								<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
-									<AlertTitle>This chat is read-only</AlertTitle>
-									<AlertDescription>
-										You can still view the message history, but you can no longer send messages
-										here.
-									</AlertDescription>
+									<AlertTitle>{$_('chatCore.readOnlyBannerTitle')}</AlertTitle>
+									<AlertDescription>{$_('chatCore.readOnlyBannerDescription')}</AlertDescription>
 								</Alert>
 							{/if}
 
@@ -669,9 +680,22 @@
 												}`}
 											>
 												<p
-													class={`${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}
+													class={`break-words ${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}
 												>
-													{entry.content}
+													{#each linkifySegments(entry.content) as segment, index (index)}
+														{#if segment.type === 'url'}
+															<a
+																href={segment.value}
+																target="_blank"
+																rel="noopener noreferrer"
+																class="underline underline-offset-2 hover:opacity-80"
+															>
+																{segment.value}
+															</a>
+														{:else}
+															{segment.value}
+														{/if}
+													{/each}
 												</p>
 												<p
 													class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}

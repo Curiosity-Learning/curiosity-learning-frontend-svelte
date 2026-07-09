@@ -318,6 +318,10 @@ export default defineSchema({
 		projectId: v.id('projects'),
 		profileId: v.id('profiles'),
 		leftAt: v.optional(v.number()),
+		// Set when this member presses "I'm Done" (PRD 6.8.4/6.8.5). Per-member and permanent;
+		// distinct from `leftAt` (self-removal). Once every current member has `doneDate` set,
+		// the project is considered Archived and its chat closes for everyone.
+		doneDate: v.optional(v.number()),
 		roleId: v.id('projectRoles'),
 		// Denormalized profile fields for faster member lists.
 		firstName: v.optional(v.string()),

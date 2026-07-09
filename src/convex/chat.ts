@@ -7,7 +7,8 @@ import { hasPermissionForProfile, requireIdentity, requireProfile } from './perm
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
 type Ctx = QueryCtx | MutationCtx;
-type RoomAccess = { canRead: boolean; canSend: boolean };
+type SendBlockedReason = 'archived' | 'not_participant' | null;
+type RoomAccess = { canRead: boolean; canSend: boolean; sendBlockedReason: SendBlockedReason };
 
 const getClubAccess = async (
 	ctx: Ctx,
@@ -18,9 +19,12 @@ const getClubAccess = async (
 		.query('clubMembers')
 		.withIndex('by_club_and_profile', (q) => q.eq('clubId', clubId).eq('profileId', profileId))
 		.collect();
+	const canRead = memberships.length > 0;
+	const canSend = memberships.some((membership) => !membership.leftAt);
 	return {
-		canRead: memberships.length > 0,
-		canSend: memberships.some((membership) => !membership.leftAt)
+		canRead,
+		canSend,
+		sendBlockedReason: !canSend && canRead ? 'not_participant' : null
 	};
 };
 
@@ -28,8 +32,8 @@ const getProjectObserverAccess = async (
 	ctx: Ctx,
 	projectId: Id<'projects'>,
 	profileId: Id<'profiles'>
-): Promise<RoomAccess> => {
-	const access: RoomAccess = { canRead: false, canSend: false };
+): Promise<{ canRead: boolean; canSend: boolean }> => {
+	const access = { canRead: false, canSend: false };
 	const links = await ctx.db
 		.query('projectClubs')
 		.withIndex('by_project', (q) => q.eq('projectId', projectId))
@@ -57,6 +61,27 @@ const getProjectObserverAccess = async (
 	return access;
 };
 
+/**
+ * PRD 6.8.4: a project is "Archived" once every current (not-left) member has pressed
+ * "I'm Done" (`projectMembers.doneDate` set). Archival is the one event that closes the
+ * project chat permanently for everyone, even members who could otherwise still send.
+ * This is per-member state (`projectMembers.doneDate`), distinct from the whole-project
+ * `projects.doneDate` toggle used elsewhere (e.g. `project-detail-view.svelte`), which
+ * marks project completion but does not by itself archive/close the chat. Projects with
+ * no current members are not considered archived (nothing to archive).
+ */
+const isProjectArchived = async (ctx: Ctx, projectId: Id<'projects'>): Promise<boolean> => {
+	const memberships = await ctx.db
+		.query('projectMembers')
+		.withIndex('by_project', (q) => q.eq('projectId', projectId))
+		.collect();
+	const currentMemberships = memberships.filter((membership) => !membership.leftAt);
+	if (currentMemberships.length === 0) {
+		return false;
+	}
+	return currentMemberships.every((membership) => Boolean(membership.doneDate));
+};
+
 const getProjectAccess = async (
 	ctx: Ctx,
 	projectId: Id<'projects'>,
@@ -69,10 +94,18 @@ const getProjectAccess = async (
 		)
 		.collect();
 	const observerAccess = await getProjectObserverAccess(ctx, projectId, profileId);
-	return {
-		canRead: memberships.length > 0 || observerAccess.canRead,
-		canSend: memberships.some((membership) => !membership.leftAt) || observerAccess.canSend
-	};
+	const canRead = memberships.length > 0 || observerAccess.canRead;
+	const archived = await isProjectArchived(ctx, projectId);
+	const canSend =
+		!archived &&
+		(memberships.some((membership) => !membership.leftAt) || observerAccess.canSend);
+
+	let sendBlockedReason: SendBlockedReason = null;
+	if (!canSend && canRead) {
+		sendBlockedReason = archived ? 'archived' : 'not_participant';
+	}
+
+	return { canRead, canSend, sendBlockedReason };
 };
 
 const getClubApplicationAccess = async (
@@ -82,10 +115,10 @@ const getClubApplicationAccess = async (
 ): Promise<RoomAccess> => {
 	const application = await ctx.db.get(clubApplicationId);
 	if (!application) {
-		return { canRead: false, canSend: false };
+		return { canRead: false, canSend: false, sendBlockedReason: null };
 	}
 	if (application.applicantProfileId === profileId) {
-		return { canRead: true, canSend: true };
+		return { canRead: true, canSend: true, sendBlockedReason: null };
 	}
 
 	const review = await ctx.db
@@ -96,7 +129,8 @@ const getClubApplicationAccess = async (
 		.first();
 	return {
 		canRead: Boolean(review),
-		canSend: Boolean(review)
+		canSend: Boolean(review),
+		sendBlockedReason: null
 	};
 };
 
@@ -107,12 +141,12 @@ const getJoinRequestAccess = async (
 ): Promise<RoomAccess> => {
 	const joinRequest = await ctx.db.get(joinRequestId);
 	if (!joinRequest) {
-		return { canRead: false, canSend: false };
+		return { canRead: false, canSend: false, sendBlockedReason: null };
 	}
 
 	const canSend = joinRequest.status === 'pending';
 	if (joinRequest.requesterProfileId === profileId) {
-		return { canRead: true, canSend };
+		return { canRead: true, canSend, sendBlockedReason: null };
 	}
 
 	// Any current Guide of the club can read/send, mirroring how any reviewer can act on a
@@ -124,7 +158,7 @@ const getJoinRequestAccess = async (
 		profileId,
 		'club_join_request:decide'
 	);
-	return { canRead: allowed, canSend: allowed && canSend };
+	return { canRead: allowed, canSend: allowed && canSend, sendBlockedReason: null };
 };
 
 const getRoomAccess = async (
@@ -310,6 +344,7 @@ export const listRoomSummaries = query({
 			lastMessagePreview: string | null;
 			lastMessageAt: number;
 			canSend: boolean;
+			sendBlockedReason: SendBlockedReason;
 		}> = [];
 
 		for (const room of rooms.values()) {
@@ -327,7 +362,8 @@ export const listRoomSummaries = query({
 				contextType: room.contextType,
 				lastMessagePreview: latestMessage?.content ?? null,
 				lastMessageAt: latestMessage?._creationTime ?? room._creationTime,
-				canSend: access.canSend
+				canSend: access.canSend,
+				sendBlockedReason: access.sendBlockedReason
 			});
 		}
 
