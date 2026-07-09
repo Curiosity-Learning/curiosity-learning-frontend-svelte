@@ -37,6 +37,7 @@ const seedClubFixture = async () => {
 		});
 		const clubId = await ctx.db.insert('clubs', {
 			name: 'Curiosity Club',
+			discoverable: false,
 			createdByProfileId: guideProfileId,
 			createdAt: now,
 			updatedAt: now

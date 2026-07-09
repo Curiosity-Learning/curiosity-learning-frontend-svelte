@@ -5,8 +5,16 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const convex = getConvexServerClient(locals.token);
+	const code = params.code.toUpperCase();
+
+	// Damp brute-force code scanning before the client-side preview query fires. Best-effort:
+	// the structured result is intentionally ignored here — this is a secondary damping
+	// layer, not the primary enforcement point (see checkClubCodeLookupRateLimit callers
+	// in join-club/+page.svelte).
+	await convex.mutation(api.clubs.checkClubCodeLookupRateLimit, { code });
+
 	const deliveryAsset = await convex.query(api.clubs.getClubPreviewDeliveryAssetByCode, {
-		code: params.code.toUpperCase()
+		code
 	});
 
 	return {

@@ -98,6 +98,9 @@ const nl = {
 		descriptionLabel: 'Beschrijving',
 		locationLabel: 'Locatie',
 		locationPlaceholder: 'Zoek naar de clublocatie',
+		discoverableLabel: 'Vindbaar',
+		discoverableDescription:
+			'Indien ingeschakeld verschijnt deze club op de openbare ontdekkingskaart en heeft de club een openbare pagina. Toetreden met een uitnodigingscode werkt altijd, ongeacht deze instelling.',
 		inviteCodeLabel: 'Uitnodigingscode',
 		noInviteCode: 'Geen uitnodigingscode',
 		resetCodeButton: 'Uitnodigingscode resetten',
@@ -412,7 +415,8 @@ const nl = {
 			continue: 'Doorgaan',
 			checking: 'Controleren...',
 			notFound: 'Geen club gevonden met deze code. Controleer de code en probeer het opnieuw.',
-			validateFailure: 'Kan deze code nu niet controleren. Probeer het opnieuw.'
+			validateFailure: 'Kan deze code nu niet controleren. Probeer het opnieuw.',
+			rateLimited: 'Te veel pogingen. Wacht even en probeer het opnieuw.'
 		},
 		joinClubDetails: {
 			loading: 'Clubgegevens laden...',

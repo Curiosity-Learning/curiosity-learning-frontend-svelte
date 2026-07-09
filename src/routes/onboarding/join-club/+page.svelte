@@ -181,6 +181,13 @@
 		validatingCode = true;
 		codeError = '';
 		try {
+			const rateLimitCheck = await convexClient.mutation(api.clubs.checkClubCodeLookupRateLimit, {
+				code: joinedCode
+			});
+			if (!rateLimitCheck.ok) {
+				codeError = t('onboarding.joinClub.rateLimited');
+				return;
+			}
 			const preview = await convexClient.query(api.clubs.getClubPreviewByCode, {
 				code: joinedCode
 			});

@@ -27,6 +27,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
+	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { useConvexClient } from 'convex-svelte';
 
@@ -54,7 +55,8 @@
 	let form = $state({
 		name: '',
 		description: '',
-		location: ''
+		location: '',
+		discoverable: false
 	});
 
 	$effect(() => {
@@ -62,7 +64,8 @@
 		form = {
 			name: clubItem.clubName,
 			description: clubItem.clubDescription ?? '',
-			location: clubItem.clubLocation ?? ''
+			location: clubItem.clubLocation ?? '',
+			discoverable: clubItem.clubDiscoverable
 		};
 		locationCoordinates =
 			clubItem.clubLocation &&
@@ -94,7 +97,8 @@
 				description: form.description.trim() || null,
 				location: form.location.trim() || null,
 				locationLatitude: locationCoordinates?.latitude ?? null,
-				locationLongitude: locationCoordinates?.longitude ?? null
+				locationLongitude: locationCoordinates?.longitude ?? null,
+				discoverable: form.discoverable
 			});
 			successMessage = t('clubSettingsPage.saveSuccessDescription');
 		} catch (error) {
@@ -288,6 +292,16 @@
 						showPreview={true}
 						previewStyleUrl={MAPBOX_STYLE_URL}
 					/>
+				</div>
+
+				<div class="flex items-start justify-between gap-4 rounded-lg border border-border/70 p-3 lg:col-span-2">
+					<div class="flex flex-col gap-1">
+						<Label for="clubDiscoverable">{$_('clubSettingsPage.discoverableLabel')}</Label>
+						<p class="text-sm text-muted-foreground">
+							{$_('clubSettingsPage.discoverableDescription')}
+						</p>
+					</div>
+					<Switch id="clubDiscoverable" bind:checked={form.discoverable} class="mt-1 shrink-0" />
 				</div>
 
 				<div class="flex flex-col gap-2 lg:col-span-2">

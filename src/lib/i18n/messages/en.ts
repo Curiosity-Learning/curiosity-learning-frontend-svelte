@@ -98,6 +98,9 @@ const en = {
 		descriptionLabel: 'Description',
 		locationLabel: 'Location',
 		locationPlaceholder: 'Search for the club location',
+		discoverableLabel: 'Discoverable',
+		discoverableDescription:
+			'When on, this club appears on the public discovery map and has a public club page. Joining with an invite code always works, regardless of this setting.',
 		inviteCodeLabel: 'Invite code',
 		noInviteCode: 'No invite code',
 		resetCodeButton: 'Reset invite code',
@@ -419,7 +422,8 @@ const en = {
 			continue: 'Continue',
 			checking: 'Checking...',
 			notFound: 'No club found for this code. Please check and try again.',
-			validateFailure: 'Unable to validate this code right now. Please try again.'
+			validateFailure: 'Unable to validate this code right now. Please try again.',
+			rateLimited: 'Too many attempts. Please wait a moment and try again.'
 		},
 		joinClubDetails: {
 			loading: 'Loading club details...',
