@@ -444,6 +444,8 @@ export const finalizeApplication = mutation({
 			locationLatitude: application.locationLatitude,
 			locationLongitude: application.locationLongitude,
 			videoMediaAssetId: application.videoMediaAssetId,
+			// Private by default: newly created clubs must be explicitly opted in to discovery.
+			discoverable: false,
 			createdByProfileId: application.applicantProfileId,
 			createdAt: now,
 			updatedAt: now

@@ -26,12 +26,14 @@ const seedSessionFixture = async () => {
 		});
 		const firstClubId = await ctx.db.insert('clubs', {
 			name: 'First club',
+			discoverable: false,
 			createdByProfileId: profileId,
 			createdAt: now,
 			updatedAt: now
 		});
 		const secondClubId = await ctx.db.insert('clubs', {
 			name: 'Second club',
+			discoverable: false,
 			createdByProfileId: profileId,
 			createdAt: now,
 			updatedAt: now
@@ -182,6 +184,7 @@ describe('relational integrity', () => {
 			});
 			const clubId = await ctx.db.insert('clubs', {
 				name: 'Review club',
+				discoverable: false,
 				createdByProfileId: guideProfileId,
 				createdAt: now,
 				updatedAt: now

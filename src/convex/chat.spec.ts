@@ -35,6 +35,7 @@ const seedClubChatFixture = async (options: { viewerLeftAt?: number } = {}) => {
 		});
 		const clubId = await ctx.db.insert('clubs', {
 			name: 'Club room',
+			discoverable: false,
 			createdByProfileId: viewerProfileId,
 			createdAt: now,
 			updatedAt: now
@@ -335,6 +336,7 @@ describe('context room chat', () => {
 			});
 			const clubId = await ctx.db.insert('clubs', {
 				name: 'Observer club',
+				discoverable: false,
 				createdByProfileId: viewerProfileId,
 				createdAt: now,
 				updatedAt: now

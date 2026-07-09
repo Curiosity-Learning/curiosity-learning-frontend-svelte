@@ -58,6 +58,9 @@ export default defineSchema({
 		// Legacy Convex storage field kept optional for backward-compatibility with older records.
 		videoStorageId: v.optional(v.string()),
 		videoMediaAssetId: v.optional(v.id('mediaAssets')),
+		// Whether the club is visible on the public discovery map and has a public club page.
+		// Club-code joins work regardless of this flag.
+		discoverable: v.boolean(),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
@@ -423,5 +426,11 @@ export default defineSchema({
 		roomId: v.id('rooms'),
 		profileId: v.id('profiles'),
 		content: v.string()
-	}).index('by_room', ['roomId'])
+	}).index('by_room', ['roomId']),
+
+	rateLimits: defineTable({
+		key: v.string(),
+		windowStart: v.number(),
+		count: v.number()
+	}).index('by_key', ['key'])
 });

@@ -316,6 +316,13 @@
 				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
 					code: pendingClubCode
 				});
+				if (!result.ok) {
+					formErrorMessage =
+						result.error === 'rate_limited'
+							? t('onboarding.joinClub.rateLimited')
+							: t('onboarding.joinClubDetails.invalidDescription');
+					return;
+				}
 				if (browser) {
 					try {
 						localStorage.setItem('cl_last_club_id', result.clubId);

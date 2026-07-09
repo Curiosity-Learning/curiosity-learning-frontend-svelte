@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import type { GenericDataModel } from 'convex/server';
-import { mutation, query } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
 import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
@@ -21,7 +21,20 @@ import {
 } from './permissions';
 import { authComponent } from './auth';
 import { ensureClubRoom } from './chatModel';
+import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
+
+// Authenticated users get a per-user window; unauthenticated code-preview lookups have no
+// reliable client identity in a Convex function, so we apply a modest global-per-code
+// window purely as brute-force damping. The global window only damps scanning of a single
+// code; it does not protect against distributed guessing across many codes.
+const CLUB_CODE_USER_RATE_LIMIT = { maxAttempts: 20, windowMs: 60_000 };
+const CLUB_CODE_GLOBAL_RATE_LIMIT = { maxAttempts: 30, windowMs: 60_000 };
+
+const clubCodeRateLimitScope = (normalizedCode: string, authUserId: string | null) =>
+	authUserId
+		? { key: `club-code:user:${authUserId}`, limit: CLUB_CODE_USER_RATE_LIMIT }
+		: { key: `club-code:code:${normalizedCode}`, limit: CLUB_CODE_GLOBAL_RATE_LIMIT };
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -138,6 +151,7 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubVideoUrl,
 		clubScheduleSlots: scheduleSlots,
 		clubCode: club.clubCode ?? null,
+		clubDiscoverable: club.discoverable,
 		memberId: membership._id,
 		memberProfileId: profile?._id ?? null,
 		memberUserId: profile ? getProfileAuthUserId(profile) : null,
@@ -290,6 +304,29 @@ export const getClubPreviewByCode = query({
 	}
 });
 
+// Convex queries cannot write to the database, so rate-limit bookkeeping for the
+// (read-only) `getClubPreviewByCode` query is tracked by this companion mutation.
+// Callers must invoke this before running the preview query and stop if it reports
+// `rate_limited`. Returns a structured result instead of throwing so the attempt
+// counter write always commits (a throwing mutation rolls back all of its writes).
+export const checkClubCodeLookupRateLimit = mutation({
+	args: {
+		code: v.string()
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		const normalizedCode = normalizeInviteCode(args.code);
+		const { key, limit } = clubCodeRateLimitScope(normalizedCode, identity?.subject ?? null);
+
+		if (await isRateLimited(ctx, key, limit)) {
+			return { ok: false as const, error: 'rate_limited' as const };
+		}
+
+		await recordRateLimitAttempt(ctx, key, limit);
+		return { ok: true as const };
+	}
+});
+
 export const getClubPreviewDeliveryAssetByCode = query({
 	args: {
 		code: v.string()
@@ -326,7 +363,7 @@ export const listPublicClubs = query({
 	args: {},
 	handler: async (ctx) => {
 		const clubs = await ctx.db.query('clubs').collect();
-		const publicClubs = clubs.filter((club) => Boolean(club.clubCode));
+		const publicClubs = clubs.filter((club) => Boolean(club.clubCode) && club.discoverable);
 
 		return await Promise.all(
 			publicClubs.map(async (club) => {
@@ -454,6 +491,8 @@ export const createClub = mutation({
 			locationLatitude: args.locationLatitude,
 			locationLongitude: args.locationLongitude,
 			videoMediaAssetId: args.videoMediaAssetId,
+			// Private by default: newly created clubs must be explicitly opted in to discovery.
+			discoverable: false,
 			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
@@ -501,18 +540,30 @@ export const joinClubWithCode = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const normalizedCode = normalizeInviteCode(args.code);
-		if (!INVITE_CODE_PATTERN.test(normalizedCode)) {
-			throw new ConvexError('Invalid invite code');
+		const { key, limit } = clubCodeRateLimitScope(normalizedCode, identity.subject);
+
+		// Rate-limited paths return structured results instead of throwing: a throwing
+		// mutation rolls back ALL of its writes (including scheduler calls), so recording
+		// a failed attempt and then throwing would never persist the counter.
+		if (await isRateLimited(ctx, key, limit)) {
+			return { ok: false as const, error: 'rate_limited' as const };
 		}
 
-		const resolved = await resolveClubByCode(ctx, normalizedCode);
+		const resolved = INVITE_CODE_PATTERN.test(normalizedCode)
+			? await resolveClubByCode(ctx, normalizedCode)
+			: null;
 		if (!resolved) {
-			throw new ConvexError('Invalid invite code');
+			// Count the failed attempt; the write commits because we return, not throw.
+			// Deliberately generic: the caller cannot distinguish "malformed" from
+			// "well-formed but nonexistent" codes.
+			await recordRateLimitAttempt(ctx, key, limit);
+			return { ok: false as const, error: 'invalid_code' as const };
 		}
 		const { club } = resolved;
 
 		const existingMembership = await getMembership(ctx, club._id, identity.subject);
 		if (existingMembership) {
+			// Not counted as a failed code attempt: the code was valid.
 			throw new ConvexError('You are already a member of this club');
 		}
 
@@ -539,7 +590,7 @@ export const joinClubWithCode = mutation({
 		});
 
 		return {
-			success: true,
+			ok: true as const,
 			clubId: club._id
 		};
 	}
@@ -637,7 +688,8 @@ export const updateClub = mutation({
 		location: v.optional(v.union(v.string(), v.null())),
 		locationLatitude: v.optional(v.union(v.number(), v.null())),
 		locationLongitude: v.optional(v.union(v.number(), v.null())),
-		videoMediaAssetId: v.optional(v.id('mediaAssets'))
+		videoMediaAssetId: v.optional(v.id('mediaAssets')),
+		discoverable: v.optional(v.boolean())
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -677,6 +729,7 @@ export const updateClub = mutation({
 			locationLatitude: optionalNumber(args.locationLatitude, club.locationLatitude),
 			locationLongitude: optionalNumber(args.locationLongitude, club.locationLongitude),
 			videoMediaAssetId: args.videoMediaAssetId ?? club.videoMediaAssetId,
+			discoverable: args.discoverable ?? club.discoverable,
 			updatedAt: Date.now()
 		});
 
@@ -929,5 +982,21 @@ export const kickMember = mutation({
 		});
 
 		return { success: true };
+	}
+});
+
+// One-off backfill migration: pre-existing clubs predate the `discoverable` field.
+// Run once via `npx convex run clubs:backfillDiscoverable` after deploying the schema change.
+export const backfillDiscoverable = internalMutation({
+	args: {},
+	handler: async (ctx) => {
+		const clubs = await ctx.db.query('clubs').collect();
+		let updated = 0;
+		for (const club of clubs) {
+			if (club.discoverable !== undefined) continue;
+			await ctx.db.patch(club._id, { discoverable: true });
+			updated += 1;
+		}
+		return { updated, total: clubs.length };
 	}
 });

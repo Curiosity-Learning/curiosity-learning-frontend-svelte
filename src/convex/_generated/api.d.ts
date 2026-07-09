@@ -39,6 +39,7 @@ import type * as preferences from "../preferences.js";
 import type * as privacyPolicy from "../privacyPolicy.js";
 import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
+import type * as rateLimiting from "../rateLimiting.js";
 import type * as roles from "../roles.js";
 import type * as scheduleModel from "../scheduleModel.js";
 import type * as sessions from "../sessions.js";
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   privacyPolicy: typeof privacyPolicy;
   profiles: typeof profiles;
   projects: typeof projects;
+  rateLimiting: typeof rateLimiting;
   roles: typeof roles;
   scheduleModel: typeof scheduleModel;
   sessions: typeof sessions;
