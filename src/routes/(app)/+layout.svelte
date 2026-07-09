@@ -10,6 +10,8 @@
 		type AppNavItem
 	} from '$lib/components/app/navigation';
 	import { LoadingState } from '$lib/components/app';
+	import ClubSwitcher from '$lib/components/app/club/club-switcher.svelte';
+	import { LAST_CLUB_ID_STORAGE_KEY } from '$lib/auth/onboarding-state';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
@@ -100,13 +102,20 @@
 		if (!browser) return;
 		if (!activeClubId) return;
 		try {
-			localStorage.setItem('cl_last_club_id', activeClubId);
+			localStorage.setItem(LAST_CLUB_ID_STORAGE_KEY, activeClubId);
 		} catch {
 			// ignore
 		}
 	});
 
 	let activeClubItem = $derived(clubs.find((club) => club.clubId === activeClubId) ?? null);
+	let clubSwitcherItems = $derived(
+		clubs.map((club) => ({
+			clubId: club.clubId,
+			clubName: club.clubName,
+			roleKey: club.roleKey
+		}))
+	);
 
 	let clubIdForNav = $derived(activeClubId ?? clubs[0]?.clubId ?? null);
 	let hasClubAccess = $derived(clubs.length > 0);
@@ -117,6 +126,20 @@
 	);
 	let navState = $derived(deriveNavState(navigation, activePath));
 	let activeNav = $derived(navState.activeNav);
+
+	// The club switcher replaces the plain title on the club dashboard's top-level
+	// tabs (dashboard root, sessions, projects, members). Drill-down views like club
+	// settings set their own static title via PageHeaderTitle, so they are excluded.
+	let isClubSwitcherRoute = $derived.by(() => {
+		if (activeNav !== 'club' || !clubIdForNav) return false;
+		const clubRoot = `/club/${clubIdForNav}`;
+		if (activePath === clubRoot) return true;
+		const subViewsWithSwitcher = ['/sessions', '/projects', '/members'];
+		return subViewsWithSwitcher.some(
+			(subView) => activePath === `${clubRoot}${subView}` || activePath.startsWith(`${clubRoot}${subView}/`)
+		);
+	});
+
 	let title = $derived(
 		activeNav === 'club' && navState.title === 'Club'
 			? (activeClubItem?.clubName ?? 'Club')
@@ -155,6 +178,7 @@
 	let titleContentOverride: HeaderTitleContentOverride = $state(null);
 	let bottomNavHiddenOverride: BottomNavHiddenOverride = $state(null);
 	let contentModeOverride: PageContentModeOverride = $state(null);
+	let showDefaultClubSwitcher = $derived(isClubSwitcherRoute && titleContentOverride === null);
 
 	setContext(PAGE_HEADER_CTX, {
 		setActions: (value) => {
@@ -208,13 +232,18 @@
 	} satisfies PageHeaderController);
 </script>
 
+{#snippet clubSwitcherTitleContent()}
+	<ClubSwitcher clubs={clubSwitcherItems} {activeClubId} />
+{/snippet}
+
 <AppShell
 	title={titleOverride ?? hintedTitle ?? title}
 	{activeNav}
 	{activePath}
 	{navigation}
 	headerBack={backConfigOverride ?? undefined}
-	headerTitleContent={titleContentOverride ?? undefined}
+	headerTitleContent={titleContentOverride ??
+		(showDefaultClubSwitcher ? clubSwitcherTitleContent : undefined)}
 	hideBottomNav={bottomNavHiddenOverride ?? undefined}
 	headerActions={actionsOverride === null || actionsOverride === false
 		? undefined
