@@ -429,6 +429,8 @@ const nl = {
 			currentLocationFailure: 'Kan je huidige locatie niet gebruiken.',
 			search: 'Zoeken',
 			nearbyTitle: 'Openbare clubs in de buurt',
+			nearbyDescription:
+				'Selecteer een club op de kaart of in de lijst om deze te bekijken en lidmaatschap aan te vragen.',
 			noClubsTitle: 'Nog geen openbare clubs in de buurt',
 			noClubsDescription:
 				'Laat je e-mailadres achter en we laten het weten als er een Curiosity Club in deze buurt opent.',

@@ -10,6 +10,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import LocationAutocompleteField from '$lib/components/app/location-autocomplete-field.svelte';
+	import PublicClubMap from '$lib/components/app/public-club-map.svelte';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import { routes } from '$lib/routes';
@@ -46,6 +47,7 @@
 	let interestPending = $state(false);
 	let interestMessage = $state('');
 	let interestError = $state('');
+	let selectedClubId = $state<string | null>(null);
 
 	let canContinue = $derived(codeChars.every((char) => char.length === 1));
 	let joinedCode = $derived(codeChars.join(''));
@@ -255,7 +257,7 @@
 		return (clubsResponse.data ?? [])
 			.map((club) => {
 				const coordinates = getClubCoordinates(club);
-				if (!club.code || !coordinates) return null;
+				if (!coordinates) return null;
 				const distanceKm = haversineDistanceKm(locationCoordinates, coordinates);
 				if (useAreaSearch && selectedLocation) {
 					if (!isInsideBoundingBox(coordinates, selectedLocation)) return null;
@@ -264,14 +266,32 @@
 				}
 				return {
 					id: club.id,
-					code: club.code,
 					name: club.name,
+					coordinates,
 					distanceKm
 				};
 			})
 			.filter((club): club is NonNullable<typeof club> => Boolean(club))
 			.sort((a, b) => a.distanceKm - b.distanceKm);
 	});
+
+	let mapClubs = $derived(
+		nearbyClubs.map((club) => ({
+			id: club.id,
+			name: club.name,
+			location: null,
+			coordinates: club.coordinates
+		}))
+	);
+
+	const goToClubPreview = async (clubId: string) => {
+		await goto(`/clubs/${clubId}`);
+	};
+
+	const handleSelectClub = (clubId: string) => {
+		selectedClubId = clubId;
+		void goToClubPreview(clubId);
+	};
 
 	const formatDistance = (distanceKm: number) => {
 		if (distanceKm < 1) return 'Less than 1 km away';
@@ -389,13 +409,27 @@
 							<h2 class="text-lg font-bold text-gray-900">
 								{$_('onboarding.joinClub.nearbyTitle')}
 							</h2>
+							<p class="text-sm text-gray-600">
+								{$_('onboarding.joinClub.nearbyDescription')}
+							</p>
 						</div>
+						{#if PUBLIC_MAPBOX_ACCESS_TOKEN && mapClubs.length > 0}
+							<div class="h-64 w-full sm:h-80">
+								<PublicClubMap
+									accessToken={PUBLIC_MAPBOX_ACCESS_TOKEN}
+									clubs={mapClubs}
+									userCoordinates={selectedLocationCoordinates}
+									{selectedClubId}
+									onSelectClub={handleSelectClub}
+								/>
+							</div>
+						{/if}
 						<div class="flex flex-col gap-2">
 							{#each nearbyClubs as club (club.id)}
 								<button
 									type="button"
 									class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white px-4 py-3 text-left transition-colors duration-200 hover:border-orange-300 hover:bg-orange-50"
-									onclick={() => void goto(`${joinClubPath}/${club.code}`)}
+									onclick={() => handleSelectClub(club.id)}
 								>
 									<span class="min-w-0 truncate text-base font-semibold text-gray-900">
 										{club.name}

@@ -8,7 +8,6 @@
 	type ClubMarker = {
 		id: string;
 		name: string;
-		code: string;
 		location: string | null;
 		coordinates: MapboxCoordinates;
 	};
@@ -17,8 +16,8 @@
 		accessToken: string;
 		clubs: ClubMarker[];
 		userCoordinates?: MapboxCoordinates | null;
-		selectedClubCode?: string | null;
-		onSelectClub?: (clubCode: string) => void;
+		selectedClubId?: string | null;
+		onSelectClub?: (clubId: string) => void;
 		class?: string;
 	};
 
@@ -26,7 +25,7 @@
 		accessToken,
 		clubs,
 		userCoordinates = null,
-		selectedClubCode = null,
+		selectedClubId = null,
 		onSelectClub,
 		class: className = ''
 	}: Props = $props();
@@ -34,7 +33,7 @@
 	let container = $state<HTMLDivElement | null>(null);
 	let map = $state<import('mapbox-gl').Map | null>(null);
 	let clubMarkers = $state<import('mapbox-gl').Marker[]>([]);
-	let clubMarkerByCode = new SvelteMap<string, import('mapbox-gl').Marker>();
+	let clubMarkerById = new SvelteMap<string, import('mapbox-gl').Marker>();
 	let userMarker = $state<import('mapbox-gl').Marker | null>(null);
 	let mapFailed = $state(false);
 
@@ -43,7 +42,7 @@
 			marker.remove();
 		}
 		clubMarkers = [];
-		clubMarkerByCode = new SvelteMap();
+		clubMarkerById = new SvelteMap();
 	};
 
 	const destroyMap = () => {
@@ -54,9 +53,9 @@
 		map = null;
 	};
 
-	const flyToClub = (clubCode: string | null) => {
-		if (!map || !clubCode) return;
-		const club = clubs.find((item) => item.code === clubCode);
+	const flyToClub = (clubId: string | null) => {
+		if (!map || !clubId) return;
+		const club = clubs.find((item) => item.id === clubId);
 		if (!club) return;
 		const currentCenter = map.getCenter();
 		const longitudeDelta = club.coordinates.longitude - currentCenter.lng;
@@ -185,7 +184,7 @@
 
 		clearClubMarkers();
 		for (const club of clubs) {
-			const selected = club.code === selectedClubCode;
+			const selected = club.id === selectedClubId;
 			const marker = new mapboxgl.Marker({
 				color: selected ? '#ea580c' : '#f97316',
 				scale: selected ? 1.16 : 1
@@ -196,9 +195,9 @@
 			element.setAttribute('aria-label', `Select ${club.name}`);
 			element.setAttribute('role', 'button');
 			element.classList.add('cursor-pointer');
-			element.onclick = () => onSelectClub?.(club.code);
+			element.onclick = () => onSelectClub?.(club.id);
 			clubMarkers = [...clubMarkers, marker];
-			clubMarkerByCode.set(club.code, marker);
+			clubMarkerById.set(club.id, marker);
 		}
 
 		userMarker?.remove();
@@ -279,8 +278,8 @@
 	$effect(() => {
 		void clubs;
 		void userCoordinates;
-		void selectedClubCode;
-		if (!map || selectedClubCode) return;
+		void selectedClubId;
+		if (!map || selectedClubId) return;
 
 		let cancelled = false;
 		void import('mapbox-gl').then((mapboxglModule) => {
@@ -294,12 +293,12 @@
 	});
 
 	$effect(() => {
-		void selectedClubCode;
+		void selectedClubId;
 		if (map) {
 			void syncMarkers();
 		}
-		if (selectedClubCode) {
-			flyToClub(selectedClubCode);
+		if (selectedClubId) {
+			flyToClub(selectedClubId);
 		}
 	});
 </script>
