@@ -4,17 +4,12 @@
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from '$lib/components/ui/card';
+	import { Card, CardContent } from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -22,10 +17,12 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { authClient } from '$lib/auth-client';
-	import { _, t } from '$lib/i18n';
+	import { _, t, formatT } from '$lib/i18n';
+	import SearchIcon from '@lucide/svelte/icons/search';
 	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
 	import UserMinusIcon from '@lucide/svelte/icons/user-minus';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
+	import UsersIcon from '@lucide/svelte/icons/users';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -41,6 +38,7 @@
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canKick = $derived(clubPermissions.includes('club_member:kick'));
 	let canPromote = $derived(clubPermissions.includes('club_member:promote'));
+	let canInvite = $derived(clubPermissions.includes('club_member:invite_guide') || clubItem?.roleKey === 'guide');
 	let isGuide = $derived(clubItem?.roleKey === 'guide');
 	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 	let myProfileId = $derived(clubItem?.memberProfileId ?? null);
@@ -53,19 +51,32 @@
 	let errorMessage = $state('');
 	let pending = $state(false);
 
-	let filteredMembers = $derived(
-		(membersResponse.data ?? []).filter((member) => {
-			const haystack = [
-				member.firstName ?? '',
-				member.lastName ?? '',
-				member.username ?? '',
-				member.roleName ?? ''
-			]
-				.join(' ')
-				.toLowerCase();
-			return haystack.includes(filter.trim().toLowerCase());
-		})
+	type Member = NonNullable<typeof membersResponse.data>[number];
+
+	let allMembers = $derived(membersResponse.data ?? []);
+	let guideMembers = $derived(allMembers.filter((member) => member.roleKey === 'guide'));
+	let learnerMembers = $derived(allMembers.filter((member) => member.roleKey !== 'guide'));
+
+	const matchesFilter = (member: Member, query: string) => {
+		if (!query) return true;
+		const haystack = [
+			member.firstName ?? '',
+			member.lastName ?? '',
+			member.username ?? '',
+			member.roleName ?? ''
+		]
+			.join(' ')
+			.toLowerCase();
+		return haystack.includes(query);
+	};
+
+	let normalizedFilter = $derived(filter.trim().toLowerCase());
+	let filteredGuides = $derived(guideMembers.filter((member) => matchesFilter(member, normalizedFilter)));
+	let filteredLearners = $derived(
+		learnerMembers.filter((member) => matchesFilter(member, normalizedFilter))
 	);
+	let hasAnyResults = $derived(filteredGuides.length + filteredLearners.length > 0);
+	let isSearching = $derived(normalizedFilter.length > 0);
 
 	let initialMemberImageUrls = $derived.by(() => {
 		return new Map(
@@ -106,8 +117,37 @@
 		member.username ||
 		t('membersPage.title');
 
-	const roleLabelFor = (roleKey: 'guide' | 'learner' | null) =>
-		roleKey === 'guide' ? t('membersPage.roleGuide') : t('membersPage.roleLearner');
+	const joinedLabelFor = (member: { joinedAt?: number }) => {
+		if (!member.joinedAt) return null;
+		const date = new Date(member.joinedAt).toLocaleDateString(undefined, {
+			month: 'long',
+			year: 'numeric'
+		});
+		return formatT('membersPage.joinedOn', { date });
+	};
+
+	const pluralizedCount = (count: number, singularKey: string, pluralKey: string) =>
+		count === 1 ? t(singularKey) : formatT(pluralKey, { count });
+
+	let memberCountSummary = $derived(
+		formatT('membersPage.memberCountSummary', {
+			count: pluralizedCount(
+				allMembers.length,
+				'membersPage.memberCountSingular',
+				'membersPage.memberCountPlural'
+			),
+			guideCount: pluralizedCount(
+				guideMembers.length,
+				'membersPage.guideCountSingular',
+				'membersPage.guideCountPlural'
+			),
+			learnerCount: pluralizedCount(
+				learnerMembers.length,
+				'membersPage.learnerCountSingular',
+				'membersPage.learnerCountPlural'
+			)
+		})
+	);
 
 	// ── Promote ──────────────────────────────────────────────────────────
 	const promoteMember = async (clubMemberId: Id<'clubMembers'>) => {
@@ -178,13 +218,9 @@
 	// ── Leave club ───────────────────────────────────────────────────────
 	const leaveClub = async () => {
 		if (!clubIdTyped) return;
-		const activeGuideCount = (membersResponse.data ?? []).filter(
-			(member) => member.roleKey === 'guide'
-		).length;
+		const activeGuideCount = guideMembers.length;
 		const isLastGuide = isGuide && activeGuideCount <= 1;
-		const hasLearners = (membersResponse.data ?? []).some(
-			(member) => member.roleKey !== 'guide'
-		);
+		const hasLearners = learnerMembers.length > 0;
 
 		if (isLastGuide && hasLearners) {
 			errorMessage = t('membersPage.leaveClubBlockedLastGuide');
@@ -259,6 +295,77 @@
 		].filter((item): item is NonNullable<typeof item> => item !== null);
 </script>
 
+{#snippet memberRow(member: Member)}
+	<div
+		class="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 transition-colors hover:border-border sm:p-4"
+	>
+		<Avatar class="size-12 shrink-0 border border-orange-100 bg-orange-50 sm:size-14">
+			{#if memberImageUrl(member)}
+				<AvatarImage src={memberImageUrl(member) ?? undefined} alt={displayNameFor(member)} />
+			{/if}
+			<AvatarFallback class="type-body-bold bg-orange-50 text-orange-600"
+				>{initialsFor(member)}</AvatarFallback
+			>
+		</Avatar>
+
+		<div class="flex min-w-0 flex-1 flex-col gap-0.5">
+			<div class="flex min-w-0 flex-wrap items-center gap-2">
+				<p class="truncate type-body-bold text-foreground">{displayNameFor(member)}</p>
+				{#if member.profileId === myProfileId}
+					<Badge variant="secondary" size="sm" class="type-caption-medium text-muted-foreground">
+						{$_('membersPage.youBadge')}
+					</Badge>
+				{/if}
+			</div>
+			{#if member.username}
+				<p class="truncate type-sm text-muted-foreground">@{member.username}</p>
+			{/if}
+			{#if joinedLabelFor(member)}
+				<p class="truncate type-caption text-muted-foreground">{joinedLabelFor(member)}</p>
+			{/if}
+		</div>
+
+		{#if member.profileId !== myProfileId}
+			<div
+				class="shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+			>
+				<ActionMenu
+					items={memberActionItems(member)}
+					ariaLabel={$_('membersPage.openActionsLabel')}
+				/>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet sectionEmptyState(kind: 'guides' | 'learners')}
+	{#if kind === 'learners' && isGuide && !isSearching}
+		<div
+			class="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-muted/20 p-8 text-center"
+		>
+			<div class="flex size-11 items-center justify-center rounded-xl bg-orange-50 text-orange-500">
+				<UsersIcon class="size-5" />
+			</div>
+			<div class="flex flex-col gap-1">
+				<p class="type-body-bold text-foreground">{$_('membersPage.noLearnersYetTitle')}</p>
+				<p class="type-sm text-muted-foreground">{$_('membersPage.noLearnersYetDescription')}</p>
+			</div>
+			<InviteLearnerDialog
+				clubId={clubIdTyped}
+				clubCode={clubItem?.clubCode}
+				guideInviteCode={clubItem?.clubGuideInviteCode}
+				canInviteGuide={clubPermissions.includes('club_member:invite_guide')}
+				triggerLabel={$_('membersPage.inviteAction')}
+				triggerStyle="button"
+			/>
+		</div>
+	{:else}
+		<p class="type-sm text-muted-foreground">
+			{kind === 'guides' ? $_('membersPage.noGuidesMatch') : $_('membersPage.noLearnersMatch')}
+		</p>
+	{/if}
+{/snippet}
+
 {#if !clubIdTyped}
 	<Alert>
 		<AlertTitle>No active club</AlertTitle>
@@ -270,80 +377,111 @@
 		<AlertDescription>{$_('membersPage.accessDeniedDescription')}</AlertDescription>
 	</Alert>
 {:else}
-	<Card>
-		<CardHeader class="flex flex-row items-center justify-between gap-2">
-			<div class="flex flex-col gap-2">
-				<CardTitle>{$_('membersPage.title')}</CardTitle>
-				<CardDescription>{$_('membersPage.description')}</CardDescription>
-			</div>
-			{#if myProfileId}
-				<ActionMenu items={selfActionItems} ariaLabel={$_('membersPage.openActionsLabel')} />
-			{/if}
-		</CardHeader>
-		<CardContent class="flex flex-col gap-4">
-			{#if errorMessage}
-				<Alert variant="destructive">
-					<AlertTitle>{$_('membersPage.actionFailedTitle')}</AlertTitle>
-					<AlertDescription>{errorMessage}</AlertDescription>
-				</Alert>
-			{/if}
-
-			<div class="flex flex-col gap-2">
-				<Label for="memberFilter">{$_('membersPage.searchLabel')}</Label>
-				<Input
-					id="memberFilter"
-					bind:value={filter}
-					placeholder={$_('membersPage.searchPlaceholder')}
-				/>
-			</div>
-
-			{#if membersResponse.isLoading}
-				<LoadingState label={$_('membersPage.title')} />
-			{:else if (filteredMembers.length ?? 0) === 0}
-				<p class="text-sm text-muted-foreground">{$_('membersPage.noMatches')}</p>
-			{:else}
-				<div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-					{#each filteredMembers as member (member.clubMemberId)}
-						<div class="flex flex-col gap-3 rounded-md border border-border p-4">
-							<div class="flex items-start justify-between gap-3">
-								<div class="flex items-center gap-3">
-									<Avatar class="size-10">
-										{#if memberImageUrl(member)}
-											<AvatarImage
-												src={memberImageUrl(member) ?? undefined}
-												alt={displayNameFor(member)}
-											/>
-										{/if}
-										<AvatarFallback>{initialsFor(member)}</AvatarFallback>
-									</Avatar>
-									<div class="flex flex-col">
-										<p class="font-medium">{displayNameFor(member)}</p>
-										{#if member.profileId === myProfileId}
-											<span class="text-xs text-muted-foreground">{$_('membersPage.youBadge')}</span>
-										{/if}
-									</div>
-								</div>
-								<div class="flex shrink-0 items-center gap-1">
-									<Badge variant="outline">{roleLabelFor(member.roleKey)}</Badge>
-									{#if member.profileId !== myProfileId}
-										<ActionMenu
-											items={memberActionItems(member)}
-											ariaLabel={$_('membersPage.openActionsLabel')}
-										/>
-									{/if}
-								</div>
-							</div>
-							<div class="flex flex-col gap-1 text-sm text-muted-foreground">
-								{#if member.username}
-									<p>@{member.username}</p>
-								{/if}
-							</div>
-						</div>
-					{/each}
+	<div class="flex flex-col gap-4">
+		<Card class="rounded-2xl border-border/70">
+			<CardContent class="flex flex-col gap-4 p-5 sm:p-6">
+				<div class="flex flex-wrap items-start justify-between gap-3">
+					<div class="flex flex-col gap-1.5">
+						<h1 class="type-h3 text-foreground">{$_('membersPage.title')}</h1>
+						<p class="type-sm text-muted-foreground">{$_('membersPage.description')}</p>
+						{#if !membersResponse.isLoading}
+							<p class="type-sm-bold text-foreground">{memberCountSummary}</p>
+						{/if}
+					</div>
+					<div class="flex shrink-0 items-center gap-2">
+						{#if canInvite}
+							<InviteLearnerDialog
+								clubId={clubIdTyped}
+								clubCode={clubItem?.clubCode}
+								guideInviteCode={clubItem?.clubGuideInviteCode}
+								canInviteGuide={clubPermissions.includes('club_member:invite_guide')}
+								triggerLabel={$_('membersPage.inviteAction')}
+								triggerStyle="button"
+							/>
+						{/if}
+						{#if myProfileId}
+							<ActionMenu items={selfActionItems} ariaLabel={$_('membersPage.openActionsLabel')} />
+						{/if}
+					</div>
 				</div>
-			{/if}
-		</CardContent>
-	</Card>
+
+				{#if errorMessage}
+					<Alert variant="destructive">
+						<AlertTitle>{$_('membersPage.actionFailedTitle')}</AlertTitle>
+						<AlertDescription>{errorMessage}</AlertDescription>
+					</Alert>
+				{/if}
+
+				<div class="flex flex-col gap-2">
+					<Label for="memberFilter" class="sr-only">{$_('membersPage.searchLabel')}</Label>
+					<div class="relative">
+						<SearchIcon
+							class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+						/>
+						<Input
+							id="memberFilter"
+							bind:value={filter}
+							placeholder={$_('membersPage.searchPlaceholder')}
+							class="pl-9"
+						/>
+					</div>
+				</div>
+			</CardContent>
+		</Card>
+
+		{#if membersResponse.isLoading}
+			<Card class="rounded-2xl border-border/70">
+				<CardContent class="p-6">
+					<LoadingState label={$_('membersPage.title')} />
+				</CardContent>
+			</Card>
+		{:else if isSearching && !hasAnyResults}
+			<Card class="rounded-2xl border-border/70">
+				<CardContent class="flex flex-col items-center gap-1 p-8 text-center">
+					<p class="type-body-bold text-foreground">{$_('membersPage.noSearchResultsTitle')}</p>
+					<p class="type-sm text-muted-foreground">
+						{$_('membersPage.noSearchResultsDescription')}
+					</p>
+				</CardContent>
+			</Card>
+		{:else}
+			<section class="flex flex-col gap-3">
+				<div class="flex items-center gap-2 px-1">
+					<h2 class="type-h5 text-foreground">{$_('membersPage.guidesSectionTitle')}</h2>
+					<Badge variant="outline" size="sm" class="type-caption-medium text-muted-foreground">
+						{guideMembers.length}
+					</Badge>
+				</div>
+				{#if filteredGuides.length === 0}
+					{@render sectionEmptyState('guides')}
+				{:else}
+					<div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+						{#each filteredGuides as member (member.clubMemberId)}
+							{@render memberRow(member)}
+						{/each}
+					</div>
+				{/if}
+			</section>
+
+			<section class="flex flex-col gap-3">
+				<div class="flex items-center gap-2 px-1">
+					<h2 class="type-h5 text-foreground">{$_('membersPage.learnersSectionTitle')}</h2>
+					<Badge variant="outline" size="sm" class="type-caption-medium text-muted-foreground">
+						{learnerMembers.length}
+					</Badge>
+				</div>
+				{#if filteredLearners.length === 0}
+					{@render sectionEmptyState('learners')}
+				{:else}
+					<div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+						{#each filteredLearners as member (member.clubMemberId)}
+							{@render memberRow(member)}
+						{/each}
+					</div>
+				{/if}
+			</section>
+		{/if}
+	</div>
 {/if}
 
 <Dialog.Root bind:open={removeDialogOpen}>
