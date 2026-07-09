@@ -204,3 +204,22 @@ export const getSignedViewerUpdateAuthorAssets = async (
 
 	return signDeliveryAssets(deliveryAssets, config);
 };
+
+export const getSignedViewerUpdateMediaAssets = async (
+	convex: ConvexServerClient,
+	assetIds: Id<'mediaAssets'>[],
+	limit = 50,
+	config?: MediaDeliveryConfig | null
+) => {
+	const uniqueAssetIds = [...new Set(assetIds)];
+	if (!uniqueAssetIds.length) {
+		return [] as SignedDeliveryAsset[];
+	}
+
+	const deliveryAssets = await convex.query(api.updates.getViewerUpdateMediaDeliveryAssets, {
+		assetIds: uniqueAssetIds,
+		limit
+	});
+
+	return signDeliveryAssets(deliveryAssets, config);
+};

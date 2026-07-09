@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { authClient } from '$lib/auth-client';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
+	import { t } from '$lib/i18n';
 
 	const session = authClient.useSession();
 </script>
@@ -12,13 +12,10 @@
 		<AlertDescription>Sign in to view the global feed.</AlertDescription>
 	</Alert>
 {:else}
-	<Card>
-		<CardHeader>
-			<CardTitle>Global</CardTitle>
-			<CardDescription>Updates across the wider network will appear here.</CardDescription>
-		</CardHeader>
-		<CardContent>
-			<p>Global feed is not wired yet.</p>
-		</CardContent>
-	</Card>
+	<div class="flex flex-col gap-4">
+		<div class="rounded-2xl border border-dashed border-border/80 bg-card px-4 py-8 text-center">
+			<p class="type-body-bold text-foreground">{t('feed.globalEmptyTitle')}</p>
+			<p class="type-sm mt-1 text-muted-foreground">{t('feed.globalEmptyDescription')}</p>
+		</div>
+	</div>
 {/if}

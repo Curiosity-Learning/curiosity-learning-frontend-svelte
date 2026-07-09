@@ -12,13 +12,14 @@
 		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
-		PageHeaderTitle
+		PageHeaderTitle,
+		UpdateCard
 	} from '$lib/components/app';
+	import type { UpdateCardMediaItem } from '$lib/components/app/feed/update-card.svelte';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import { Card, CardContent } from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { DatePicker } from '$lib/components/ui/date-picker';
 	import { Input } from '$lib/components/ui/input';
@@ -120,22 +121,6 @@
 		return `${day} ${month}, ${year}`;
 	};
 
-	const formatRelativeTime = (timestamp: number) => {
-		const now = Date.now();
-		const diff = now - timestamp;
-		const minutes = Math.floor(diff / 60_000);
-		if (minutes < 1) return 'Just now';
-		if (minutes < 60) return `${minutes}m ago`;
-		const hours = Math.floor(minutes / 60);
-		if (hours < 24) return `${hours}h ago`;
-		const days = Math.floor(hours / 24);
-		if (days < 7) return `${days}d ago`;
-		return new Date(timestamp).toLocaleDateString(undefined, {
-			month: 'short',
-			day: 'numeric'
-		});
-	};
-
 	const initialsFor = (name: string) => {
 		const cleaned = name.trim();
 		if (!cleaned) return '?';
@@ -196,7 +181,6 @@
 
 		return null;
 	};
-	let orderedUpdates = $derived([...(updatesResponse.data ?? [])].reverse());
 	let initialProjectUpdateMedia = $derived(
 		(page.data.initialProjectUpdateMedia as Array<SignedProjectUpdateMedia> | undefined) ?? []
 	);
@@ -204,10 +188,23 @@
 		return new Map(initialProjectUpdateMedia.map((asset) => [asset.assetId, asset] as const));
 	});
 
-	const isVideoAsset = (
-		asset: SignedProjectUpdateMedia | null | undefined
-	): asset is SignedProjectUpdateMedia =>
-		Boolean(asset && (asset.mediaKind === 'video' || asset.contentType?.startsWith('video/')));
+	let orderedUpdates = $derived.by(() => {
+		return [...(updatesResponse.data ?? [])].reverse().map((update) => ({
+			...update,
+			authorImageUrl: update.authorImageAssetId
+				? (initialProjectMemberImageUrls.get(update.authorImageAssetId) ?? null)
+				: null,
+			media: (update.mediaAssetIds ?? []).map((assetId): UpdateCardMediaItem => {
+				const asset = initialProjectUpdateMediaById.get(assetId) ?? null;
+				const isVideo = asset?.mediaKind === 'video' || asset?.contentType?.startsWith('video/');
+				return {
+					assetId,
+					kind: isVideo ? 'video' : 'image',
+					url: asset?.signedUrl ?? null
+				};
+			})
+		}));
+	});
 
 	const memberSubtitleFor = (member: (typeof memberSummaries)[number]) => {
 		if (member.username) return `@${member.username}`;
@@ -412,50 +409,20 @@
 				{#if updatesResponse.isLoading}
 					<LoadingState label="Loading updates" />
 				{:else if (updatesResponse.data ?? []).length === 0}
-					<p class="type-sm text-muted-foreground">No updates yet.</p>
+					<div class="rounded-2xl border border-dashed border-border/80 bg-card px-4 py-6 text-center">
+						<p class="type-sm text-muted-foreground">No updates yet.</p>
+					</div>
 				{:else}
 					<div class="flex flex-col gap-3">
 						{#each orderedUpdates as update (update._id)}
-							<Card class="gap-0 py-0">
-								<CardContent class="flex flex-col gap-2 p-4">
-									<p class="type-body whitespace-pre-wrap">{update.content}</p>
-									{#if update.mediaAssetIds?.length}
-										<div class="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-2">
-											{#each update.mediaAssetIds as mediaAssetId (mediaAssetId)}
-												{@const mediaAsset =
-													initialProjectUpdateMediaById.get(mediaAssetId) ?? null}
-												{@const mediaUrl = mediaAsset?.signedUrl ?? null}
-												<div class="overflow-hidden rounded-xl border border-border bg-muted/20">
-													{#if mediaUrl}
-														{#if isVideoAsset(mediaAsset)}
-															<!-- svelte-ignore a11y_media_has_caption -->
-															<video
-																src={mediaUrl}
-																controls
-																preload="metadata"
-																class="aspect-video w-full bg-black object-cover"
-															></video>
-														{:else}
-															<img
-																src={mediaUrl}
-																alt="Project update attachment"
-																class="aspect-video w-full object-cover"
-															/>
-														{/if}
-													{:else}
-														<div class="flex aspect-video items-center justify-center p-4">
-															<p class="text-sm text-muted-foreground">Preparing media...</p>
-														</div>
-													{/if}
-												</div>
-											{/each}
-										</div>
-									{/if}
-									<p class="type-sm text-muted-foreground">
-										{formatRelativeTime(update.createdAt)}
-									</p>
-								</CardContent>
-							</Card>
+							<UpdateCard
+								authorName={update.authorName}
+								authorImageUrl={update.authorImageUrl}
+								createdAt={update.createdAt}
+								content={update.content}
+								media={update.media}
+								showProjectContext={false}
+							/>
 						{/each}
 					</div>
 				{/if}
@@ -470,15 +437,12 @@
 				{:else}
 					<div class="flex flex-col gap-2">
 						{#each orderedChangeLog as entry (entry._id)}
-							<div class="flex items-center gap-2 rounded-lg border border-border/70 p-3">
-								<Badge variant="outline" class="type-caption shrink-0"
-									>{$_('projectDetail.memberStateSystem')}</Badge
-								>
-								<p class="type-sm flex-1">{entry.text}</p>
-								<p class="type-caption shrink-0 text-muted-foreground">
-									{formatRelativeTime(entry.createdAt)}
-								</p>
-							</div>
+							<UpdateCard
+								variant="system"
+								createdAt={entry.createdAt}
+								content={entry.text}
+								showProjectContext={false}
+							/>
 						{/each}
 					</div>
 				{/if}

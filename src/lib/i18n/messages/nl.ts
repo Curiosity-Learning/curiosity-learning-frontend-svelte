@@ -671,6 +671,22 @@ const nl = {
 		doneMemberEditNotice: 'Klaar-leden kunnen projectdetails niet bewerken of updates plaatsen.',
 		activityTitle: 'Activiteit',
 		activityEmpty: 'Nog geen activiteit.'
+	},
+	feed: {
+		unknownAuthor: 'Onbekend',
+		readMore: 'Meer lezen',
+		readLess: 'Minder lezen',
+		mediaPreparing: 'Media wordt voorbereid...',
+		videoAttachment: 'Video-bijlage',
+		playVideo: 'Video afspelen',
+		attachmentAlt: 'Bijlage bij update',
+		systemBadge: 'Systeem',
+		myClubsEmptyTitle: 'Nog geen updates',
+		myClubsEmptyDescription: 'Projectupdates van jouw clubs verschijnen hier.',
+		globalEmptyTitle: 'Globale feed is nog niet aangesloten',
+		globalEmptyDescription: 'Updates uit het bredere netwerk verschijnen hier binnenkort.',
+		profileEmptyTitle: 'Nog geen updates',
+		profileEmptyDescription: 'Updates die je op je projecten plaatst, verschijnen hier.'
 	}
 } as const;
 

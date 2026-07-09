@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDateTime, toTimestamp } from './date';
+import { formatDateTime, formatRelativeTime, toTimestamp } from './date';
 
 describe('date domain helpers', () => {
 	it('returns fallback text for empty values', () => {
@@ -15,5 +15,23 @@ describe('date domain helpers', () => {
 
 	it('returns null for invalid date strings', () => {
 		expect(toTimestamp('not-a-date')).toBeNull();
+	});
+});
+
+describe('formatRelativeTime', () => {
+	it('formats sub-minute and future timestamps as "now"', () => {
+		expect(formatRelativeTime(Date.now())).toBe('now');
+		expect(formatRelativeTime(Date.now() + 60_000)).toBe('now');
+	});
+
+	it('formats minutes, hours, and days', () => {
+		expect(formatRelativeTime(Date.now() - 5 * 60_000)).toBe('5m');
+		expect(formatRelativeTime(Date.now() - 3 * 60 * 60_000)).toBe('3h');
+		expect(formatRelativeTime(Date.now() - 2 * 24 * 60 * 60_000)).toBe('2d');
+	});
+
+	it('falls back to a short date after a week', () => {
+		const result = formatRelativeTime(Date.now() - 10 * 24 * 60 * 60_000);
+		expect(result).not.toMatch(/[dhm]$/);
 	});
 });
