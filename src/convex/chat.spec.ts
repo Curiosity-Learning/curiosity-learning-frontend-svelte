@@ -141,6 +141,7 @@ describe('context room chat', () => {
 
 		expect(summaries).toHaveLength(1);
 		expect(summaries[0].canSend).toBe(false);
+		expect(summaries[0].sendBlockedReason).toBe('not_participant');
 		expect(result.messages.map((entry) => entry.content)).toEqual(['Welcome']);
 		expect(result.hasMore).toBe(false);
 		await expect(
@@ -307,6 +308,230 @@ describe('context room chat', () => {
 		await expect(
 			viewer.mutation(api.chat.sendMessage, { roomId: ids.removedRoomId, content: 'Blocked' })
 		).rejects.toThrow('You can no longer send messages in this chat');
+	});
+
+	it('reports not_participant reason for a removed project member and blocks sending', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const roleId = await ctx.db.insert('projectRoles', {
+				key: 'contributor',
+				name: 'Contributor',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const viewerProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'viewer-user',
+				username: 'viewer',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const otherProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'other-user',
+				username: 'other',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Left project',
+				dueDate: now,
+				createdByProfileId: otherProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', { contextType: 'project', projectId });
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: viewerProfileId,
+				roleId,
+				leftAt: now,
+				createdAt: now
+			});
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: otherProfileId,
+				roleId,
+				createdAt: now
+			});
+
+			return { roomId, viewerProfileId };
+		});
+		const viewer = base.withIdentity({ subject: 'viewer-user' });
+
+		const summaries = await viewer.query(api.chat.listRoomSummaries, {});
+
+		expect(summaries).toContainEqual(
+			expect.objectContaining({
+				roomId: ids.roomId,
+				canSend: false,
+				sendBlockedReason: 'not_participant'
+			})
+		);
+		await expect(
+			viewer.mutation(api.chat.sendMessage, { roomId: ids.roomId, content: 'Blocked' })
+		).rejects.toThrow('You can no longer send messages in this chat');
+	});
+
+	it('blocks sending for everyone once a project is archived (all current members Done)', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const memberRoleId = await ctx.db.insert('projectRoles', {
+				key: 'contributor',
+				name: 'Contributor',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const guideRoleId = await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const memberProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'member-user',
+				username: 'member',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const observerProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'observer-user',
+				username: 'observer',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Observer club',
+				discoverable: false,
+				createdByProfileId: observerProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: observerProfileId,
+				roleId: guideRoleId,
+				createdAt: now
+			});
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Archived project',
+				dueDate: now,
+				createdByProfileId: memberProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('projectClubs', { projectId, clubId, createdAt: now });
+			const roomId = await ctx.db.insert('rooms', { contextType: 'project', projectId });
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: memberProfileId,
+				roleId: memberRoleId,
+				doneDate: now,
+				createdAt: now
+			});
+
+			return { roomId, memberProfileId };
+		});
+		const member = base.withIdentity({ subject: 'member-user' });
+		const observer = base.withIdentity({ subject: 'observer-user' });
+
+		const memberSummaries = await member.query(api.chat.listRoomSummaries, {});
+		const observerSummaries = await observer.query(api.chat.listRoomSummaries, {});
+
+		expect(memberSummaries).toContainEqual(
+			expect.objectContaining({
+				roomId: ids.roomId,
+				canSend: false,
+				sendBlockedReason: 'archived'
+			})
+		);
+		expect(observerSummaries).toContainEqual(
+			expect.objectContaining({
+				roomId: ids.roomId,
+				canSend: false,
+				sendBlockedReason: 'archived'
+			})
+		);
+		await expect(
+			member.mutation(api.chat.sendMessage, { roomId: ids.roomId, content: 'Blocked' })
+		).rejects.toThrow('You can no longer send messages in this chat');
+		await expect(
+			observer.mutation(api.chat.sendMessage, { roomId: ids.roomId, content: 'Blocked' })
+		).rejects.toThrow('You can no longer send messages in this chat');
+	});
+
+	it('lets a Done-but-not-archived project member keep sending', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const roleId = await ctx.db.insert('projectRoles', {
+				key: 'contributor',
+				name: 'Contributor',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const doneProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'done-user',
+				username: 'done',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const activeProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'active-user',
+				username: 'active',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Partially done project',
+				dueDate: now,
+				createdByProfileId: doneProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', { contextType: 'project', projectId });
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: doneProfileId,
+				roleId,
+				doneDate: now,
+				createdAt: now
+			});
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: activeProfileId,
+				roleId,
+				createdAt: now
+			});
+
+			return { roomId, doneProfileId };
+		});
+		const doneMember = base.withIdentity({ subject: 'done-user' });
+
+		const summaries = await doneMember.query(api.chat.listRoomSummaries, {});
+		const sent = await doneMember.mutation(api.chat.sendMessage, {
+			roomId: ids.roomId,
+			content: 'Still able to chat'
+		});
+
+		expect(summaries).toContainEqual(
+			expect.objectContaining({
+				roomId: ids.roomId,
+				canSend: true,
+				sendBlockedReason: null
+			})
+		);
+		expect(sent).toMatchObject({ content: 'Still able to chat', profileId: ids.doneProfileId });
 	});
 
 	it('includes project guide observers without project membership', async () => {

@@ -645,6 +645,16 @@ const en = {
 		notFoundTitle: 'Club not found',
 		notFoundDescription: "This club isn't available for preview.",
 		backToPublicClubs: 'Back to public clubs'
+	},
+	chatCore: {
+		archivedBannerTitle: 'This project is archived',
+		archivedBannerDescription: 'This project is archived; the chat is closed.',
+		notParticipantBannerTitle: 'You are no longer part of this chat',
+		notParticipantBannerDescription:
+			'You can still read the message history, but you can no longer send messages here.',
+		readOnlyBannerTitle: 'This chat is read-only',
+		readOnlyBannerDescription:
+			'You can still view the message history, but you can no longer send messages here.'
 	}
 } as const;
 
