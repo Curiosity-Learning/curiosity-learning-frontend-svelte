@@ -986,6 +986,7 @@ export const getMembers = query({
 			username: string | null;
 			coverPhotoUrl: string | null;
 			profileImageMediaAssetId: Id<'mediaAssets'> | null;
+			joinedAt: number;
 		}> = [];
 
 		for (const member of activeMembers) {
@@ -1018,7 +1019,8 @@ export const getMembers = query({
 				lastName: lastName ?? null,
 				username: username ?? null,
 				coverPhotoUrl: null,
-				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
+				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
+				joinedAt: member.createdAt
 			});
 		}
 
