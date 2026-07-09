@@ -1,8 +1,7 @@
 <script lang="ts">
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
 	import CheckIcon from '@lucide/svelte/icons/check';
-	import CircleIcon from '@lucide/svelte/icons/circle';
-	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
+	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import SendIcon from '@lucide/svelte/icons/send';
 	import { page } from '$app/state';
@@ -38,6 +37,7 @@
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { _, t } from '$lib/i18n';
 
 	type Props = {
 		view: 'overview' | 'members';
@@ -81,6 +81,10 @@
 		view === 'overview' && projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
 
+	const changeLogResponse = useStableQuery(api.projects.listChangeLog, () =>
+		view === 'overview' && projectIdTyped ? { projectId: projectIdTyped } : 'skip'
+	);
+
 	let pending = $state(false);
 	let errorMessage = $state('');
 
@@ -93,6 +97,11 @@
 
 	let updateContent = $state('');
 	let updatePending = $state(false);
+
+	let imDoneDialogOpen = $state(false);
+	let imDonePending = $state(false);
+	let leaveDialogOpen = $state(false);
+	let leavePending = $state(false);
 
 	const toOrdinalDay = (day: number) => {
 		const moduloTen = day % 10;
@@ -135,11 +144,13 @@
 		return letters || cleaned.slice(0, 2).toUpperCase();
 	};
 
-	let isCompleted = $derived(Boolean(project?.doneDate));
+	const meResponse = useStableQuery(api.profiles.getMe, {});
+
+	let isCompleted = $derived(Boolean(project?.archivedAt));
 	let statusLabel = $derived.by(() => {
 		if (!project) return '';
 		if (isCompleted) {
-			if (project.doneDate) return `Completed on ${formatDateLabel(project.doneDate)}`;
+			if (project.archivedAt) return `Completed on ${formatDateLabel(project.archivedAt)}`;
 			return 'Completed';
 		}
 		return project.dueDate ? `Due by ${formatDateLabel(project.dueDate)}` : 'No due date';
@@ -148,6 +159,7 @@
 	let memberSummaries = $derived(
 		(membersResponse.data ?? []).map((member) => ({
 			id: member.projectMemberId,
+			profileId: member.profileId,
 			name:
 				[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
 				member.username ||
@@ -155,9 +167,18 @@
 			imageAssetId: member.profileImageMediaAssetId ?? null,
 			imageUrl: null,
 			username: member.username ?? null,
-			roleName: member.roleName ?? null
+			roleName: member.roleName ?? null,
+			state: member.state
 		}))
 	);
+
+	let viewerMembership = $derived.by(() => {
+		const viewerProfileId = meResponse.data?._id;
+		if (!viewerProfileId) return null;
+		return memberSummaries.find((member) => member.profileId === viewerProfileId) ?? null;
+	});
+	let viewerIsDone = $derived(viewerMembership?.state === 'done');
+	let viewerIsActiveMember = $derived(viewerMembership?.state === 'active');
 	let initialProjectMemberImageUrls = $derived.by(() => {
 		return new Map(
 			(
@@ -231,19 +252,39 @@
 		}
 	};
 
-	const toggleDone = async () => {
-		if (!project) return;
-		pending = true;
+	const openImDoneDialog = () => {
+		imDoneDialogOpen = true;
+	};
+
+	const confirmImDone = async () => {
+		if (!projectIdTyped) return;
+		imDonePending = true;
 		errorMessage = '';
 		try {
-			await convexClient.mutation(api.projects.update, {
-				projectId: project._id,
-				doneDate: isCompleted ? undefined : Date.now()
-			});
+			await convexClient.mutation(api.projects.markSelfDone, { projectId: projectIdTyped });
+			imDoneDialogOpen = false;
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to update project status.';
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.imDoneFailure');
 		} finally {
-			pending = false;
+			imDonePending = false;
+		}
+	};
+
+	const openLeaveDialog = () => {
+		leaveDialogOpen = true;
+	};
+
+	const confirmLeave = async () => {
+		if (!projectIdTyped) return;
+		leavePending = true;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projects.leaveProject, { projectId: projectIdTyped });
+			leaveDialogOpen = false;
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.leaveProjectFailure');
+		} finally {
+			leavePending = false;
 		}
 	};
 
@@ -269,17 +310,30 @@
 			id: 'edit-project',
 			label: 'Edit details',
 			Icon: PencilIcon,
-			disabled: !canManage,
+			disabled: !canManage || viewerIsDone,
 			onSelect: openEditDialog
 		},
-		{
-			id: 'toggle-done',
-			label: isCompleted ? 'Mark as not done' : 'Mark as done',
-			Icon: isCompleted ? CircleIcon : CircleCheckIcon,
-			disabled: !canManage,
-			onSelect: () => void toggleDone()
-		}
+		...(viewerIsActiveMember
+			? [
+					{
+						id: 'im-done',
+						label: t('projectDetail.imDoneAction'),
+						Icon: CheckIcon,
+						disabled: false,
+						onSelect: openImDoneDialog
+					},
+					{
+						id: 'leave-project',
+						label: t('projectDetail.leaveProjectAction'),
+						Icon: LogOutIcon,
+						disabled: false,
+						onSelect: openLeaveDialog
+					}
+				]
+			: [])
 	]);
+
+	let orderedChangeLog = $derived([...(changeLogResponse.data ?? [])].reverse());
 </script>
 
 <PageHeaderBackButton fallbackHref={routes.feed} />
@@ -333,7 +387,9 @@
 			<div class="flex flex-col gap-4">
 				<p class="type-body-medium">Updates</p>
 
-				{#if canManage}
+				{#if canManage && viewerIsDone}
+					<p class="type-sm text-muted-foreground">{$_('projectDetail.doneMemberEditNotice')}</p>
+				{:else if canManage}
 					<div class="flex gap-3">
 						<Textarea
 							bind:value={updateContent}
@@ -404,6 +460,29 @@
 					</div>
 				{/if}
 			</div>
+
+			<div class="flex flex-col gap-4">
+				<p class="type-body-medium">{$_('projectDetail.activityTitle')}</p>
+				{#if changeLogResponse.isLoading}
+					<LoadingState label={$_('projectDetail.activityTitle')} />
+				{:else if orderedChangeLog.length === 0}
+					<p class="type-sm text-muted-foreground">{$_('projectDetail.activityEmpty')}</p>
+				{:else}
+					<div class="flex flex-col gap-2">
+						{#each orderedChangeLog as entry (entry._id)}
+							<div class="flex items-center gap-2 rounded-lg border border-border/70 p-3">
+								<Badge variant="outline" class="type-caption shrink-0"
+									>{$_('projectDetail.memberStateSystem')}</Badge
+								>
+								<p class="type-sm flex-1">{entry.text}</p>
+								<p class="type-caption shrink-0 text-muted-foreground">
+									{formatRelativeTime(entry.createdAt)}
+								</p>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
 		{:else}
 			<div class="flex flex-col gap-4">
 				{#if membersResponse.isLoading}
@@ -432,11 +511,16 @@
 										>
 									{/if}
 								</ItemContent>
-								{#if member.roleName}
-									<ItemActions>
+								<ItemActions>
+									{#if member.state === 'done'}
+										<Badge variant="secondary" class="bg-chart-2/15 text-chart-2"
+											>{$_('projectDetail.memberStateDone')}</Badge
+										>
+									{/if}
+									{#if member.roleName}
 										<Badge variant="outline">{member.roleName}</Badge>
-									</ItemActions>
-								{/if}
+									{/if}
+								</ItemActions>
 							</Item>
 						{/each}
 					</ItemGroup>
@@ -482,6 +566,44 @@
 					onclick={() => void saveProject()}
 				>
 					{pending ? 'Saving...' : 'Save'}
+				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
+
+	<Dialog.Root bind:open={imDoneDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>{$_('projectDetail.imDoneDialogTitle')}</Dialog.Title>
+				<Dialog.Description>{$_('projectDetail.imDoneDialogDescription')}</Dialog.Description>
+			</Dialog.Header>
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (imDoneDialogOpen = false)}>
+					{$_('projectDetail.imDoneCancelAction')}
+				</Button>
+				<Button disabled={imDonePending} onclick={() => void confirmImDone()}>
+					{imDonePending ? t('common.saving') : $_('projectDetail.imDoneConfirmAction')}
+				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
+
+	<Dialog.Root bind:open={leaveDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>{$_('projectDetail.leaveProjectDialogTitle')}</Dialog.Title>
+				<Dialog.Description>{$_('projectDetail.leaveProjectDialogDescription')}</Dialog.Description>
+			</Dialog.Header>
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (leaveDialogOpen = false)}>
+					{$_('projectDetail.leaveProjectCancelAction')}
+				</Button>
+				<Button
+					variant="destructive"
+					disabled={leavePending}
+					onclick={() => void confirmLeave()}
+				>
+					{leavePending ? t('common.saving') : $_('projectDetail.leaveProjectConfirmAction')}
 				</Button>
 			</Dialog.Footer>
 		</Dialog.Content>

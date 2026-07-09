@@ -650,6 +650,27 @@ const nl = {
 		readOnlyBannerTitle: 'Deze chat is alleen-lezen',
 		readOnlyBannerDescription:
 			'Je kunt de berichtgeschiedenis nog wel bekijken, maar je kunt hier geen berichten meer sturen.'
+	},
+	projectDetail: {
+		memberStateDone: 'Klaar',
+		memberStateSystem: 'Systeem',
+		imDoneAction: 'Ik ben klaar',
+		imDoneDialogTitle: 'Jezelf als klaar markeren?',
+		imDoneDialogDescription:
+			'Dit is definitief en kan niet ongedaan worden gemaakt. Je blijft gecrediteerd als projectlid en de projectchat blijft open totdat elk lid zichzelf als klaar heeft gemarkeerd. Zodra het laatste actieve lid klaar is, wordt het project gearchiveerd.',
+		imDoneConfirmAction: 'Ja, markeer mij als klaar',
+		imDoneCancelAction: 'Annuleren',
+		imDoneFailure: 'Kon jezelf niet als klaar markeren.',
+		leaveProjectAction: 'Project verlaten',
+		leaveProjectDialogTitle: 'Dit project verlaten?',
+		leaveProjectDialogDescription:
+			'Je wordt verwijderd van de teamlijst en verliest de credit voor dit project. Je kunt later weer deelnemen als je opnieuw wordt uitgenodigd.',
+		leaveProjectConfirmAction: 'Ja, project verlaten',
+		leaveProjectCancelAction: 'Annuleren',
+		leaveProjectFailure: 'Kon het project niet verlaten.',
+		doneMemberEditNotice: 'Klaar-leden kunnen projectdetails niet bewerken of updates plaatsen.',
+		activityTitle: 'Activiteit',
+		activityEmpty: 'Nog geen activiteit.'
 	}
 } as const;
 

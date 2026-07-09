@@ -298,7 +298,11 @@ export default defineSchema({
 	projects: defineTable({
 		name: v.string(),
 		dueDate: v.number(),
-		doneDate: v.optional(v.number()),
+		// Set once (PRD 6.6.5) the moment the last active member marks themselves Done and
+		// `isProjectArchived` (see `projectsModel.ts`) becomes true for this project. Cheap to
+		// query directly instead of re-deriving archival status from all member rows every time
+		// (e.g. Showcase/Current tab filtering in `listByClub`/`listPreviewsByClub`).
+		archivedAt: v.optional(v.number()),
 		description: v.optional(v.string()),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
@@ -333,6 +337,23 @@ export default defineSchema({
 		.index('by_project', ['projectId'])
 		.index('by_profile', ['profileId'])
 		.index('by_project_and_profile', ['projectId', 'profileId']),
+
+	// Immutable audit trail for project member lifecycle events (PRD 6.6.8): member
+	// joined/added, member marked Done, member left, project archived. No update/delete
+	// mutations are exposed — entries are append-only. `actorProfileId` is undefined for
+	// system-generated entries (e.g. automatic archival).
+	projectChangeLogs: defineTable({
+		projectId: v.id('projects'),
+		actorProfileId: v.optional(v.id('profiles')),
+		entryType: v.union(
+			v.literal('member_joined'),
+			v.literal('member_done'),
+			v.literal('member_left'),
+			v.literal('project_archived')
+		),
+		text: v.string(),
+		createdAt: v.number()
+	}).index('by_project_and_created', ['projectId', 'createdAt']),
 
 	questions: defineTable({
 		content: v.string(),

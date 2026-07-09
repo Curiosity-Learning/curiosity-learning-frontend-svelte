@@ -92,8 +92,8 @@
 		if (status === 'completed') {
 			return projectCards.sort(
 				(left, right) =>
-					(right.project.doneDate ?? right.project.updatedAt ?? right.project.createdAt) -
-					(left.project.doneDate ?? left.project.updatedAt ?? left.project.createdAt)
+					(right.project.archivedAt ?? right.project.updatedAt ?? right.project.createdAt) -
+					(left.project.archivedAt ?? left.project.updatedAt ?? left.project.createdAt)
 			);
 		}
 
@@ -105,10 +105,12 @@
 		});
 	});
 
+	// PRD 6.6.7: "completed" here is the Showcase tab — archived OR zero active members left in
+	// this club, as computed server-side by `listPreviewsByClub`'s `isShowcase`.
 	let visibleProjectCards = $derived.by(() => {
 		const query = searchText.trim().toLowerCase();
 		const scopedByTab = sortedProjectCards.filter((entry) =>
-			status === 'completed' ? Boolean(entry.project.doneDate) : !entry.project.doneDate
+			status === 'completed' ? entry.isShowcase : !entry.isShowcase
 		);
 
 		if (!query) return scopedByTab;
@@ -116,7 +118,9 @@
 		return scopedByTab.filter((entry) => {
 			const project = entry.project;
 			const dueText = project.dueDate ? new Date(project.dueDate).toLocaleDateString() : '';
-			const doneText = project.doneDate ? new Date(project.doneDate).toLocaleDateString() : '';
+			const doneText = project.archivedAt
+				? new Date(project.archivedAt).toLocaleDateString()
+				: '';
 			return [project.name, project.description ?? '', dueText, doneText]
 				.join(' ')
 				.toLowerCase()

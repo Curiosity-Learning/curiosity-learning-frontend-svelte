@@ -57,10 +57,10 @@
 			}))
 	);
 
-	let isCompleted = $derived(status ? status === 'completed' : Boolean(project.doneDate));
+	let isCompleted = $derived(status ? status === 'completed' : Boolean(project.archivedAt));
 	let statusLabel = $derived.by(() => {
 		if (isCompleted) {
-			if (project.doneDate) return `Completed on ${formatDateLabel(project.doneDate)}`;
+			if (project.archivedAt) return `Completed on ${formatDateLabel(project.archivedAt)}`;
 			return 'Completed';
 		}
 		return project.dueDate ? `Due by ${formatDateLabel(project.dueDate)}` : 'No due date';

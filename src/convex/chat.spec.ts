@@ -231,7 +231,6 @@ describe('context room chat', () => {
 			const doneProjectId = await ctx.db.insert('projects', {
 				name: 'Done project',
 				dueDate: now,
-				doneDate: now,
 				createdByProfileId: viewerProfileId,
 				createdAt: now,
 				updatedAt: now
