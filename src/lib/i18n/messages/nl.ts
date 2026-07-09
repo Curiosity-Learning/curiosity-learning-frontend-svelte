@@ -71,6 +71,11 @@ const nl = {
 		activeClubUpdated: 'Actieve club bijgewerkt.',
 		switchClubFailure: 'Wisselen van club mislukt.'
 	},
+	activityBooklet: {
+		searchPlaceholder: 'Zoek activiteiten',
+		noMatches: 'Geen activiteiten passen bij je zoekopdracht of filters.',
+		empty: 'Nog geen boekjesactiviteiten.'
+	},
 	clubSwitcher: {
 		triggerLabel: 'Wissel van club vanaf {clubName}',
 		menuLabel: 'Wissel van club',

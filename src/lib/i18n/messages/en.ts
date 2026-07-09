@@ -71,6 +71,11 @@ const en = {
 		activeClubUpdated: 'Active club updated.',
 		switchClubFailure: 'Failed to switch club.'
 	},
+	activityBooklet: {
+		searchPlaceholder: 'Search activities',
+		noMatches: 'No activities match your search or filters.',
+		empty: 'No booklet activities yet.'
+	},
 	clubSwitcher: {
 		triggerLabel: 'Switch club from {clubName}',
 		menuLabel: 'Switch club',

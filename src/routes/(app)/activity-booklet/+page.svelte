@@ -7,9 +7,11 @@
 	import BookletActivityCard from '$lib/components/app/sessions/booklet-activity-card.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
+	import { Input } from '$lib/components/ui/input';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { t } from '$lib/i18n';
 
 	const convexClient = useConvexClient();
 
@@ -19,15 +21,25 @@
 	const blocksResponse = useStableQuery(api.sessions.listBuildingBlocks, {});
 
 	let selectedBlockNames = $state<string[]>([]);
+	let searchTerm = $state('');
 	let pending = $state(false);
 	let errorMessage = $state('');
 
 	let filteredActivities = $derived.by(() => {
 		const activities = activitiesResponse.data ?? [];
-		if (selectedBlockNames.length === 0) return activities;
-		return activities.filter((a) =>
-			selectedBlockNames.every((name) => a.buildingBlockNames.includes(name))
-		);
+		const query = searchTerm.trim().toLowerCase();
+		return activities.filter((a) => {
+			if (
+				selectedBlockNames.length > 0 &&
+				!selectedBlockNames.every((name) => a.buildingBlockNames.includes(name))
+			) {
+				return false;
+			}
+			if (!query) return true;
+			return (
+				a.name.toLowerCase().includes(query) || (a.content ?? '').toLowerCase().includes(query)
+			);
+		});
 	});
 
 	let fallbackHref = $derived(sessionId ? routes.sessionDetail(sessionId) : routes.feed);
@@ -66,6 +78,13 @@
 		</Alert>
 	{/if}
 
+	<Input
+		type="search"
+		placeholder={t('activityBooklet.searchPlaceholder')}
+		bind:value={searchTerm}
+		aria-label={t('activityBooklet.searchPlaceholder')}
+	/>
+
 	{#if (blocksResponse.data?.length ?? 0) > 0}
 		<div class="overflow-x-auto py-2">
 			<ToggleGroup.Root
@@ -88,9 +107,9 @@
 		<LoadingState label="Loading activities" />
 	{:else if filteredActivities.length === 0}
 		<p class="text-sm text-muted-foreground">
-			{selectedBlockNames.length
-				? 'No activities match the selected filters.'
-				: 'No booklet activities yet.'}
+			{selectedBlockNames.length || searchTerm.trim()
+				? t('activityBooklet.noMatches')
+				: t('activityBooklet.empty')}
 		</p>
 	{:else}
 		<div class="flex flex-col gap-4">
