@@ -135,6 +135,7 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		memberUserId: profile ? getProfileAuthUserId(profile) : null,
 		memberLeftAt: membership.leftAt ?? null,
 		roleId: role?._id ?? null,
+		roleKey: role?.key ?? null,
 		roleName: role?.name ?? null,
 		roleDescription: role?.description ?? null,
 		roleColor: role?.color ?? null,

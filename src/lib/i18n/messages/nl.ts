@@ -68,6 +68,14 @@ const nl = {
 		activeClubUpdated: 'Actieve club bijgewerkt.',
 		switchClubFailure: 'Wisselen van club mislukt.'
 	},
+	clubSwitcher: {
+		triggerLabel: 'Wissel van club vanaf {clubName}',
+		menuLabel: 'Wissel van club',
+		roleGuide: 'Begeleider',
+		roleLearner: 'Leerling',
+		switchFailureTitle: 'Kan niet wisselen van club',
+		switchFailureDescription: 'Probeer het opnieuw.'
+	},
 	authLayout: {
 		description: 'Log in om verder te gaan met je clubervaring.'
 	},

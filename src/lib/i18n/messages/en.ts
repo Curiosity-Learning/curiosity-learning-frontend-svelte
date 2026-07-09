@@ -68,6 +68,14 @@ const en = {
 		activeClubUpdated: 'Active club updated.',
 		switchClubFailure: 'Failed to switch club.'
 	},
+	clubSwitcher: {
+		triggerLabel: 'Switch club from {clubName}',
+		menuLabel: 'Switch club',
+		roleGuide: 'Guide',
+		roleLearner: 'Learner',
+		switchFailureTitle: 'Unable to switch club',
+		switchFailureDescription: 'Please try again.'
+	},
 	authLayout: {
 		description: 'Sign in to continue your club experience.'
 	},

@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
-	import CheckIcon from '@lucide/svelte/icons/check';
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import { goto } from '$app/navigation';
@@ -22,12 +20,7 @@
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
 	import HomeEmptyCard from '$lib/components/app/home/home-empty-card.svelte';
-	import {
-		LoadingState,
-		PageHeaderActions,
-		PageHeaderTitleContent,
-		showGlobalSnackbar
-	} from '$lib/components/app';
+	import { LoadingState, PageHeaderActions } from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import ClubProjectCard from '$lib/components/app/projects/club-project-card.svelte';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
@@ -42,13 +35,6 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import {
-		DropdownMenu,
-		DropdownMenuContent,
-		DropdownMenuItem,
-		DropdownMenuLabel,
-		DropdownMenuTrigger
-	} from '$lib/components/ui/dropdown-menu';
 	import { page } from '$app/state';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
 	import type { PageProps } from './$types';
@@ -61,9 +47,7 @@
 
 	let clubs = $derived(clubsResponse.data ?? []);
 	let routeClubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
-	let routeClubIdTyped = $derived(routeClubId ? (routeClubId as Id<'clubs'>) : null);
-	let switchingClubId = $state<Id<'clubs'> | null>(null);
-	let clubIdTyped = $derived(switchingClubId ?? routeClubIdTyped);
+	let clubIdTyped = $derived(routeClubId ? (routeClubId as Id<'clubs'>) : null);
 	let clubId = $derived(clubIdTyped ? String(clubIdTyped) : null);
 	let clubPath = $derived(clubId ? `/club/${clubId}` : '/onboarding/get-started');
 
@@ -286,27 +270,6 @@
 	const getProjectRailScrollKey = () =>
 		clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null;
 
-	const switchClub = async (nextClubId: Id<'clubs'>) => {
-		if (nextClubId === clubIdTyped || switchingClubId) return;
-		switchingClubId = nextClubId;
-		try {
-			await convexClient.mutation(api.clubs.switchActiveClub, { clubId: nextClubId });
-			await goto(routes.clubHome(nextClubId));
-		} catch (error) {
-			switchingClubId = null;
-			showGlobalSnackbar({
-				title: 'Unable to switch club',
-				description: error instanceof Error ? error.message : 'Please try again.'
-			});
-		}
-	};
-
-	$effect(() => {
-		if (!switchingClubId) return;
-		if (switchingClubId !== routeClubIdTyped) return;
-		switchingClubId = null;
-	});
-
 	const restoreProjectRailScroll = (node: HTMLDivElement) => {
 		if (!browser) return;
 		const key = getProjectRailScrollKey();
@@ -356,39 +319,6 @@
 		sessionStorage.removeItem(key);
 	};
 </script>
-
-<PageHeaderTitleContent enabled={Boolean(clubItem)}>
-	<div class="max-w-full min-w-0">
-		<DropdownMenu>
-			<DropdownMenuTrigger class="-ml-2 inline-flex w-fit max-w-full min-w-0 overflow-hidden">
-				<Button
-					variant="ghost"
-					class="max-w-full min-w-0 shrink justify-start gap-1 px-1.5 text-[#262626] hover:text-[#262626]"
-					aria-label={`Switch club from ${clubItem?.clubName ?? 'current club'}`}
-				>
-					<span class="type-step-title min-w-0 flex-1 truncate">{clubItem?.clubName ?? 'Club'}</span
-					>
-					<ChevronDownIcon class="size-4 shrink-0 text-muted-foreground" />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align="start" class="w-64">
-				<DropdownMenuLabel>Switch club</DropdownMenuLabel>
-				{#each clubs as club (club.clubId)}
-					<DropdownMenuItem
-						class="justify-between gap-3 py-2"
-						disabled={switchingClubId !== null}
-						onSelect={() => void switchClub(club.clubId)}
-					>
-						<span class="truncate">{club.clubName}</span>
-						{#if club.clubId === clubIdTyped}
-							<CheckIcon class="size-4 text-orange-500" />
-						{/if}
-					</DropdownMenuItem>
-				{/each}
-			</DropdownMenuContent>
-		</DropdownMenu>
-	</div>
-</PageHeaderTitleContent>
 
 <PageHeaderActions none={!canEditClub}>
 	<Button
