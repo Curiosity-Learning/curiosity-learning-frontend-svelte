@@ -119,9 +119,9 @@ describe('relational integrity', () => {
 			t.mutation(api.sessions.setAttendance, {
 				sessionId: firstSessionId,
 				profileId: outsiderProfileId,
-				attending: true
+				status: 'present'
 			})
-		).rejects.toThrow('Attendee must be an active club member');
+		).rejects.toThrow('Attendee was not a club member when the session started');
 	});
 
 	it('stores attendance as a profile relationship', async () => {
@@ -133,11 +133,13 @@ describe('relational integrity', () => {
 				firstLoginCompleted: true,
 				updatedAt: Date.now()
 			});
+			// Join well before the fixture session's startTime (which is a `now` captured earlier)
+			// so the attendance roster snapshot includes this member.
 			await ctx.db.insert('clubMembers', {
 				clubId: firstClubId,
 				profileId,
 				roleId,
-				createdAt: Date.now()
+				createdAt: 0
 			});
 			return profileId;
 		});
@@ -145,7 +147,7 @@ describe('relational integrity', () => {
 		await t.mutation(api.sessions.setAttendance, {
 			sessionId: firstSessionId,
 			profileId: learnerProfileId,
-			attending: true
+			status: 'present'
 		});
 
 		const attendance = await t.run((ctx) =>

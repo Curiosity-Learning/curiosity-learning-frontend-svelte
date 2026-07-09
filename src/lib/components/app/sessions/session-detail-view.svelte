@@ -26,7 +26,6 @@
 	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
-	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
@@ -80,12 +79,20 @@
 	let canCreateActivity = $derived(clubPermissions.includes('session_activity:create'));
 	let canUpdateActivity = $derived(clubPermissions.includes('session_activity:update'));
 	let canDeleteActivity = $derived(clubPermissions.includes('session_activity:delete'));
-	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 	let canReadAttendance = $derived(clubPermissions.includes('attendance:read'));
 	let canManageAttendance = $derived(clubPermissions.includes('attendance:create'));
 	let canReadAllRsvps = $derived(clubPermissions.includes('session_rsvp:read_all'));
 	let sessionHasStarted = $derived(Boolean(session && session.startTime <= Date.now()));
 	let hasSessionPhotoPermission = $derived(clubPermissions.includes('session_photo:create'));
+	let attendanceWindowReason = $derived.by(() => {
+		if (!session) return null;
+		if (session.cancelled) return 'cancelled' as const;
+		const now = Date.now();
+		if (now < session.startTime) return 'not_started' as const;
+		if (now > session.endTime + 12 * 60 * 60 * 1000) return 'locked' as const;
+		return null;
+	});
+	let attendanceWindowOpen = $derived(attendanceWindowReason === null);
 
 	const canMutateOnlineState = fromStore(canMutateOnlineStore);
 	const connectivityMessageState = fromStore(connectivityMessageStore);
@@ -97,7 +104,9 @@
 	let canCreateActivityOnline = $derived(canCreateActivity && canMutateOnline);
 	let canUpdateActivityOnline = $derived(canUpdateActivity && canMutateOnline);
 	let canDeleteActivityOnline = $derived(canDeleteActivity && canMutateOnline);
-	let canManageAttendanceOnline = $derived(canManageAttendance && canMutateOnline);
+	let canManageAttendanceOnline = $derived(
+		canManageAttendance && canMutateOnline && attendanceWindowOpen
+	);
 	let canRsvpToSession = $derived(
 		clubPermissions.includes('session_rsvp:set') && !isCancelled && canMutateOnline
 	);
@@ -108,18 +117,10 @@
 	const blocksResponse = useStableQuery(api.sessions.listBuildingBlocks, () =>
 		view === 'activities' ? {} : 'skip'
 	);
-	const attendanceResponse = useStableQuery(api.sessions.listAttendance, () =>
+	const attendanceRosterResponse = useStableQuery(api.sessions.listAttendanceRoster, () =>
 		sessionIdTyped && canReadAttendance && view === 'attendees'
 			? { sessionId: sessionIdTyped }
 			: 'skip'
-	);
-	const attendanceAttendeesResponse = useStableQuery(api.sessions.listAttendanceAttendees, () =>
-		sessionIdTyped && canReadAttendance && view === 'attendees'
-			? { sessionId: sessionIdTyped }
-			: 'skip'
-	);
-	const membersResponse = useStableQuery(api.clubs.getMembers, () =>
-		session && canReadMembers && view === 'attendees' ? { clubId: session.clubId } : 'skip'
 	);
 	const sessionCardDataResponse = useStableQuery(api.sessions.getSessionCardData, () =>
 		sessionIdTyped ? { sessionId: sessionIdTyped, includeAttendees: false } : 'skip'
@@ -283,17 +284,6 @@
 		}
 	};
 
-	let serverAttendanceSet = $derived(
-		new Set((attendanceResponse.data ?? []).map((entry) => entry.userId))
-	);
-	let activeMemberUserIds = $derived(
-		new Set((membersResponse.data ?? []).map((member) => member.userId))
-	);
-	let historicalAttendees = $derived(
-		(attendanceAttendeesResponse.data ?? []).filter(
-			(attendee) => !activeMemberUserIds.has(attendee.userId)
-		)
-	);
 	let buildingBlockOptions = $derived(
 		(blocksResponse.data ?? []).map((block) => ({ id: String(block._id), name: block.name }))
 	);
@@ -301,7 +291,6 @@
 		new Map((rsvpsResponse.data ?? []).map((row) => [row.profileId, row.status] as const))
 	);
 
-	const isUserAttending = (userId: string) => serverAttendanceSet.has(userId);
 	const formatDisplayName = (person: {
 		firstName?: string | null;
 		lastName?: string | null;
@@ -526,50 +515,31 @@
 		}
 	};
 
-	const setAttendance = async (profileId: Id<'profiles'>, userId: string, attending: boolean) => {
+	const setAttendance = async (profileId: Id<'profiles'>, status: 'present' | 'absent') => {
 		if (!sessionIdTyped) return;
 		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		errorMessage = '';
-		const mutationArgs = { sessionId: sessionIdTyped, profileId, attending };
+		const mutationArgs = { sessionId: sessionIdTyped, profileId, status };
 		try {
 			await convexClient.mutation(api.sessions.setAttendance, mutationArgs, {
 				optimisticUpdate: (localStore) => {
 					const queryArgs = { sessionId: mutationArgs.sessionId };
-					const currentAttendance = localStore.getQuery(api.sessions.listAttendance, queryArgs);
-					if (!currentAttendance) return;
+					const currentRoster = localStore.getQuery(api.sessions.listAttendanceRoster, queryArgs);
+					if (!currentRoster) return;
 
-					const existing = currentAttendance.find((entry) => entry.userId === userId);
-					if (mutationArgs.attending) {
-						if (existing) return;
-						const now = Date.now();
-						const optimisticId =
-							`optimistic-attendance-${mutationArgs.sessionId}-${userId}` as Id<'attendances'>;
-						localStore.setQuery(api.sessions.listAttendance, queryArgs, [
-							...currentAttendance,
-							{
-								_id: optimisticId,
-								_creationTime: now,
-								sessionId: mutationArgs.sessionId,
-								profileId: mutationArgs.profileId,
-								userId,
-								createdByProfileId: mutationArgs.profileId,
-								createdAt: now
-							}
-						]);
-						return;
-					}
-					if (!existing) return;
 					localStore.setQuery(
-						api.sessions.listAttendance,
+						api.sessions.listAttendanceRoster,
 						queryArgs,
-						currentAttendance.filter((entry) => entry.userId !== userId)
+						currentRoster.map((entry) =>
+							entry.profileId === profileId ? { ...entry, status: mutationArgs.status } : entry
+						)
 					);
 				}
 			});
 			reportMutationSuccess();
 		} catch (error) {
 			reportMutationFailure(error);
-			errorMessage = error instanceof Error ? error.message : 'Failed to update attendance.';
+			errorMessage = error instanceof Error ? error.message : t('sessionAttendance.updateFailure');
 		}
 	};
 
@@ -815,77 +785,69 @@
 			{/if}
 		{:else if view === 'attendees'}
 			<div class="flex flex-col gap-3">
-				{#if !canReadMembers && !canReadAttendance}
+				{#if !canReadAttendance}
 					<p class="type-sm text-muted-foreground">You do not have access to attendees.</p>
-				{:else if membersResponse.isLoading || attendanceAttendeesResponse.isLoading}
-					<LoadingState label="Loading attendees" />
-				{:else if (membersResponse.data?.length ?? 0) === 0 && historicalAttendees.length === 0}
-					<p class="type-sm text-muted-foreground">No attendees found.</p>
-				{:else}
-					{#each membersResponse.data ?? [] as member (member.clubMemberId)}
-						<div
-							class={`relative flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 ${
-								canManageAttendanceOnline
-									? 'cursor-pointer transition-colors hover:bg-accent/40'
-									: 'cursor-not-allowed'
-							}`}
-						>
-							<label
-								class={`absolute inset-0 rounded-xl ${
-									canManageAttendanceOnline ? 'cursor-pointer' : 'cursor-not-allowed'
-								}`}
-								for={`attendance-${member.clubMemberId}`}
+				{:else if attendanceWindowReason === 'not_started'}
+					<Alert>
+						<AlertDescription>{t('sessionAttendance.windowNotStarted')}</AlertDescription>
+					</Alert>
+				{/if}
+				{#if canReadAttendance && attendanceWindowReason === 'locked'}
+					<Alert>
+						<AlertDescription>{t('sessionAttendance.windowLocked')}</AlertDescription>
+					</Alert>
+				{/if}
+				{#if canReadAttendance}
+					{#if attendanceRosterResponse.isLoading}
+						<LoadingState label="Loading attendees" />
+					{:else if (attendanceRosterResponse.data?.length ?? 0) === 0}
+						<p class="type-sm text-muted-foreground">{t('sessionAttendance.emptyState')}</p>
+					{:else}
+						{#each attendanceRosterResponse.data ?? [] as member (member.profileId)}
+							<div
+								class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
 							>
-								<span class="sr-only">
-									Toggle attendance for {formatDisplayName(member)}
-								</span>
-							</label>
-							<div class="flex flex-col gap-1">
-								<p class="type-body-medium">
-									{formatDisplayName(member)}
-								</p>
-								{#if rsvpStatusByProfileId.has(member.profileId)}
-									<p class="type-sm text-muted-foreground">
-										{rsvpStatusByProfileId.get(member.profileId) === 'going'
-											? t('sessionRsvp.indicatorGoing')
-											: t('sessionRsvp.indicatorNotGoing')}
+								<div class="flex flex-col gap-1">
+									<p class="type-body-medium">
+										{member.isPastMember ? 'Past member' : formatDisplayName(member)}
 									</p>
-								{/if}
+									{#if rsvpStatusByProfileId.has(member.profileId)}
+										<p class="type-sm text-muted-foreground">
+											{rsvpStatusByProfileId.get(member.profileId) === 'going'
+												? t('sessionRsvp.indicatorGoing')
+												: t('sessionRsvp.indicatorNotGoing')}
+										</p>
+									{/if}
+									{#if member.status === null}
+										<p class="type-sm text-muted-foreground">
+											{t('sessionAttendance.notRecorded')}
+										</p>
+									{/if}
+								</div>
+								<div class="relative z-10 flex items-center">
+									<ToggleGroup.Root
+										type="single"
+										variant="outline"
+										size="sm"
+										value={member.status ?? undefined}
+										disabled={!canManageAttendanceOnline || member.isPastMember}
+										onValueChange={(value) => {
+											if (!canManageAttendanceOnline || member.isPastMember) return;
+											if (value !== 'present' && value !== 'absent') return;
+											void setAttendance(member.profileId, value);
+										}}
+									>
+										<ToggleGroup.Item value="present" aria-label={`Mark ${formatDisplayName(member)} present`}>
+											{t('sessionAttendance.present')}
+										</ToggleGroup.Item>
+										<ToggleGroup.Item value="absent" aria-label={`Mark ${formatDisplayName(member)} absent`}>
+											{t('sessionAttendance.absent')}
+										</ToggleGroup.Item>
+									</ToggleGroup.Root>
+								</div>
 							</div>
-							<div class="relative z-10 flex items-center">
-								<Checkbox
-									id={`attendance-${member.clubMemberId}`}
-									class="size-6 rounded-md [&>[data-slot=checkbox-indicator]>svg]:size-4"
-									checked={isUserAttending(member.userId)}
-									aria-label={`Mark ${formatDisplayName(member)} as attending`}
-									disabled={!canManageAttendanceOnline}
-									onCheckedChange={(checked) => {
-										if (!canManageAttendanceOnline) return;
-										void setAttendance(member.profileId, member.userId, checked === true);
-									}}
-								/>
-							</div>
-						</div>
-					{/each}
-					{#each historicalAttendees as attendee (attendee.userId)}
-						<div
-							class="relative flex cursor-not-allowed items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
-						>
-							<div class="flex flex-col gap-1">
-								<p class="type-body-medium">
-									{attendee.isPastMember ? 'Past member' : formatDisplayName(attendee)}
-								</p>
-							</div>
-							<div class="relative z-10 flex items-center">
-								<Checkbox
-									class="size-6 rounded-md [&>[data-slot=checkbox-indicator]>svg]:size-4"
-									checked={true}
-									aria-label={`${attendee.isPastMember ? 'Past member' : formatDisplayName(attendee)} attended`}
-									disabled={true}
-								/>
-							</div>
-						</div>
-					{/each}
+						{/each}
+					{/if}
 				{/if}
 			</div>
 		{:else}

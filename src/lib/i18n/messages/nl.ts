@@ -177,6 +177,16 @@ const nl = {
 		locationLabel: 'Locatie',
 		locationPlaceholder: 'Adres, beschrijving of vergaderlink'
 	},
+	sessionAttendance: {
+		present: 'Aanwezig',
+		absent: 'Afwezig',
+		notRecorded: 'Niet geregistreerd',
+		windowNotStarted: 'Aanwezigheid kan worden geregistreerd zodra de sessie begint.',
+		windowLocked: 'Aanwezigheid is vergrendeld voor deze sessie.',
+		windowCancelled: 'Aanwezigheid kan niet worden geregistreerd voor een geannuleerde sessie.',
+		updateFailure: 'Kan aanwezigheid niet bijwerken.',
+		emptyState: 'Niemand was lid van de club toen deze sessie begon.'
+	},
 	authLayout: {
 		description: 'Log in om verder te gaan met je clubervaring.'
 	},
