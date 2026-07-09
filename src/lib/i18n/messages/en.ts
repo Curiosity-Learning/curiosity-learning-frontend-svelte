@@ -613,6 +613,37 @@ const en = {
 		joinLinkLabel: 'Join link',
 		copy: 'Copy',
 		copied: 'Copied'
+	},
+	joinRequestChat: {
+		acceptButton: 'Accept',
+		declineButton: 'Decline',
+		cancelButton: 'Cancel request',
+		accepting: 'Accepting...',
+		declining: 'Declining...',
+		cancelling: 'Cancelling...',
+		acceptFailure: 'Unable to accept this request.',
+		declineFailure: 'Unable to decline this request.',
+		cancelFailure: 'Unable to cancel this request.',
+		acceptedBanner: 'This request was accepted.',
+		acceptedBannerPendingOnboarding:
+			'This request was accepted. {name} will join once they finish setting up their account.',
+		declinedBanner: 'This request was declined.',
+		cancelledBanner: 'This join request was cancelled.',
+		requesterCancelledDescription: 'You can still read the message history, but this chat is closed.'
+	},
+	requestToJoin: {
+		button: 'Request to join',
+		pendingButton: 'Request pending',
+		alreadyMemberButton: 'Already a member',
+		signInToRequest: 'Sign in to request to join',
+		requestSent: 'Your request to join has been sent.',
+		requestFailure: 'Unable to send your request to join.',
+		viewChat: 'View chat'
+	},
+	publicClubPreview: {
+		notFoundTitle: 'Club not found',
+		notFoundDescription: "This club isn't available for preview.",
+		backToPublicClubs: 'Back to public clubs'
 	}
 } as const;
 

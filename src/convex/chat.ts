@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
-import { requireIdentity, requireProfile } from './permissions';
+import { hasPermissionForProfile, requireIdentity, requireProfile } from './permissions';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -100,6 +100,33 @@ const getClubApplicationAccess = async (
 	};
 };
 
+const getJoinRequestAccess = async (
+	ctx: Ctx,
+	joinRequestId: Id<'joinRequests'>,
+	profileId: Id<'profiles'>
+): Promise<RoomAccess> => {
+	const joinRequest = await ctx.db.get(joinRequestId);
+	if (!joinRequest) {
+		return { canRead: false, canSend: false };
+	}
+
+	const canSend = joinRequest.status === 'pending';
+	if (joinRequest.requesterProfileId === profileId) {
+		return { canRead: true, canSend };
+	}
+
+	// Any current Guide of the club can read/send, mirroring how any reviewer can act on a
+	// club application chat. Access is derived (no participants table), same pattern as
+	// `getClubApplicationAccess`.
+	const allowed = await hasPermissionForProfile(
+		ctx,
+		joinRequest.clubId,
+		profileId,
+		'club_join_request:decide'
+	);
+	return { canRead: allowed, canSend: allowed && canSend };
+};
+
 const getRoomAccess = async (
 	ctx: Ctx,
 	room: Doc<'rooms'>,
@@ -112,6 +139,8 @@ const getRoomAccess = async (
 			return await getProjectAccess(ctx, room.projectId, profileId);
 		case 'clubApplication':
 			return await getClubApplicationAccess(ctx, room.clubApplicationId, profileId);
+		case 'joinRequest':
+			return await getJoinRequestAccess(ctx, room.joinRequestId, profileId);
 	}
 };
 
@@ -145,6 +174,11 @@ const getRoomName = async (ctx: Ctx, room: Doc<'rooms'>) => {
 			return (await ctx.db.get(room.projectId))?.name ?? 'Project chat';
 		case 'clubApplication':
 			return (await ctx.db.get(room.clubApplicationId))?.name ?? 'Club application chat';
+		case 'joinRequest': {
+			const joinRequest = await ctx.db.get(room.joinRequestId);
+			const club = joinRequest ? await ctx.db.get(joinRequest.clubId) : null;
+			return club ? `${club.name} join request` : 'Join request chat';
+		}
 	}
 };
 
@@ -184,6 +218,18 @@ const addRoomByClubApplication = async (
 	if (room) rooms.set(room._id, room);
 };
 
+const addRoomByJoinRequest = async (
+	ctx: QueryCtx,
+	rooms: Map<Id<'rooms'>, Doc<'rooms'>>,
+	joinRequestId: Id<'joinRequests'>
+) => {
+	const room = await ctx.db
+		.query('rooms')
+		.withIndex('by_join_request_id', (q) => q.eq('joinRequestId', joinRequestId))
+		.first();
+	if (room) rooms.set(room._id, room);
+};
+
 export const listRoomSummaries = query({
 	args: {},
 	handler: async (ctx) => {
@@ -199,15 +245,27 @@ export const listRoomSummaries = query({
 			await addRoomByClub(ctx, rooms, membership.clubId);
 
 			const role = await ctx.db.get(membership.roleId);
-			if (!role?.permissions.includes('project:read')) {
-				continue;
+			if (role?.permissions.includes('project:read')) {
+				const links = await ctx.db
+					.query('projectClubs')
+					.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+					.collect();
+				for (const link of links) {
+					await addRoomByProject(ctx, rooms, link.projectId);
+				}
 			}
-			const links = await ctx.db
-				.query('projectClubs')
-				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
-				.collect();
-			for (const link of links) {
-				await addRoomByProject(ctx, rooms, link.projectId);
+
+			// Only current (not-left) Guides surface join-request chats for their club: a Guide
+			// who has left shouldn't keep seeing new applicants' rooms, though history for chats
+			// they already participated in is preserved by getJoinRequestAccess's own check.
+			if (!membership.leftAt && role?.permissions.includes('club_join_request:decide')) {
+				const joinRequests = await ctx.db
+					.query('joinRequests')
+					.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+					.collect();
+				for (const joinRequest of joinRequests) {
+					await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
+				}
 			}
 		}
 
@@ -233,6 +291,16 @@ export const listRoomSummaries = query({
 			.collect();
 		for (const review of reviews) {
 			await addRoomByClubApplication(ctx, rooms, review.applicationId);
+		}
+
+		// Own join requests: surfaced regardless of club membership, so a user with no club
+		// membership at all still sees their pending/decided join-request chats (PRD 6.8).
+		const ownJoinRequests = await ctx.db
+			.query('joinRequests')
+			.withIndex('by_requester_profile_id', (q) => q.eq('requesterProfileId', profile._id))
+			.collect();
+		for (const joinRequest of ownJoinRequests) {
+			await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
 		}
 
 		const summaries: Array<{

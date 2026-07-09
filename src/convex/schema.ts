@@ -151,6 +151,25 @@ export default defineSchema({
 		.index('by_reviewer_profile_id', ['reviewerProfileId'])
 		.index('by_application_id_and_reviewer_profile_id', ['applicationId', 'reviewerProfileId']),
 
+	joinRequests: defineTable({
+		clubId: v.id('clubs'),
+		requesterProfileId: v.id('profiles'),
+		status: v.union(
+			v.literal('pending'),
+			v.literal('accepted'),
+			v.literal('declined'),
+			v.literal('cancelled')
+		),
+		createdAt: v.number(),
+		decidedAt: v.optional(v.number()),
+		decidedByProfileId: v.optional(v.id('profiles')),
+		cancelledAt: v.optional(v.number())
+	})
+		.index('by_club', ['clubId'])
+		.index('by_requester_profile_id', ['requesterProfileId'])
+		.index('by_club_and_requester', ['clubId', 'requesterProfileId'])
+		.index('by_club_and_status', ['clubId', 'status']),
+
 	parentChildConsents: defineTable({
 		childProfileId: v.id('profiles'),
 		parentProfileId: v.optional(v.id('profiles')),
@@ -437,12 +456,17 @@ export default defineSchema({
 			v.object({
 				contextType: v.literal('clubApplication'),
 				clubApplicationId: v.id('clubApplications')
+			}),
+			v.object({
+				contextType: v.literal('joinRequest'),
+				joinRequestId: v.id('joinRequests')
 			})
 		)
 	)
 		.index('by_club_id', ['clubId'])
 		.index('by_project_id', ['projectId'])
-		.index('by_club_application_id', ['clubApplicationId']),
+		.index('by_club_application_id', ['clubApplicationId'])
+		.index('by_join_request_id', ['joinRequestId']),
 
 	messages: defineTable({
 		roomId: v.id('rooms'),

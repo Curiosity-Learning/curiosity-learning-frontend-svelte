@@ -227,6 +227,61 @@ describe('discoverability', () => {
 	});
 });
 
+describe('getClubPreviewById', () => {
+	it('returns null for a non-discoverable club', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		const preview = await t.query(api.clubs.getClubPreviewById, { clubId });
+		expect(preview).toBeNull();
+	});
+
+	it('returns null for an abandoned club', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		await t.run((ctx) =>
+			ctx.db.patch(clubId, { discoverable: true, abandonedAt: Date.now() })
+		);
+		const preview = await t.query(api.clubs.getClubPreviewById, { clubId });
+		expect(preview).toBeNull();
+	});
+
+	it('never includes a join code, only preview details', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		await t.run((ctx) => ctx.db.patch(clubId, { discoverable: true }));
+
+		const preview = await t.query(api.clubs.getClubPreviewById, { clubId });
+
+		expect(preview).toMatchObject({ id: clubId, viewerIsMember: false });
+		expect(preview && 'code' in preview).toBe(false);
+	});
+
+	it('reports viewerIsMember and viewerPendingJoinRequestId for the caller', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		await t.run((ctx) => ctx.db.patch(clubId, { discoverable: true }));
+
+		const learner = t.withIdentity({ subject: 'learner-user' });
+		const memberPreview = await learner.query(api.clubs.getClubPreviewById, { clubId });
+		expect(memberPreview).toMatchObject({ viewerIsMember: true, viewerPendingJoinRequestId: null });
+
+		await t.run(async (ctx) => {
+			const id = await ctx.db.insert('profiles', {
+				authUserId: 'outsider-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			await ctx.db.insert('joinRequests', {
+				clubId,
+				requesterProfileId: id,
+				status: 'pending',
+				createdAt: Date.now()
+			});
+		});
+		const outsider = t.withIdentity({ subject: 'outsider-user' });
+		const outsiderPreview = await outsider.query(api.clubs.getClubPreviewById, { clubId });
+		expect(outsiderPreview?.viewerIsMember).toBe(false);
+		expect(outsiderPreview?.viewerPendingJoinRequestId).not.toBeNull();
+	});
+});
+
 describe('club code rate limiting', () => {
 	// Rate-limited code paths return structured results instead of throwing: a throwing
 	// Convex mutation rolls back ALL of its writes (including scheduler calls), so a limiter

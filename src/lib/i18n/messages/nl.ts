@@ -606,6 +606,38 @@ const nl = {
 		joinLinkLabel: 'Join-link',
 		copy: 'Kopiëren',
 		copied: 'Gekopieerd'
+	},
+	joinRequestChat: {
+		acceptButton: 'Accepteren',
+		declineButton: 'Afwijzen',
+		cancelButton: 'Verzoek annuleren',
+		accepting: 'Accepteren...',
+		declining: 'Afwijzen...',
+		cancelling: 'Annuleren...',
+		acceptFailure: 'Kan dit verzoek niet accepteren.',
+		declineFailure: 'Kan dit verzoek niet afwijzen.',
+		cancelFailure: 'Kan dit verzoek niet annuleren.',
+		acceptedBanner: 'Dit verzoek is geaccepteerd.',
+		acceptedBannerPendingOnboarding:
+			'Dit verzoek is geaccepteerd. {name} sluit zich aan zodra het account is voltooid.',
+		declinedBanner: 'Dit verzoek is afgewezen.',
+		cancelledBanner: 'Dit lidmaatschapsverzoek is geannuleerd.',
+		requesterCancelledDescription:
+			'Je kunt de berichtgeschiedenis nog lezen, maar deze chat is gesloten.'
+	},
+	requestToJoin: {
+		button: 'Verzoek om lid te worden',
+		pendingButton: 'Verzoek in behandeling',
+		alreadyMemberButton: 'Al lid',
+		signInToRequest: 'Log in om een verzoek te sturen',
+		requestSent: 'Je verzoek om lid te worden is verstuurd.',
+		requestFailure: 'Kan je verzoek om lid te worden niet versturen.',
+		viewChat: 'Bekijk chat'
+	},
+	publicClubPreview: {
+		notFoundTitle: 'Club niet gevonden',
+		notFoundDescription: 'Deze club is niet beschikbaar om te bekijken.',
+		backToPublicClubs: 'Terug naar openbare clubs'
 	}
 } as const;
 

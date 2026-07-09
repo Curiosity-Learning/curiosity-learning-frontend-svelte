@@ -63,6 +63,25 @@ export const listMembershipsForProfile = async (ctx: DbCtx, profile: Doc<'profil
 		.collect();
 };
 
+export const hasPermissionForProfile = async (
+	ctx: DbCtx,
+	clubId: Id<'clubs'>,
+	profileId: Id<'profiles'>,
+	permission: string
+) => {
+	const membership = await getMembershipByProfileId(ctx, clubId, profileId);
+	if (!membership) {
+		return false;
+	}
+
+	const role = await ctx.db.get(membership.roleId);
+	if (!role) {
+		return false;
+	}
+
+	return role.permissions.includes(permission);
+};
+
 export const hasPermission = async (
 	ctx: DbCtx,
 	clubId: Id<'clubs'>,
