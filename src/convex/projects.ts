@@ -11,6 +11,19 @@ import {
 	requireProfile
 } from './permissions';
 import { ensureProjectRoom } from './chatModel';
+import {
+	assertNotDoneMember,
+	getProjectMemberState,
+	insertProjectChangeLog,
+	isProjectArchived,
+	requireOwnProjectMembership
+} from './projectsModel';
+
+const memberDisplayName = (member: {
+	firstName?: string | null;
+	lastName?: string | null;
+	username?: string | null;
+}) => [member.firstName ?? '', member.lastName ?? ''].join(' ').trim() || member.username || 'A member';
 
 export const listByClub = query({
 	args: {
@@ -80,28 +93,32 @@ export const listPreviewsByClub = query({
 			(project): project is NonNullable<typeof project> => Boolean(project)
 		);
 
-		projects.sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
-		const limit = args.limit ?? projects.length;
-		const limited = projects.slice(0, Math.max(0, limit));
-
 		const result: Array<{
-			project: (typeof limited)[number];
+			project: (typeof projects)[number];
 			members: Array<{
 				name: string;
 				imageUrl: string | null;
 				profileImageMediaAssetId: Id<'mediaAssets'> | null;
 			}>;
+			// PRD 6.6.7: Showcase = archived OR zero active (not-left, not-done) members left in
+			// this club's view of the project. `projects.archivedAt` alone isn't enough once every
+			// member has left without ever marking done.
+			isShowcase: boolean;
 		}> = [];
 
-		for (const project of limited) {
+		for (const project of projects) {
 			const memberships = await ctx.db
 				.query('projectMembers')
 				.withIndex('by_project', (q) => q.eq('projectId', project._id))
 				.collect();
-			const activeMemberships = memberships.filter((membership) => !membership.leftAt).slice(0, 3);
+			const currentMemberships = memberships.filter((membership) => !membership.leftAt);
+			const activeMemberships = currentMemberships.filter((membership) => !membership.doneDate);
+			const archived = Boolean(project.archivedAt) || (await isProjectArchived(ctx, project._id));
+			const isShowcase = archived || activeMemberships.length === 0;
 
+			const previewMembers = currentMemberships.slice(0, 3);
 			const members = await Promise.all(
-				activeMemberships.map(async (membership) => {
+				previewMembers.map(async (membership) => {
 					const profile = await getRelatedProfile(ctx, membership.profileId);
 					const fullName = [membership.firstName, membership.lastName]
 						.filter(Boolean)
@@ -116,10 +133,12 @@ export const listPreviewsByClub = query({
 				})
 			);
 
-			result.push({ project, members });
+			result.push({ project, members, isShowcase });
 		}
 
-		return result;
+		result.sort((a, b) => (a.project.dueDate ?? 0) - (b.project.dueDate ?? 0));
+		const limit = args.limit ?? result.length;
+		return result.slice(0, Math.max(0, limit));
 	}
 });
 
@@ -192,6 +211,12 @@ export const create = mutation({
 				coverPhotoUrl: profile.coverPhotoUrl,
 				createdAt: now
 			});
+			await insertProjectChangeLog(ctx, {
+				projectId,
+				actorProfileId: profile._id,
+				entryType: 'member_joined',
+				text: `${memberDisplayName(profile)} created the project`
+			});
 		}
 
 		return await ctx.db.get(projectId);
@@ -203,8 +228,7 @@ export const update = mutation({
 		projectId: v.id('projects'),
 		name: v.optional(v.string()),
 		description: v.optional(v.string()),
-		dueDate: v.optional(v.number()),
-		doneDate: v.optional(v.number())
+		dueDate: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -217,6 +241,8 @@ export const update = mutation({
 		if (!canUpdate) {
 			throw new ConvexError('Permission denied');
 		}
+		// PRD 6.6.4: Done members cannot edit project metadata or change attribution.
+		await assertNotDoneMember(ctx, args.projectId, identity.subject);
 
 		const project = await ctx.db.get(args.projectId);
 		if (!project) {
@@ -227,7 +253,6 @@ export const update = mutation({
 			name: args.name ?? project.name,
 			description: args.description ?? project.description,
 			dueDate: args.dueDate ?? project.dueDate,
-			doneDate: args.doneDate ?? project.doneDate,
 			updatedAt: Date.now()
 		});
 
@@ -255,10 +280,11 @@ export const listMembers = query({
 			.query('projectMembers')
 			.withIndex('by_project', (q) => q.eq('projectId', args.projectId))
 			.collect();
-		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		// PRD 6.6.4: left members disappear from the team list entirely.
+		const currentMemberships = memberships.filter((membership) => !membership.leftAt);
 
 		const result = [];
-		for (const membership of activeMemberships) {
+		for (const membership of currentMemberships) {
 			const role = await ctx.db.get(membership.roleId);
 			const profile = await getRelatedProfile(ctx, membership.profileId);
 			if (!profile) continue;
@@ -272,7 +298,8 @@ export const listMembers = query({
 				profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null,
 				roleId: membership.roleId,
 				roleName: role?.name ?? 'Contributor',
-				leftAt: membership.leftAt ?? null
+				doneDate: membership.doneDate ?? null,
+				state: getProjectMemberState(membership)
 			});
 		}
 
@@ -382,16 +409,26 @@ export const addMember = mutation({
 			throw new ConvexError('User is already a project member');
 		}
 
+		// Re-adding a previously-left member (CL-722 rejoin path): clear `leftAt`/`doneDate` on
+		// the existing row rather than inserting a fresh one, so history (createdAt, past
+		// change-log entries referencing this membership) is preserved.
 		if (historicalMembership) {
 			await ensureProjectRoom(ctx, args.projectId);
 			await ctx.db.patch(historicalMembership._id, {
 				profileId: args.profileId,
 				leftAt: undefined,
+				doneDate: undefined,
 				roleId: role._id,
 				firstName: profile.firstName,
 				lastName: profile.lastName,
 				username: profile.username,
 				coverPhotoUrl: profile.coverPhotoUrl
+			});
+			await insertProjectChangeLog(ctx, {
+				projectId: args.projectId,
+				actorProfileId: profile._id,
+				entryType: 'member_joined',
+				text: `${memberDisplayName(profile)} joined the project`
 			});
 			return await ctx.db.get(historicalMembership._id);
 		}
@@ -407,34 +444,110 @@ export const addMember = mutation({
 			coverPhotoUrl: profile.coverPhotoUrl,
 			createdAt: Date.now()
 		});
+		await insertProjectChangeLog(ctx, {
+			projectId: args.projectId,
+			actorProfileId: profile._id,
+			entryType: 'member_joined',
+			text: `${memberDisplayName(profile)} joined the project`
+		});
 
 		return await ctx.db.get(memberId);
 	}
 });
 
-export const removeMember = mutation({
+/**
+ * PRD 6.6.5: a member marks themselves permanently Done. This cannot be undone — there is no
+ * "un-done" mutation by design (stays credited; chat stays open until every current member is
+ * Done). If this was the last active member, the project becomes Archived via the shared
+ * `isProjectArchived` helper; we also stamp `projects.archivedAt` here for cheap queries and
+ * write a "Project archived" change-log entry.
+ */
+export const markSelfDone = mutation({
 	args: {
-		projectMemberId: v.id('projectMembers')
+		projectId: v.id('projects')
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const member = await ctx.db.get(args.projectMemberId);
-		if (!member) {
-			throw new ConvexError('Project member not found');
+		const membership = await requireOwnProjectMembership(ctx, args.projectId, identity.subject);
+		if (membership.doneDate) {
+			throw new ConvexError('You have already marked this project as done');
 		}
 
-		const canUpdate = await isProjectPermissionAllowed(
+		const now = Date.now();
+		await ctx.db.patch(membership._id, { doneDate: now });
+		await insertProjectChangeLog(ctx, {
+			projectId: args.projectId,
+			actorProfileId: membership.profileId,
+			entryType: 'member_done',
+			text: `${memberDisplayName(membership)} marked themselves as done`
+		});
+
+		const archived = await isProjectArchived(ctx, args.projectId);
+		if (archived) {
+			const project = await ctx.db.get(args.projectId);
+			if (project && !project.archivedAt) {
+				await ctx.db.patch(args.projectId, { archivedAt: now });
+				await insertProjectChangeLog(ctx, {
+					projectId: args.projectId,
+					actorProfileId: null,
+					entryType: 'project_archived',
+					text: 'Project archived'
+				});
+			}
+		}
+
+		return { archived };
+	}
+});
+
+/**
+ * PRD 6.6.5: a member leaves the project. Left members are removed from the team list, lose
+ * chat send access (already enforced in `chat.ts`), and lose credit. They can rejoin later via
+ * invite (CL-722); `addMember` handles that by clearing `leftAt`/`doneDate` on this same row.
+ */
+export const leaveProject = mutation({
+	args: {
+		projectId: v.id('projects')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const membership = await requireOwnProjectMembership(ctx, args.projectId, identity.subject);
+
+		await ctx.db.patch(membership._id, { leftAt: Date.now() });
+		await insertProjectChangeLog(ctx, {
+			projectId: args.projectId,
+			actorProfileId: membership.profileId,
+			entryType: 'member_left',
+			text: `${memberDisplayName(membership)} left the project`
+		});
+
+		return { success: true };
+	}
+});
+
+export const listChangeLog = query({
+	args: {
+		projectId: v.id('projects')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await isProjectPermissionAllowed(
 			ctx,
-			member.projectId,
+			args.projectId,
 			identity.subject,
-			'project:update'
+			'project:read'
 		);
-		if (!canUpdate) {
+		if (!canRead) {
 			throw new ConvexError('Permission denied');
 		}
 
-		await ctx.db.patch(args.projectMemberId, { leftAt: Date.now() });
-		return { success: true };
+		const entries = await ctx.db
+			.query('projectChangeLogs')
+			.withIndex('by_project_and_created', (q) => q.eq('projectId', args.projectId))
+			.order('asc')
+			.collect();
+
+		return entries;
 	}
 });
 

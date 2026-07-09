@@ -655,6 +655,27 @@ const en = {
 		readOnlyBannerTitle: 'This chat is read-only',
 		readOnlyBannerDescription:
 			'You can still view the message history, but you can no longer send messages here.'
+	},
+	projectDetail: {
+		memberStateDone: 'Done',
+		memberStateSystem: 'System',
+		imDoneAction: "I'm Done",
+		imDoneDialogTitle: "Mark yourself as done?",
+		imDoneDialogDescription:
+			"This is permanent and cannot be undone. You'll stay credited as a project member, and the project chat stays open until every member has marked themselves done. Once the last active member marks done, the project is archived.",
+		imDoneConfirmAction: 'Yes, mark me as done',
+		imDoneCancelAction: 'Cancel',
+		imDoneFailure: 'Failed to mark yourself as done.',
+		leaveProjectAction: 'Leave project',
+		leaveProjectDialogTitle: 'Leave this project?',
+		leaveProjectDialogDescription:
+			"You'll be removed from the team list and lose credit for this project. You can rejoin later if invited back.",
+		leaveProjectConfirmAction: 'Yes, leave project',
+		leaveProjectCancelAction: 'Cancel',
+		leaveProjectFailure: 'Failed to leave the project.',
+		doneMemberEditNotice: 'Done members cannot edit project details or post updates.',
+		activityTitle: 'Activity',
+		activityEmpty: 'No activity yet.'
 	}
 } as const;
 

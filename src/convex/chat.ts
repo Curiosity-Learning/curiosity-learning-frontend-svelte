@@ -3,6 +3,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { hasPermissionForProfile, requireIdentity, requireProfile } from './permissions';
+import { isProjectArchived } from './projectsModel';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -59,27 +60,6 @@ const getProjectObserverAccess = async (
 	}
 
 	return access;
-};
-
-/**
- * PRD 6.8.4: a project is "Archived" once every current (not-left) member has pressed
- * "I'm Done" (`projectMembers.doneDate` set). Archival is the one event that closes the
- * project chat permanently for everyone, even members who could otherwise still send.
- * This is per-member state (`projectMembers.doneDate`), distinct from the whole-project
- * `projects.doneDate` toggle used elsewhere (e.g. `project-detail-view.svelte`), which
- * marks project completion but does not by itself archive/close the chat. Projects with
- * no current members are not considered archived (nothing to archive).
- */
-const isProjectArchived = async (ctx: Ctx, projectId: Id<'projects'>): Promise<boolean> => {
-	const memberships = await ctx.db
-		.query('projectMembers')
-		.withIndex('by_project', (q) => q.eq('projectId', projectId))
-		.collect();
-	const currentMemberships = memberships.filter((membership) => !membership.leftAt);
-	if (currentMemberships.length === 0) {
-		return false;
-	}
-	return currentMemberships.every((membership) => Boolean(membership.doneDate));
 };
 
 const getProjectAccess = async (

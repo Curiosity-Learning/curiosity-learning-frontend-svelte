@@ -11,6 +11,7 @@ import {
 	requireIdentity,
 	requireProfile
 } from './permissions';
+import { assertNotDoneMember } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
@@ -477,6 +478,9 @@ export const create = mutation({
 		if (!allowed) {
 			throw new ConvexError('Permission denied');
 		}
+		// Cheap correctness guard ahead of CL-724 (posting-updates restriction): a Done member
+		// shouldn't be able to post project updates either.
+		await assertNotDoneMember(ctx, args.projectId, identity.subject);
 
 		const now = Date.now();
 		const updateId = await ctx.db.insert('updates', {
