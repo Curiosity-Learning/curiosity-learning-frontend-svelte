@@ -139,6 +139,27 @@ const en = {
 			sunday: 'Sunday'
 		}
 	},
+	sessionRsvp: {
+		going: 'Going',
+		notGoing: 'Not going',
+		goingCountOne: '{count} person going',
+		goingCountOther: '{count} people going',
+		notGoingCountSuffix: '· {count} not going',
+		updateFailure: 'Failed to update RSVP.',
+		indicatorGoing: 'RSVP: Going',
+		indicatorNotGoing: 'RSVP: Not going'
+	},
+	sessionCancel: {
+		actionLabel: 'Cancel session',
+		confirm: 'Cancel this session? Members who RSVP’d "Going" will be notified.',
+		failure: 'Failed to cancel session.',
+		cancelledTitle: 'Session cancelled',
+		cancelledDescription: 'This session has been cancelled and is no longer scheduled.'
+	},
+	sessionEditor: {
+		locationLabel: 'Location',
+		locationPlaceholder: 'Address, description, or meeting URL'
+	},
 	authLayout: {
 		description: 'Sign in to continue your club experience.'
 	},

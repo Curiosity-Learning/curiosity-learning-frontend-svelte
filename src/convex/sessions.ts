@@ -1,4 +1,5 @@
 import { ConvexError, v } from 'convex/values';
+import { internal } from './_generated/api';
 import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
@@ -14,6 +15,35 @@ import {
 } from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
+
+const rsvpStatusValidator = v.union(v.literal('going'), v.literal('not_going'));
+
+const getRsvpForSessionAndProfile = async (
+	ctx: Ctx,
+	sessionId: Id<'sessions'>,
+	profileId: Id<'profiles'>
+) => {
+	return await ctx.db
+		.query('sessionRsvps')
+		.withIndex('by_session_and_profile', (q) =>
+			q.eq('sessionId', sessionId).eq('profileId', profileId)
+		)
+		.unique();
+};
+
+const getRsvpCounts = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
+	const rows = await ctx.db
+		.query('sessionRsvps')
+		.withIndex('by_session', (q) => q.eq('sessionId', sessionId))
+		.collect();
+	let going = 0;
+	let notGoing = 0;
+	for (const row of rows) {
+		if (row.status === 'going') going += 1;
+		else notGoing += 1;
+	}
+	return { going, notGoing };
+};
 
 const getSession = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
 	const session = await ctx.db.get(sessionId);
@@ -102,10 +132,11 @@ export const listByClub = query({
 			return args.upcomingOnly ? base.gte('startTime', now) : base;
 		});
 
-		if (args.limit) {
-			return await queryBuilder.take(args.limit);
-		}
-		return await queryBuilder.collect();
+		const sessions = args.limit
+			? await queryBuilder.take(args.limit * 2 + 10)
+			: await queryBuilder.collect();
+		const visible = sessions.filter((session) => !session.cancelled);
+		return args.limit ? visible.slice(0, args.limit) : visible;
 	}
 });
 
@@ -204,6 +235,9 @@ export const update = mutation({
 		const session = await getSession(ctx, args.sessionId);
 		await requirePermission(ctx, session.clubId, identity.subject, 'session:update');
 
+		if (session.cancelled) {
+			throw new ConvexError('Cannot update a cancelled session');
+		}
 		if (session.startTime < Date.now()) {
 			throw new ConvexError('Cannot update past sessions');
 		}
@@ -223,40 +257,53 @@ export const update = mutation({
 	}
 });
 
-export const remove = mutation({
+export const cancel = mutation({
 	args: {
 		sessionId: v.id('sessions')
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 		const session = await getSession(ctx, args.sessionId);
-		await requirePermission(ctx, session.clubId, identity.subject, 'session:delete');
+		await requirePermission(ctx, session.clubId, identity.subject, 'session:cancel');
 
-		const activities = await ctx.db
-			.query('sessionActivities')
-			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
-			.collect();
-		for (const activity of activities) {
-			const links = await ctx.db
-				.query('sessionActivityBuildingBlocks')
-				.withIndex('by_session_activity', (q) => q.eq('sessionActivityId', activity._id))
-				.collect();
-			for (const link of links) {
-				await ctx.db.delete(link._id);
-			}
-			await ctx.db.delete(activity._id);
+		if (session.cancelled) {
+			throw new ConvexError('Session is already cancelled');
+		}
+		if (session.startTime < Date.now()) {
+			throw new ConvexError('Only future sessions can be cancelled');
 		}
 
-		const attendance = await ctx.db
-			.query('attendances')
+		const now = Date.now();
+		await ctx.db.patch(args.sessionId, {
+			cancelled: true,
+			cancelledAt: now,
+			cancelledByProfileId: profile._id,
+			updatedAt: now
+		});
+
+		const club = await ctx.db.get(session.clubId);
+		const rsvps = await ctx.db
+			.query('sessionRsvps')
 			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
 			.collect();
-		for (const row of attendance) {
-			await ctx.db.delete(row._id);
+		const sessionDateLabel = new Date(session.startTime).toLocaleDateString(undefined, {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric'
+		});
+		for (const rsvp of rsvps) {
+			if (rsvp.status !== 'going') continue;
+			await ctx.runMutation(internal.notifications.createSystemNotification, {
+				profileId: rsvp.profileId,
+				clubId: session.clubId,
+				title: 'Session cancelled',
+				message: `Session on ${sessionDateLabel} at ${club?.name ?? 'your club'} was cancelled.`,
+				url: `/session/${args.sessionId}/activities`
+			});
 		}
 
-		await ctx.db.delete(args.sessionId);
-		return { success: true };
+		return await ctx.db.get(args.sessionId);
 	}
 });
 
@@ -323,6 +370,7 @@ export const getSessionCardData = query({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 		const session = await getSession(ctx, args.sessionId);
 
 		// Tags come from activities/building blocks.
@@ -368,7 +416,10 @@ export const getSessionCardData = query({
 			}
 		}
 
-		return { tagNames, attendees };
+		const rsvpCounts = await getRsvpCounts(ctx, args.sessionId);
+		const myRsvp = await getRsvpForSessionAndProfile(ctx, args.sessionId, profile._id);
+
+		return { tagNames, attendees, rsvpCounts, myRsvpStatus: myRsvp?.status ?? null };
 	}
 });
 
@@ -382,6 +433,7 @@ export const listCardPreviewsByClub = query({
 	handler: async (ctx, args) => {
 		// Single payload for session cards so list/dashboard routes avoid nested per-card queries.
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 		await requirePermission(ctx, args.clubId, identity.subject, 'session:read');
 		const canReadActivities = await hasPermission(
 			ctx,
@@ -395,9 +447,11 @@ export const listCardPreviewsByClub = query({
 			const base = q.eq('clubId', args.clubId);
 			return args.upcomingOnly ? base.gte('startTime', now) : base;
 		});
-		const sessions = args.limit
-			? await queryBuilder.take(args.limit)
+		const rawSessions = args.limit
+			? await queryBuilder.take(args.limit * 2 + 10)
 			: await queryBuilder.collect();
+		const visibleSessions = rawSessions.filter((session) => !session.cancelled);
+		const sessions = args.limit ? visibleSessions.slice(0, args.limit) : visibleSessions;
 
 		if (sessions.length === 0) return [];
 
@@ -432,6 +486,8 @@ export const listCardPreviewsByClub = query({
 			}>;
 			activityItems: Array<{ id: string; title: string; description: string | null }>;
 			hiddenActivitiesCount: number;
+			rsvpCounts: { going: number; notGoing: number };
+			myRsvpStatus: 'going' | 'not_going' | null;
 		}> = [];
 
 		for (const session of sessions) {
@@ -475,12 +531,17 @@ export const listCardPreviewsByClub = query({
 				attendees.push(...(await getSessionAttendeePreviews(ctx, session._id)));
 			}
 
+			const rsvpCounts = await getRsvpCounts(ctx, session._id);
+			const myRsvp = await getRsvpForSessionAndProfile(ctx, session._id, profile._id);
+
 			entries.push({
 				session,
 				tagNames,
 				attendees,
 				activityItems,
-				hiddenActivitiesCount: Math.max(activities.length - activityItems.length, 0)
+				hiddenActivitiesCount: Math.max(activities.length - activityItems.length, 0),
+				rsvpCounts,
+				myRsvpStatus: myRsvp?.status ?? null
 			});
 		}
 
@@ -715,5 +776,82 @@ export const canManageSession = query({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		return await hasPermission(ctx, args.clubId, identity.subject, 'session:update');
+	}
+});
+
+export const setRsvp = mutation({
+	args: {
+		sessionId: v.id('sessions'),
+		status: rsvpStatusValidator
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const session = await getSession(ctx, args.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'session_rsvp:set');
+
+		if (!(await getMembershipByProfileId(ctx, session.clubId, profile._id))) {
+			throw new ConvexError('Must be an active club member to RSVP');
+		}
+		if (session.cancelled) {
+			throw new ConvexError('Cannot RSVP to a cancelled session');
+		}
+		if (session.startTime <= Date.now()) {
+			throw new ConvexError('RSVP is locked once the session has started');
+		}
+
+		const existing = await getRsvpForSessionAndProfile(ctx, args.sessionId, profile._id);
+		const now = Date.now();
+		if (existing) {
+			await ctx.db.patch(existing._id, { status: args.status, updatedAt: now });
+			return await ctx.db.get(existing._id);
+		}
+
+		const rsvpId = await ctx.db.insert('sessionRsvps', {
+			sessionId: args.sessionId,
+			profileId: profile._id,
+			status: args.status,
+			createdAt: now,
+			updatedAt: now
+		});
+		return await ctx.db.get(rsvpId);
+	}
+});
+
+export const listRsvps = query({
+	args: {
+		sessionId: v.id('sessions')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const session = await getSession(ctx, args.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'session_rsvp:read_all');
+
+		const rows = await ctx.db
+			.query('sessionRsvps')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.collect();
+
+		const output: Array<{
+			profileId: Id<'profiles'>;
+			status: 'going' | 'not_going';
+			firstName: string | null;
+			lastName: string | null;
+			username: string | null;
+		}> = [];
+
+		for (const row of rows) {
+			const profile = await getRelatedProfile(ctx, row.profileId);
+			if (!profile) continue;
+			output.push({
+				profileId: profile._id,
+				status: row.status,
+				firstName: profile.firstName ?? null,
+				lastName: profile.lastName ?? null,
+				username: profile.username ?? null
+			});
+		}
+
+		return output;
 	}
 });

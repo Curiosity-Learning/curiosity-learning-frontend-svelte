@@ -59,9 +59,11 @@
 	let canReadProjects = $derived(clubPermissions.includes('project:read'));
 	let canCreateSession = $derived(clubPermissions.includes('session:create'));
 	let canCreateProject = $derived(clubPermissions.includes('project:create'));
-	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
+	let canCancelSession = $derived(clubPermissions.includes('session:cancel'));
+	let canRsvp = $derived(clubPermissions.includes('session_rsvp:set'));
 	let canEditClub = $derived(clubPermissions.includes('club:edit'));
 	let canShowSessionAttendees = $derived(canReadMembers && canReadAttendance);
+	let rsvpPendingSessionId = $state<Id<'sessions'> | null>(null);
 
 	const upcomingSessionCardsResponse = useStableQuery(
 		api.sessions.listCardPreviewsByClub,
@@ -189,6 +191,17 @@
 			createSessionError = error instanceof Error ? error.message : 'Failed to create session.';
 		} finally {
 			createSessionPending = false;
+		}
+	};
+
+	const setRsvp = async (sessionId: Id<'sessions'>, status: 'going' | 'not_going') => {
+		rsvpPendingSessionId = sessionId;
+		try {
+			await convexClient.mutation(api.sessions.setRsvp, { sessionId, status });
+		} catch (error) {
+			reportMutationFailure(error);
+		} finally {
+			rsvpPendingSessionId = null;
 		}
 	};
 
@@ -388,14 +401,19 @@
 							tagNames: entry.tagNames,
 							attendees: entry.attendees,
 							activityItems: entry.activityItems,
-							hiddenActivitiesCount: entry.hiddenActivitiesCount
+							hiddenActivitiesCount: entry.hiddenActivitiesCount,
+							rsvpCounts: entry.rsvpCounts,
+							myRsvpStatus: entry.myRsvpStatus
 						}}
 						canReadMembers={canShowSessionAttendees}
-						canDelete={canDeleteSession}
+						canDelete={canCancelSession}
+						{canRsvp}
+						rsvpPending={rsvpPendingSessionId === entry.session._id}
 						showActivitiesSection={false}
 						showAttendeesSection={canShowSessionAttendees}
 						attendeesAvatarSizeClass="size-9"
 						showActions={false}
+						onSetRsvp={(status) => void setRsvp(entry.session._id, status)}
 						class="w-[20.25rem] shrink-0 sm:w-[21.5rem]"
 					/>
 				{/each}

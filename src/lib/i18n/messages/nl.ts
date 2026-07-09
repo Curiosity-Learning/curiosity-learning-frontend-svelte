@@ -140,6 +140,27 @@ const nl = {
 			sunday: 'Zondag'
 		}
 	},
+	sessionRsvp: {
+		going: 'Ik kom',
+		notGoing: 'Ik kom niet',
+		goingCountOne: '{count} persoon komt',
+		goingCountOther: '{count} personen komen',
+		notGoingCountSuffix: '· {count} komen niet',
+		updateFailure: 'Kan RSVP niet bijwerken.',
+		indicatorGoing: 'RSVP: Komt',
+		indicatorNotGoing: 'RSVP: Komt niet'
+	},
+	sessionCancel: {
+		actionLabel: 'Sessie annuleren',
+		confirm: 'Deze sessie annuleren? Leden die "Ik kom" hebben aangegeven krijgen een melding.',
+		failure: 'Kan sessie niet annuleren.',
+		cancelledTitle: 'Sessie geannuleerd',
+		cancelledDescription: 'Deze sessie is geannuleerd en staat niet meer gepland.'
+	},
+	sessionEditor: {
+		locationLabel: 'Locatie',
+		locationPlaceholder: 'Adres, beschrijving of vergaderlink'
+	},
 	authLayout: {
 		description: 'Log in om verder te gaan met je clubervaring.'
 	},

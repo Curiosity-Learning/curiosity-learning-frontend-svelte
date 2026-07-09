@@ -20,6 +20,7 @@
 	import { formatSessionHeaderLine } from '$lib/domain/session';
 	import { combineDateAndTime, nextScheduledSession } from '$lib/domain/schedule';
 	import { routes } from '$lib/routes';
+	import { t } from '$lib/i18n';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
@@ -46,9 +47,11 @@
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canCreate = $derived(clubPermissions.includes('session:create'));
-	let canDelete = $derived(clubPermissions.includes('session:delete'));
+	let canCancel = $derived(clubPermissions.includes('session:cancel'));
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
+	let canRsvp = $derived(clubPermissions.includes('session_rsvp:set'));
 	let canMutateOnline = $derived(canMutateOnlineState.current);
+	let rsvpPendingSessionId = $state<Id<'sessions'> | null>(null);
 
 	const sessionCardsResponse = useStableQuery(
 		api.sessions.listCardPreviewsByClub,
@@ -217,16 +220,28 @@
 		}
 	};
 
-	const removeSession = async (sessionId: Id<'sessions'>) => {
-		if (!window.confirm('Delete this session and all related activities?')) return;
+	const cancelSession = async (sessionId: Id<'sessions'>) => {
+		if (!window.confirm(t('sessionCancel.confirm'))) return;
 		pending = true;
 		errorMessage = '';
 		try {
-			await convexClient.mutation(api.sessions.remove, { sessionId });
+			await convexClient.mutation(api.sessions.cancel, { sessionId });
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to delete session.';
+			errorMessage = error instanceof Error ? error.message : t('sessionCancel.failure');
 		} finally {
 			pending = false;
+		}
+	};
+
+	const setRsvp = async (sessionId: Id<'sessions'>, status: 'going' | 'not_going') => {
+		rsvpPendingSessionId = sessionId;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.sessions.setRsvp, { sessionId, status });
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('sessionRsvp.updateFailure');
+		} finally {
+			rsvpPendingSessionId = null;
 		}
 	};
 </script>
@@ -280,8 +295,11 @@
 						sessionHref={routes.sessionDetail(entry.session._id)}
 						prefetchedCardData={entry}
 						{canReadMembers}
-						{canDelete}
-						onDelete={() => void removeSession(entry.session._id)}
+						canDelete={canCancel}
+						{canRsvp}
+						rsvpPending={rsvpPendingSessionId === entry.session._id}
+						onDelete={() => void cancelSession(entry.session._id)}
+						onSetRsvp={(status) => void setRsvp(entry.session._id, status)}
 					/>
 				{/each}
 			</div>
