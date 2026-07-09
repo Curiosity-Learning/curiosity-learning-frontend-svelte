@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { mediaStorageProviderValidatorLiteral } from './mediaStorage';
+import { mediaModerationResultValidator } from './mediaModeration';
 
 export const MEDIA_PIPELINE_VERSION = 1;
 
@@ -81,6 +82,7 @@ export const mediaAssetFields = {
 	originalFilename: v.optional(v.string()),
 	clientContentType: v.optional(v.string()),
 	clientSizeBytes: v.optional(v.number()),
+	clientReportedImageCompression: v.optional(v.boolean()),
 	acceptedContentTypes: v.array(v.string()),
 	maxBytes: v.number(),
 	enableCompression: v.boolean(),
@@ -95,6 +97,7 @@ export const mediaAssetFields = {
 	sizeBytes: v.optional(v.number()),
 	durationSeconds: v.optional(v.number()),
 	sha256: v.optional(v.string()),
+	moderation: v.optional(mediaModerationResultValidator),
 	pipelineVersion: v.number(),
 	attemptCount: v.number(),
 	stepResults: v.array(mediaPipelineStepResultValidator),

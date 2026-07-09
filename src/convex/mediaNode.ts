@@ -7,6 +7,7 @@ import {
 	S3Client
 } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
+import { DetectModerationLabelsCommand, RekognitionClient } from '@aws-sdk/client-rekognition';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
@@ -19,12 +20,91 @@ import {
 import { mediaUploadConstraintsValidator } from './mediaModel';
 import { isOperationalMediaFailure } from './mediaMonitoring';
 import {
+	type MediaImageModerator,
 	type SupportedContentType,
 	type StoredMediaMetadata,
 	runMediaPipeline
 } from './mediaPipeline';
+import type { MediaModerationLabel } from './mediaModeration';
 import { toResolvedAsset } from './mediaShared';
 import { reportConvexError } from './monitoring';
+
+// Rekognition's DetectModerationLabels supports referencing an S3 object
+// directly, but that requires the calling IAM principal to also have
+// s3:GetObject on the target bucket. Our media bucket credentials
+// (MEDIA_S3_*, the `curiosity-media-uploader` IAM user) are a separate IAM
+// identity from the general AWS_* creds, and it turns out *neither*
+// principal has both permissions: MEDIA_S3_* lacks rekognition:* entirely
+// (confirmed via AccessDeniedException during CL-685 sanity-testing), while
+// the generic AWS_* user has Rekognition access but was not verified against
+// the S3 bucket. We therefore fetch object bytes with the S3-scoped
+// credentials (MEDIA_S3_*, which we already authenticate with for storage
+// operations) and call Rekognition with the separate AWS_* credentials that
+// were confirmed (via the CL-685 feasibility probe) to have
+// rekognition:DetectModerationLabels access.
+const REKOGNITION_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+const requireRekognitionEnv = (name: string) => {
+	const value = process.env[name]?.trim();
+	if (!value) {
+		throw new Error(`${name} is not set (Convex environment variable).`);
+	}
+	return value;
+};
+
+const createRekognitionClient = () =>
+	new RekognitionClient({
+		region: process.env.AWS_REGION?.trim() || process.env.MEDIA_S3_REGION?.trim(),
+		credentials: {
+			accessKeyId: requireRekognitionEnv('AWS_ACCESS_KEY_ID'),
+			secretAccessKey: requireRekognitionEnv('AWS_SECRET_ACCESS_KEY')
+		}
+	});
+
+const toModerationLabels = (
+	labels: { Name?: string; Confidence?: number; ParentName?: string }[] | undefined
+): MediaModerationLabel[] =>
+	(labels ?? [])
+		.filter((label): label is { Name: string; Confidence: number; ParentName?: string } =>
+			Boolean(label.Name && typeof label.Confidence === 'number')
+		)
+		.map((label) => ({
+			name: label.Name,
+			confidence: label.Confidence,
+			parentName: label.ParentName
+		}));
+
+const buildImageModerator = ({
+	client,
+	rekognitionClient
+}: {
+	client: S3Client;
+	rekognitionClient: RekognitionClient;
+}): MediaImageModerator => {
+	return async ({ bucket, objectKey }) => {
+		const response = await client.send(
+			new GetObjectCommand({
+				Bucket: bucket,
+				Key: objectKey,
+				Range: `bytes=0-${REKOGNITION_MAX_IMAGE_BYTES - 1}`
+			})
+		);
+
+		if (!response.Body) {
+			return [];
+		}
+
+		const bytes = await response.Body.transformToByteArray();
+		const result = await rekognitionClient.send(
+			new DetectModerationLabelsCommand({
+				Image: { Bytes: bytes },
+				MinConfidence: 40
+			})
+		);
+
+		return toModerationLabels(result.ModerationLabels);
+	};
+};
 
 type PresignedPostCondition = NonNullable<
 	Parameters<typeof createPresignedPost>[1]['Conditions']
@@ -321,7 +401,8 @@ export const beginUpload = internalAction({
 		originalFilename: v.optional(v.string()),
 		clientContentType: v.optional(v.string()),
 		clientSizeBytes: v.optional(v.number()),
-		clientDurationSeconds: v.optional(v.number())
+		clientDurationSeconds: v.optional(v.number()),
+		clientReportedImageCompression: v.optional(v.boolean())
 	},
 	handler: async (ctx, args) => {
 		const config = loadMediaStorageConfig();
@@ -334,7 +415,8 @@ export const beginUpload = internalAction({
 			constraints: args.constraints,
 			originalFilename: args.originalFilename,
 			clientContentType: args.clientContentType,
-			clientSizeBytes: args.clientSizeBytes
+			clientSizeBytes: args.clientSizeBytes,
+			clientReportedImageCompression: args.clientReportedImageCompression
 		});
 
 		if (!asset.sourceObjectKey) {
@@ -559,6 +641,9 @@ export const processUpload = internalAction({
 				storedSize: storageMetadata?.size ?? null,
 				storedContentType: storageMetadata?.contentType ?? null
 			});
+			const rekognitionClient = createRekognitionClient();
+			const moderateImage = buildImageModerator({ client, rekognitionClient });
+
 			const result = await runMediaPipeline({
 				asset: {
 					acceptedContentTypes: asset.acceptedContentTypes as SupportedContentType[],
@@ -566,9 +651,11 @@ export const processUpload = internalAction({
 					enableCompression: asset.enableCompression,
 					enableSafetyScreening: asset.enableSafetyScreening,
 					originalFilename: asset.originalFilename ?? null,
-					clientContentType: asset.clientContentType ?? null
+					clientContentType: asset.clientContentType ?? null,
+					clientReportedImageCompression: asset.clientReportedImageCompression ?? false
 				},
-				storageMetadata
+				storageMetadata,
+				moderateImage
 			});
 
 			if (result.ok) {
@@ -576,7 +663,8 @@ export const processUpload = internalAction({
 					assetId: asset._id,
 					mediaKind: result.descriptor.mediaKind ?? null,
 					contentType: result.descriptor.contentType ?? null,
-					sizeBytes: result.descriptor.sizeBytes
+					sizeBytes: result.descriptor.sizeBytes,
+					moderationStatus: result.descriptor.moderation?.status ?? null
 				});
 				return await ctx.runMutation(internal.media.markUploadReady, {
 					assetId: asset._id,
@@ -585,6 +673,7 @@ export const processUpload = internalAction({
 					sizeBytes: result.descriptor.sizeBytes,
 					durationSeconds: result.descriptor.durationSeconds ?? undefined,
 					sha256: result.descriptor.sha256 ?? undefined,
+					moderation: result.descriptor.moderation ?? undefined,
 					stepResults: result.steps
 				});
 			}
@@ -614,6 +703,7 @@ export const processUpload = internalAction({
 				sizeBytes: result.descriptor?.sizeBytes ?? undefined,
 				durationSeconds: result.descriptor?.durationSeconds ?? undefined,
 				sha256: result.descriptor?.sha256 ?? undefined,
+				moderation: result.descriptor?.moderation ?? undefined,
 				stepResults: result.steps,
 				failure: result.failure
 			});

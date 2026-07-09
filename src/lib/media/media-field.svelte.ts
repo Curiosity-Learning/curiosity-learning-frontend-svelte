@@ -4,6 +4,7 @@ import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 import {
 	VIDEO_CONTENT_TYPES,
 	beginMediaUpload,
+	compressImageFileIfPossible,
 	createLocalPreviewUrl,
 	deleteMediaUpload,
 	describeMediaUploadConstraints,
@@ -12,10 +13,12 @@ import {
 	type MediaAssetLifecycleError,
 	type MediaUploadConstraintsInput,
 	normalizeUploadErrorMessage,
+	readLocalMediaDurationSeconds,
 	revokePreviewUrl,
 	uploadFileToDescriptor,
 	waitForMediaUploadReady
 } from './upload-core';
+import { t } from '$lib/i18n';
 
 type MediaFieldMode = 'immediate' | 'deferred';
 type MediaFieldPhase = 'idle' | 'selected' | 'uploading' | 'processing' | 'ready' | 'failed';
@@ -25,10 +28,12 @@ type MediaFieldDefinition = {
 	constraints: MediaUploadConstraintsInput;
 	expectedMediaKind: 'image' | 'video';
 	requireReady: boolean;
+	maxDurationSeconds?: number;
 };
 
 const TEN_MB = 10 * 1000 * 1000;
 const HUNDRED_MB = 100 * 1000 * 1000;
+const TWO_MINUTES_SECONDS = 2 * 60;
 
 const mediaFieldDefinitions = {
 	profileImage: {
@@ -49,7 +54,8 @@ const mediaFieldDefinitions = {
 			enableSafetyScreening: true
 		},
 		expectedMediaKind: 'video',
-		requireReady: true
+		requireReady: true,
+		maxDurationSeconds: TWO_MINUTES_SECONDS
 	}
 } as const satisfies Record<string, MediaFieldDefinition>;
 
@@ -265,10 +271,38 @@ class MediaFieldController {
 			this.phase = 'uploading';
 			this.errorMessage = '';
 
+			if (this.definition.expectedMediaKind === 'video' && this.definition.maxDurationSeconds) {
+				const durationSeconds = await readLocalMediaDurationSeconds(selectedFile);
+				if (!this.isActiveGeneration(generation)) {
+					return null;
+				}
+				if (
+					typeof durationSeconds === 'number' &&
+					durationSeconds > this.definition.maxDurationSeconds
+				) {
+					this.setFailure(t('mediaUpload.videoTooLong'));
+					return null;
+				}
+			}
+
+			let uploadFile = selectedFile;
+			let clientReportedImageCompression = false;
+			if (this.definition.expectedMediaKind === 'image') {
+				const compressed = await compressImageFileIfPossible(selectedFile);
+				if (!this.isActiveGeneration(generation)) {
+					return null;
+				}
+				if (compressed) {
+					uploadFile = compressed;
+					clientReportedImageCompression = true;
+				}
+			}
+
 			const beginResult = await beginMediaUpload(
 				this.convexClient,
-				selectedFile,
-				this.definition.constraints
+				uploadFile,
+				this.definition.constraints,
+				{ clientReportedImageCompression }
 			);
 			const nextAssetId = beginResult.asset.assetId;
 
@@ -280,7 +314,7 @@ class MediaFieldController {
 			this.assetId = nextAssetId;
 			this.assetStatus = beginResult.asset.status;
 
-			await uploadFileToDescriptor(selectedFile, beginResult.upload);
+			await uploadFileToDescriptor(uploadFile, beginResult.upload);
 
 			if (!this.isActiveGeneration(generation)) {
 				this.cleanupAssetInBackground(nextAssetId);

@@ -5,6 +5,15 @@ import {
 	type MediaPipelineStepStatus
 } from './mediaModel';
 import type { MediaStorageProvider } from './mediaStorage';
+import {
+	decideMediaModerationStatus,
+	MAX_SCREENABLE_IMAGE_BYTES,
+	type MediaModerationLabel,
+	type MediaModerationResult
+} from './mediaModeration';
+
+export const MEDIA_SAFETY_SCREENING_BLOCKED_MESSAGE =
+	'This image/video could not be uploaded. If you believe this is an error, please try a different file.';
 
 const mb = (value: number) => value * 1024 * 1024;
 
@@ -139,7 +148,10 @@ export type MediaPipelineStepResult = {
 	message?: string;
 };
 
-type MediaPipelineDescriptor = {
+export const IMAGE_COMPRESSION_OUTCOMES = ['client-compressed', 'skipped'] as const;
+export type ImageCompressionOutcome = (typeof IMAGE_COMPRESSION_OUTCOMES)[number];
+
+export type MediaPipelineDescriptor = {
 	storageProvider: MediaStorageProvider;
 	bucket: string;
 	objectKey: string;
@@ -149,17 +161,31 @@ type MediaPipelineDescriptor = {
 	sizeBytes: number;
 	durationSeconds: number | null;
 	sha256: string | null;
+	moderation: MediaModerationResult | null;
 };
+
+export type MediaImageModerator = (context: {
+	bucket: string;
+	objectKey: string;
+}) => Promise<MediaModerationLabel[]>;
 
 export type MediaPipelineAssetSnapshot = NormalizedUploadConstraints & {
 	originalFilename?: string | null;
 	clientContentType?: string | null;
+	/**
+	 * Set by the client when it has already compressed the image before
+	 * upload (canvas/OffscreenCanvas re-encode). When absent, the
+	 * compress-image step records 'skipped' rather than fabricating a
+	 * compression result.
+	 */
+	clientReportedImageCompression?: boolean;
 };
 
 type MediaPipelinePluginContext = {
 	asset: MediaPipelineAssetSnapshot;
 	config: ReturnType<typeof describeUploadConstraints>;
 	descriptor: MediaPipelineDescriptor;
+	moderateImage?: MediaImageModerator;
 };
 
 type MediaPipelinePluginResult = {
@@ -401,17 +427,31 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 	'compress-image': {
 		name: 'compress-image',
 		stage: 'processing',
-		run: async ({ descriptor }) =>
-			descriptor.mediaKind === 'image'
-				? {
-						status: 'skipped',
-						message:
-							'Image compression hook is configured as a no-op until a compressor is installed.'
-					}
-				: {
-						status: 'skipped',
-						message: 'Image compression skipped for non-image upload.'
-					}
+		run: async ({ asset, descriptor }) => {
+			if (descriptor.mediaKind !== 'image') {
+				return {
+					status: 'skipped',
+					message: 'Image compression skipped for non-image upload.'
+				};
+			}
+
+			// Compression happens client-side (canvas/OffscreenCanvas re-encode)
+			// before the file reaches storage. This step is a verification/no-op
+			// that records what the client reported rather than compressing
+			// server-side (sharp is not viable inside a Convex Node action).
+			if (asset.clientReportedImageCompression) {
+				return {
+					status: 'passed',
+					message: 'Client reported the image was compressed before upload.'
+				};
+			}
+
+			return {
+				status: 'skipped',
+				message:
+					'Client did not report pre-upload compression; image was stored as received (animations pass through unmodified).'
+			};
+		}
 	},
 	'compress-video': {
 		name: 'compress-video',
@@ -431,19 +471,86 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 	'safety-screening': {
 		name: 'safety-screening',
 		stage: 'processing',
-		run: async () => ({
-			status: 'skipped',
-			message: 'Media safety screening is intentionally wired as a pipeline step but not yet enabled.'
-		})
+		run: async ({ descriptor, moderateImage }) => {
+			if (descriptor.mediaKind === 'video') {
+				return {
+					status: 'skipped',
+					message:
+						'Video NSFW screening is out of scope for v1 (requires async Rekognition video jobs + SNS); marked skipped-video.',
+					patch: {
+						moderation: {
+							status: 'skipped-video',
+							labels: []
+						}
+					}
+				};
+			}
+
+			if (descriptor.mediaKind !== 'image' || !moderateImage) {
+				return {
+					status: 'skipped',
+					message: 'Media safety screening is not configured for this media kind.'
+				};
+			}
+
+			if (descriptor.sizeBytes > MAX_SCREENABLE_IMAGE_BYTES) {
+				// Rekognition's byte-payload API caps at 5MB; a truncated image
+				// would be rejected as invalid, so route oversized images to human
+				// review instead of screening them automatically.
+				return {
+					status: 'passed',
+					message:
+						'Image exceeds the automated screening size limit; flagged for human review.',
+					patch: {
+						moderation: {
+							status: 'flagged',
+							labels: []
+						}
+					}
+				};
+			}
+
+			const labels = await moderateImage({
+				bucket: descriptor.bucket,
+				objectKey: descriptor.objectKey
+			});
+			const moderation = decideMediaModerationStatus(labels);
+
+			if (moderation.status === 'blocked') {
+				return {
+					status: 'failed',
+					message: `Safety screening blocked this upload (max confidence ${moderation.maxConfidence ?? 'n/a'}).`,
+					patch: { moderation },
+					failure: {
+						code: 'blocked_by_safety_screening',
+						message: MEDIA_SAFETY_SCREENING_BLOCKED_MESSAGE,
+						stage: 'processing',
+						recoverable: false,
+						retryable: false
+					}
+				};
+			}
+
+			return {
+				status: 'passed',
+				message:
+					moderation.status === 'flagged'
+						? `Safety screening flagged this upload for review (max confidence ${moderation.maxConfidence ?? 'n/a'}).`
+						: 'Safety screening found no moderation labels.',
+				patch: { moderation }
+			};
+		}
 	}
 };
 
 export const runMediaPipeline = async ({
 	asset,
-	storageMetadata
+	storageMetadata,
+	moderateImage
 }: {
 	asset: MediaPipelineAssetSnapshot;
 	storageMetadata: StoredMediaMetadata | null;
+	moderateImage?: MediaImageModerator;
 }) => {
 	if (!storageMetadata) {
 		return {
@@ -478,7 +585,8 @@ export const runMediaPipeline = async ({
 		}),
 		sizeBytes: storageMetadata.size,
 		durationSeconds: normalizeDurationSeconds(storageMetadata.durationSeconds ?? null),
-		sha256: storageMetadata.sha256 ?? null
+		sha256: storageMetadata.sha256 ?? null,
+		moderation: null
 	};
 
 	const steps: MediaPipelineStepResult[] = [];
@@ -488,7 +596,8 @@ export const runMediaPipeline = async ({
 		const result = await plugin.run({
 			asset,
 			config,
-			descriptor
+			descriptor,
+			moderateImage
 		});
 
 		steps.push({

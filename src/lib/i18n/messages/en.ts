@@ -42,7 +42,10 @@ const en = {
 	},
 	mediaUpload: {
 		failedBeforeStorage: 'Upload failed before the file reached storage.',
-		missingStorageReference: 'Upload completed, but no storage reference was returned.'
+		missingStorageReference: 'Upload completed, but no storage reference was returned.',
+		blockedBySafetyScreening:
+			'This image/video could not be uploaded. If you believe this is an error, please try a different file.',
+		videoTooLong: 'Videos must be 2 minutes or shorter. Please trim your video and try again.'
 	},
 	settings: {
 		language: {
