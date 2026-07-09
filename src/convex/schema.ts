@@ -162,11 +162,25 @@ export default defineSchema({
 		startTime: v.number(),
 		endTime: v.number(),
 		createdByProfileId: v.id('profiles'),
+		cancelled: v.optional(v.boolean()),
+		cancelledAt: v.optional(v.number()),
+		cancelledByProfileId: v.optional(v.id('profiles')),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_club', ['clubId'])
 		.index('by_club_and_start', ['clubId', 'startTime']),
+
+	sessionRsvps: defineTable({
+		sessionId: v.id('sessions'),
+		profileId: v.id('profiles'),
+		status: v.union(v.literal('going'), v.literal('not_going')),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_session', ['sessionId'])
+		.index('by_session_and_profile', ['sessionId', 'profileId'])
+		.index('by_profile', ['profileId']),
 
 	buildingBlocks: defineTable({
 		name: v.string(),

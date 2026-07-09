@@ -17,8 +17,11 @@
 		reportMutationSuccess
 	} from '$lib/app/connectivity';
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
+	import SessionLocation from '$lib/components/app/sessions/session-location.svelte';
+	import SessionRsvp from '$lib/components/app/sessions/session-rsvp.svelte';
 	import { routes } from '$lib/routes';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import { t } from '$lib/i18n';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -32,7 +35,7 @@
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
-	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import BanIcon from '@lucide/svelte/icons/ban';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
@@ -63,14 +66,21 @@
 			: null
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
-	let canUpdateSession = $derived(clubPermissions.includes('session:update'));
-	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
+	let isCancelled = $derived(Boolean(session?.cancelled));
+	let canUpdateSession = $derived(clubPermissions.includes('session:update') && !isCancelled);
+	let canCancelSession = $derived(
+		clubPermissions.includes('session:cancel') &&
+			!isCancelled &&
+			Boolean(session && session.startTime > Date.now())
+	);
 	let canCreateActivity = $derived(clubPermissions.includes('session_activity:create'));
 	let canUpdateActivity = $derived(clubPermissions.includes('session_activity:update'));
 	let canDeleteActivity = $derived(clubPermissions.includes('session_activity:delete'));
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 	let canReadAttendance = $derived(clubPermissions.includes('attendance:read'));
 	let canManageAttendance = $derived(clubPermissions.includes('attendance:create'));
+	let canReadAllRsvps = $derived(clubPermissions.includes('session_rsvp:read_all'));
+	let sessionHasStarted = $derived(Boolean(session && session.startTime <= Date.now()));
 
 	const canMutateOnlineState = fromStore(canMutateOnlineStore);
 	const connectivityMessageState = fromStore(connectivityMessageStore);
@@ -78,11 +88,14 @@
 	let connectivityMessage = $derived(connectivityMessageState.current);
 
 	let canUpdateSessionOnline = $derived(canUpdateSession && canMutateOnline);
-	let canDeleteSessionOnline = $derived(canDeleteSession && canMutateOnline);
+	let canCancelSessionOnline = $derived(canCancelSession && canMutateOnline);
 	let canCreateActivityOnline = $derived(canCreateActivity && canMutateOnline);
 	let canUpdateActivityOnline = $derived(canUpdateActivity && canMutateOnline);
 	let canDeleteActivityOnline = $derived(canDeleteActivity && canMutateOnline);
 	let canManageAttendanceOnline = $derived(canManageAttendance && canMutateOnline);
+	let canRsvpToSession = $derived(
+		clubPermissions.includes('session_rsvp:set') && !isCancelled && canMutateOnline
+	);
 
 	const activitiesResponse = useStableQuery(api.sessions.listActivities, () =>
 		sessionIdTyped && view === 'activities' ? { sessionId: sessionIdTyped } : 'skip'
@@ -103,6 +116,19 @@
 	const membersResponse = useStableQuery(api.clubs.getMembers, () =>
 		session && canReadMembers && view === 'attendees' ? { clubId: session.clubId } : 'skip'
 	);
+	const sessionCardDataResponse = useStableQuery(api.sessions.getSessionCardData, () =>
+		sessionIdTyped ? { sessionId: sessionIdTyped, includeAttendees: false } : 'skip'
+	);
+	const rsvpsResponse = useStableQuery(api.sessions.listRsvps, () =>
+		sessionIdTyped && canReadAllRsvps && view === 'attendees'
+			? { sessionId: sessionIdTyped }
+			: 'skip'
+	);
+	let rsvpCountsResponse = $derived(
+		sessionCardDataResponse.data?.rsvpCounts ?? { going: 0, notGoing: 0 }
+	);
+	let myRsvpStatus = $derived(sessionCardDataResponse.data?.myRsvpStatus ?? null);
+	let rsvpPending = $state(false);
 
 	let pending = $state(false);
 	let errorMessage = $state('');
@@ -118,7 +144,8 @@
 	let sessionForm = $state({
 		startTime: null as number | null,
 		endTime: null as number | null,
-		description: ''
+		description: '',
+		location: ''
 	});
 
 	let activityDialogOpen = $state(false);
@@ -182,6 +209,9 @@
 	);
 	let buildingBlockOptions = $derived(
 		(blocksResponse.data ?? []).map((block) => ({ id: String(block._id), name: block.name }))
+	);
+	let rsvpStatusByProfileId = $derived(
+		new Map((rsvpsResponse.data ?? []).map((row) => [row.profileId, row.status] as const))
 	);
 
 	const isUserAttending = (userId: string) => serverAttendanceSet.has(userId);
@@ -288,7 +318,8 @@
 		sessionForm = {
 			startTime: session.startTime,
 			endTime: session.endTime,
-			description: session.description ?? ''
+			description: session.description ?? '',
+			location: session.location ?? ''
 		};
 		sessionDialogOpen = true;
 	};
@@ -301,11 +332,13 @@
 		errorMessage = '';
 		try {
 			const desc = sessionForm.description.trim();
+			const location = sessionForm.location.trim();
 			await convexClient.mutation(api.sessions.update, {
 				sessionId: session._id,
 				startTime: sessionForm.startTime,
 				endTime: sessionForm.endTime,
-				...(desc ? { description: desc } : {})
+				...(desc ? { description: desc } : {}),
+				...(location ? { location } : {})
 			});
 			reportMutationSuccess();
 			sessionDialogOpen = false;
@@ -317,19 +350,19 @@
 		}
 	};
 
-	const removeSession = async () => {
+	const cancelSession = async () => {
 		if (!session) return;
-		if (!window.confirm('Delete this session and all related activities?')) return;
+		if (!window.confirm(t('sessionCancel.confirm'))) return;
 		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		pending = true;
 		errorMessage = '';
 		try {
-			await convexClient.mutation(api.sessions.remove, { sessionId: session._id });
+			await convexClient.mutation(api.sessions.cancel, { sessionId: session._id });
 			reportMutationSuccess();
 			await goto(routes.clubSessions(session.clubId));
 		} catch (error) {
 			reportMutationFailure(error);
-			errorMessage = error instanceof Error ? error.message : 'Failed to delete session.';
+			errorMessage = error instanceof Error ? error.message : t('sessionCancel.failure');
 		} finally {
 			pending = false;
 		}
@@ -453,6 +486,21 @@
 		}
 	};
 
+	const setRsvpStatus = async (status: 'going' | 'not_going') => {
+		if (!sessionIdTyped || !canRsvpToSession) return;
+		rsvpPending = true;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.sessions.setRsvp, { sessionId: sessionIdTyped, status });
+			reportMutationSuccess();
+		} catch (error) {
+			reportMutationFailure(error);
+			errorMessage = error instanceof Error ? error.message : t('sessionRsvp.updateFailure');
+		} finally {
+			rsvpPending = false;
+		}
+	};
+
 	let sessionActionItems = $derived([
 		{
 			id: 'edit-session',
@@ -462,13 +510,13 @@
 			onSelect: openSessionEditor
 		},
 		{
-			id: 'delete-session',
-			label: 'Delete session',
-			Icon: Trash2Icon,
+			id: 'cancel-session',
+			label: t('sessionCancel.actionLabel'),
+			Icon: BanIcon,
 			tone: 'destructive' as const,
 			separatorBefore: canUpdateSessionOnline,
-			disabled: !canDeleteSessionOnline,
-			onSelect: () => void removeSession()
+			disabled: !canCancelSessionOnline,
+			onSelect: () => void cancelSession()
 		}
 	]);
 </script>
@@ -480,6 +528,13 @@
 <PageHeaderActions>
 	<ActionMenu items={sessionActionItems} ariaLabel="Open session actions" />
 </PageHeaderActions>
+
+{#if session?.cancelled}
+	<Alert variant="destructive">
+		<AlertTitle>{t('sessionCancel.cancelledTitle')}</AlertTitle>
+		<AlertDescription>{t('sessionCancel.cancelledDescription')}</AlertDescription>
+	</Alert>
+{/if}
 
 {#if !sessionIdTyped}
 	<Alert variant="destructive">
@@ -507,6 +562,20 @@
 				<AlertDescription>{activityError}</AlertDescription>
 			</Alert>
 		{/if}
+
+		{#if session.location}
+			<SessionLocation location={session.location} />
+		{/if}
+
+		<SessionRsvp
+			myStatus={myRsvpStatus}
+			goingCount={rsvpCountsResponse.going}
+			notGoingCount={rsvpCountsResponse.notGoing}
+			canRsvp={canRsvpToSession}
+			locked={sessionHasStarted}
+			pending={rsvpPending}
+			onSetStatus={(status) => void setRsvpStatus(status)}
+		/>
 
 		{#if view === 'activities'}
 			{#if session.description}
@@ -688,6 +757,13 @@
 								<p class="type-body-medium">
 									{formatDisplayName(member)}
 								</p>
+								{#if rsvpStatusByProfileId.has(member.profileId)}
+									<p class="type-sm text-muted-foreground">
+										{rsvpStatusByProfileId.get(member.profileId) === 'going'
+											? t('sessionRsvp.indicatorGoing')
+											: t('sessionRsvp.indicatorNotGoing')}
+									</p>
+								{/if}
 							</div>
 							<div class="relative z-10 flex items-center">
 								<Checkbox
@@ -739,6 +815,14 @@
 					bind:startTime={sessionForm.startTime}
 					bind:endTime={sessionForm.endTime}
 				/>
+				<div class="flex flex-col gap-2">
+					<FieldLabel for="sessionLocation">{t('sessionEditor.locationLabel')}</FieldLabel>
+					<Input
+						id="sessionLocation"
+						bind:value={sessionForm.location}
+						placeholder={t('sessionEditor.locationPlaceholder')}
+					/>
+				</div>
 				<div class="flex flex-col gap-2">
 					<FieldLabel for="sessionDescription">Description</FieldLabel>
 					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />

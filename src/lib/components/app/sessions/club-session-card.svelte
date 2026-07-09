@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
-	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import BanIcon from '@lucide/svelte/icons/ban';
 	import { api } from '$convex/_generated/api';
 	import type { Doc } from '$convex/_generated/dataModel';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -15,8 +15,13 @@
 		RelationListCards,
 		RelationSection
 	} from '$lib/components/app';
+	import SessionLocation from './session-location.svelte';
+	import SessionRsvp from './session-rsvp.svelte';
 	import { TagChip } from '$lib/components/ui/badge';
 	import { Separator } from '$lib/components/ui/separator';
+	import { t } from '$lib/i18n';
+
+	type RsvpStatus = 'going' | 'not_going';
 
 	type Props = {
 		session: Doc<'sessions'>;
@@ -26,15 +31,21 @@
 			attendees: Array<{ name: string; imageUrl: string | null }>;
 			activityItems: Array<{ id: string; title: string; description: string | null }>;
 			hiddenActivitiesCount: number;
+			rsvpCounts?: { going: number; notGoing: number };
+			myRsvpStatus?: RsvpStatus | null;
 		} | null;
 		canReadMembers?: boolean;
 		canDelete?: boolean;
 		showActivitiesSection?: boolean;
 		showAttendeesSection?: boolean;
+		showRsvpSection?: boolean;
+		canRsvp?: boolean;
+		rsvpPending?: boolean;
 		attendeesAvatarSizeClass?: string;
 		showActions?: boolean;
 		navigationState?: App.PageState;
 		onDelete?: () => void;
+		onSetRsvp?: (status: RsvpStatus) => void;
 		class?: string;
 	};
 
@@ -46,10 +57,14 @@
 		canDelete = false,
 		showActivitiesSection = true,
 		showAttendeesSection = true,
+		showRsvpSection = true,
+		canRsvp = false,
+		rsvpPending = false,
 		attendeesAvatarSizeClass = 'size-11',
 		showActions = true,
 		navigationState,
 		onDelete,
+		onSetRsvp,
 		class: className
 	}: Props = $props();
 
@@ -76,6 +91,16 @@
 
 	let tagNames = $derived(prefetchedCardData?.tagNames ?? cardData.data?.tagNames ?? []);
 	let attendees = $derived(prefetchedCardData?.attendees ?? cardData.data?.attendees ?? []);
+	let rsvpCounts = $derived(
+		prefetchedCardData?.rsvpCounts ?? cardData.data?.rsvpCounts ?? { going: 0, notGoing: 0 }
+	);
+	let myRsvpStatus = $derived(
+		(prefetchedCardData?.myRsvpStatus ?? cardData.data?.myRsvpStatus ?? null) as
+			| 'going'
+			| 'not_going'
+			| null
+	);
+	let sessionHasStarted = $derived(session.startTime <= Date.now());
 	let visibleActivityLimit = 3;
 	let totalActivitiesCount = $derived(
 		prefetchedCardData
@@ -99,9 +124,9 @@
 	);
 	let actionItems = $derived([
 		{
-			id: 'delete',
-			label: 'Delete session',
-			Icon: Trash2Icon,
+			id: 'cancel',
+			label: t('sessionCancel.actionLabel'),
+			Icon: BanIcon,
 			tone: 'destructive' as const,
 			disabled: !canDelete,
 			onSelect: onDelete
@@ -141,6 +166,25 @@
 			</DataRecordHeader>
 		{/if}
 	{/snippet}
+
+	{#if session.location}
+		<SessionLocation location={session.location} class="px-1" />
+	{/if}
+
+	{#if showRsvpSection}
+		<Separator class="opacity-70" />
+
+		<SessionRsvp
+			myStatus={myRsvpStatus}
+			goingCount={rsvpCounts.going}
+			notGoingCount={rsvpCounts.notGoing}
+			{canRsvp}
+			locked={sessionHasStarted}
+			pending={rsvpPending}
+			onSetStatus={onSetRsvp}
+			class="px-1"
+		/>
+	{/if}
 
 	{#if showActivitiesSection}
 		<Separator class="opacity-70" />
