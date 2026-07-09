@@ -216,6 +216,38 @@ describe('discoverability', () => {
 		expect(ids).not.toContain(nonDiscoverableClubId);
 	});
 
+	// Regression test for a security bug (CL-711): listPublicClubs previously returned each
+	// club's clubCode, letting any user bypass the request-to-join flow and instantly join
+	// any discoverable club. Codes are Guide-only secrets (PRD 6.1.3) and must never appear
+	// in this public discovery listing.
+	it('listPublicClubs never includes clubCode or code fields', async () => {
+		const { t } = await seedClubPermissionFixture();
+
+		await t.run(async (ctx) => {
+			const guideProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'guide-user-3',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			await ctx.db.insert('clubs', {
+				name: 'Discoverable Club Without Leaked Code',
+				clubCode: 'SECRET',
+				discoverable: true,
+				createdByProfileId: guideProfileId,
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			});
+		});
+
+		const publicClubs = await t.query(api.clubs.listPublicClubs, {});
+		expect(publicClubs.length).toBeGreaterThan(0);
+		for (const club of publicClubs) {
+			expect('code' in club).toBe(false);
+			expect('clubCode' in club).toBe(false);
+		}
+	});
+
 	it('getClubPreviewByCode keeps working for non-discoverable clubs', async () => {
 		const { t, clubId } = await seedClubPermissionFixture();
 		await t.run(async (ctx) => {

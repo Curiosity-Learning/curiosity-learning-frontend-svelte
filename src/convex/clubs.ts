@@ -457,6 +457,9 @@ export const getClubPreviewDeliveryAssetByCode = query({
 	}
 });
 
+// Public discovery listing (map + nearby list). Club codes are Guide-only secrets
+// (PRD 6.1.3) and must never appear here — callers only get a club id, which routes to
+// the public preview / request-to-join flow at `/clubs/[clubId]`, never instant join.
 export const listPublicClubs = query({
 	args: {},
 	handler: async (ctx) => {
@@ -476,7 +479,6 @@ export const listPublicClubs = query({
 
 				return {
 					id: club._id,
-					code: club.clubCode ?? null,
 					name: club.name,
 					description: club.description ?? null,
 					location: club.location ?? null,
