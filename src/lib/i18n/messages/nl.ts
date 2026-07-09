@@ -42,7 +42,10 @@ const nl = {
 	},
 	mediaUpload: {
 		failedBeforeStorage: 'Uploaden is mislukt voordat het bestand de opslag bereikte.',
-		missingStorageReference: 'Uploaden is voltooid, maar er is geen opslagverwijzing teruggekomen.'
+		missingStorageReference: 'Uploaden is voltooid, maar er is geen opslagverwijzing teruggekomen.',
+		blockedBySafetyScreening:
+			'Deze afbeelding/video kon niet worden geüpload. Als je denkt dat dit een fout is, probeer dan een ander bestand.',
+		videoTooLong: "Video's mogen maximaal 2 minuten duren. Knip je video bij en probeer het opnieuw."
 	},
 	settings: {
 		language: {

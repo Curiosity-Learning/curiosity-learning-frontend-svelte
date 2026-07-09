@@ -26,6 +26,7 @@ export const toResolvedAsset = (asset: Doc<'mediaAssets'>) => {
 		sizeBytes: asset.sizeBytes ?? null,
 		durationSeconds: asset.durationSeconds ?? null,
 		sha256: asset.sha256 ?? null,
+		moderation: asset.moderation ?? null,
 		pipelineVersion: asset.pipelineVersion,
 		attemptCount: asset.attemptCount,
 		stepResults: asset.stepResults,
