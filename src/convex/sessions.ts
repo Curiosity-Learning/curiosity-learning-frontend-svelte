@@ -18,6 +18,10 @@ type Ctx = QueryCtx | MutationCtx;
 
 const rsvpStatusValidator = v.union(v.literal('going'), v.literal('not_going'));
 
+const HOUR_MS = 60 * 60 * 1000;
+const SESSION_PHOTO_POST_SESSION_WINDOW_MS = 12 * HOUR_MS;
+const MAX_SESSION_PHOTOS = 4;
+
 const getRsvpForSessionAndProfile = async (
 	ctx: Ctx,
 	sessionId: Id<'sessions'>,
@@ -853,5 +857,217 @@ export const listRsvps = query({
 		}
 
 		return output;
+	}
+});
+
+const isSessionPhotoUploadWindowOpen = (session: { startTime: number; endTime: number }) => {
+	const now = Date.now();
+	return now >= session.startTime && now <= session.endTime + SESSION_PHOTO_POST_SESSION_WINDOW_MS;
+};
+
+const requireOwnedReadySessionPhotoAsset = async (
+	ctx: MutationCtx,
+	userId: string,
+	assetId: Id<'mediaAssets'>
+) => {
+	const asset = await ctx.db.get(assetId);
+	if (!asset || asset.ownerUserId !== userId) {
+		throw new ConvexError('Photo upload not found');
+	}
+	if (asset.status !== 'ready') {
+		throw new ConvexError('Photo is not ready yet');
+	}
+	if (asset.mediaKind !== 'image') {
+		throw new ConvexError('Session photos must be images');
+	}
+
+	return asset;
+};
+
+export const listPhotos = query({
+	args: {
+		sessionId: v.id('sessions')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const session = await getSession(ctx, args.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'session:read');
+
+		const profile = await requireProfile(ctx, identity.subject);
+		const canUploadPermission = await hasPermission(
+			ctx,
+			session.clubId,
+			identity.subject,
+			'session_photo:create'
+		);
+		const windowOpen = !session.cancelled && isSessionPhotoUploadWindowOpen(session);
+
+		const rows = await ctx.db
+			.query('sessionPhotos')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.collect();
+
+		const sorted = rows.sort((a, b) => a.createdAt - b.createdAt);
+
+		return await Promise.all(
+			sorted.map(async (row) => {
+				const asset = await ctx.db.get(row.mediaAssetId);
+				return {
+					sessionPhotoId: row._id,
+					mediaAssetId: row.mediaAssetId,
+					uploadedByProfileId: row.uploadedByProfileId,
+					createdAt: row.createdAt,
+					canDelete:
+						canUploadPermission && windowOpen && profile._id === row.uploadedByProfileId,
+					assetStatus: asset?.status ?? null,
+					mediaKind: asset?.mediaKind ?? null,
+					contentType: asset?.contentType ?? null,
+					durationSeconds: asset?.durationSeconds ?? null,
+					storageProvider: asset?.storageProvider ?? null,
+					deliveryBucket: asset ? (asset.processedBucket ?? asset.sourceBucket ?? null) : null,
+					deliveryObjectKey: asset
+						? (asset.processedObjectKey ?? asset.sourceObjectKey ?? null)
+						: null
+				};
+			})
+		);
+	}
+});
+
+export const canUploadSessionPhoto = query({
+	args: {
+		sessionId: v.id('sessions')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const session = await getSession(ctx, args.sessionId);
+		const allowed = await hasPermission(
+			ctx,
+			session.clubId,
+			identity.subject,
+			'session_photo:create'
+		);
+		if (!allowed || session.cancelled) {
+			return false;
+		}
+
+		return isSessionPhotoUploadWindowOpen(session);
+	}
+});
+
+export const addPhoto = mutation({
+	args: {
+		sessionId: v.id('sessions'),
+		mediaAssetId: v.id('mediaAssets')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const session = await getSession(ctx, args.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'session_photo:create');
+
+		if (session.cancelled) {
+			throw new ConvexError('Cannot add photos to a cancelled session');
+		}
+		if (!isSessionPhotoUploadWindowOpen(session)) {
+			throw new ConvexError(
+				'Photos can only be added during the session or within 12 hours after it ends'
+			);
+		}
+
+		const existing = await ctx.db
+			.query('sessionPhotos')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.collect();
+		if (existing.length >= MAX_SESSION_PHOTOS) {
+			throw new ConvexError(`A session can have at most ${MAX_SESSION_PHOTOS} photos`);
+		}
+
+		await requireOwnedReadySessionPhotoAsset(ctx, identity.subject, args.mediaAssetId);
+
+		const sessionPhotoId = await ctx.db.insert('sessionPhotos', {
+			sessionId: args.sessionId,
+			mediaAssetId: args.mediaAssetId,
+			uploadedByProfileId: profile._id,
+			createdAt: Date.now()
+		});
+
+		return await ctx.db.get(sessionPhotoId);
+	}
+});
+
+export const deletePhoto = mutation({
+	args: {
+		sessionPhotoId: v.id('sessionPhotos')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const photo = await ctx.db.get(args.sessionPhotoId);
+		if (!photo) {
+			throw new ConvexError('Photo not found');
+		}
+
+		const session = await getSession(ctx, photo.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'session_photo:create');
+
+		if (photo.uploadedByProfileId !== profile._id) {
+			throw new ConvexError('Only the uploading guide can remove this photo');
+		}
+		if (session.cancelled) {
+			throw new ConvexError('Cannot modify photos on a cancelled session');
+		}
+		if (!isSessionPhotoUploadWindowOpen(session)) {
+			throw new ConvexError('Photos can no longer be modified for this session');
+		}
+
+		await ctx.db.delete(args.sessionPhotoId);
+		return { success: true };
+	}
+});
+
+export const getSessionPhotoDeliveryAssets = query({
+	args: {
+		sessionId: v.id('sessions'),
+		assetIds: v.array(v.id('mediaAssets'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const session = await getSession(ctx, args.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'session:read');
+
+		const requestedAssetIds = [...new Set(args.assetIds)];
+		if (!requestedAssetIds.length) {
+			return [];
+		}
+
+		const photos = await ctx.db
+			.query('sessionPhotos')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.collect();
+		const allowedAssetIds = new Set(photos.map((photo) => photo.mediaAssetId));
+
+		const deliveryAssets = await Promise.all(
+			requestedAssetIds
+				.filter((assetId) => allowedAssetIds.has(assetId))
+				.map(async (assetId) => {
+					const asset = await ctx.db.get(assetId);
+					if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') {
+						return null;
+					}
+
+					return {
+						assetId: asset._id,
+						storageProvider: asset.storageProvider,
+						deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+						deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+						mediaKind: asset.mediaKind ?? null,
+						contentType: asset.contentType ?? null,
+						durationSeconds: asset.durationSeconds ?? null
+					};
+				})
+		);
+
+		return deliveryAssets.filter(Boolean);
 	}
 });

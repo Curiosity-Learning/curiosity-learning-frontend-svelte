@@ -167,6 +167,25 @@ export const getSignedProjectMemberProfileAssets = async (
 	return signDeliveryAssets(deliveryAssets, config);
 };
 
+export const getSignedSessionPhotoAssets = async (
+	convex: ConvexServerClient,
+	sessionId: Id<'sessions'>,
+	assetIds: Id<'mediaAssets'>[],
+	config?: MediaDeliveryConfig | null
+) => {
+	const uniqueAssetIds = [...new Set(assetIds)];
+	if (!uniqueAssetIds.length) {
+		return [] as SignedDeliveryAsset[];
+	}
+
+	const deliveryAssets = await convex.query(api.sessions.getSessionPhotoDeliveryAssets, {
+		sessionId,
+		assetIds: uniqueAssetIds
+	});
+
+	return signDeliveryAssets(deliveryAssets, config);
+};
+
 export const getSignedViewerUpdateAuthorAssets = async (
 	convex: ConvexServerClient,
 	assetIds: Id<'mediaAssets'>[],

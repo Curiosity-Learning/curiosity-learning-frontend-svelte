@@ -244,6 +244,13 @@ export default defineSchema({
 		.index('by_session', ['sessionId'])
 		.index('by_session_and_profile', ['sessionId', 'profileId']),
 
+	sessionPhotos: defineTable({
+		sessionId: v.id('sessions'),
+		mediaAssetId: v.id('mediaAssets'),
+		uploadedByProfileId: v.id('profiles'),
+		createdAt: v.number()
+	}).index('by_session', ['sessionId']),
+
 	projectRoles: defineTable({
 		key: projectRoleKeyValidator,
 		permissions: v.array(v.string()),

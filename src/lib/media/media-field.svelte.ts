@@ -56,6 +56,16 @@ const mediaFieldDefinitions = {
 		expectedMediaKind: 'video',
 		requireReady: true,
 		maxDurationSeconds: TWO_MINUTES_SECONDS
+	},
+	sessionPhoto: {
+		constraints: {
+			acceptedContentTypes: ['image/jpeg', 'image/png', 'image/webp'],
+			maxBytes: TEN_MB,
+			enableCompression: true,
+			enableSafetyScreening: true
+		},
+		expectedMediaKind: 'image',
+		requireReady: true
 	}
 } as const satisfies Record<string, MediaFieldDefinition>;
 

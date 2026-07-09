@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { HeaderTabs, PageHeaderBanner } from '$lib/components/app';
+	import { t } from '$lib/i18n';
 
 	let { children } = $props();
 
@@ -16,6 +17,10 @@
 					{
 						label: 'Attendees',
 						href: `/session/${sessionId}/attendees`
+					},
+					{
+						label: t('sessionPhotos.title'),
+						href: `/session/${sessionId}/photos`
 					}
 				]
 			: []

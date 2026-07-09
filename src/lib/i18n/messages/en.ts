@@ -159,6 +159,19 @@ const en = {
 		cancelledTitle: 'Session cancelled',
 		cancelledDescription: 'This session has been cancelled and is no longer scheduled.'
 	},
+	sessionPhotos: {
+		title: 'Photos',
+		emptyState: 'No photos yet.',
+		uploadLabel: 'Add photo',
+		uploading: 'Uploading...',
+		uploadFailure: 'Failed to add photo.',
+		deleteConfirm: 'Remove this photo?',
+		deleteFailure: 'Failed to remove photo.',
+		limitReached: 'This session already has the maximum of 4 photos.',
+		windowClosedBeforeStart: 'Photos can be added once the session starts.',
+		windowClosedAfterLock: 'Photos can no longer be added for this session.',
+		cancelledNotice: 'Photos cannot be added to a cancelled session.'
+	},
 	sessionEditor: {
 		locationLabel: 'Location',
 		locationPlaceholder: 'Address, description, or meeting URL'

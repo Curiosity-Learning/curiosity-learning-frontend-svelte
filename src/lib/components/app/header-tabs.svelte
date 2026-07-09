@@ -21,10 +21,12 @@
 
 	const matchesTab = (tab: HeaderTabItem, pathname: string) => {
 		const currentPath = normalizePath(pathname);
-		const candidates = [tab.href, ...(tab.aliases ?? [])].map(normalizePath);
-		return candidates.some(
-			(candidate) => currentPath === candidate || currentPath.startsWith(`${candidate}/`)
-		);
+		const href = normalizePath(tab.href);
+		if (currentPath === href || currentPath.startsWith(`${href}/`)) return true;
+		// Aliases are bare parent paths that default to this tab (e.g. /session/X
+		// for the Activities tab). They must match exactly — prefix matching would
+		// make the aliased tab swallow every sibling tab's path.
+		return (tab.aliases ?? []).some((alias) => currentPath === normalizePath(alias));
 	};
 
 	let activeTabHref = $derived.by(() => {
