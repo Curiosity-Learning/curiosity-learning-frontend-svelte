@@ -50,6 +50,10 @@ export default defineSchema({
 	clubs: defineTable({
 		name: v.string(),
 		clubCode: v.optional(v.string()),
+		// Separate code that grants the Guide role on join (PRD 6.1.8: any Guide can invite a
+		// new Guide directly). Distinct from `clubCode` (which always joins as Learner) so
+		// existing learner-invite links/flows are unaffected.
+		guideInviteCode: v.optional(v.string()),
 		location: v.optional(v.string()),
 		locationLatitude: v.optional(v.number()),
 		locationLongitude: v.optional(v.number()),
@@ -61,12 +65,16 @@ export default defineSchema({
 		// Whether the club is visible on the public discovery map and has a public club page.
 		// Club-code joins work regardless of this flag.
 		discoverable: v.boolean(),
+		// Set when the club has no remaining Guides (PRD 6.2.3). Codes are invalidated and the
+		// club is excluded from discovery; history (sessions/projects/chat) stays intact.
+		abandonedAt: v.optional(v.number()),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_created_by_profile', ['createdByProfileId'])
 		.index('by_club_code', ['clubCode'])
+		.index('by_guide_invite_code', ['guideInviteCode'])
 		.index('by_video_media_asset', ['videoMediaAssetId']),
 
 	clubScheduleSlots: defineTable({
@@ -100,6 +108,9 @@ export default defineSchema({
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
 		leftAt: v.optional(v.number()),
+		// Set together with `leftAt` when a Guide removes this member (PRD 6.2.5).
+		kickReason: v.optional(v.string()),
+		kickedByProfileId: v.optional(v.id('profiles')),
 		createdAt: v.number()
 	})
 		.index('by_club', ['clubId'])

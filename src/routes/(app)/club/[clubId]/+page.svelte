@@ -533,9 +533,11 @@
 					<HomeActionLink href={`${clubPath}/members`} label="View all" Icon={ArrowRightIcon} />
 				{:else}
 					<InviteLearnerDialog
+						clubId={clubIdTyped}
 						clubCode={clubItem?.clubCode}
+						guideInviteCode={clubItem?.clubGuideInviteCode}
+						canInviteGuide={clubPermissions.includes('club_member:invite_guide')}
 						triggerStyle="link"
-						triggerLabel="Invite a learner"
 					/>
 				{/if}
 			{/snippet}

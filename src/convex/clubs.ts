@@ -60,11 +60,15 @@ const createInviteCodeCandidate = () => {
 const createInviteCode = async (ctx: Ctx) => {
 	for (let attempt = 0; attempt < 20; attempt += 1) {
 		const code = createInviteCodeCandidate();
-		const existingInClubs = await ctx.db
+		const existingLearnerCode = await ctx.db
 			.query('clubs')
 			.withIndex('by_club_code', (q) => q.eq('clubCode', code))
 			.first();
-		if (!existingInClubs) {
+		const existingGuideCode = await ctx.db
+			.query('clubs')
+			.withIndex('by_guide_invite_code', (q) => q.eq('guideInviteCode', code))
+			.first();
+		if (!existingLearnerCode && !existingGuideCode) {
 			return code;
 		}
 	}
@@ -76,7 +80,24 @@ const resolveClubByCode = async (ctx: Ctx, normalizedCode: string) => {
 		.query('clubs')
 		.withIndex('by_club_code', (q) => q.eq('clubCode', normalizedCode))
 		.first();
-	if (!club) {
+	if (!club || club.abandonedAt) {
+		return null;
+	}
+
+	return {
+		club,
+		code: normalizedCode
+	};
+};
+
+// Guide invite codes join with the Guide role (PRD 6.1.8). Kept as a separate index/field from
+// `clubCode` so the existing learner join code and link are unaffected.
+const resolveClubByGuideInviteCode = async (ctx: Ctx, normalizedCode: string) => {
+	const club = await ctx.db
+		.query('clubs')
+		.withIndex('by_guide_invite_code', (q) => q.eq('guideInviteCode', normalizedCode))
+		.first();
+	if (!club || club.abandonedAt) {
 		return null;
 	}
 
@@ -92,6 +113,21 @@ const getRoleByKey = async (ctx: Ctx, key: 'guide' | 'learner') => {
 		throw new ConvexError(`Default role ${key} is not configured`);
 	}
 	return role;
+};
+
+const KICK_REASON_MAX_LENGTH = 500;
+
+const listActiveMembers = async (ctx: Ctx, clubId: Id<'clubs'>) => {
+	const members = await ctx.db
+		.query('clubMembers')
+		.withIndex('by_club', (q) => q.eq('clubId', clubId))
+		.collect();
+	return members.filter((member) => !member.leftAt);
+};
+
+const countActiveGuides = async (ctx: Ctx, clubId: Id<'clubs'>, guideRoleId: Id<'clubRoles'>) => {
+	const activeMembers = await listActiveMembers(ctx, clubId);
+	return activeMembers.filter((member) => member.roleId === guideRoleId).length;
 };
 
 const requireOwnedReadyClubVideo = async (
@@ -151,6 +187,7 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubVideoUrl,
 		clubScheduleSlots: scheduleSlots,
 		clubCode: club.clubCode ?? null,
+		clubGuideInviteCode: club.guideInviteCode ?? null,
 		clubDiscoverable: club.discoverable,
 		memberId: membership._id,
 		memberProfileId: profile?._id ?? null,
@@ -275,11 +312,15 @@ export const getClubPreviewByCode = query({
 			return null;
 		}
 
-		const resolved = await resolveClubByCode(ctx, normalizedCode);
+		// Learner codes are checked first; a guide invite code only ever matches when it isn't
+		// also a (distinct, randomly-generated) learner code for a different club.
+		const resolvedLearner = await resolveClubByCode(ctx, normalizedCode);
+		const resolved = resolvedLearner ?? (await resolveClubByGuideInviteCode(ctx, normalizedCode));
 		if (!resolved) {
 			return null;
 		}
 		const { club, code } = resolved;
+		const joinRole: 'guide' | 'learner' = resolvedLearner ? 'learner' : 'guide';
 
 		const members = await ctx.db
 			.query('clubMembers')
@@ -299,7 +340,8 @@ export const getClubPreviewByCode = query({
 			scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
 			memberCount: members.filter((member) => !member.leftAt).length,
 			createdAt: club.createdAt,
-			code
+			code,
+			joinRole
 		};
 	}
 });
@@ -363,7 +405,11 @@ export const listPublicClubs = query({
 	args: {},
 	handler: async (ctx) => {
 		const clubs = await ctx.db.query('clubs').collect();
-		const publicClubs = clubs.filter((club) => Boolean(club.clubCode) && club.discoverable);
+		// Belt and braces: abandonment already clears clubCode/discoverable, but exclude
+		// abandoned clubs explicitly too (PRD 6.2.3 — no one can join an abandoned club).
+		const publicClubs = clubs.filter(
+			(club) => Boolean(club.clubCode) && club.discoverable && !club.abandonedAt
+		);
 
 		return await Promise.all(
 			publicClubs.map(async (club) => {
@@ -596,6 +642,65 @@ export const joinClubWithCode = mutation({
 	}
 });
 
+// Distinct from `joinClubWithCode`: this code always grants the Guide role and has no rate
+// limiting of its own beyond the shared per-user/global code-guessing damping, since guide
+// invite codes are shared privately by existing Guides (PRD 6.1.8 — "no application process").
+export const joinClubWithGuideInviteCode = mutation({
+	args: {
+		code: v.string()
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const normalizedCode = normalizeInviteCode(args.code);
+		const { key, limit } = clubCodeRateLimitScope(normalizedCode, identity.subject);
+
+		if (await isRateLimited(ctx, key, limit)) {
+			return { ok: false as const, error: 'rate_limited' as const };
+		}
+
+		const resolved = INVITE_CODE_PATTERN.test(normalizedCode)
+			? await resolveClubByGuideInviteCode(ctx, normalizedCode)
+			: null;
+		if (!resolved) {
+			await recordRateLimitAttempt(ctx, key, limit);
+			return { ok: false as const, error: 'invalid_code' as const };
+		}
+		const { club } = resolved;
+
+		const existingMembership = await getMembership(ctx, club._id, identity.subject);
+		if (existingMembership) {
+			throw new ConvexError('You are already a member of this club');
+		}
+
+		const profile = await getOrCreateProfile(ctx, identity.subject);
+		await ensureClubRoom(ctx, club._id);
+
+		const guideRole = await getRoleByKey(ctx, 'guide');
+		await ctx.db.insert('clubMembers', {
+			clubId: club._id,
+			profileId: profile._id,
+			roleId: guideRole._id,
+			firstName: profile.firstName,
+			lastName: profile.lastName,
+			username: profile.username,
+			coverPhotoUrl: profile.coverPhotoUrl,
+			createdAt: Date.now()
+		});
+		await ctx.db.patch(profile._id, {
+			activeClubId: club._id,
+			firstLoginCompleted: true,
+			pendingClubCode: undefined,
+			pendingRole: undefined,
+			updatedAt: Date.now()
+		});
+
+		return {
+			ok: true as const,
+			clubId: club._id
+		};
+	}
+});
+
 export const switchActiveClub = mutation({
 	args: {
 		clubId: v.id('clubs')
@@ -675,7 +780,8 @@ export const getClubById = query({
 		return {
 			...club,
 			videoUrl: await resolveClubVideoUrl(ctx, club),
-			clubCode: club.clubCode ?? null
+			clubCode: club.clubCode ?? null,
+			guideInviteCode: club.guideInviteCode ?? null
 		};
 	}
 });
@@ -760,6 +866,32 @@ export const resetClubCode = mutation({
 	}
 });
 
+// Guides use this to generate or rotate the separate Guide invite code (PRD 6.1.8). Gated by
+// `club_member:invite_guide` rather than `club:edit` so it follows the same permission as the
+// members-page invite action, not general club settings editing.
+export const createOrRotateGuideInviteCode = mutation({
+	args: {
+		clubId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		await requirePermission(ctx, args.clubId, identity.subject, 'club_member:invite_guide');
+
+		const club = await ctx.db.get(args.clubId);
+		if (!club) {
+			throw new ConvexError('Club not found');
+		}
+
+		const newCode = await createInviteCode(ctx);
+		await ctx.db.patch(args.clubId, {
+			guideInviteCode: newCode,
+			updatedAt: Date.now()
+		});
+
+		return { code: newCode };
+	}
+});
+
 export const getMembers = query({
 	args: {
 		clubId: v.id('clubs'),
@@ -788,6 +920,7 @@ export const getMembers = query({
 			profileId: Id<'profiles'>;
 			userId: string;
 			roleId: Id<'clubRoles'>;
+			roleKey: 'guide' | 'learner' | null;
 			roleName: string | null;
 			rolePermissions: string[];
 			firstName: string | null;
@@ -820,6 +953,7 @@ export const getMembers = query({
 				profileId: profile._id,
 				userId: authUserId,
 				roleId: member.roleId,
+				roleKey: role?.key ?? null,
 				roleName: role?.name ?? null,
 				rolePermissions: role?.permissions ?? [],
 				firstName: firstName ?? null,
@@ -955,10 +1089,19 @@ export const getProfileDeliveryAssets = query({
 
 export const kickMember = mutation({
 	args: {
-		clubMemberId: v.id('clubMembers')
+		clubMemberId: v.id('clubMembers'),
+		reason: v.string()
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		const reason = args.reason.trim();
+		if (!reason) {
+			throw new ConvexError('A reason is required to remove a member');
+		}
+		if (reason.length > KICK_REASON_MAX_LENGTH) {
+			throw new ConvexError(`Reason must be ${KICK_REASON_MAX_LENGTH} characters or fewer`);
+		}
+
 		const target = await ctx.db.get(args.clubMemberId);
 		if (!target || target.leftAt) {
 			throw new ConvexError('Member not found');
@@ -978,10 +1121,148 @@ export const kickMember = mutation({
 		}
 
 		await ctx.db.patch(args.clubMemberId, {
-			leftAt: Date.now()
+			leftAt: Date.now(),
+			kickReason: reason,
+			kickedByProfileId: kickerMembership.profileId
+		});
+
+		const club = await ctx.db.get(target.clubId);
+		await ctx.runMutation(internal.notifications.createSystemNotification, {
+			profileId: target.profileId,
+			clubId: target.clubId,
+			title: 'Removed from club',
+			message: `You have been removed from ${club?.name ?? 'the club'}. Reason: ${reason}`
 		});
 
 		return { success: true };
+	}
+});
+
+export const promoteMember = mutation({
+	args: {
+		clubMemberId: v.id('clubMembers')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const target = await ctx.db.get(args.clubMemberId);
+		if (!target || target.leftAt) {
+			throw new ConvexError('Member not found');
+		}
+
+		await requirePermission(ctx, target.clubId, identity.subject, 'club_member:promote');
+
+		const targetRole = await ctx.db.get(target.roleId);
+		if (targetRole?.key !== 'learner') {
+			throw new ConvexError('Only Learners can be promoted to Guide');
+		}
+
+		const guideRole = await getRoleByKey(ctx, 'guide');
+		await ctx.db.patch(args.clubMemberId, {
+			roleId: guideRole._id
+		});
+
+		const club = await ctx.db.get(target.clubId);
+		await ctx.runMutation(internal.notifications.createSystemNotification, {
+			profileId: target.profileId,
+			clubId: target.clubId,
+			title: 'Promoted to Guide',
+			message: `You have been promoted to Guide in ${club?.name ?? 'the club'}.`
+		});
+
+		return { success: true };
+	}
+});
+
+export const demoteSelfToLearner = mutation({
+	args: {
+		clubId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const membership = await getMembership(ctx, args.clubId, identity.subject);
+		if (!membership) {
+			throw new ConvexError('You are not an active member of this club');
+		}
+
+		const role = await ctx.db.get(membership.roleId);
+		if (role?.key !== 'guide') {
+			throw new ConvexError('Only Guides can demote themselves');
+		}
+
+		const guideRole = await getRoleByKey(ctx, 'guide');
+		const guideCount = await countActiveGuides(ctx, args.clubId, guideRole._id);
+		if (guideCount <= 1) {
+			const activeMembers = await listActiveMembers(ctx, args.clubId);
+			const hasLearners = activeMembers.some((member) => member.roleId !== guideRole._id);
+			if (hasLearners) {
+				throw new ConvexError('Promote a Learner to Guide first');
+			}
+			throw new ConvexError(
+				'You are the last Guide with no other members. Use Leave club instead.'
+			);
+		}
+
+		const learnerRole = await getRoleByKey(ctx, 'learner');
+		await ctx.db.patch(membership._id, {
+			roleId: learnerRole._id
+		});
+
+		return { success: true };
+	}
+});
+
+const invalidateClubCodes = (ctx: MutationCtx, clubId: Id<'clubs'>) =>
+	ctx.db.patch(clubId, {
+		clubCode: undefined,
+		guideInviteCode: undefined,
+		discoverable: false,
+		abandonedAt: Date.now(),
+		updatedAt: Date.now()
+	});
+
+export const leaveClub = mutation({
+	args: {
+		clubId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const membership = await getMembership(ctx, args.clubId, identity.subject);
+		if (!membership) {
+			throw new ConvexError('You are not an active member of this club');
+		}
+
+		const role = await ctx.db.get(membership.roleId);
+		const guideRole = await getRoleByKey(ctx, 'guide');
+
+		if (role?.key === 'guide') {
+			const guideCount = await countActiveGuides(ctx, args.clubId, guideRole._id);
+			if (guideCount <= 1) {
+				const activeMembers = await listActiveMembers(ctx, args.clubId);
+				const hasLearners = activeMembers.some((member) => member.roleId !== guideRole._id);
+				if (hasLearners) {
+					throw new ConvexError('Promote a Learner to Guide before leaving');
+				}
+
+				await ctx.db.patch(membership._id, { leftAt: Date.now() });
+				await invalidateClubCodes(ctx, args.clubId);
+
+				const profile = await ctx.db.get(membership.profileId);
+				if (profile?.activeClubId === args.clubId) {
+					await ctx.db.patch(profile._id, { activeClubId: undefined, updatedAt: Date.now() });
+				}
+
+				return { success: true, abandoned: true as const };
+			}
+		}
+
+		await ctx.db.patch(membership._id, { leftAt: Date.now() });
+
+		const profile = await ctx.db.get(membership.profileId);
+		if (profile?.activeClubId === args.clubId) {
+			await ctx.db.patch(profile._id, { activeClubId: undefined, updatedAt: Date.now() });
+		}
+
+		return { success: true, abandoned: false as const };
 	}
 });
 
@@ -1000,3 +1281,4 @@ export const backfillDiscoverable = internalMutation({
 		return { updated, total: clubs.length };
 	}
 });
+

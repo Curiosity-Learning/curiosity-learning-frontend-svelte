@@ -464,6 +464,7 @@ const en = {
 			defaultDescription:
 				'Join this Curiosity Club to learn, collaborate, and build projects with a local learning community.',
 			joinAsLearner: 'Join as a learner',
+			joinAsGuide: 'Join as a Guide',
 			continuing: 'Continuing...',
 			checkingSession: 'Checking your session. Please try again.',
 			continueFailure: 'Unable to continue right now.'
@@ -559,6 +560,59 @@ const en = {
 			loadPledgesFailedTitle: 'Unable to load pledges',
 			loadPledgesFailedDescription: 'Please try again.'
 		}
+	},
+	membersPage: {
+		title: 'Club people',
+		description: 'Learners and guides currently active in this club.',
+		searchLabel: 'Search members',
+		searchPlaceholder: 'Name, role, email',
+		noMatches: 'No members matched your filter.',
+		accessDeniedTitle: 'Access denied',
+		accessDeniedDescription: 'You do not have permission to view members for this club.',
+		actionFailedTitle: 'Action failed',
+		roleGuide: 'Guide',
+		roleLearner: 'Learner',
+		youBadge: 'You',
+		openActionsLabel: 'Open member actions',
+		promoteAction: 'Promote to Guide',
+		promoteFailure: 'Unable to promote member.',
+		promoteSuccess: 'Member promoted to Guide.',
+		removeAction: 'Remove member',
+		removeDialogTitle: 'Remove member',
+		removeDialogDescription:
+			'This member will immediately lose access to the club. They will be notified with the reason below.',
+		removeReasonLabel: 'Reason',
+		removeReasonPlaceholder: 'Explain why this member is being removed (max 500 characters)',
+		removeReasonRequired: 'A reason is required.',
+		removeConfirmAction: 'Remove member',
+		removeCancelAction: 'Cancel',
+		removeFailure: 'Failed to remove member.',
+		demoteSelfAction: 'Demote myself to Learner',
+		demoteSelfConfirm: 'Demote yourself to Learner in this club?',
+		demoteSelfFailure: 'Unable to demote yourself.',
+		leaveClubAction: 'Leave club',
+		leaveClubConfirm: 'Are you sure you want to leave this club?',
+		leaveClubAbandonWarning:
+			'You are the last Guide and there are no Learners. Leaving will mark this club as abandoned — its invite codes will stop working and it will no longer appear on the map.',
+		leaveClubBlockedLastGuide: 'Promote a Learner to Guide before leaving.',
+		leaveClubFailure: 'Failed to leave the club.',
+		leaveClubAbandonedNotice: 'This club has been marked as abandoned.'
+	},
+	inviteLearnerDialog: {
+		triggerLabel: 'Invite a learner',
+		dialogTitle: 'Invite a member',
+		dialogDescription: 'Share an invite code or a join link.',
+		roleTabLearner: 'Learner',
+		roleTabGuide: 'Guide',
+		noLearnerCode: 'This club does not have a learner invite code yet.',
+		noGuideCode: 'Generate a Guide invite code to invite a new Guide directly.',
+		generateGuideCodeButton: 'Generate Guide invite code',
+		generateGuideCodeFailure: 'Unable to generate Guide invite code.',
+		learnerCodeLabel: 'Learner invite code',
+		guideCodeLabel: 'Guide invite code',
+		joinLinkLabel: 'Join link',
+		copy: 'Copy',
+		copied: 'Copied'
 	}
 } as const;
 
