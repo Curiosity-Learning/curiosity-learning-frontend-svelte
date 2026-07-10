@@ -21,6 +21,8 @@
 	import { Avatar, AvatarFallback } from '$lib/components/ui/avatar';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import { Textarea } from '$lib/components/ui/textarea';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
@@ -139,6 +141,19 @@
 	let joinRequestInfo = $derived(joinRequestResponse.data ?? null);
 	let joinRequestActionPending = $state(false);
 	let joinRequestActionError = $state('');
+
+	const applicationResponse = useStableQuery(api.clubApplications.getApplicationForRoom, () =>
+		$session.data && selectedRoomId && activeRoom?.contextType === 'clubApplication'
+			? { roomId: selectedRoomId }
+			: 'skip'
+	);
+	let applicationInfo = $derived(applicationResponse.data ?? null);
+	let applicationActionPending = $state(false);
+	let applicationActionError = $state('');
+	let rejectDialogOpen = $state(false);
+	let rejectNote = $state('');
+	let followUpDialogOpen = $state(false);
+	let followUpReason = $state('');
 	let serverMessages = $derived(messagesResponse.data?.messages ?? []);
 	let hasMoreMessages = $derived(Boolean(messagesResponse.data?.hasMore));
 	let visibleMessages = $derived.by(() => {
@@ -150,7 +165,7 @@
 		const entries: VisibleMessage[] = [
 			...serverMessages.map((entry) => ({
 				key: entry._id,
-				profileId: entry.profileId,
+				profileId: entry.profileId ?? null,
 				content: entry.content,
 				createdAt: entry._creationTime
 			})),
@@ -420,6 +435,90 @@
 			joinRequestActionPending = false;
 		}
 	};
+
+	const acceptApplicationAction = async () => {
+		if (!applicationInfo) return;
+		applicationActionPending = true;
+		applicationActionError = '';
+		try {
+			await convexClient.mutation(api.clubApplications.decideApplication, {
+				applicationId: applicationInfo.applicationId,
+				decision: 'accepted'
+			});
+		} catch (error) {
+			applicationActionError =
+				error instanceof Error ? error.message : t('applicationChat.acceptFailure');
+		} finally {
+			applicationActionPending = false;
+		}
+	};
+
+	const openRejectDialog = () => {
+		rejectNote = '';
+		applicationActionError = '';
+		rejectDialogOpen = true;
+	};
+
+	const confirmRejectApplicationAction = async () => {
+		if (!applicationInfo) return;
+		applicationActionPending = true;
+		applicationActionError = '';
+		try {
+			await convexClient.mutation(api.clubApplications.decideApplication, {
+				applicationId: applicationInfo.applicationId,
+				decision: 'rejected',
+				rejectionNote: rejectNote.trim() || undefined
+			});
+			rejectDialogOpen = false;
+		} catch (error) {
+			applicationActionError =
+				error instanceof Error ? error.message : t('applicationChat.rejectFailure');
+		} finally {
+			applicationActionPending = false;
+		}
+	};
+
+	const confirmOnboardingCallAction = async () => {
+		if (!applicationInfo) return;
+		applicationActionPending = true;
+		applicationActionError = '';
+		try {
+			await convexClient.mutation(api.clubApplications.confirmOnboardingCall, {
+				applicationId: applicationInfo.applicationId
+			});
+		} catch (error) {
+			applicationActionError =
+				error instanceof Error ? error.message : t('applicationChat.confirmOnboardingFailure');
+		} finally {
+			applicationActionPending = false;
+		}
+	};
+
+	const openFollowUpDialog = () => {
+		followUpReason = '';
+		applicationActionError = '';
+		followUpDialogOpen = true;
+	};
+
+	const confirmFollowUpFlagAction = async () => {
+		if (!applicationInfo) return;
+		const reason = followUpReason.trim();
+		if (!reason) return;
+		applicationActionPending = true;
+		applicationActionError = '';
+		try {
+			await convexClient.mutation(api.clubApplications.setAdminFollowUpFlag, {
+				applicationId: applicationInfo.applicationId,
+				reason
+			});
+			followUpDialogOpen = false;
+		} catch (error) {
+			applicationActionError =
+				error instanceof Error ? error.message : t('applicationChat.followUpFailure');
+		} finally {
+			applicationActionPending = false;
+		}
+	};
 </script>
 
 <PageHeaderBackButton enabled={isMobileDetailView} fallbackHref={routes.chat} />
@@ -553,7 +652,89 @@
 						}`}
 					>
 						<div class="flex min-h-full flex-col">
-							{#if activeRoom?.contextType === 'joinRequest' && joinRequestInfo}
+							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
+								{#if applicationInfo.status === 'interview' && applicationInfo.canDecide}
+									<div class={`flex flex-wrap gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
+										<Button
+											type="button"
+											disabled={applicationActionPending}
+											onclick={() => void acceptApplicationAction()}
+										>
+											{applicationActionPending
+												? $_('applicationChat.accepting')
+												: $_('applicationChat.acceptButton')}
+										</Button>
+										<Button
+											type="button"
+											variant="outline"
+											disabled={applicationActionPending}
+											onclick={openRejectDialog}
+										>
+											{$_('applicationChat.rejectButton')}
+										</Button>
+									</div>
+								{:else if applicationInfo.status === 'accepted' && applicationInfo.canDecide}
+									<div class={`flex flex-wrap gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
+										<Button
+											type="button"
+											disabled={applicationActionPending}
+											onclick={() => void confirmOnboardingCallAction()}
+										>
+											{applicationActionPending
+												? $_('applicationChat.confirmingOnboarding')
+												: $_('applicationChat.confirmOnboardingButton')}
+										</Button>
+										<Button
+											type="button"
+											variant="outline"
+											disabled={applicationActionPending}
+											onclick={openFollowUpDialog}
+										>
+											{$_('applicationChat.flagFollowUpButton')}
+										</Button>
+									</div>
+									{#if applicationInfo.adminFollowUpFlag}
+										<Alert class={isDesktopViewport ? 'mb-4' : 'mb-4'}>
+											<AlertTitle>{$_('applicationChat.followUpFlaggedBanner')}</AlertTitle>
+											<AlertDescription>{applicationInfo.adminFollowUpFlag.reason}</AlertDescription
+											>
+										</Alert>
+									{/if}
+								{:else if applicationInfo.status === 'interview'}
+									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<AlertTitle>{$_('applicationChat.interviewBannerTitle')}</AlertTitle>
+										<AlertDescription
+											>{$_('applicationChat.interviewBannerDescription')}</AlertDescription
+										>
+									</Alert>
+								{:else if applicationInfo.status === 'accepted'}
+									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<AlertTitle>{$_('applicationChat.acceptedBannerTitle')}</AlertTitle>
+										<AlertDescription
+											>{$_('applicationChat.acceptedBannerDescription')}</AlertDescription
+										>
+									</Alert>
+								{:else if applicationInfo.status === 'rejected'}
+									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<AlertTitle>{$_('applicationChat.rejectedBannerTitle')}</AlertTitle>
+										<AlertDescription
+											>{$_('applicationChat.rejectedBannerDescription')}</AlertDescription
+										>
+									</Alert>
+								{:else if applicationInfo.status === 'finalized'}
+									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<AlertTitle>{$_('applicationChat.finalizedBannerTitle')}</AlertTitle>
+										<AlertDescription
+											>{$_('applicationChat.finalizedBannerDescription')}</AlertDescription
+										>
+									</Alert>
+								{/if}
+								{#if applicationActionError}
+									<Alert variant="destructive" class="mb-4">
+										<AlertDescription>{applicationActionError}</AlertDescription>
+									</Alert>
+								{/if}
+							{:else if activeRoom?.contextType === 'joinRequest' && joinRequestInfo}
 								{#if joinRequestInfo.status === 'pending'}
 									{#if joinRequestInfo.canDecide}
 										<div class={`flex gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
@@ -656,60 +837,70 @@
 								</p>
 								<div class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'}`}>
 									{#each visibleMessages as entry (entry.key)}
-										<div
-											data-message-key={entry.key}
-											class={`flex ${
-												entry.profileId === viewer.data?._id
-													? isDesktopViewport
-														? 'justify-end'
-														: 'justify-end pl-11'
-													: isDesktopViewport
-														? 'justify-start'
-														: 'justify-start pr-11'
-											}`}
-										>
-											<div
-												class={`${
-													isDesktopViewport
-														? 'max-w-[85%] rounded-2xl px-3 py-2'
-														: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
-												} ${
-													entry.profileId === viewer.data?._id
-														? 'bg-[#f5e2d2] text-[#2b2b2b]'
-														: 'bg-[#e7e9f3] text-[#2b2b2b]'
-												}`}
-											>
+										{#if entry.profileId === null}
+											<div data-message-key={entry.key} class="flex justify-center">
 												<p
-													class={`break-words ${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}
+													class="max-w-[85%] rounded-full bg-[#f0f0f2] px-3 py-1 text-center text-xs text-[#6b6f80]"
 												>
-													{#each linkifySegments(entry.content) as segment, index (index)}
-														{#if segment.type === 'url'}
-															<a
-																href={segment.value}
-																target="_blank"
-																rel="noopener noreferrer"
-																class="underline underline-offset-2 hover:opacity-80"
-															>
-																{segment.value}
-															</a>
-														{:else}
-															{segment.value}
-														{/if}
-													{/each}
-												</p>
-												<p
-													class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
-												>
-													{#if entry.status === 'sending'}
-														Sending...
-													{:else if entry.status === 'failed'}
-														Failed to send
-													{:else}
-														{formatClockTime(entry.createdAt)}
-													{/if}
+													{entry.content}
 												</p>
 											</div>
-										</div>
+										{:else}
+											<div
+												data-message-key={entry.key}
+												class={`flex ${
+													entry.profileId === viewer.data?._id
+														? isDesktopViewport
+															? 'justify-end'
+															: 'justify-end pl-11'
+														: isDesktopViewport
+															? 'justify-start'
+															: 'justify-start pr-11'
+												}`}
+											>
+												<div
+													class={`${
+														isDesktopViewport
+															? 'max-w-[85%] rounded-2xl px-3 py-2'
+															: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
+													} ${
+														entry.profileId === viewer.data?._id
+															? 'bg-[#f5e2d2] text-[#2b2b2b]'
+															: 'bg-[#e7e9f3] text-[#2b2b2b]'
+													}`}
+												>
+													<p
+														class={`break-words ${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}
+													>
+														{#each linkifySegments(entry.content) as segment, index (index)}
+															{#if segment.type === 'url'}
+																<a
+																	href={segment.value}
+																	target="_blank"
+																	rel="noopener noreferrer"
+																	class="underline underline-offset-2 hover:opacity-80"
+																>
+																	{segment.value}
+																</a>
+															{:else}
+																{segment.value}
+															{/if}
+														{/each}
+													</p>
+													<p
+														class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
+													>
+														{#if entry.status === 'sending'}
+															Sending...
+														{:else if entry.status === 'failed'}
+															Failed to send
+														{:else}
+															{formatClockTime(entry.createdAt)}
+														{/if}
+													</p>
+												</div>
+											</div>
+										{/if}
 									{/each}
 								</div>
 							{/if}
@@ -728,7 +919,7 @@
 							bind:value={message}
 							placeholder="Send a message..."
 							maxlength={MAX_MESSAGE_LENGTH}
-							class={`border-0 bg-clip-padding text-[1.02rem] shadow-none ring-0 focus-visible:ring-0 [-moz-background-clip:padding] ${
+							class={`border-0 bg-clip-padding text-[1.02rem] shadow-none ring-0 [-moz-background-clip:padding] focus-visible:ring-0 ${
 								isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
 							}`}
 							disabled={!selectedRoomId || !activeRoom?.canSend}
@@ -767,4 +958,59 @@
 			{/if}
 		</div>
 	</div>
+
+	<Dialog.Root bind:open={rejectDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>{$_('applicationChat.rejectDialogTitle')}</Dialog.Title>
+				<Dialog.Description>{$_('applicationChat.rejectDialogDescription')}</Dialog.Description>
+			</Dialog.Header>
+			<Textarea
+				bind:value={rejectNote}
+				placeholder={$_('applicationChat.rejectDialogPlaceholder')}
+				rows={4}
+			/>
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (rejectDialogOpen = false)}>
+					{$_('applicationChat.cancel')}
+				</Button>
+				<Button
+					variant="destructive"
+					disabled={applicationActionPending}
+					onclick={() => void confirmRejectApplicationAction()}
+				>
+					{applicationActionPending
+						? $_('applicationChat.rejecting')
+						: $_('applicationChat.rejectButton')}
+				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
+
+	<Dialog.Root bind:open={followUpDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>{$_('applicationChat.followUpDialogTitle')}</Dialog.Title>
+				<Dialog.Description>{$_('applicationChat.followUpDialogDescription')}</Dialog.Description>
+			</Dialog.Header>
+			<Textarea
+				bind:value={followUpReason}
+				placeholder={$_('applicationChat.followUpDialogPlaceholder')}
+				rows={3}
+			/>
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (followUpDialogOpen = false)}>
+					{$_('applicationChat.cancel')}
+				</Button>
+				<Button
+					disabled={applicationActionPending || !followUpReason.trim()}
+					onclick={() => void confirmFollowUpFlagAction()}
+				>
+					{applicationActionPending
+						? $_('applicationChat.flaggingFollowUp')
+						: $_('applicationChat.flagFollowUpButton')}
+				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
 {/if}

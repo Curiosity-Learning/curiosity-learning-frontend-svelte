@@ -77,8 +77,7 @@ const getProjectAccess = async (
 	const canRead = memberships.length > 0 || observerAccess.canRead;
 	const archived = await isProjectArchived(ctx, projectId);
 	const canSend =
-		!archived &&
-		(memberships.some((membership) => !membership.leftAt) || observerAccess.canSend);
+		!archived && (memberships.some((membership) => !membership.leftAt) || observerAccess.canSend);
 
 	let sendBlockedReason: SendBlockedReason = null;
 	if (!canSend && canRead) {
@@ -87,6 +86,12 @@ const getProjectAccess = async (
 
 	return { canRead, canSend, sendBlockedReason };
 };
+
+// Once an application is decided, the chat stays readable for history but the composer closes:
+// rejected applications are read-only (the applicant may want to ask why), and finalized ones are
+// closed with a "your club is live" banner instead (see CL-710).
+const isClubApplicationChatSendable = (status: Doc<'clubApplications'>['status']) =>
+	status !== 'rejected' && status !== 'finalized';
 
 const getClubApplicationAccess = async (
 	ctx: Ctx,
@@ -97,8 +102,13 @@ const getClubApplicationAccess = async (
 	if (!application) {
 		return { canRead: false, canSend: false, sendBlockedReason: null };
 	}
+	const sendable = isClubApplicationChatSendable(application.status);
 	if (application.applicantProfileId === profileId) {
-		return { canRead: true, canSend: true, sendBlockedReason: null };
+		return {
+			canRead: true,
+			canSend: sendable,
+			sendBlockedReason: sendable ? null : 'not_participant'
+		};
 	}
 
 	const review = await ctx.db
@@ -107,10 +117,11 @@ const getClubApplicationAccess = async (
 			q.eq('applicationId', clubApplicationId).eq('reviewerProfileId', profileId)
 		)
 		.first();
+	const canRead = Boolean(review);
 	return {
-		canRead: Boolean(review),
-		canSend: Boolean(review),
-		sendBlockedReason: null
+		canRead,
+		canSend: canRead && sendable,
+		sendBlockedReason: canRead && !sendable ? 'not_participant' : null
 	};
 };
 

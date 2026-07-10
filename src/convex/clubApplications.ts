@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
-import { components, internal } from './_generated/api';
+import type { Doc, Id } from './_generated/dataModel';
+import { internal } from './_generated/api';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import {
@@ -14,9 +14,6 @@ import { ensureClubApplicationRoom, ensureClubRoom } from './chatModel';
 
 type Ctx = QueryCtx | MutationCtx;
 
-const APPLICATION_ADMIN_EMAILS_ENV = 'APPLICATION_REVIEW_ADMIN_EMAILS';
-
-const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const applicationDraftValidator = v.object({
 	description: v.optional(v.string()),
 	location: v.optional(v.string()),
@@ -60,18 +57,34 @@ const requireGuideSomewhere = async (ctx: Ctx, userId: string) => {
 	throw new ConvexError('Only Guides can review applications');
 };
 
-const requireApplicationFinalizer = async (ctx: Ctx, userId: string) => {
-	const allowedEmails = (process.env[APPLICATION_ADMIN_EMAILS_ENV] ?? '')
-		.split(',')
-		.map((email) => normalizeEmail(email))
-		.filter(Boolean);
-	const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-		model: 'user',
-		where: [{ field: '_id', value: userId }]
-	})) as { email?: string } | null;
-	if (!authUser?.email || !allowedEmails.includes(normalizeEmail(authUser.email))) {
-		throw new ConvexError('Permission denied');
+// A "deciding Guide" for an application is any Guide who has reviewed it (has an
+// applicationReviews row). This mirrors the chat access rule in chat.ts's
+// getClubApplicationAccess, so the same Guides who can read/send in the application chat are the
+// ones who can move it to interview, accept/reject, confirm the onboarding call, or flag it for
+// follow-up.
+const getApplicationReview = async (
+	ctx: Ctx,
+	applicationId: Id<'clubApplications'>,
+	reviewerProfileId: Id<'profiles'>
+) => {
+	return await ctx.db
+		.query('applicationReviews')
+		.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+			q.eq('applicationId', applicationId).eq('reviewerProfileId', reviewerProfileId)
+		)
+		.first();
+};
+
+const requireDecidingReviewer = async (
+	ctx: Ctx,
+	applicationId: Id<'clubApplications'>,
+	profileId: Id<'profiles'>
+) => {
+	const review = await getApplicationReview(ctx, applicationId, profileId);
+	if (!review) {
+		throw new ConvexError('Only a Guide who reviewed this application can do this');
 	}
+	return review;
 };
 
 const assertReadyClubVideo = async (
@@ -404,7 +417,216 @@ export const upsertApplicationReview = mutation({
 	}
 });
 
-export const finalizeApplication = mutation({
+// Creates the club and Guide membership for an accepted application, and marks it finalized.
+// Extracted from the former `finalizeApplication` mutation so `confirmOnboardingCall` can run the
+// exact same club-creation logic once the onboarding call is confirmed.
+const createClubFromApplication = async (
+	ctx: MutationCtx,
+	application: Doc<'clubApplications'>,
+	finalizerProfileId: Id<'profiles'>
+) => {
+	if (application.status === 'finalized') {
+		if (!application.createdClubId) {
+			throw new ConvexError('Application is finalized without a club');
+		}
+		return { clubId: application.createdClubId };
+	}
+
+	const applicantProfile = await ctx.db.get(application.applicantProfileId);
+	if (!applicantProfile) {
+		throw new ConvexError('Applicant profile not found');
+	}
+	const inviteCode = await createInviteCode(ctx);
+	const now = Date.now();
+	const clubId = await ctx.db.insert('clubs', {
+		name: application.name,
+		clubCode: inviteCode,
+		description: application.description,
+		location: application.location,
+		locationLatitude: application.locationLatitude,
+		locationLongitude: application.locationLongitude,
+		videoMediaAssetId: application.videoMediaAssetId,
+		// Private by default: newly created clubs must be explicitly opted in to discovery.
+		discoverable: false,
+		createdByProfileId: application.applicantProfileId,
+		createdAt: now,
+		updatedAt: now
+	});
+	await ensureClubRoom(ctx, clubId);
+
+	const guideRole = await getRoleByKey(ctx, 'guide');
+	const existingMembership = await getMembershipByProfileId(
+		ctx,
+		clubId,
+		application.applicantProfileId
+	);
+	if (!existingMembership) {
+		await ctx.db.insert('clubMembers', {
+			clubId,
+			profileId: application.applicantProfileId,
+			roleId: guideRole._id,
+			firstName: applicantProfile.firstName,
+			lastName: applicantProfile.lastName,
+			username: applicantProfile.username,
+			coverPhotoUrl: applicantProfile.coverPhotoUrl,
+			createdAt: now
+		});
+	}
+
+	await ctx.db.patch(application._id, {
+		status: 'finalized',
+		createdClubId: clubId,
+		finalizedByProfileId: finalizerProfileId,
+		finalizedAt: now,
+		updatedAt: now
+	});
+	await ctx.db.patch(application.applicantProfileId, {
+		activeClubId: clubId,
+		firstLoginCompleted: true,
+		updatedAt: now
+	});
+
+	return { clubId };
+};
+
+export const moveToInterview = mutation({
+	args: {
+		applicationId: v.id('clubApplications')
+	},
+	returns: v.object({ success: v.boolean() }),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const reviewerProfile = await requireProfile(ctx, identity.subject);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		if (application.status !== 'pending') {
+			throw new ConvexError('Only applications in review can move to interview');
+		}
+
+		await requireDecidingReviewer(ctx, args.applicationId, reviewerProfile._id);
+
+		const now = Date.now();
+		await ctx.db.patch(application._id, {
+			status: 'interview',
+			movedToInterviewAt: now,
+			movedToInterviewByProfileId: reviewerProfile._id,
+			updatedAt: now
+		});
+		await ensureClubApplicationRoom(ctx, application._id);
+
+		await ctx.runMutation(internal.notifications.createSystemNotification, {
+			profileId: application.applicantProfileId,
+			title: 'Your application moved to interview',
+			message: 'Your application moved to interview — expect a message to schedule a call.'
+		});
+
+		return { success: true };
+	}
+});
+
+export const decideApplication = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		decision: v.union(v.literal('accepted'), v.literal('rejected')),
+		rejectionNote: v.optional(v.string())
+	},
+	returns: v.object({ success: v.boolean() }),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const deciderProfile = await requireProfile(ctx, identity.subject);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		if (application.status !== 'interview') {
+			throw new ConvexError('This application is not awaiting a decision');
+		}
+
+		await requireDecidingReviewer(ctx, args.applicationId, deciderProfile._id);
+
+		const now = Date.now();
+		const rejectionNote =
+			args.decision === 'rejected' ? trimOptional(args.rejectionNote) : undefined;
+
+		await ctx.db.patch(application._id, {
+			status: args.decision,
+			decidedAt: now,
+			decidedByProfileId: deciderProfile._id,
+			rejectionNote,
+			updatedAt: now
+		});
+
+		const roomId = await ensureClubApplicationRoom(ctx, application._id);
+
+		if (args.decision === 'rejected') {
+			if (rejectionNote) {
+				await ctx.db.insert('messages', {
+					roomId,
+					profileId: deciderProfile._id,
+					content: rejectionNote
+				});
+			}
+			await ctx.db.insert('messages', {
+				roomId,
+				content: 'This application was not accepted.'
+			});
+			await ctx.runMutation(internal.notifications.createSystemNotification, {
+				profileId: application.applicantProfileId,
+				title: 'Application update',
+				message: 'Your application was not accepted this time.'
+			});
+		} else {
+			await ctx.runMutation(internal.notifications.createSystemNotification, {
+				profileId: application.applicantProfileId,
+				title: 'Application accepted',
+				message: 'Accepted! Schedule your onboarding call in this chat before your club activates.'
+			});
+		}
+
+		return { success: true };
+	}
+});
+
+export const setAdminFollowUpFlag = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		reason: v.string()
+	},
+	returns: v.object({ success: v.boolean() }),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const deciderProfile = await requireProfile(ctx, identity.subject);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		if (application.status !== 'accepted') {
+			throw new ConvexError('Only accepted applications awaiting onboarding can be flagged');
+		}
+
+		await requireDecidingReviewer(ctx, args.applicationId, deciderProfile._id);
+
+		const reason = args.reason.trim();
+		if (!reason) {
+			throw new ConvexError('A reason is required');
+		}
+
+		await ctx.db.patch(application._id, {
+			adminFollowUpFlag: {
+				reason,
+				createdAt: Date.now(),
+				createdByProfileId: deciderProfile._id
+			},
+			updatedAt: Date.now()
+		});
+
+		return { success: true };
+	}
+});
+
+export const confirmOnboardingCall = mutation({
 	args: {
 		applicationId: v.id('clubApplications')
 	},
@@ -414,7 +636,6 @@ export const finalizeApplication = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const finalizerProfile = await requireProfile(ctx, identity.subject);
-		await requireApplicationFinalizer(ctx, identity.subject);
 
 		const application = await ctx.db.get(args.applicationId);
 		if (!application) {
@@ -426,64 +647,86 @@ export const finalizeApplication = mutation({
 			}
 			return { clubId: application.createdClubId };
 		}
-		if (application.status !== 'pending') {
-			throw new ConvexError('Application is not ready to finalize');
+		if (application.status !== 'accepted') {
+			throw new ConvexError('The onboarding call can only be confirmed for accepted applications');
 		}
 
-		const applicantProfile = await ctx.db.get(application.applicantProfileId);
-		if (!applicantProfile) {
-			throw new ConvexError('Applicant profile not found');
-		}
-		const inviteCode = await createInviteCode(ctx);
+		await requireDecidingReviewer(ctx, args.applicationId, finalizerProfile._id);
+
 		const now = Date.now();
-		const clubId = await ctx.db.insert('clubs', {
-			name: application.name,
-			clubCode: inviteCode,
-			description: application.description,
-			location: application.location,
-			locationLatitude: application.locationLatitude,
-			locationLongitude: application.locationLongitude,
-			videoMediaAssetId: application.videoMediaAssetId,
-			// Private by default: newly created clubs must be explicitly opted in to discovery.
-			discoverable: false,
-			createdByProfileId: application.applicantProfileId,
-			createdAt: now,
+		await ctx.db.patch(application._id, {
+			onboardingCallCompletedAt: now,
 			updatedAt: now
 		});
-		await ensureClubRoom(ctx, clubId);
-
-		const guideRole = await getRoleByKey(ctx, 'guide');
-		const existingMembership = await getMembershipByProfileId(
-			ctx,
-			clubId,
-			application.applicantProfileId
-		);
-		if (!existingMembership) {
-			await ctx.db.insert('clubMembers', {
-				clubId,
-				profileId: application.applicantProfileId,
-				roleId: guideRole._id,
-				firstName: applicantProfile.firstName,
-				lastName: applicantProfile.lastName,
-				username: applicantProfile.username,
-				coverPhotoUrl: applicantProfile.coverPhotoUrl,
-				createdAt: now
-			});
+		const patchedApplication = await ctx.db.get(args.applicationId);
+		if (!patchedApplication) {
+			throw new ConvexError('Application not found');
 		}
 
-		await ctx.db.patch(application._id, {
-			status: 'finalized',
-			createdClubId: clubId,
-			finalizedByProfileId: finalizerProfile._id,
-			finalizedAt: now,
-			updatedAt: now
-		});
-		await ctx.db.patch(application.applicantProfileId, {
-			activeClubId: clubId,
-			firstLoginCompleted: true,
-			updatedAt: now
-		});
+		return await createClubFromApplication(ctx, patchedApplication, finalizerProfile._id);
+	}
+});
 
-		return { clubId };
+export const getApplicationForRoom = query({
+	args: {
+		roomId: v.id('rooms')
+	},
+	returns: v.union(
+		v.null(),
+		v.object({
+			applicationId: v.id('clubApplications'),
+			name: v.string(),
+			status: v.union(
+				v.literal('incomplete'),
+				v.literal('pending'),
+				v.literal('interview'),
+				v.literal('accepted'),
+				v.literal('rejected'),
+				v.literal('finalized')
+			),
+			isApplicant: v.boolean(),
+			canDecide: v.boolean(),
+			hasReviewed: v.boolean(),
+			adminFollowUpFlag: v.optional(
+				v.object({
+					reason: v.string(),
+					createdAt: v.number()
+				})
+			)
+		})
+	),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const room = await ctx.db.get(args.roomId);
+		if (!room || room.contextType !== 'clubApplication') {
+			return null;
+		}
+		const application = await ctx.db.get(room.clubApplicationId);
+		if (!application) {
+			return null;
+		}
+		const isApplicant = application.applicantProfileId === profile._id;
+		const review = isApplicant
+			? null
+			: await getApplicationReview(ctx, application._id, profile._id);
+		if (!isApplicant && !review) {
+			throw new ConvexError('You cannot access this chat');
+		}
+
+		return {
+			applicationId: application._id,
+			name: application.name,
+			status: application.status,
+			isApplicant,
+			canDecide: Boolean(review),
+			hasReviewed: Boolean(review),
+			adminFollowUpFlag: application.adminFollowUpFlag
+				? {
+						reason: application.adminFollowUpFlag.reason,
+						createdAt: application.adminFollowUpFlag.createdAt
+					}
+				: undefined
+		};
 	}
 });

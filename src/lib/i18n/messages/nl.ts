@@ -45,7 +45,8 @@ const nl = {
 		missingStorageReference: 'Uploaden is voltooid, maar er is geen opslagverwijzing teruggekomen.',
 		blockedBySafetyScreening:
 			'Deze afbeelding/video kon niet worden geüpload. Als je denkt dat dit een fout is, probeer dan een ander bestand.',
-		videoTooLong: "Video's mogen maximaal 2 minuten duren. Knip je video bij en probeer het opnieuw."
+		videoTooLong:
+			"Video's mogen maximaal 2 minuten duren. Knip je video bij en probeer het opnieuw."
 	},
 	settings: {
 		language: {
@@ -173,7 +174,7 @@ const nl = {
 		uploadFailure: 'Foto toevoegen mislukt.',
 		deleteConfirm: 'Deze foto verwijderen?',
 		deleteFailure: 'Foto verwijderen mislukt.',
-		limitReached: 'Deze sessie heeft al het maximum van 4 foto\'s.',
+		limitReached: "Deze sessie heeft al het maximum van 4 foto's.",
 		windowClosedBeforeStart: "Foto's kunnen worden toegevoegd zodra de sessie begint.",
 		windowClosedAfterLock: "Foto's kunnen niet meer worden toegevoegd voor deze sessie.",
 		cancelledNotice: "Foto's kunnen niet worden toegevoegd aan een geannuleerde sessie."
@@ -403,7 +404,8 @@ const nl = {
 			featureCuriousTitle: 'Nieuwsgierig van nature',
 			featureCuriousDescription: 'Ontworpen om verwondering en ontdekking aan te moedigen.',
 			featureTogetherTitle: 'Samen leren',
-			featureTogetherDescription: 'Clubs brengen nieuwsgierige mensen samen om te delen en te groeien.',
+			featureTogetherDescription:
+				'Clubs brengen nieuwsgierige mensen samen om te delen en te groeien.',
 			featureImpactTitle: 'Maak impact',
 			featureImpactDescription: 'Leer, leid en maak betekenisvolle verandering.',
 			featureJourneyTitle: 'Jouw leerreis',
@@ -617,7 +619,8 @@ const nl = {
 		roleTabLearner: 'Leerling',
 		roleTabGuide: 'Begeleider',
 		noLearnerCode: 'Deze club heeft nog geen uitnodigingscode voor leerlingen.',
-		noGuideCode: 'Genereer een begeleiders-uitnodigingscode om direct een nieuwe Begeleider uit te nodigen.',
+		noGuideCode:
+			'Genereer een begeleiders-uitnodigingscode om direct een nieuwe Begeleider uit te nodigen.',
 		generateGuideCodeButton: 'Begeleiders-uitnodigingscode genereren',
 		generateGuideCodeFailure: 'Kan begeleiders-uitnodigingscode niet genereren.',
 		learnerCodeLabel: 'Uitnodigingscode voor leerlingen',
@@ -652,6 +655,55 @@ const nl = {
 		requestSent: 'Je verzoek om lid te worden is verstuurd.',
 		requestFailure: 'Kan je verzoek om lid te worden niet versturen.',
 		viewChat: 'Bekijk chat'
+	},
+	applicationStatus: {
+		incompleteLabel: 'Onvolledig',
+		incompleteDescription: 'Rond je aanvraag af en dien deze in om de beoordeling te starten.',
+		pendingLabel: 'In beoordeling',
+		pendingDescription: 'Guides beoordelen je aanvraag.',
+		interviewLabel: 'Interview',
+		interviewDescription: 'Bekijk je chat om je interviewgesprek te plannen.',
+		acceptedLabel: 'Geaccepteerd',
+		acceptedDescription: 'Plan je onboardinggesprek in je chat om je club te activeren.',
+		rejectedLabel: 'Niet geaccepteerd',
+		rejectedDescription: 'Deze aanvraag is deze keer niet geaccepteerd.',
+		finalizedLabel: 'Club live',
+		finalizedDescription: 'Je club is aangemaakt.'
+	},
+	applicationChat: {
+		cancel: 'Annuleren',
+		acceptButton: 'Accepteren',
+		rejectButton: 'Afwijzen',
+		accepting: 'Accepteren...',
+		rejecting: 'Afwijzen...',
+		acceptFailure: 'Kan deze aanvraag niet accepteren.',
+		rejectFailure: 'Kan deze aanvraag niet afwijzen.',
+		confirmOnboardingButton: 'Bevestig dat het onboardinggesprek heeft plaatsgevonden',
+		confirmingOnboarding: 'Bevestigen...',
+		confirmOnboardingFailure: 'Kan het onboardinggesprek niet bevestigen.',
+		flagFollowUpButton: 'Markeren voor opvolging',
+		flaggingFollowUp: 'Markeren...',
+		followUpFailure: 'Kan deze aanvraag niet markeren.',
+		followUpFlaggedBanner: 'Gemarkeerd voor opvolging door Core Team',
+		interviewBannerTitle: 'Deze aanvraag is in de interviewfase',
+		interviewBannerDescription:
+			'Gebruik deze chat om het interviewgesprek te plannen en te bespreken.',
+		acceptedBannerTitle: 'Deze aanvraag is geaccepteerd',
+		acceptedBannerDescription:
+			'Plan je onboardinggesprek in deze chat. Je club wordt geactiveerd zodra het gesprek is bevestigd.',
+		rejectedBannerTitle: 'Deze aanvraag is niet geaccepteerd',
+		rejectedBannerDescription:
+			'Je kunt de berichtgeschiedenis nog lezen, maar deze chat is nu alleen-lezen.',
+		finalizedBannerTitle: 'Je club is live',
+		finalizedBannerDescription: 'Deze aanvraag is afgerond en de chat is nu gesloten.',
+		rejectDialogTitle: 'Deze aanvraag afwijzen?',
+		rejectDialogDescription:
+			'Je kunt een persoonlijke notitie toevoegen voor de aanvrager. Deze wordt samen met de afwijzing in deze chat geplaatst.',
+		rejectDialogPlaceholder: 'Optionele notitie voor de aanvrager...',
+		followUpDialogTitle: 'Markeren voor opvolging door Core Team',
+		followUpDialogDescription:
+			'Dit wijst de aanvraag niet af. Het markeert deze alleen voor aandacht van het Core Team (bijv. niet komen opdagen of planningsprobleem).',
+		followUpDialogPlaceholder: 'Reden, bijv. "Niet komen opdagen / niet gepland"'
 	},
 	publicClubPreview: {
 		notFoundTitle: 'Club niet gevonden',

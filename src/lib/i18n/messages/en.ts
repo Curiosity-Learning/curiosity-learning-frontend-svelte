@@ -647,7 +647,8 @@ const en = {
 			'This request was accepted. {name} will join once they finish setting up their account.',
 		declinedBanner: 'This request was declined.',
 		cancelledBanner: 'This join request was cancelled.',
-		requesterCancelledDescription: 'You can still read the message history, but this chat is closed.'
+		requesterCancelledDescription:
+			'You can still read the message history, but this chat is closed.'
 	},
 	requestToJoin: {
 		button: 'Request to join',
@@ -657,6 +658,54 @@ const en = {
 		requestSent: 'Your request to join has been sent.',
 		requestFailure: 'Unable to send your request to join.',
 		viewChat: 'View chat'
+	},
+	applicationStatus: {
+		incompleteLabel: 'Incomplete',
+		incompleteDescription: 'Finish and submit your application to start the review.',
+		pendingLabel: 'In review',
+		pendingDescription: 'Guides are reviewing your application.',
+		interviewLabel: 'Interview',
+		interviewDescription: 'Check your chat to schedule your interview call.',
+		acceptedLabel: 'Accepted',
+		acceptedDescription: 'Schedule your onboarding call in your chat to activate your club.',
+		rejectedLabel: 'Not accepted',
+		rejectedDescription: 'This application was not accepted this time.',
+		finalizedLabel: 'Club live',
+		finalizedDescription: 'Your club has been created.'
+	},
+	applicationChat: {
+		cancel: 'Cancel',
+		acceptButton: 'Accept',
+		rejectButton: 'Reject',
+		accepting: 'Accepting...',
+		rejecting: 'Rejecting...',
+		acceptFailure: 'Unable to accept this application.',
+		rejectFailure: 'Unable to reject this application.',
+		confirmOnboardingButton: 'Confirm onboarding call happened',
+		confirmingOnboarding: 'Confirming...',
+		confirmOnboardingFailure: 'Unable to confirm the onboarding call.',
+		flagFollowUpButton: 'Flag for follow-up',
+		flaggingFollowUp: 'Flagging...',
+		followUpFailure: 'Unable to flag this application.',
+		followUpFlaggedBanner: 'Flagged for Core Team follow-up',
+		interviewBannerTitle: 'This application is in the interview stage',
+		interviewBannerDescription: 'Use this chat to schedule and discuss the interview call.',
+		acceptedBannerTitle: 'This application was accepted',
+		acceptedBannerDescription:
+			'Schedule your onboarding call in this chat. Your club activates once the call is confirmed.',
+		rejectedBannerTitle: 'This application was not accepted',
+		rejectedBannerDescription:
+			'You can still read the message history, but this chat is now read-only.',
+		finalizedBannerTitle: 'Your club is live',
+		finalizedBannerDescription: 'This application is complete and the chat is now closed.',
+		rejectDialogTitle: 'Reject this application?',
+		rejectDialogDescription:
+			'You can add a personal note to the applicant. It will be posted in this chat along with the rejection.',
+		rejectDialogPlaceholder: 'Optional note to the applicant...',
+		followUpDialogTitle: 'Flag for Core Team follow-up',
+		followUpDialogDescription:
+			'This does not reject the application. It just marks it for Core Team attention (e.g. a no-show or scheduling issue).',
+		followUpDialogPlaceholder: 'Reason, e.g. "No-show / failed to schedule"'
 	},
 	publicClubPreview: {
 		notFoundTitle: 'Club not found',
@@ -677,7 +726,7 @@ const en = {
 		memberStateDone: 'Done',
 		memberStateSystem: 'System',
 		imDoneAction: "I'm Done",
-		imDoneDialogTitle: "Mark yourself as done?",
+		imDoneDialogTitle: 'Mark yourself as done?',
 		imDoneDialogDescription:
 			"This is permanent and cannot be undone. You'll stay credited as a project member, and the project chat stays open until every member has marked themselves done. Once the last active member marks done, the project is archived.",
 		imDoneConfirmAction: 'Yes, mark me as done',
