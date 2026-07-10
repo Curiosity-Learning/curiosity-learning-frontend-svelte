@@ -96,9 +96,6 @@ export default defineSchema({
 
 	clubApplications: defineTable({
 		applicantProfileId: v.id('profiles'),
-		// Legacy: existing production documents were written by the
-		// pre-profile-relationship backend; strip via migration, then remove.
-		applicantUserId: v.optional(v.string()),
 		status: v.union(v.literal('incomplete'), v.literal('pending'), v.literal('finalized')),
 		name: v.string(),
 		description: v.optional(v.string()),
