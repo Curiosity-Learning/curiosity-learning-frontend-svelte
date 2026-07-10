@@ -651,6 +651,14 @@ const en = {
 		copy: 'Copy',
 		copied: 'Copied'
 	},
+	chat: {
+		removedByModeration: 'This message was removed by moderators.'
+	},
+	suspendedScreen: {
+		title: 'Your account is suspended',
+		defaultReason: 'Your account has been suspended by an administrator.',
+		reportIssueAction: 'Report an issue'
+	},
 	joinRequestChat: {
 		acceptButton: 'Accept',
 		declineButton: 'Decline',

@@ -109,14 +109,15 @@ export const listByProject = query({
 			.query('updates')
 			.withIndex('by_project_and_created', (q) => q.eq('projectId', args.projectId));
 
+		// PRD 6.14.4 (CL-730): taken-down updates disappear from the project timeline.
 		if (args.limit) {
 			// Keep chronological ordering (oldest -> newest) while limiting.
 			const newestFirst = await queryBuilder.order('desc').take(args.limit);
-			const chronological = newestFirst.reverse();
+			const chronological = newestFirst.filter((update) => !update.takedown).reverse();
 			return await Promise.all(chronological.map(withAuthor));
 		}
 
-		const updates = await queryBuilder.collect();
+		const updates = (await queryBuilder.collect()).filter((update) => !update.takedown);
 		return await Promise.all(updates.map(withAuthor));
 	}
 });
@@ -158,7 +159,8 @@ export const listByClub = query({
 			seen.add(row.updateId);
 
 			const update = await ctx.db.get(row.updateId);
-			if (!update) continue;
+			// PRD 6.14.4 (CL-730): taken-down updates disappear from the club feed.
+			if (!update || update.takedown) continue;
 			const projectId = row.projectId ?? update.projectId ?? null;
 			const project = projectId ? await ctx.db.get(projectId) : null;
 			const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
@@ -285,7 +287,8 @@ export const listForViewer = query({
 			seen.add(row.updateId);
 
 			const update = await ctx.db.get(row.updateId);
-			if (!update) continue;
+			// PRD 6.14.4 (CL-730): taken-down updates disappear from the "My Clubs" feed.
+			if (!update || update.takedown) continue;
 
 			const club = await ctx.db.get(row.clubId);
 			const projectId = row.projectId ?? update.projectId ?? null;
@@ -394,9 +397,11 @@ export const listGlobal = query({
 					hasMore = true;
 					break;
 				}
+				// PRD 6.14.4 (CL-730): taken-down updates disappear from the "All" feed.
+				if (update.takedown) continue;
 				if (!update.projectId) continue;
 				const project = await getProjectCached(update.projectId);
-				if (!project || project.visibility !== 'global') continue;
+				if (!project || project.visibility !== 'global' || project.takedown) continue;
 
 				const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
 				const questionId = update.questionId ?? null;
@@ -510,7 +515,8 @@ export const listMine = query({
 			seen.add(row.updateId);
 
 			const update = await ctx.db.get(row.updateId);
-			if (!update || update.createdByProfileId !== viewerProfile._id) continue;
+			// PRD 6.14.4 (CL-730): taken-down updates disappear from the profile's own updates list.
+			if (!update || update.takedown || update.createdByProfileId !== viewerProfile._id) continue;
 
 			const club = await ctx.db.get(row.clubId);
 			const projectId = row.projectId ?? update.projectId ?? null;
