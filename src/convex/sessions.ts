@@ -653,6 +653,9 @@ export const listCardPreviewsByClub = query({
 				profileImageMediaAssetId: Id<'mediaAssets'> | null;
 			}>;
 			activityItems: Array<{ id: string; title: string; description: string | null }>;
+			// PRD 6.16 (CL-731): full activity-name list (activityItems is capped at 3 for card
+			// display) so the sessions page can search by activity name client-side.
+			allActivityNames: string[];
 			hiddenActivitiesCount: number;
 			rsvpCounts: { going: number; notGoing: number };
 			myRsvpStatus: 'going' | 'not_going' | null;
@@ -707,6 +710,7 @@ export const listCardPreviewsByClub = query({
 				tagNames,
 				attendees,
 				activityItems,
+				allActivityNames: activities.map((activity) => activity.name),
 				hiddenActivitiesCount: Math.max(activities.length - activityItems.length, 0),
 				rsvpCounts,
 				myRsvpStatus: myRsvp?.status ?? null

@@ -2,7 +2,7 @@
 	import { authClient } from '$lib/auth-client';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { LoadingState, UpdateCard } from '$lib/components/app';
+	import { FeedSearch, LoadingState, UpdateCard } from '$lib/components/app';
 	import type { UpdateCardMediaItem } from '$lib/components/app/feed/update-card.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
@@ -107,6 +107,14 @@
 		<AlertDescription>Sign in to view the global feed.</AlertDescription>
 	</Alert>
 {:else}
+	<FeedSearch scope="global">
+		{#snippet feed()}
+			{@render feedList()}
+		{/snippet}
+	</FeedSearch>
+{/if}
+
+{#snippet feedList()}
 	<div class="flex flex-col gap-4">
 		{#if firstPage.isLoading && visibleUpdates.length === 0}
 			<LoadingState label="Loading updates" />
@@ -169,4 +177,4 @@
 			{/if}
 		{/if}
 	</div>
-{/if}
+{/snippet}

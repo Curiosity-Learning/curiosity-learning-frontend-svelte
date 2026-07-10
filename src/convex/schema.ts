@@ -380,7 +380,13 @@ export default defineSchema({
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
-	}),
+	})
+		// PRD 6.16 (CL-731): feed search matches projects by name and description. Convex search
+		// indexes support exactly one search field each, hence two indexes. Visibility/takedown
+		// gating is re-checked per hit in `updates.searchGlobalFeed`/`searchMyClubsFeed` rather
+		// than via filterFields (takedown is an optional object and club scoping is relational).
+		.searchIndex('search_name', { searchField: 'name' })
+		.searchIndex('search_description', { searchField: 'description' }),
 
 	// PRD 5.11/6.6.6: per-member, per-club attribution links (replaces the old project-level
 	// `projectClubs` table entirely — no back-compat). A project's "attributed clubs" is the
@@ -526,7 +532,10 @@ export default defineSchema({
 		.index('by_project_and_created', ['projectId', 'createdAt'])
 		// CL-726: the "All" (global-visibility) feed scans all updates newest-first regardless of
 		// project, which `by_project_and_created` can't serve (it requires a projectId prefix).
-		.index('by_created', ['createdAt']),
+		.index('by_created', ['createdAt'])
+		// PRD 6.16 (CL-731): feed search matches update content. Visibility (project global /
+		// viewer's attributed clubs) and takedowns are re-checked per hit in the search queries.
+		.searchIndex('search_content', { searchField: 'content' }),
 
 	updateClubs: defineTable({
 		updateId: v.id('updates'),

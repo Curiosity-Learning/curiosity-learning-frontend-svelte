@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
+	import SearchIcon from '@lucide/svelte/icons/search';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { api } from '$convex/_generated/api';
 	import {
@@ -83,6 +84,9 @@
 	let message = $state('');
 	let errorMessage = $state('');
 	let roomSearchQuery = $state('');
+	// PRD 6.16 (CL-731): within-conversation search. Filters the currently loaded messages
+	// only (messages paginate 40 at a time via scroll-to-top), which is noted in the UI.
+	let messageSearchQuery = $state('');
 	let isDesktopViewport = $state(false);
 	let messageInputRef = $state<HTMLInputElement | null>(null);
 	let messageScrollRef = $state<HTMLDivElement | null>(null);
@@ -187,6 +191,15 @@
 
 		return entries.sort((left, right) => left.createdAt - right.createdAt);
 	});
+	let normalizedMessageSearch = $derived(messageSearchQuery.trim().toLowerCase());
+	let isMessageSearching = $derived(normalizedMessageSearch.length > 0);
+	let displayedMessages = $derived(
+		isMessageSearching
+			? visibleMessages.filter((entry) =>
+					entry.content.toLowerCase().includes(normalizedMessageSearch)
+				)
+			: visibleMessages
+	);
 
 	$effect(() => {
 		const serverIds = new Set(serverMessages.map((entry) => entry._id));
@@ -201,6 +214,7 @@
 	$effect(() => {
 		if (selectedRoomForScroll === selectedRoomId) return;
 		selectedRoomForScroll = selectedRoomId;
+		messageSearchQuery = '';
 		messageLimit = INITIAL_MESSAGE_LIMIT;
 		shouldStickToBottom = true;
 		pendingPrependScrollHeight = null;
@@ -530,13 +544,23 @@
 
 <PageHeaderBackButton enabled={isMobileDetailView} fallbackHref={routes.chat} />
 <PageHeaderTitle title="Chat" />
-<PageHeaderSearch
-	bind:value={roomSearchQuery}
-	placeholder="Search chats"
-	ariaLabel="Search chats"
-	mode="auto"
-	enabled={!isMobileDetailView}
-/>
+{#if isMobileDetailView}
+	<!-- PRD 6.16: on the mobile conversation view the header search targets the open
+	conversation's loaded messages instead of the room list. -->
+	<PageHeaderSearch
+		bind:value={messageSearchQuery}
+		placeholder={t('chat.messageSearchPlaceholder')}
+		ariaLabel={t('chat.messageSearchToggle')}
+		mode="auto"
+	/>
+{:else}
+	<PageHeaderSearch
+		bind:value={roomSearchQuery}
+		placeholder="Search chats"
+		ariaLabel="Search chats"
+		mode="auto"
+	/>
+{/if}
 <PageHeaderTitleContent enabled={isMobileDetailView}>
 	<div class="flex min-w-0 items-center gap-3">
 		<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
@@ -648,6 +672,18 @@
 							<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
 								{roomDisplayName(activeRoom)}
 							</p>
+						</div>
+						<div class="relative w-56 shrink-0">
+							<SearchIcon
+								class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+							/>
+							<Input
+								type="search"
+								bind:value={messageSearchQuery}
+								placeholder={t('chat.messageSearchPlaceholder')}
+								aria-label={t('chat.messageSearchToggle')}
+								class="h-9 pl-9"
+							/>
 						</div>
 					</div>
 
@@ -828,7 +864,11 @@
 										: 'No messages yet.'}
 								</p>
 							{:else}
-								{#if messagesResponse.isLoading && visibleMessages.length > 0}
+								{#if isMessageSearching && hasMoreMessages}
+									<p class="mb-3 text-center text-xs text-muted-foreground">
+										{$_('chat.messageSearchLoadedOnly')}
+									</p>
+								{:else if messagesResponse.isLoading && visibleMessages.length > 0}
 									<p class="mb-3 text-center text-xs text-muted-foreground">
 										Loading older messages...
 									</p>
@@ -837,13 +877,21 @@
 										Scroll up to load older messages
 									</p>
 								{/if}
-								<p
-									class={`mt-auto text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
+								{#if isMessageSearching && displayedMessages.length === 0}
+									<p class="mt-auto px-4 text-center text-sm text-muted-foreground lg:px-0">
+										{$_('chat.messageSearchNoMatches')}
+									</p>
+								{:else if !isMessageSearching}
+									<p
+										class={`mt-auto text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
+									>
+										Today
+									</p>
+								{/if}
+								<div
+									class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'} ${isMessageSearching ? 'mt-auto' : ''}`}
 								>
-									Today
-								</p>
-								<div class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'}`}>
-									{#each visibleMessages as entry (entry.key)}
+									{#each displayedMessages as entry (entry.key)}
 										{#if entry.profileId === null}
 											<div data-message-key={entry.key} class="flex justify-center">
 												<p
