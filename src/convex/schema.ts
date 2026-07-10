@@ -33,6 +33,11 @@ export default defineSchema({
 		// the separate /admin route group (CL-693) only — must never be branched on inside normal
 		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).
 		globalRole: v.optional(v.literal('admin')),
+		// PRD 6.14.7 (CL-730): set by an admin suspension action (moderation.suspendUser). While
+		// set, `requireProfile` (the highest-traffic auth choke point — see permissions.ts) rejects
+		// the caller for every mutation that routes through it. Cleared by moderation.unsuspendUser.
+		suspendedAt: v.optional(v.number()),
+		suspendedReason: v.optional(v.string()),
 		updatedAt: v.number()
 	})
 		.index('by_auth_user_id', ['authUserId'])
@@ -362,6 +367,16 @@ export default defineSchema({
 		// PRD 6.6.3: optional at creation, editable by any active member. Uploaded via the
 		// `projectCover` media-field kind (images only, compression + safety screening on).
 		coverImageMediaAssetId: v.optional(v.id('mediaAssets')),
+		// PRD 6.14.4 (CL-730): set when an admin takes down this project from the moderation
+		// queue. Taken-down projects are filtered out of every member-facing read path (see
+		// `projectsModel.ts`'s `canViewProject`/list queries) while the row itself is kept intact.
+		takedown: v.optional(
+			v.object({
+				byProfileId: v.id('profiles'),
+				at: v.number(),
+				reason: v.optional(v.string())
+			})
+		),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
@@ -495,6 +510,15 @@ export default defineSchema({
 		content: v.string(),
 		createdByProfileId: v.id('profiles'),
 		questionId: v.optional(v.id('questions')),
+		// PRD 6.14.4 (CL-730): admin takedown from the moderation queue. Filtered out of every
+		// member-facing read path (feeds, project timeline, profile updates) while kept in the DB.
+		takedown: v.optional(
+			v.object({
+				byProfileId: v.id('profiles'),
+				at: v.number(),
+				reason: v.optional(v.string())
+			})
+		),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
@@ -530,15 +554,34 @@ export default defineSchema({
 		updateId: v.id('updates'),
 		authorProfileId: v.id('profiles'),
 		content: v.string(),
+		// PRD 6.14.4 (CL-730): admin takedown from the moderation queue. Filtered out of
+		// `updateComments.listComments`/`countComments` while kept in the DB.
+		takedown: v.optional(
+			v.object({
+				byProfileId: v.id('profiles'),
+				at: v.number(),
+				reason: v.optional(v.string())
+			})
+		),
 		createdAt: v.number()
 	})
 		.index('by_update', ['updateId'])
 		.index('by_update_and_created', ['updateId', 'createdAt']),
 
-	mediaAssets: defineTable(mediaAssetFields)
+	mediaAssets: defineTable({
+		...mediaAssetFields,
+		// PRD 6.14.4 (CL-730): set when an admin dismisses a flagged asset from the moderation
+		// queue (moderation.dismissReport / dismissFlaggedMedia clears `moderation.status` back to
+		// 'clean' and stamps these). Kept separate from the pipeline-owned `moderation` object so
+		// the admin review event doesn't get overwritten by a later automated re-scan.
+		moderationReviewedAt: v.optional(v.number()),
+		moderationReviewedByProfileId: v.optional(v.id('profiles')),
+		moderationReviewNote: v.optional(v.string())
+	})
 		.index('by_owner', ['ownerUserId'])
 		.index('by_owner_and_status', ['ownerUserId', 'status'])
-		.index('by_source_object_key', ['sourceObjectKey']),
+		.index('by_source_object_key', ['sourceObjectKey'])
+		.index('by_moderation_status', ['moderation.status']),
 
 	notifications: defineTable({
 		profileId: v.id('profiles'),
@@ -645,7 +688,17 @@ export default defineSchema({
 		// Optional: unset for system messages (e.g. the automated rejection notice posted by
 		// clubApplications.decideApplication).
 		profileId: v.optional(v.id('profiles')),
-		content: v.string()
+		content: v.string(),
+		// PRD 6.14.4 (CL-730): admin takedown from the moderation queue. The row/content is kept
+		// (chat history stays consistent for other participants), but every read path replaces
+		// `content` with a "removed by moderators" placeholder client-side when this is set.
+		removedByModeration: v.optional(
+			v.object({
+				byProfileId: v.id('profiles'),
+				at: v.number(),
+				reason: v.optional(v.string())
+			})
+		)
 	}).index('by_room', ['roomId']),
 
 	rateLimits: defineTable({
@@ -697,10 +750,53 @@ export default defineSchema({
 		// Short snapshot of the reported content at report time (e.g. the chat message text) —
 		// useful because the underlying content could change or be deleted later. Capped length.
 		contextText: v.optional(v.string()),
-		// 'open' is the only status for v1; admin workflow (CL-730) will extend this.
-		status: v.literal('open'),
+		// CL-730: admin moderation workflow. 'open' -> 'dismissed' (no action needed),
+		// 'actioned' (content taken down / target actioned), or 'escalated' (flagged for
+		// follow-up, stays in the queue conceptually but out of the default "open" filter).
+		status: v.union(
+			v.literal('open'),
+			v.literal('dismissed'),
+			v.literal('actioned'),
+			v.literal('escalated')
+		),
+		// Set by moderation.dismissReport/actionReport/escalateReport.
+		resolvedAt: v.optional(v.number()),
+		resolvedByProfileId: v.optional(v.id('profiles')),
+		resolutionNote: v.optional(v.string()),
 		createdAt: v.number()
 	}).index('by_status_and_created', ['status', 'createdAt']),
+
+	// PRD 6.14.4/6.14.7 (CL-730): lightweight, append-only admin action log. No audit-grade
+	// guarantees for v1 (full audit logging is deferred) — just enough to see "who did what" at
+	// the bottom of the moderation page.
+	moderationActions: defineTable({
+		actorProfileId: v.id('profiles'),
+		action: v.union(
+			v.literal('dismiss_report'),
+			v.literal('dismiss_flagged_media'),
+			v.literal('escalate_report'),
+			v.literal('takedown_update'),
+			v.literal('takedown_comment'),
+			v.literal('takedown_project'),
+			v.literal('takedown_message'),
+			v.literal('suspend_user'),
+			v.literal('unsuspend_user'),
+			v.literal('update_club')
+		),
+		targetType: v.union(
+			v.literal('report'),
+			v.literal('media_asset'),
+			v.literal('update'),
+			v.literal('comment'),
+			v.literal('project'),
+			v.literal('message'),
+			v.literal('profile'),
+			v.literal('club')
+		),
+		targetId: v.string(),
+		reason: v.optional(v.string()),
+		createdAt: v.number()
+	}).index('by_created', ['createdAt']),
 
 	// PRD 6.11.1/6.11.2: quarterly feedback forms. A form targets one audience ('guide' or
 	// 'learner') for a given season; questions are a fixed structured list (no branching/logic).

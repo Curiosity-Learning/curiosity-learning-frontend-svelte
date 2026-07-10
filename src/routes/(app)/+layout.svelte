@@ -11,6 +11,8 @@
 	} from '$lib/components/app/navigation';
 	import { LoadingState } from '$lib/components/app';
 	import ClubSwitcher from '$lib/components/app/club/club-switcher.svelte';
+	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
+	import { Button } from '$lib/components/ui/button';
 	import { LAST_CLUB_ID_STORAGE_KEY } from '$lib/auth/onboarding-state';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
@@ -18,6 +20,7 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
+	import { t } from '$lib/i18n';
 	import {
 		PAGE_HEADER_CTX,
 		type HeaderActionsOverride,
@@ -61,6 +64,13 @@
 			.join('');
 	});
 	let sidebarProfileImageUrl = $derived(profileResponse.data?.coverPhotoUrl ?? null);
+
+	// PRD 6.14.7 (CL-730): suspended users get a blocking screen instead of the app shell. Report
+	// Issue must stay reachable per PRD, so it's rendered directly on this screen (not gated by
+	// the suspension check itself — `reports.submitReport` deliberately bypasses it server-side).
+	let isSuspended = $derived(Boolean(profileResponse.data?.suspendedAt));
+	let suspendedReason = $derived(profileResponse.data?.suspendedReason ?? null);
+	let suspendedReportDialogOpen = $state(false);
 
 	$effect(() => {
 		if (!browser) return;
@@ -237,6 +247,23 @@
 	<ClubSwitcher clubs={clubSwitcherItems} {activeClubId} />
 {/snippet}
 
+{#if isSuspended}
+	<div class="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+		<h1 class="type-lg-bold text-foreground">{t('suspendedScreen.title')}</h1>
+		<p class="type-sm max-w-md text-muted-foreground">
+			{suspendedReason || t('suspendedScreen.defaultReason')}
+		</p>
+		<Button variant="outline" onclick={() => (suspendedReportDialogOpen = true)}>
+			{t('suspendedScreen.reportIssueAction')}
+		</Button>
+	</div>
+	<ReportIssueDialog
+		targetType="user"
+		targetId={profileResponse.data?._id ?? ''}
+		showTrigger={false}
+		bind:open={suspendedReportDialogOpen}
+	/>
+{:else}
 <AppShell
 	title={titleOverride ?? hintedTitle ?? title}
 	{activeNav}
@@ -284,3 +311,4 @@
 		{@render children()}
 	{/if}
 </AppShell>
+{/if}

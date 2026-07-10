@@ -9,7 +9,12 @@ import {
 	type QueryCtx
 } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
-import { listMembershipsForProfile, requireIdentity, requireProfile } from './permissions';
+import {
+	getProfileByAuthUserId,
+	listMembershipsForProfile,
+	requireIdentity,
+	requireProfile
+} from './permissions';
 import { canViewProject, listAttributedClubIds } from './projectsModel';
 import { getUsernameValidationError } from './usernameValidator';
 
@@ -56,7 +61,13 @@ export const getMe = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		const profile = await requireProfile(ctx, identity.subject);
+		// PRD 6.14.7 (CL-730): deliberately does not go through `requireProfile`'s suspension gate
+		// — the (app) layout needs to read `suspendedAt`/`suspendedReason` on a suspended user's
+		// own profile to render the account-suspended blocking screen in the first place.
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
+		if (!profile) {
+			throw new ConvexError('Profile not found');
+		}
 		return {
 			...profile,
 			coverPhotoUrl: await resolveProfileImageUrl(ctx, profile)
@@ -400,6 +411,9 @@ export const getById = query({
 
 		for (const update of authoredUpdates) {
 			if (updates.length >= UPDATES_PREVIEW_LIMIT) break;
+			// PRD 6.14.4 (CL-730): taken-down updates disappear from another viewer's profile-page
+			// listing of this profile's updates.
+			if (update.takedown) continue;
 			if (!update.projectId) continue;
 
 			let sharedClub = viewableProjectIds.get(update.projectId);

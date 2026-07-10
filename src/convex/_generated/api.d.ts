@@ -37,6 +37,7 @@ import type * as mediaNode from "../mediaNode.js";
 import type * as mediaPipeline from "../mediaPipeline.js";
 import type * as mediaShared from "../mediaShared.js";
 import type * as mediaStorage from "../mediaStorage.js";
+import type * as moderation from "../moderation.js";
 import type * as monitoring from "../monitoring.js";
 import type * as notifications from "../notifications.js";
 import type * as notificationsModel from "../notificationsModel.js";
@@ -95,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   mediaPipeline: typeof mediaPipeline;
   mediaShared: typeof mediaShared;
   mediaStorage: typeof mediaStorage;
+  moderation: typeof moderation;
   monitoring: typeof monitoring;
   notifications: typeof notifications;
   notificationsModel: typeof notificationsModel;

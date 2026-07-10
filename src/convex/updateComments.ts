@@ -48,11 +48,14 @@ export const listComments = query({
 			throw new ConvexError('Permission denied');
 		}
 
-		const comments = await ctx.db
-			.query('updateComments')
-			.withIndex('by_update_and_created', (q) => q.eq('updateId', args.updateId))
-			.order('asc')
-			.collect();
+		// PRD 6.14.4 (CL-730): taken-down comments disappear from the comments list.
+		const comments = (
+			await ctx.db
+				.query('updateComments')
+				.withIndex('by_update_and_created', (q) => q.eq('updateId', args.updateId))
+				.order('asc')
+				.collect()
+		).filter((comment) => !comment.takedown);
 
 		const authorCache = new Map<Id<'profiles'>, Doc<'profiles'> | null>();
 		const withAuthor = async (comment: Doc<'updateComments'>) => {
@@ -100,7 +103,8 @@ export const countComments = query({
 			.query('updateComments')
 			.withIndex('by_update', (q) => q.eq('updateId', args.updateId))
 			.collect();
-		return comments.length;
+		// PRD 6.14.4 (CL-730): taken-down comments don't count.
+		return comments.filter((comment) => !comment.takedown).length;
 	}
 });
 

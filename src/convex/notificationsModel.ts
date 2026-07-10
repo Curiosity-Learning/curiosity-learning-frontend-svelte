@@ -22,6 +22,8 @@ export type NotificationKind =
 	| 'application_status' // club application moved to interview / accepted / rejected
 	| 'kicked_from_club'
 	| 'parental_consent_request' // classification only; the consent email flow itself lives in childSignup.ts
+	| 'account_suspended' // PRD 6.13.2/6.14.7 (CL-730): admin suspension notice
+	| 'account_unsuspended' // CL-730: admin lifts a suspension
 	// high
 	| 'session_reminder' // 24h before session start
 	| 'session_cancelled'
@@ -66,6 +68,8 @@ export const notificationKindConfig: Record<NotificationKind, KindConfig> = {
 	application_status: { tier: 'critical', preferenceKey: null },
 	kicked_from_club: { tier: 'critical', preferenceKey: null },
 	parental_consent_request: { tier: 'critical', preferenceKey: null },
+	account_suspended: { tier: 'critical', preferenceKey: null },
+	account_unsuspended: { tier: 'critical', preferenceKey: null },
 	session_reminder: { tier: 'high', preferenceKey: 'sessionReminder' },
 	session_cancelled: { tier: 'high', preferenceKey: 'sessionActivityChanges' },
 	attendance_reminder: { tier: 'high', preferenceKey: 'sessionActivityChanges' },

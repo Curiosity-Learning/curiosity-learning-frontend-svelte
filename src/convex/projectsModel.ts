@@ -192,6 +192,14 @@ export const canViewProject = async (
 		return false;
 	}
 
+	// PRD 6.14.4 (CL-730): admin takedown hides the project from every member-facing surface,
+	// including its own members — this is the shared read gate every project-detail/update/
+	// comment read path funnels through (`getById`, `updates.listByProject`,
+	// `updateComments.listComments`'s `canViewUpdate`, `profiles.getById`, etc.).
+	if (project.takedown) {
+		return false;
+	}
+
 	if (project.visibility === 'global') {
 		return true;
 	}

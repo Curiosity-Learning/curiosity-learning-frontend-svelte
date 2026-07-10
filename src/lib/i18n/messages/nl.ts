@@ -648,6 +648,14 @@ const nl = {
 		copy: 'Kopiëren',
 		copied: 'Gekopieerd'
 	},
+	chat: {
+		removedByModeration: 'Dit bericht is verwijderd door moderatoren.'
+	},
+	suspendedScreen: {
+		title: 'Je account is geschorst',
+		defaultReason: 'Je account is geschorst door een beheerder.',
+		reportIssueAction: 'Probleem melden'
+	},
 	joinRequestChat: {
 		acceptButton: 'Accepteren',
 		declineButton: 'Afwijzen',

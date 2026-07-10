@@ -56,6 +56,8 @@
 		content: string;
 		createdAt: number;
 		status?: LocalMessage['status'];
+		/** CL-730: set when an admin took this message down from the moderation queue. */
+		removedByModeration?: boolean;
 	};
 	type ScrollAnchor = {
 		key: string;
@@ -170,8 +172,9 @@
 				key: entry._id,
 				messageId: entry._id,
 				profileId: entry.profileId ?? null,
-				content: entry.content,
-				createdAt: entry._creationTime
+				content: entry.removedByModeration ? t('chat.removedByModeration') : entry.content,
+				createdAt: entry._creationTime,
+				removedByModeration: Boolean(entry.removedByModeration)
 			})),
 			...localEntries.map((entry) => ({
 				key: entry.localId,
@@ -886,7 +889,7 @@
 													}`}
 												>
 													<p
-														class={`break-words ${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'}`}
+														class={`break-words ${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
 													>
 														{#each linkifySegments(entry.content) as segment, index (index)}
 															{#if segment.type === 'url'}

@@ -69,7 +69,10 @@ export const listByClub = query({
 		const projectIds = [...new Set(attributionRows.map((row) => row.projectId))];
 
 		const projects = await Promise.all(projectIds.map((projectId) => ctx.db.get(projectId)));
-		return projects.filter((project): project is NonNullable<typeof project> => Boolean(project));
+		// PRD 6.14.4 (CL-730): taken-down projects disappear from every member-facing surface.
+		return projects.filter(
+			(project): project is NonNullable<typeof project> => project !== null && !project.takedown
+		);
 	}
 });
 
@@ -95,7 +98,13 @@ export const countForViewer = query({
 			}
 		}
 
-		return seen.size;
+		// PRD 6.14.4 (CL-730): exclude taken-down projects from the count.
+		let count = 0;
+		for (const projectId of seen) {
+			const project = await ctx.db.get(projectId);
+			if (project && !project.takedown) count++;
+		}
+		return count;
 	}
 });
 
@@ -117,8 +126,9 @@ export const listPreviewsByClub = query({
 			.collect();
 		const projectIds = [...new Set(attributionRows.map((row) => row.projectId))];
 
+		// PRD 6.14.4 (CL-730): taken-down projects disappear from every member-facing surface.
 		const projects = (await Promise.all(projectIds.map((projectId) => ctx.db.get(projectId)))).filter(
-			(project): project is NonNullable<typeof project> => Boolean(project)
+			(project): project is NonNullable<typeof project> => project !== null && !project.takedown
 		);
 
 		const result: Array<{

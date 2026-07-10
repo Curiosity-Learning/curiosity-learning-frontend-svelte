@@ -23,12 +23,29 @@ export const getProfileByAuthUserId = async (ctx: DbCtx, authUserId: string) => 
 		.unique();
 };
 
+// PRD 6.14.7 (CL-730): pragmatic v1 suspension enforcement choke point. `requireProfile` is the
+// single highest-traffic helper shared by virtually every authenticated mutation/query across the
+// app (clubs, projects, updates, comments, chat, notifications, etc. — see callers), so gating
+// here gives broad coverage for one small change instead of threading a check through every
+// individual mutation. Honest limitation: this only covers callers that go through
+// `requireProfile` — anything that resolves the profile via `getProfileByAuthUserId` directly
+// bypasses it (deliberately, in one case: `reports.submitReport` — the PRD requires "Report
+// Issue" to stay reachable from the account-suspended screen, so that mutation intentionally does
+// not block suspended users). Not a guarantee against future code adding new direct
+// `getProfileByAuthUserId` callers around this check.
 export const requireProfile = async (ctx: DbCtx, authUserId: string) => {
 	const profile = await getProfileByAuthUserId(ctx, authUserId);
 	if (!profile) {
 		throw new ConvexError('Profile not found');
 	}
+	requireNotSuspended(profile);
 	return profile;
+};
+
+export const requireNotSuspended = (profile: Doc<'profiles'>) => {
+	if (profile.suspendedAt) {
+		throw new ConvexError('Account suspended');
+	}
 };
 
 export const getRelatedProfile = async (ctx: DbCtx, profileId?: Id<'profiles'>) =>
