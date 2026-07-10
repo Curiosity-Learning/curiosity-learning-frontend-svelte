@@ -786,7 +786,34 @@ const en = {
 		globalEmptyTitle: 'Global feed is not wired yet',
 		globalEmptyDescription: 'Updates across the wider network will appear here soon.',
 		profileEmptyTitle: 'No updates yet',
-		profileEmptyDescription: 'Updates you post to your projects will show up here.'
+		profileEmptyDescription: 'Updates you post to your projects will show up here.',
+		reportUpdateAction: 'Report this update'
+	},
+	reportIssueDialog: {
+		triggerAriaLabel: 'Report an issue',
+		dialogTitle: 'Report an issue',
+		dialogDescription:
+			"Let the Core Team know if something needs attention. We take every report seriously.",
+		categorySafeguardingLabel: 'Safeguarding concern',
+		categorySafeguardingDescription: 'A safety or wellbeing concern involving a member.',
+		categoryInappropriateLabel: 'Inappropriate content',
+		categoryInappropriateDescription: 'Content that is offensive, abusive, or against our guidelines.',
+		categoryOtherLabel: 'Other',
+		categoryOtherDescription: "Something else you'd like the Core Team to look into.",
+		detailsPlaceholder: 'Add any details that might help (optional)',
+		cancelAction: 'Cancel',
+		submitAction: 'Submit report',
+		submitting: 'Submitting...',
+		submitFailure: 'Unable to submit report. Please try again.',
+		rateLimitedError: "You've submitted several reports recently. Please try again later.",
+		successTitle: 'Report submitted',
+		successDescription: 'The Core Team has been alerted.',
+		closeAction: 'Close'
+	},
+	reportEntryPoints: {
+		chatMessageAction: 'Report this message',
+		memberAction: 'Report',
+		clubAction: 'Report an issue'
 	}
 } as const;
 

@@ -59,6 +59,7 @@
 	{:else}
 		{#each visibleUpdates as item (item.updateId)}
 			<UpdateCard
+				updateId={item.updateId}
 				authorName={item.authorName}
 				authorImageUrl={item.authorImageUrl}
 				createdAt={item.createdAt}

@@ -58,6 +58,52 @@ export const notifyClubApplicationSubmitted = internalAction({
 	}
 });
 
+const REPORT_CATEGORY_LABELS: Record<string, string> = {
+	safeguarding: 'Safeguarding',
+	inappropriate_content: 'Inappropriate content',
+	other: 'Other'
+};
+
+const REPORT_TARGET_TYPE_LABELS: Record<string, string> = {
+	chat_message: 'Chat message',
+	project_update: 'Project update',
+	user: 'User',
+	club: 'Club'
+};
+
+export const notifyReportSubmitted = internalAction({
+	args: {
+		reportId: v.id('reports'),
+		category: v.string(),
+		targetType: v.string(),
+		targetId: v.string(),
+		reporterName: v.string(),
+		descriptionPreview: v.optional(v.string())
+	},
+	handler: async (_ctx, args) => {
+		try {
+			await postGoogleChatMessage(
+				compactLines([
+					'New report submitted',
+					`Category: ${REPORT_CATEGORY_LABELS[args.category] ?? args.category}`,
+					`Target: ${REPORT_TARGET_TYPE_LABELS[args.targetType] ?? args.targetType} (${args.targetId})`,
+					`Reporter: ${args.reporterName}`,
+					args.descriptionPreview ? `Details: ${args.descriptionPreview}` : undefined,
+					`Report ID: ${args.reportId}`
+				])
+			);
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'google-chat:report',
+				identifiers: { provider: 'google-chat' }
+			});
+			// Don't rethrow: a failed alert shouldn't surface as a scheduled-function failure that
+			// obscures the fact the report itself was already stored successfully.
+		}
+	}
+});
+
 export const notifyClubInterestSignupCreated = internalAction({
 	args: {
 		signupId: v.id('clubInterestSignups'),

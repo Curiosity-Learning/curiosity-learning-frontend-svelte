@@ -315,6 +315,7 @@
 			<div class="flex flex-col gap-3">
 				{#each updates as item (item.updateId)}
 					<UpdateCard
+						updateId={item.updateId}
 						authorName={item.authorName ?? displayName}
 						authorImageUrl={item.authorImageUrl ?? profileImageUrl}
 						createdAt={item.createdAt}

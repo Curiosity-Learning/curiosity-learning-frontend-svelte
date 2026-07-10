@@ -566,5 +566,33 @@ export default defineSchema({
 		key: v.string(),
 		windowStart: v.number(),
 		count: v.number()
-	}).index('by_key', ['key'])
+	}).index('by_key', ['key']),
+
+	// PRD 6.15.1/6.15.2: Safeguarding/issue reports. Any authenticated user can report a chat
+	// message, project update, user (profile), or club. v1 only stores the report and pings
+	// the Core Team via Google Chat (see googleChat.ts) — admin review/workflow is CL-730.
+	reports: defineTable({
+		reporterProfileId: v.id('profiles'),
+		category: v.union(
+			v.literal('safeguarding'),
+			v.literal('inappropriate_content'),
+			v.literal('other')
+		),
+		description: v.optional(v.string()),
+		targetType: v.union(
+			v.literal('chat_message'),
+			v.literal('project_update'),
+			v.literal('user'),
+			v.literal('club')
+		),
+		// The id of the reported document, stored as a string since it can reference several
+		// different tables depending on targetType.
+		targetId: v.string(),
+		// Short snapshot of the reported content at report time (e.g. the chat message text) —
+		// useful because the underlying content could change or be deleted later. Capped length.
+		contextText: v.optional(v.string()),
+		// 'open' is the only status for v1; admin workflow (CL-730) will extend this.
+		status: v.literal('open'),
+		createdAt: v.number()
+	}).index('by_status_and_created', ['status', 'createdAt'])
 });

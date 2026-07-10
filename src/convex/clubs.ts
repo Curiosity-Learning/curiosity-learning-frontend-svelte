@@ -173,6 +173,9 @@ const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
 
 const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'clubMembers'>) => {
 	const role = await ctx.db.get(membership.roleId);
+	// Club codes are visible to Guides only (PRD 6.1.3) — Learner memberships never
+	// receive them, or any member could hand out instant joins.
+	const isGuide = role?.key === 'guide';
 	const profile = await getRelatedProfile(ctx, membership.profileId);
 	const clubVideoUrl = await resolveClubVideoUrl(ctx, club);
 	const scheduleSlots = await listScheduleSlotsForClub(ctx, club._id);
@@ -188,8 +191,8 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubTime: club.time ?? null,
 		clubVideoUrl,
 		clubScheduleSlots: scheduleSlots,
-		clubCode: club.clubCode ?? null,
-		clubGuideInviteCode: club.guideInviteCode ?? null,
+		clubCode: isGuide ? (club.clubCode ?? null) : null,
+		clubGuideInviteCode: isGuide ? (club.guideInviteCode ?? null) : null,
 		clubDiscoverable: club.discoverable,
 		// Defaults to 'curiosity' for legacy rows predating the kind backfill; see
 		// clubs.backfillClubKind.
@@ -858,11 +861,14 @@ export const getClubById = query({
 			throw new ConvexError('Club not found');
 		}
 
+		// Codes are Guide-only (PRD 6.1.3): expose them here only to members who can
+		// edit the club.
+		const canSeeCodes = await hasPermission(ctx, args.clubId, identity.subject, 'club:edit');
 		return {
 			...club,
-			videoUrl: await resolveClubVideoUrl(ctx, club),
-			clubCode: club.clubCode ?? null,
-			guideInviteCode: club.guideInviteCode ?? null
+			clubCode: canSeeCodes ? (club.clubCode ?? null) : null,
+			guideInviteCode: canSeeCodes ? (club.guideInviteCode ?? null) : null,
+			videoUrl: await resolveClubVideoUrl(ctx, club)
 		};
 	}
 });
