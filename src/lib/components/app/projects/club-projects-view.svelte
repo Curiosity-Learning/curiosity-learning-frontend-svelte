@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -16,12 +17,21 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { DatePicker } from '$lib/components/ui/date-picker';
+	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Input } from '$lib/components/ui/input';
 	import { FieldLabel } from '$lib/components/ui/field';
+	import { Label } from '$lib/components/ui/label';
+	import { Switch } from '$lib/components/ui/switch';
+	import { Textarea } from '$lib/components/ui/textarea';
+	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { t } from '$lib/i18n';
 	import ClubProjectCard from './club-project-card.svelte';
+
+	const PROJECT_NAME_MAX_LENGTH = 50;
+	const PROJECT_DESCRIPTION_MAX_LENGTH = 500;
 
 	type Props = {
 		status: 'current' | 'completed';
@@ -50,26 +60,68 @@
 
 	let createDialogOpen = $state(false);
 	let createName = $state('');
+	let createDescription = $state('');
 	let createDueDate = $state<number | null>(null);
+	let createVisibility = $state<'clubs' | 'global'>('clubs');
 	let createPending = $state(false);
 	let createError = $state('');
 
+	// PRD 6.6.3: cover image is optional at creation, editable later by any active member.
+	const createCoverField = createMediaField(convexClient, 'projectCover', { mode: 'immediate' });
+	let coverUploadError = $state('');
+
+	onDestroy(() => {
+		createCoverField.destroy();
+	});
+
+	const uploadCreateCover = async (files: File[]) => {
+		coverUploadError = '';
+		try {
+			await createCoverField.selectFiles(files);
+			if (!createCoverField.isReady || !createCoverField.assetId) {
+				throw new Error(createCoverField.errorMessage || 'Failed to upload cover image.');
+			}
+		} catch (error) {
+			coverUploadError = error instanceof Error ? error.message : 'Failed to upload cover image.';
+		}
+	};
+
+	const removeCreateCover = () => {
+		createCoverField.clear();
+		coverUploadError = '';
+	};
+
 	const openCreateDialog = () => {
 		createName = '';
+		createDescription = '';
 		createDueDate = null;
+		createVisibility = 'clubs';
 		createError = '';
+		coverUploadError = '';
+		createCoverField.clear();
 		createDialogOpen = true;
 	};
 
 	const createProject = async () => {
-		if (!clubIdTyped || !createName.trim() || createDueDate === null) return;
+		if (
+			!clubIdTyped ||
+			!createName.trim() ||
+			createDueDate === null ||
+			!createDescription.trim()
+		) {
+			return;
+		}
 		createPending = true;
 		createError = '';
 		try {
+			const coverImageMediaAssetId = await createCoverField.ensureUploaded();
 			const project = await convexClient.mutation(api.projects.create, {
 				clubId: clubIdTyped,
 				name: createName.trim(),
-				dueDate: createDueDate
+				description: createDescription.trim(),
+				dueDate: createDueDate,
+				visibility: createVisibility,
+				coverImageMediaAssetId: coverImageMediaAssetId ?? undefined
 			});
 			createDialogOpen = false;
 			if (project?._id) {
@@ -144,6 +196,18 @@
 		);
 	});
 
+	// PRD 6.6.3: cover image appears in project cards on club views. Renders gracefully without
+	// one when the project has no cover or the asset can't be resolved for this viewer.
+	let initialProjectCoverImageUrls = $derived.by(() => {
+		return new Map(
+			(
+				(page.data.initialProjectCoverImages as
+					| Array<{ assetId: Id<'mediaAssets'>; signedUrl: string }>
+					| undefined) ?? []
+			).map((asset) => [asset.assetId, asset.signedUrl] as const)
+		);
+	});
+
 	let visibleProjectCardsWithSignedMembers = $derived(
 		visibleProjectCards.map((entry) => ({
 			...entry,
@@ -152,7 +216,10 @@
 				imageUrl: member.profileImageMediaAssetId
 					? (initialProjectPreviewImageUrls.get(member.profileImageMediaAssetId) ?? null)
 					: null
-			}))
+			})),
+			coverImageUrl: entry.project.coverImageMediaAssetId
+				? (initialProjectCoverImageUrls.get(entry.project.coverImageMediaAssetId) ?? null)
+				: null
 		}))
 	);
 </script>
@@ -210,6 +277,7 @@
 						project={entry.project}
 						{status}
 						memberPreview={entry.members}
+						coverImageUrl={entry.coverImageUrl}
 						href={routes.projectDetail(entry.project._id)}
 						navigationState={{
 							headerTitleHint: entry.project.name,
@@ -235,12 +303,84 @@
 						id="projectName"
 						bind:value={createName}
 						placeholder="Enter project name"
+						maxlength={PROJECT_NAME_MAX_LENGTH}
+						required
+					/>
+				</div>
+				<div class="flex flex-col gap-2">
+					<FieldLabel for="projectDescription" required>Description</FieldLabel>
+					<Textarea
+						id="projectDescription"
+						bind:value={createDescription}
+						rows={3}
+						maxlength={PROJECT_DESCRIPTION_MAX_LENGTH}
+						placeholder="Describe the project..."
 						required
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
 					<FieldLabel for="projectDueDate" required>Due date</FieldLabel>
 					<DatePicker id="projectDueDate" bind:value={createDueDate} />
+				</div>
+
+				<div
+					class="flex items-start justify-between gap-4 rounded-lg border border-border/70 p-3"
+				>
+					<div class="flex flex-col gap-1">
+						<Label for="projectVisibility">{t('projectDetail.visibilityLabel')}</Label>
+						<p class="type-sm text-muted-foreground">{t('projectDetail.visibilityExplanation')}</p>
+						<p class="type-sm text-muted-foreground">
+							{createVisibility === 'global'
+								? t('projectDetail.visibilityGlobalOption')
+								: t('projectDetail.visibilityClubsOption')}
+						</p>
+					</div>
+					<Switch
+						id="projectVisibility"
+						checked={createVisibility === 'global'}
+						onCheckedChange={(checked: boolean) =>
+							(createVisibility = checked ? 'global' : 'clubs')}
+						class="mt-1 shrink-0"
+					/>
+				</div>
+
+				<div class="flex flex-col gap-2">
+					<Label for="projectCoverUpload">{t('projectDetail.coverImageLabel')}</Label>
+					{#if createCoverField.localPreviewUrl}
+						<div class="flex items-center gap-3">
+							<img
+								src={createCoverField.localPreviewUrl}
+								alt=""
+								class="h-16 w-16 rounded-md object-cover"
+							/>
+							<Button variant="outline" size="sm" onclick={removeCreateCover}>
+								{t('projectDetail.coverImageRemove')}
+							</Button>
+						</div>
+					{:else}
+						<FileDropZone.Root
+							accept={createCoverField.accept}
+							maxFiles={1}
+							fileCount={0}
+							maxFileSize={createCoverField.maxBytes}
+							disabled={createCoverField.isBusy}
+							onUpload={uploadCreateCover}
+						>
+							<FileDropZone.Trigger>
+								<div
+									id="projectCoverUpload"
+									class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+								>
+									{createCoverField.isBusy
+										? t('projectDetail.coverImageUploading')
+										: t('projectDetail.coverImageUploadLabel')}
+								</div>
+							</FileDropZone.Trigger>
+						</FileDropZone.Root>
+					{/if}
+					{#if coverUploadError}
+						<p class="type-sm text-destructive">{coverUploadError}</p>
+					{/if}
 				</div>
 			</div>
 			{#if createError}
@@ -249,7 +389,11 @@
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
 				<Button
-					disabled={createPending || !createName.trim() || createDueDate === null}
+					disabled={createPending ||
+						!createName.trim() ||
+						!createDescription.trim() ||
+						createDueDate === null ||
+						createCoverField.isBusy}
 					onclick={() => void createProject()}
 				>
 					{createPending ? 'Creating...' : 'Open'}

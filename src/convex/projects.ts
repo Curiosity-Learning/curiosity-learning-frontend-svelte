@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
+import type { MutationCtx } from './_generated/server';
 import {
 	hasPermission,
 	getProjectRoleByKey,
@@ -13,6 +14,7 @@ import {
 import { ensureProjectRoom } from './chatModel';
 import {
 	assertNotDoneMember,
+	canViewProject,
 	getProjectMemberState,
 	insertProjectChangeLog,
 	isProjectArchived,
@@ -24,6 +26,28 @@ const memberDisplayName = (member: {
 	lastName?: string | null;
 	username?: string | null;
 }) => [member.firstName ?? '', member.lastName ?? ''].join(' ').trim() || member.username || 'A member';
+
+// Mirrors clubs.ts's `requireOwnedReadyClubVideo` pattern for the `projectCover` media-field
+// kind: the asset must belong to the caller and be a fully-processed image before it can be
+// attached as a project's cover.
+const requireOwnedReadyProjectCover = async (
+	ctx: MutationCtx,
+	userId: string,
+	assetId: Id<'mediaAssets'>
+) => {
+	const asset = await ctx.db.get(assetId);
+	if (!asset || asset.ownerUserId !== userId) {
+		throw new ConvexError('Cover image not found');
+	}
+	if (asset.status !== 'ready') {
+		throw new ConvexError('Cover image is not ready');
+	}
+	if (asset.mediaKind !== 'image') {
+		throw new ConvexError('Cover image must be an image');
+	}
+
+	return asset;
+};
 
 export const listByClub = query({
 	args: {
@@ -148,13 +172,12 @@ export const getById = query({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const canRead = await isProjectPermissionAllowed(
-			ctx,
-			args.projectId,
-			identity.subject,
-			'project:read'
-		);
-		if (!canRead) {
+		// PRD 6.6.2/6.6.11: visibility governs direct access. 'global' → any authenticated user;
+		// 'clubs' → members of attributed clubs or the project's own members. This is the primary
+		// read gate for a specific project; role-permission checks (`isProjectPermissionAllowed`)
+		// remain for action-scoped mutations/queries below.
+		const canView = await canViewProject(ctx, args.projectId, identity.subject);
+		if (!canView) {
 			throw new ConvexError('Permission denied');
 		}
 
@@ -171,7 +194,12 @@ export const create = mutation({
 		clubId: v.id('clubs'),
 		name: v.string(),
 		description: v.optional(v.string()),
-		dueDate: v.number()
+		dueDate: v.number(),
+		// PRD 6.6.2: visibility toggle is required at creation, default TBD by the PRD itself —
+		// we default new projects to 'clubs' (the safer, more restrictive option) when omitted.
+		// This default is a CEO-decision item, not an engineering one; flagging for follow-up.
+		visibility: v.optional(v.union(v.literal('clubs'), v.literal('global'))),
+		coverImageMediaAssetId: v.optional(v.id('mediaAssets'))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -182,11 +210,17 @@ export const create = mutation({
 
 		const profile = await requireProfile(ctx, identity.subject);
 
+		if (args.coverImageMediaAssetId) {
+			await requireOwnedReadyProjectCover(ctx, identity.subject, args.coverImageMediaAssetId);
+		}
+
 		const now = Date.now();
 		const projectId = await ctx.db.insert('projects', {
 			name: args.name,
 			description: args.description,
 			dueDate: args.dueDate,
+			visibility: args.visibility ?? 'clubs',
+			coverImageMediaAssetId: args.coverImageMediaAssetId,
 			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
@@ -228,10 +262,19 @@ export const update = mutation({
 		projectId: v.id('projects'),
 		name: v.optional(v.string()),
 		description: v.optional(v.string()),
-		dueDate: v.optional(v.number())
+		dueDate: v.optional(v.number()),
+		visibility: v.optional(v.union(v.literal('clubs'), v.literal('global'))),
+		// v.null() lets the caller explicitly clear the cover image; omitting the field leaves it
+		// untouched (same convention as `clubs.updateClub`'s optional-nullable fields).
+		coverImageMediaAssetId: v.optional(v.union(v.id('mediaAssets'), v.null()))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		// PRD 6.6.1/6.6.8: collectively owned — any ACTIVE project member may edit metadata, with
+		// no special rights for the creator. `isProjectPermissionAllowed` also allows club-level
+		// permission holders (e.g. a Guide with `project:update` who isn't a project member) by
+		// design; `assertNotDoneMember` below is a no-op for those callers and only blocks an
+		// existing Done membership.
 		const canUpdate = await isProjectPermissionAllowed(
 			ctx,
 			args.projectId,
@@ -249,10 +292,76 @@ export const update = mutation({
 			throw new ConvexError('Project not found');
 		}
 
+		if (args.coverImageMediaAssetId) {
+			await requireOwnedReadyProjectCover(ctx, identity.subject, args.coverImageMediaAssetId);
+		}
+
+		const actorProfile = await requireProfile(ctx, identity.subject);
+		const actorName = memberDisplayName(actorProfile);
+
+		// PRD 6.6.8: every metadata change writes an immutable change-log entry, with the prior
+		// value included where cheap.
+		if (args.name !== undefined && args.name !== project.name) {
+			await insertProjectChangeLog(ctx, {
+				projectId: args.projectId,
+				actorProfileId: actorProfile._id,
+				entryType: 'name_changed',
+				text: `${actorName} changed the name from "${project.name}" to "${args.name}"`
+			});
+		}
+		if (args.description !== undefined && args.description !== (project.description ?? '')) {
+			await insertProjectChangeLog(ctx, {
+				projectId: args.projectId,
+				actorProfileId: actorProfile._id,
+				entryType: 'description_changed',
+				text: `${actorName} updated the description`
+			});
+		}
+		if (args.dueDate !== undefined && args.dueDate !== project.dueDate) {
+			const priorLabel = new Date(project.dueDate).toLocaleDateString();
+			const nextLabel = new Date(args.dueDate).toLocaleDateString();
+			await insertProjectChangeLog(ctx, {
+				projectId: args.projectId,
+				actorProfileId: actorProfile._id,
+				entryType: 'deadline_changed',
+				text: `${actorName} changed the deadline from ${priorLabel} to ${nextLabel}`
+			});
+		}
+		if (args.visibility !== undefined && args.visibility !== project.visibility) {
+			const visibilityLabel = (value: 'clubs' | 'global') =>
+				value === 'global' ? 'Share Globally' : 'Club(s) only';
+			await insertProjectChangeLog(ctx, {
+				projectId: args.projectId,
+				actorProfileId: actorProfile._id,
+				entryType: 'visibility_changed',
+				text: `${actorName} changed visibility from ${visibilityLabel(project.visibility)} to ${visibilityLabel(args.visibility)}`
+			});
+		}
+		if (
+			args.coverImageMediaAssetId !== undefined &&
+			(args.coverImageMediaAssetId ?? undefined) !== project.coverImageMediaAssetId
+		) {
+			// PRD 6.6.3: log shows the new image, not the old one. Storing the assetId in the log
+			// text is a cheap way to let the UI resolve/render it later without a new column.
+			await insertProjectChangeLog(ctx, {
+				projectId: args.projectId,
+				actorProfileId: actorProfile._id,
+				entryType: 'cover_changed',
+				text: args.coverImageMediaAssetId
+					? `${actorName} changed the cover image|${args.coverImageMediaAssetId}`
+					: `${actorName} removed the cover image`
+			});
+		}
+
 		await ctx.db.patch(args.projectId, {
 			name: args.name ?? project.name,
 			description: args.description ?? project.description,
 			dueDate: args.dueDate ?? project.dueDate,
+			visibility: args.visibility ?? project.visibility,
+			coverImageMediaAssetId:
+				args.coverImageMediaAssetId === undefined
+					? project.coverImageMediaAssetId
+					: (args.coverImageMediaAssetId ?? undefined),
 			updatedAt: Date.now()
 		});
 
@@ -266,12 +375,7 @@ export const listMembers = query({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const canRead = await isProjectPermissionAllowed(
-			ctx,
-			args.projectId,
-			identity.subject,
-			'project:read'
-		);
+		const canRead = await canViewProject(ctx, args.projectId, identity.subject);
 		if (!canRead) {
 			throw new ConvexError('Permission denied');
 		}
@@ -314,12 +418,7 @@ export const getMemberProfileDeliveryAssets = query({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const canRead = await isProjectPermissionAllowed(
-			ctx,
-			args.projectId,
-			identity.subject,
-			'project:read'
-		);
+		const canRead = await canViewProject(ctx, args.projectId, identity.subject);
 		if (!canRead) {
 			throw new ConvexError('Permission denied');
 		}
@@ -366,6 +465,49 @@ export const getMemberProfileDeliveryAssets = query({
 		);
 
 		return deliveryAssets.filter(Boolean);
+	}
+});
+
+/**
+ * Signed-delivery lookup for one or more projects' cover images (PRD 6.6.3), following the same
+ * shape as `getMemberProfileDeliveryAssets`/`updates.getProjectDeliveryAssets` so
+ * `signed-media.ts` can wrap it with `signDeliveryAssets`. Each project is independently
+ * visibility-checked so this can be called in bulk for a card grid.
+ */
+export const getCoverDeliveryAssets = query({
+	args: {
+		projectIds: v.array(v.id('projects'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const uniqueProjectIds = [...new Set(args.projectIds)];
+
+		const results = await Promise.all(
+			uniqueProjectIds.map(async (projectId) => {
+				const canRead = await canViewProject(ctx, projectId, identity.subject);
+				if (!canRead) return null;
+
+				const project = await ctx.db.get(projectId);
+				if (!project?.coverImageMediaAssetId) return null;
+
+				const asset = await ctx.db.get(project.coverImageMediaAssetId);
+				if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'image') return null;
+
+				return {
+					assetId: asset._id,
+					storageProvider: asset.storageProvider,
+					deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+					deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+					mediaKind: asset.mediaKind ?? null,
+					contentType: asset.contentType ?? null,
+					durationSeconds: asset.durationSeconds ?? null
+				};
+			})
+		);
+
+		return results.filter(
+			(asset): asset is NonNullable<typeof asset> => asset !== null
+		);
 	}
 });
 
@@ -531,12 +673,7 @@ export const listChangeLog = query({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const canRead = await isProjectPermissionAllowed(
-			ctx,
-			args.projectId,
-			identity.subject,
-			'project:read'
-		);
+		const canRead = await canViewProject(ctx, args.projectId, identity.subject);
 		if (!canRead) {
 			throw new ConvexError('Permission denied');
 		}

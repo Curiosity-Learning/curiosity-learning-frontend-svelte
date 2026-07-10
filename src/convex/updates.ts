@@ -11,7 +11,7 @@ import {
 	requireIdentity,
 	requireProfile
 } from './permissions';
-import { assertNotDoneMember } from './projectsModel';
+import { assertNotDoneMember, canViewProject } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
@@ -66,8 +66,10 @@ const resolveAuthorSummary = async (
 	return summary;
 };
 
+// PRD 6.6.2/6.6.11: project updates are project-detail content, so reads are visibility-gated
+// the same way as `projects.getById` (see `projectsModel.canViewProject`), not just role-scoped.
 const canReadProject = (ctx: Ctx, projectId: Id<'projects'>, userId: string) =>
-	isProjectPermissionAllowed(ctx, projectId, userId, 'project:read');
+	canViewProject(ctx, projectId, userId);
 
 const canManageProject = (ctx: Ctx, projectId: Id<'projects'>, userId: string) =>
 	isProjectPermissionAllowed(ctx, projectId, userId, 'project:update');

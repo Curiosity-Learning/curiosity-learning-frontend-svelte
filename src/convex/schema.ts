@@ -350,6 +350,14 @@ export default defineSchema({
 		// (e.g. Showcase/Current tab filtering in `listByClub`/`listPreviewsByClub`).
 		archivedAt: v.optional(v.number()),
 		description: v.optional(v.string()),
+		// PRD 6.6.2/6.6.11: 'clubs' restricts direct viewing/requesting to members of attributed
+		// clubs (plus project members themselves); 'global' allows any authenticated user. Any
+		// active member can toggle this (PRD 6.6.8). Required — every pre-existing row was
+		// backfilled to 'clubs' via the (now-removed) `projects.backfillVisibility` migration.
+		visibility: v.union(v.literal('clubs'), v.literal('global')),
+		// PRD 6.6.3: optional at creation, editable by any active member. Uploaded via the
+		// `projectCover` media-field kind (images only, compression + safety screening on).
+		coverImageMediaAssetId: v.optional(v.id('mediaAssets')),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
@@ -395,7 +403,14 @@ export default defineSchema({
 			v.literal('member_joined'),
 			v.literal('member_done'),
 			v.literal('member_left'),
-			v.literal('project_archived')
+			v.literal('project_archived'),
+			// CL-718: metadata edits (PRD 6.6.8 "Active members can edit: Name, Deadline,
+			// Description, Cover Image, Visibility, Attribution").
+			v.literal('name_changed'),
+			v.literal('description_changed'),
+			v.literal('deadline_changed'),
+			v.literal('visibility_changed'),
+			v.literal('cover_changed')
 		),
 		text: v.string(),
 		createdAt: v.number()

@@ -2,6 +2,7 @@ import type { Id } from '$convex/_generated/dataModel';
 import { api } from '$convex/_generated/api';
 import { getConvexServerClient } from '$lib/server/convex';
 import {
+	getSignedProjectCoverAssets,
 	getSignedProjectMediaAssets,
 	getSignedProjectMemberProfileAssets
 } from '$lib/server/signed-media';
@@ -11,7 +12,8 @@ export const load: LayoutServerLoad = async ({ locals, params, url }) => {
 	if (!locals.token) {
 		return {
 			initialProjectMemberImages: [],
-			initialProjectUpdateMedia: []
+			initialProjectUpdateMedia: [],
+			initialProjectCoverImage: null
 		};
 	}
 
@@ -26,6 +28,7 @@ export const load: LayoutServerLoad = async ({ locals, params, url }) => {
 		? await convex.query(api.updates.listByProject, { projectId })
 		: [];
 	const updateMediaAssetIds = updates.flatMap((update) => update.mediaAssetIds ?? []);
+	const coverAssets = await getSignedProjectCoverAssets(convex, [projectId]);
 
 	return {
 		initialProjectMemberImages: await getSignedProjectMemberProfileAssets(
@@ -35,6 +38,7 @@ export const load: LayoutServerLoad = async ({ locals, params, url }) => {
 		),
 		initialProjectUpdateMedia: loadUpdateMedia
 			? await getSignedProjectMediaAssets(convex, projectId, updateMediaAssetIds)
-			: []
+			: [],
+		initialProjectCoverImage: coverAssets[0] ?? null
 	};
 };
