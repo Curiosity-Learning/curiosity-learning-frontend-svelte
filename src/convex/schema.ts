@@ -495,7 +495,10 @@ export default defineSchema({
 		updatedAt: v.number()
 	})
 		.index('by_project', ['projectId'])
-		.index('by_project_and_created', ['projectId', 'createdAt']),
+		.index('by_project_and_created', ['projectId', 'createdAt'])
+		// CL-726: the "All" (global-visibility) feed scans all updates newest-first regardless of
+		// project, which `by_project_and_created` can't serve (it requires a projectId prefix).
+		.index('by_created', ['createdAt']),
 
 	updateClubs: defineTable({
 		updateId: v.id('updates'),
@@ -513,6 +516,20 @@ export default defineSchema({
 	})
 		.index('by_update', ['updateId'])
 		.index('by_media_asset', ['mediaAssetId']),
+
+	// PRD 6.7.2-6.7.4: comments on project updates. No likes. Eligibility (>=1 active club
+	// membership AND `canViewProject` for the update's project) is enforced only at comment-time
+	// in `updateComments.addComment` — rows are never deleted or re-validated afterward, so a
+	// comment persists and remains visible even if the project's visibility later flips from
+	// 'global' to 'clubs' and the commenter is no longer eligible to post a *new* comment.
+	updateComments: defineTable({
+		updateId: v.id('updates'),
+		authorProfileId: v.id('profiles'),
+		content: v.string(),
+		createdAt: v.number()
+	})
+		.index('by_update', ['updateId'])
+		.index('by_update_and_created', ['updateId', 'createdAt']),
 
 	mediaAssets: defineTable(mediaAssetFields)
 		.index('by_owner', ['ownerUserId'])
@@ -648,7 +665,9 @@ export default defineSchema({
 			v.literal('chat_message'),
 			v.literal('project_update'),
 			v.literal('user'),
-			v.literal('club')
+			v.literal('club'),
+			// CL-726: individual comments on project updates.
+			v.literal('comment')
 		),
 		// The id of the reported document, stored as a string since it can reference several
 		// different tables depending on targetType.

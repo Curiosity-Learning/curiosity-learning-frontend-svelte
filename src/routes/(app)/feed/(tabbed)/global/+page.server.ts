@@ -2,8 +2,8 @@ import type { Id } from '$convex/_generated/dataModel';
 import { api } from '$convex/_generated/api';
 import { getConvexServerClient } from '$lib/server/convex';
 import {
-	getSignedViewerUpdateAuthorAssets,
-	getSignedViewerUpdateMediaAssets
+	getSignedGlobalUpdateAuthorAssets,
+	getSignedGlobalUpdateMediaAssets
 } from '$lib/server/signed-media';
 import type { PageServerLoad } from './$types';
 
@@ -18,7 +18,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 
 	const convex = getConvexServerClient(locals.token);
-	const page = await convex.query(api.updates.listForViewer, { limit: 20 });
+	const page = await convex.query(api.updates.listGlobal, { limit: 20 });
+	const updateIds = page.items.map((item) => item.updateId);
 	const authorAssetIds = page.items
 		.map((item) => item.authorImageMediaAssetId)
 		.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null);
@@ -27,11 +28,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		initialUpdates: page.items,
 		initialCursor: page.nextCursor,
-		initialUpdateAuthorImages: await getSignedViewerUpdateAuthorAssets(
+		initialUpdateAuthorImages: await getSignedGlobalUpdateAuthorAssets(
 			convex,
-			authorAssetIds,
-			50
+			updateIds,
+			authorAssetIds
 		),
-		initialUpdateMedia: await getSignedViewerUpdateMediaAssets(convex, mediaAssetIds, 50)
+		initialUpdateMedia: await getSignedGlobalUpdateMediaAssets(convex, updateIds, mediaAssetIds)
 	};
 };

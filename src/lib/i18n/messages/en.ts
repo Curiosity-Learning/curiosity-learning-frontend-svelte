@@ -823,11 +823,28 @@ const en = {
 		systemBadge: 'System',
 		myClubsEmptyTitle: 'No updates yet',
 		myClubsEmptyDescription: "Your clubs' project updates will show up here.",
-		globalEmptyTitle: 'Global feed is not wired yet',
-		globalEmptyDescription: 'Updates across the wider network will appear here soon.',
+		globalEmptyTitle: 'No updates yet',
+		globalEmptyDescription: 'Updates from public projects across the network will show up here.',
 		profileEmptyTitle: 'No updates yet',
 		profileEmptyDescription: 'Updates you post to your projects will show up here.',
-		reportUpdateAction: 'Report this update'
+		reportUpdateAction: 'Report this update',
+		loadMoreAction: 'Load more',
+		loadingMore: 'Loading...'
+	},
+	comments: {
+		countZero: 'No comments yet',
+		countOne: '1 comment',
+		countOther: '{count} comments',
+		viewAction: 'View comments',
+		hideAction: 'Hide comments',
+		emptyState: 'No comments yet. Be the first to reply.',
+		composerPlaceholder: 'Add a comment...',
+		postAction: 'Post',
+		posting: 'Posting...',
+		ineligibleNotice: 'Join a club to join the conversation.',
+		reportCommentAction: 'Report this comment',
+		submitFailure: 'Unable to post your comment. Please try again.',
+		loadFailure: 'Could not load comments.'
 	},
 	reportIssueDialog: {
 		triggerAriaLabel: 'Report an issue',

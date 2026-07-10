@@ -8,6 +8,7 @@
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
+	import CommentsSection from '$lib/components/app/feed/comments-section.svelte';
 	import { cn } from '$lib/utils';
 	import { formatRelativeTime } from '$lib/domain/date';
 	import { t } from '$lib/i18n';
@@ -277,6 +278,10 @@
 						</div>
 					{/each}
 				</div>
+			{/if}
+
+			{#if updateId}
+				<CommentsSection {updateId} />
 			{/if}
 		{/if}
 	</CardContent>
