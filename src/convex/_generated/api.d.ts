@@ -22,6 +22,7 @@ import type * as cocModel from "../cocModel.js";
 import type * as crons from "../crons.js";
 import type * as email_resend from "../email/resend.js";
 import type * as email_templates from "../email/templates.js";
+import type * as forms from "../forms.js";
 import type * as googleChat from "../googleChat.js";
 import type * as http from "../http.js";
 import type * as joinRequests from "../joinRequests.js";
@@ -78,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   "email/resend": typeof email_resend;
   "email/templates": typeof email_templates;
+  forms: typeof forms;
   googleChat: typeof googleChat;
   http: typeof http;
   joinRequests: typeof joinRequests;

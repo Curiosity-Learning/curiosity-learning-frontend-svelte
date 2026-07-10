@@ -4,6 +4,7 @@
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import ClipboardCheckIcon from '@lucide/svelte/icons/clipboard-check';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
+	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
@@ -36,9 +37,11 @@
 	const projectsCountResponse = useStableQuery(api.projects.countForViewer, {});
 	const unreadNotificationsResponse = useStableQuery(api.notifications.unreadCount, {});
 	const reviewableCountResponse = useStableQuery(api.clubApplications.countReviewableApplications, {});
+	const outstandingFormsResponse = useStableQuery(api.forms.listMyOutstandingForms, {});
 	let unreadNotifications = $derived(unreadNotificationsResponse.data ?? 0);
 	// null = viewer is not a Guide anywhere; the review entry point is hidden entirely.
 	let reviewableCount = $derived(reviewableCountResponse.data ?? null);
+	let outstandingFormsCount = $derived(outstandingFormsResponse.data?.length ?? 0);
 
 	const fullName = $derived(
 		[profileResponse.data?.firstName, profileResponse.data?.lastName]
@@ -243,6 +246,25 @@
 					{/if}
 				</a>
 			{/if}
+
+			<a
+				href={routes.feedback}
+				class="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-[#f6f7f9] px-3 py-3 transition-colors hover:border-orange-200 hover:bg-orange-50"
+				data-sveltekit-preload-code="hover"
+				data-sveltekit-preload-data="hover"
+			>
+				<div class="flex min-w-0 items-center gap-2">
+					<MessageSquareTextIcon class="size-5 shrink-0 text-[#6f73af]" />
+					<p class="truncate text-[1.05rem] font-bold text-[#44495f]">
+						{t('feedback.entryPointTitle')}
+					</p>
+				</div>
+				{#if outstandingFormsCount > 0}
+					<Badge class="shrink-0 rounded-full bg-orange-500 px-2.5 py-0.5 text-sm text-white">
+						{outstandingFormsCount}
+					</Badge>
+				{/if}
+			</a>
 
 			{#if clubs.length > 0}
 				<div class="flex flex-col gap-3">

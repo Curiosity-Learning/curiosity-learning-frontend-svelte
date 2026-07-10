@@ -696,5 +696,45 @@ export default defineSchema({
 		// 'open' is the only status for v1; admin workflow (CL-730) will extend this.
 		status: v.literal('open'),
 		createdAt: v.number()
-	}).index('by_status_and_created', ['status', 'createdAt'])
+	}).index('by_status_and_created', ['status', 'createdAt']),
+
+	// PRD 6.11.1/6.11.2: quarterly feedback forms. A form targets one audience ('guide' or
+	// 'learner') for a given season; questions are a fixed structured list (no branching/logic).
+	// Admin creation UI is CL-701 — for now forms are only created via an internal mutation and
+	// dev seed scripts. Curiosity Clubs only (kind 'curiosity'); CoC groups are excluded from
+	// feedback collection entirely (see forms.ts listMyOutstandingForms).
+	forms: defineTable({
+		title: v.string(),
+		audience: v.union(v.literal('guide'), v.literal('learner')),
+		seasonId: v.id('seasons'),
+		questions: v.array(
+			v.object({
+				id: v.string(),
+				label: v.string(),
+				kind: v.union(v.literal('scale_1_10'), v.literal('text'), v.literal('yes_no')),
+				required: v.boolean()
+			})
+		),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_season', ['seasonId'])
+		.index('by_season_and_audience', ['seasonId', 'audience']),
+
+	// One response per (form, profile, club) — enforced in forms.ts submitResponse via the
+	// `by_form_profile_club` index. Responses are immutable: no update/delete path exists.
+	formResponses: defineTable({
+		formId: v.id('forms'),
+		profileId: v.id('profiles'),
+		clubId: v.id('clubs'),
+		answers: v.array(
+			v.object({
+				questionId: v.string(),
+				value: v.union(v.string(), v.number(), v.boolean())
+			})
+		),
+		submittedAt: v.number()
+	})
+		.index('by_form_profile_club', ['formId', 'profileId', 'clubId'])
+		.index('by_profile', ['profileId'])
 });

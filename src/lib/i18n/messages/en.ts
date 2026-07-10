@@ -884,6 +884,27 @@ const en = {
 		updatesEmptyTitle: 'No updates yet',
 		updatesEmptyDescription: "This member's project updates will show up here.",
 		sharedClubIndicatorLabel: "Visible because you're in the same club"
+	},
+	feedback: {
+		entryPointTitle: 'Feedback forms',
+		pageTitle: 'Feedback',
+		pageDescription: 'Quarterly feedback forms for your clubs.',
+		emptyTitle: 'No feedback due right now',
+		loadErrorTitle: 'Could not load feedback forms',
+		cardTitle: 'Feedback for {club} — {audience} form',
+		audienceGuide: 'Guide',
+		audienceLearner: 'Learner',
+		startAction: 'Start',
+		submitAction: 'Submit feedback',
+		submitting: 'Submitting...',
+		submitSuccessTitle: 'Feedback submitted',
+		submitFailureTitle: 'Unable to submit feedback',
+		requiredFieldError: 'This question is required',
+		scaleQuestionHint: 'Rate from 1 (lowest) to 10 (highest)',
+		yesOption: 'Yes',
+		noOption: 'No',
+		formLoadErrorTitle: 'Could not load this form',
+		alreadySubmitted: "You've already submitted this form."
 	}
 } as const;
 
