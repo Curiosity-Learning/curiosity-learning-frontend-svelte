@@ -4,6 +4,7 @@ import AutoFitCardGrid from './auto-fit-card-grid.svelte';
 import AppShell from './app-shell.svelte';
 import LoadingState from './loading-state.svelte';
 import UpdateCard from './feed/update-card.svelte';
+import FeedSearch from './feed/feed-search.svelte';
 import DataRecordCard from './record-card/data-record-card.svelte';
 import DataRecordHeader from './record-card/data-record-header.svelte';
 import PageHeaderActions from './page-header-actions.svelte';
@@ -29,6 +30,7 @@ export {
 	AppShell,
 	LoadingState,
 	UpdateCard,
+	FeedSearch,
 	DataRecordCard,
 	DataRecordHeader,
 	PageHeaderActions,

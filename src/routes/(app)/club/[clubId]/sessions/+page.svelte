@@ -126,6 +126,9 @@
 		)
 	);
 
+	// PRD 6.16: sessions are searchable by date, description, and activity name. The card
+	// preview payload carries every activity title (plus building-block tag names), so the
+	// filter can stay client-side over the already-authorized, fully loaded list.
 	let visibleSessionCards = $derived(
 		sortedSessionCards.filter((entry) => {
 			const session = entry.session;
@@ -136,7 +139,15 @@
 				month: 'short',
 				day: 'numeric'
 			});
-			return [session.description, dateLabel].join(' ').toLowerCase().includes(query);
+			return [
+				session.description,
+				dateLabel,
+				...entry.allActivityNames,
+				...entry.tagNames
+			]
+				.join(' ')
+				.toLowerCase()
+				.includes(query);
 		})
 	);
 
@@ -249,7 +260,7 @@
 <PageHeaderBackButton fallbackHref={clubId ? `/club/${clubId}` : '/onboarding/get-started'} />
 <PageHeaderSearch
 	bind:value={searchText}
-	placeholder="Search sessions by description or date"
+	placeholder="Search sessions by date, description, or activity"
 	ariaLabel="Search sessions"
 	mode="auto"
 />

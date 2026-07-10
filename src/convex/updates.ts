@@ -452,6 +452,212 @@ export const listGlobal = query({
 	}
 });
 
+// PRD 6.16 (CL-731): contextual feed search. Both queries return matched project updates (by
+// content) plus matched projects (by name/description), each hit re-checked through the same
+// visibility gates as the corresponding feed list query so search can never widen access:
+// `searchGlobalFeed` mirrors `listGlobal` (project.visibility === 'global'), `searchMyClubsFeed`
+// mirrors `listForViewer` (updates/projects attributed to a club the viewer can read). Taken-down
+// updates and projects (CL-730) are excluded everywhere.
+const SEARCH_MAX_RESULTS = 25;
+const SEARCH_SCAN_LIMIT = 100;
+
+type ProjectSearchResult = {
+	projectId: Id<'projects'>;
+	name: string;
+	description: string | null;
+	dueDate: number;
+	archivedAt: number | null;
+	visibility: 'clubs' | 'global';
+};
+
+const toProjectSearchResult = (project: Doc<'projects'>): ProjectSearchResult => ({
+	projectId: project._id,
+	name: project.name,
+	description: project.description ?? null,
+	dueDate: project.dueDate,
+	archivedAt: project.archivedAt ?? null,
+	visibility: project.visibility
+});
+
+type FeedSearchResult = {
+	updates: FeedItem[];
+	projects: ProjectSearchResult[];
+};
+
+const buildSearchFeedItem = async (
+	ctx: QueryCtx,
+	update: Doc<'updates'>,
+	project: Doc<'projects'>,
+	clubId: Id<'clubs'> | null,
+	authorCache: Map<string, AuthorSummary>
+): Promise<FeedItem> => {
+	const club = clubId ? await ctx.db.get(clubId) : null;
+	const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
+	const questionId = update.questionId ?? null;
+	const question = questionId ? await ctx.db.get(questionId) : null;
+
+	return {
+		updateId: update._id,
+		clubId,
+		clubName: club?.name ?? null,
+		projectId: project._id,
+		projectName: project.name,
+		questionId,
+		questionContent: question?.content ?? null,
+		authorProfileId: author.profileId,
+		authorName: author.name,
+		authorImageUrl: author.imageUrl,
+		authorImageMediaAssetId: author.imageAssetId,
+		content: update.content,
+		createdAt: update.createdAt,
+		createdByUserId: author.authUserId ?? 'unknown',
+		mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
+	};
+};
+
+// Searches `projects` by name and by description (one search index per field — Convex allows a
+// single search field per index) and returns de-duplicated raw hits for the caller to gate.
+const searchProjectsByTerm = async (ctx: QueryCtx, term: string): Promise<Doc<'projects'>[]> => {
+	const [nameHits, descriptionHits] = await Promise.all([
+		ctx.db
+			.query('projects')
+			.withSearchIndex('search_name', (q) => q.search('name', term))
+			.take(SEARCH_SCAN_LIMIT),
+		ctx.db
+			.query('projects')
+			.withSearchIndex('search_description', (q) => q.search('description', term))
+			.take(SEARCH_SCAN_LIMIT)
+	]);
+
+	const seen = new Set<Id<'projects'>>();
+	const hits: Doc<'projects'>[] = [];
+	for (const project of [...nameHits, ...descriptionHits]) {
+		if (seen.has(project._id)) continue;
+		seen.add(project._id);
+		hits.push(project);
+	}
+	return hits;
+};
+
+export const searchGlobalFeed = query({
+	args: {
+		term: v.string()
+	},
+	handler: async (ctx, args): Promise<FeedSearchResult> => {
+		await requireIdentity(ctx);
+		const term = args.term.trim();
+		if (!term) {
+			return { updates: [], projects: [] };
+		}
+
+		const authorCache = new Map<string, AuthorSummary>();
+		const projectCache = new Map<Id<'projects'>, Doc<'projects'> | null>();
+		const getProjectCached = async (projectId: Id<'projects'>) => {
+			if (projectCache.has(projectId)) return projectCache.get(projectId) ?? null;
+			const project = await ctx.db.get(projectId);
+			projectCache.set(projectId, project);
+			return project;
+		};
+
+		const updateHits = await ctx.db
+			.query('updates')
+			.withSearchIndex('search_content', (q) => q.search('content', term))
+			.take(SEARCH_SCAN_LIMIT);
+
+		const updates: FeedItem[] = [];
+		for (const update of updateHits) {
+			if (updates.length >= SEARCH_MAX_RESULTS) break;
+			// Same gates as `listGlobal`: no takedowns, project must be globally visible.
+			if (update.takedown || !update.projectId) continue;
+			const project = await getProjectCached(update.projectId);
+			if (!project || project.visibility !== 'global' || project.takedown) continue;
+
+			const attributedClubIds = await listAttributedClubIds(ctx, update.projectId);
+			updates.push(
+				await buildSearchFeedItem(ctx, update, project, attributedClubIds[0] ?? null, authorCache)
+			);
+		}
+
+		const projects: ProjectSearchResult[] = [];
+		for (const project of await searchProjectsByTerm(ctx, term)) {
+			if (projects.length >= SEARCH_MAX_RESULTS) break;
+			if (project.takedown || project.visibility !== 'global') continue;
+			projects.push(toProjectSearchResult(project));
+		}
+
+		return { updates, projects };
+	}
+});
+
+export const searchMyClubsFeed = query({
+	args: {
+		term: v.string()
+	},
+	handler: async (ctx, args): Promise<FeedSearchResult> => {
+		const identity = await requireIdentity(ctx);
+		const term = args.term.trim();
+		if (!term) {
+			return { updates: [], projects: [] };
+		}
+
+		// Same club scoping as `listForViewer`: clubs the viewer holds `project:read` in.
+		const viewerProfile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		const readableClubIdSet = new Set<Id<'clubs'>>();
+		for (const membership of activeMemberships) {
+			const role = await ctx.db.get(membership.roleId);
+			if (role?.permissions.includes('project:read')) {
+				readableClubIdSet.add(membership.clubId);
+			}
+		}
+		if (!readableClubIdSet.size) {
+			return { updates: [], projects: [] };
+		}
+
+		const authorCache = new Map<string, AuthorSummary>();
+
+		const updateHits = await ctx.db
+			.query('updates')
+			.withSearchIndex('search_content', (q) => q.search('content', term))
+			.take(SEARCH_SCAN_LIMIT);
+
+		const updates: FeedItem[] = [];
+		for (const update of updateHits) {
+			if (updates.length >= SEARCH_MAX_RESULTS) break;
+			if (update.takedown || !update.projectId) continue;
+
+			// The update must be attributed (via `updateClubs`, same denormalized stream the
+			// My Clubs feed reads) to at least one club the viewer can read.
+			const updateClubRows = await ctx.db
+				.query('updateClubs')
+				.withIndex('by_update', (q) => q.eq('updateId', update._id))
+				.collect();
+			const viewerClubId =
+				updateClubRows.find((row) => readableClubIdSet.has(row.clubId))?.clubId ?? null;
+			if (!viewerClubId) continue;
+
+			const project = await ctx.db.get(update.projectId);
+			if (!project || project.takedown) continue;
+
+			updates.push(await buildSearchFeedItem(ctx, update, project, viewerClubId, authorCache));
+		}
+
+		const projects: ProjectSearchResult[] = [];
+		for (const project of await searchProjectsByTerm(ctx, term)) {
+			if (projects.length >= SEARCH_MAX_RESULTS) break;
+			if (project.takedown) continue;
+			// Scoped like the My Clubs feed: the project must currently be attributed to a club
+			// the viewer can read (regardless of the project's global/clubs visibility flag).
+			const attributedClubIds = await listAttributedClubIds(ctx, project._id);
+			if (!attributedClubIds.some((clubId) => readableClubIdSet.has(clubId))) continue;
+			projects.push(toProjectSearchResult(project));
+		}
+
+		return { updates, projects };
+	}
+});
+
 export const listMine = query({
 	args: {
 		limit: v.optional(v.number())

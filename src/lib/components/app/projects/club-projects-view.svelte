@@ -177,7 +177,14 @@
 			const doneText = project.archivedAt
 				? new Date(project.archivedAt).toLocaleDateString()
 				: '';
-			return [project.name, project.description ?? '', dueText, doneText]
+			// PRD 6.16: club projects are searchable by name, description, and member name.
+			return [
+				project.name,
+				project.description ?? '',
+				dueText,
+				doneText,
+				...entry.members.map((member) => member.name)
+			]
 				.join(' ')
 				.toLowerCase()
 				.includes(query);
@@ -231,7 +238,7 @@
 <PageHeaderBackButton fallbackHref={clubId ? `/club/${clubId}` : '/onboarding/get-started'} />
 <PageHeaderSearch
 	bind:value={searchText}
-	placeholder="Search projects by title, date, or description"
+	placeholder="Search projects by title, description, or member"
 	ariaLabel="Search projects"
 	mode="auto"
 />

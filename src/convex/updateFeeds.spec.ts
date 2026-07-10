@@ -87,6 +87,9 @@ const insertProject = async (
 		const now = Date.now();
 		return await ctx.db.insert('projects', {
 			name: options.name ?? 'Fixture project',
+			// convex-test's search-index fake crashes on documents where the (optional) search
+			// field is missing, so fixture projects always carry a neutral description.
+			description: 'Fixture placeholder text',
 			dueDate: now + 7 * 24 * 60 * 60 * 1000,
 			visibility: options.visibility,
 			createdByProfileId: options.creatorProfileId,
@@ -375,5 +378,339 @@ describe('updates.listGlobal (All feed)', () => {
 			.query(api.updates.listGlobal, { limit: 2, cursor: firstPage.nextCursor! });
 		expect(secondPage.items.map((item) => item.content)).toEqual(['Global update 0']);
 		expect(secondPage.nextCursor).toBeNull();
+	});
+});
+
+// PRD 6.16 (CL-731): contextual feed search. The core invariant under test is that search never
+// widens access: every hit passes the same visibility gates as the corresponding feed list query,
+// and taken-down content (CL-730) stays hidden.
+const takeDownUpdate = async (
+	t: ReturnType<typeof convexTest>,
+	updateId: Id<'updates'>,
+	byProfileId: Id<'profiles'>
+) =>
+	t.run(async (ctx) => {
+		await ctx.db.patch(updateId, {
+			takedown: { byProfileId, at: Date.now() }
+		});
+	});
+
+const takeDownProject = async (
+	t: ReturnType<typeof convexTest>,
+	projectId: Id<'projects'>,
+	byProfileId: Id<'profiles'>
+) =>
+	t.run(async (ctx) => {
+		await ctx.db.patch(projectId, {
+			takedown: { byProfileId, at: Date.now() }
+		});
+	});
+
+const setProjectDescription = async (
+	t: ReturnType<typeof convexTest>,
+	projectId: Id<'projects'>,
+	description: string
+) =>
+	t.run(async (ctx) => {
+		await ctx.db.patch(projectId, { description });
+	});
+
+describe('updates.searchGlobalFeed (All tab search)', () => {
+	it('matches update content but only from globally visible projects', async () => {
+		const { t } = await seedBase();
+		await insertProfile(t, 'viewer');
+		const authorProfileId = await insertProfile(t, 'author');
+
+		const globalProject = await insertProject(t, {
+			creatorProfileId: authorProfileId,
+			visibility: 'global',
+			name: 'Rocketry'
+		});
+		await insertUpdate(t, {
+			projectId: globalProject,
+			authorProfileId,
+			content: 'The launchpad is finished',
+			createdAt: Date.now()
+		});
+
+		const clubsProject = await insertProject(t, {
+			creatorProfileId: authorProfileId,
+			visibility: 'clubs',
+			name: 'Secret club project'
+		});
+		await insertUpdate(t, {
+			projectId: clubsProject,
+			authorProfileId,
+			content: 'The launchpad is private',
+			createdAt: Date.now()
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'viewer' })
+			.query(api.updates.searchGlobalFeed, { term: 'launchpad' });
+
+		expect(result.updates.map((item) => item.content)).toEqual(['The launchpad is finished']);
+	});
+
+	it('matches projects by name and by description, restricted to global visibility', async () => {
+		const { t } = await seedBase();
+		await insertProfile(t, 'viewer');
+		const authorProfileId = await insertProfile(t, 'author');
+
+		const byName = await insertProject(t, {
+			creatorProfileId: authorProfileId,
+			visibility: 'global',
+			name: 'Windmill builders'
+		});
+		const byDescription = await insertProject(t, {
+			creatorProfileId: authorProfileId,
+			visibility: 'global',
+			name: 'Other project'
+		});
+		await setProjectDescription(t, byDescription, 'We are building a windmill together');
+		const clubsOnly = await insertProject(t, {
+			creatorProfileId: authorProfileId,
+			visibility: 'clubs',
+			name: 'Windmill secrets'
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'viewer' })
+			.query(api.updates.searchGlobalFeed, { term: 'windmill' });
+
+		const projectIds = result.projects.map((project) => project.projectId);
+		expect(projectIds).toContain(byName);
+		expect(projectIds).toContain(byDescription);
+		expect(projectIds).not.toContain(clubsOnly);
+	});
+
+	it('excludes taken-down updates and taken-down projects (CL-730)', async () => {
+		const { t } = await seedBase();
+		await insertProfile(t, 'viewer');
+		const authorProfileId = await insertProfile(t, 'author');
+		const adminProfileId = await insertProfile(t, 'admin');
+
+		const project = await insertProject(t, {
+			creatorProfileId: authorProfileId,
+			visibility: 'global',
+			name: 'Volcano diorama'
+		});
+		const removedUpdateId = await insertUpdate(t, {
+			projectId: project,
+			authorProfileId,
+			content: 'Volcano eruption test one',
+			createdAt: Date.now()
+		});
+		await insertUpdate(t, {
+			projectId: project,
+			authorProfileId,
+			content: 'Volcano eruption test two',
+			createdAt: Date.now()
+		});
+		await takeDownUpdate(t, removedUpdateId, adminProfileId);
+
+		const takenDownProject = await insertProject(t, {
+			creatorProfileId: authorProfileId,
+			visibility: 'global',
+			name: 'Volcano replica'
+		});
+		await takeDownProject(t, takenDownProject, adminProfileId);
+
+		const result = await t
+			.withIdentity({ subject: 'viewer' })
+			.query(api.updates.searchGlobalFeed, { term: 'volcano' });
+
+		expect(result.updates.map((item) => item.content)).toEqual(['Volcano eruption test two']);
+		expect(result.projects.map((project) => project.projectId)).toEqual([project]);
+	});
+
+	it('excludes every update of a taken-down project', async () => {
+		const { t } = await seedBase();
+		await insertProfile(t, 'viewer');
+		const authorProfileId = await insertProfile(t, 'author');
+		const adminProfileId = await insertProfile(t, 'admin');
+
+		const project = await insertProject(t, {
+			creatorProfileId: authorProfileId,
+			visibility: 'global',
+			name: 'Doomed project'
+		});
+		await insertUpdate(t, {
+			projectId: project,
+			authorProfileId,
+			content: 'Sunflower measurements are in',
+			createdAt: Date.now()
+		});
+		await takeDownProject(t, project, adminProfileId);
+
+		const result = await t
+			.withIdentity({ subject: 'viewer' })
+			.query(api.updates.searchGlobalFeed, { term: 'sunflower' });
+
+		expect(result.updates).toEqual([]);
+	});
+
+	it('returns nothing for a blank term', async () => {
+		const { t } = await seedBase();
+		await insertProfile(t, 'viewer');
+
+		const result = await t
+			.withIdentity({ subject: 'viewer' })
+			.query(api.updates.searchGlobalFeed, { term: '   ' });
+
+		expect(result).toEqual({ updates: [], projects: [] });
+	});
+});
+
+describe('updates.searchMyClubsFeed (My Clubs tab search)', () => {
+	it('only returns updates attributed to clubs the viewer belongs to', async () => {
+		const { t, readRoleId } = await seedBase();
+		const viewerProfileId = await insertProfile(t, 'viewer');
+		const otherProfileId = await insertProfile(t, 'other');
+
+		const clubA = await insertClub(t, otherProfileId, 'Club A');
+		const clubB = await insertClub(t, otherProfileId, 'Club B');
+		await joinClub(t, clubA, viewerProfileId, readRoleId);
+
+		const projectInA = await insertProject(t, {
+			creatorProfileId: otherProfileId,
+			visibility: 'clubs',
+			name: 'Project in A'
+		});
+		await attributeProject(t, projectInA, otherProfileId, clubA);
+		await insertUpdate(t, {
+			projectId: projectInA,
+			authorProfileId: otherProfileId,
+			content: 'Greenhouse update for club A',
+			createdAt: Date.now(),
+			attributedClubIds: [clubA]
+		});
+
+		const projectInB = await insertProject(t, {
+			creatorProfileId: otherProfileId,
+			visibility: 'clubs',
+			name: 'Project in B'
+		});
+		await attributeProject(t, projectInB, otherProfileId, clubB);
+		await insertUpdate(t, {
+			projectId: projectInB,
+			authorProfileId: otherProfileId,
+			content: 'Greenhouse update for club B',
+			createdAt: Date.now(),
+			attributedClubIds: [clubB]
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'viewer' })
+			.query(api.updates.searchMyClubsFeed, { term: 'greenhouse' });
+
+		expect(result.updates.map((item) => item.content)).toEqual([
+			'Greenhouse update for club A'
+		]);
+	});
+
+	it('never returns clubs-only content to a stranger with zero memberships', async () => {
+		const { t, readRoleId } = await seedBase();
+		await insertProfile(t, 'stranger');
+		const otherProfileId = await insertProfile(t, 'other');
+		const club = await insertClub(t, otherProfileId);
+		await joinClub(t, club, otherProfileId, readRoleId);
+
+		const project = await insertProject(t, {
+			creatorProfileId: otherProfileId,
+			visibility: 'clubs',
+			name: 'Hidden treehouse'
+		});
+		await attributeProject(t, project, otherProfileId, club);
+		await insertUpdate(t, {
+			projectId: project,
+			authorProfileId: otherProfileId,
+			content: 'Treehouse floor is done',
+			createdAt: Date.now(),
+			attributedClubIds: [club]
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'stranger' })
+			.query(api.updates.searchMyClubsFeed, { term: 'treehouse' });
+
+		expect(result).toEqual({ updates: [], projects: [] });
+	});
+
+	it('matches projects attributed to the viewer’s clubs and excludes other clubs’ projects', async () => {
+		const { t, readRoleId } = await seedBase();
+		const viewerProfileId = await insertProfile(t, 'viewer');
+		const otherProfileId = await insertProfile(t, 'other');
+
+		const clubA = await insertClub(t, otherProfileId, 'Club A');
+		const clubB = await insertClub(t, otherProfileId, 'Club B');
+		await joinClub(t, clubA, viewerProfileId, readRoleId);
+
+		const projectInA = await insertProject(t, {
+			creatorProfileId: otherProfileId,
+			visibility: 'clubs',
+			name: 'Kite festival prep'
+		});
+		await attributeProject(t, projectInA, otherProfileId, clubA);
+
+		const projectInB = await insertProject(t, {
+			creatorProfileId: otherProfileId,
+			visibility: 'clubs',
+			name: 'Kite festival rivals'
+		});
+		await attributeProject(t, projectInB, otherProfileId, clubB);
+
+		const result = await t
+			.withIdentity({ subject: 'viewer' })
+			.query(api.updates.searchMyClubsFeed, { term: 'kite' });
+
+		expect(result.projects.map((project) => project.projectId)).toEqual([projectInA]);
+	});
+
+	it('excludes taken-down updates and projects (CL-730)', async () => {
+		const { t, readRoleId } = await seedBase();
+		const viewerProfileId = await insertProfile(t, 'viewer');
+		const otherProfileId = await insertProfile(t, 'other');
+		const adminProfileId = await insertProfile(t, 'admin');
+
+		const club = await insertClub(t, otherProfileId);
+		await joinClub(t, club, viewerProfileId, readRoleId);
+
+		const project = await insertProject(t, {
+			creatorProfileId: otherProfileId,
+			visibility: 'clubs',
+			name: 'Puppet show'
+		});
+		await attributeProject(t, project, otherProfileId, club);
+		const removedUpdateId = await insertUpdate(t, {
+			projectId: project,
+			authorProfileId: otherProfileId,
+			content: 'Puppet rehearsal one',
+			createdAt: Date.now(),
+			attributedClubIds: [club]
+		});
+		await takeDownUpdate(t, removedUpdateId, adminProfileId);
+		await insertUpdate(t, {
+			projectId: project,
+			authorProfileId: otherProfileId,
+			content: 'Puppet rehearsal two',
+			createdAt: Date.now(),
+			attributedClubIds: [club]
+		});
+
+		const takenDownProject = await insertProject(t, {
+			creatorProfileId: otherProfileId,
+			visibility: 'clubs',
+			name: 'Puppet workshop'
+		});
+		await attributeProject(t, takenDownProject, otherProfileId, club);
+		await takeDownProject(t, takenDownProject, adminProfileId);
+
+		const result = await t
+			.withIdentity({ subject: 'viewer' })
+			.query(api.updates.searchMyClubsFeed, { term: 'puppet' });
+
+		expect(result.updates.map((item) => item.content)).toEqual(['Puppet rehearsal two']);
+		expect(result.projects.map((project) => project.projectId)).toEqual([project]);
 	});
 });

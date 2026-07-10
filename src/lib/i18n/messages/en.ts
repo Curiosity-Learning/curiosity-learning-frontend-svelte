@@ -652,7 +652,11 @@ const en = {
 		copied: 'Copied'
 	},
 	chat: {
-		removedByModeration: 'This message was removed by moderators.'
+		removedByModeration: 'This message was removed by moderators.',
+		messageSearchPlaceholder: 'Search messages',
+		messageSearchToggle: 'Search in this conversation',
+		messageSearchNoMatches: 'No loaded messages match your search.',
+		messageSearchLoadedOnly: 'Searching loaded messages only — scroll up to load older ones.'
 	},
 	suspendedScreen: {
 		title: 'Your account is suspended',
@@ -837,7 +841,15 @@ const en = {
 		profileEmptyDescription: 'Updates you post to your projects will show up here.',
 		reportUpdateAction: 'Report this update',
 		loadMoreAction: 'Load more',
-		loadingMore: 'Loading...'
+		loadingMore: 'Loading...',
+		searchPlaceholder: 'Search projects and updates',
+		searchLabel: 'Search the feed',
+		searching: 'Searching...',
+		searchProjectsHeading: 'Projects',
+		searchUpdatesHeading: 'Updates',
+		searchNoResultsTitle: 'No results',
+		searchNoResultsDescription: 'No projects or updates match your search.',
+		searchFailed: 'Could not search the feed.'
 	},
 	comments: {
 		countZero: 'No comments yet',

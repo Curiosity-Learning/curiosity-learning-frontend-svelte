@@ -649,7 +649,11 @@ const nl = {
 		copied: 'Gekopieerd'
 	},
 	chat: {
-		removedByModeration: 'Dit bericht is verwijderd door moderatoren.'
+		removedByModeration: 'Dit bericht is verwijderd door moderatoren.',
+		messageSearchPlaceholder: 'Zoek berichten',
+		messageSearchToggle: 'Zoeken in dit gesprek',
+		messageSearchNoMatches: 'Geen geladen berichten komen overeen met je zoekopdracht.',
+		messageSearchLoadedOnly: 'Zoekt alleen in geladen berichten — scrol omhoog om oudere te laden.'
 	},
 	suspendedScreen: {
 		title: 'Je account is geschorst',
@@ -835,7 +839,15 @@ const nl = {
 		profileEmptyDescription: 'Updates die je op je projecten plaatst, verschijnen hier.',
 		reportUpdateAction: 'Deze update melden',
 		loadMoreAction: 'Meer laden',
-		loadingMore: 'Bezig met laden...'
+		loadingMore: 'Bezig met laden...',
+		searchPlaceholder: 'Zoek projecten en updates',
+		searchLabel: 'Zoek in de feed',
+		searching: 'Zoeken...',
+		searchProjectsHeading: 'Projecten',
+		searchUpdatesHeading: 'Updates',
+		searchNoResultsTitle: 'Geen resultaten',
+		searchNoResultsDescription: 'Geen projecten of updates komen overeen met je zoekopdracht.',
+		searchFailed: 'Zoeken in de feed is mislukt.'
 	},
 	comments: {
 		countZero: 'Nog geen reacties',
