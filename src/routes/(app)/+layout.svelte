@@ -13,6 +13,7 @@
 	import ClubSwitcher from '$lib/components/app/club/club-switcher.svelte';
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import { Button } from '$lib/components/ui/button';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { LAST_CLUB_ID_STORAGE_KEY } from '$lib/auth/onboarding-state';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
@@ -72,6 +73,49 @@
 	let suspendedReason = $derived(profileResponse.data?.suspendedReason ?? null);
 	let suspendedReportDialogOpen = $state(false);
 
+	// PRD 6.11.3 (CL-733): graduated feedback enforcement. Server-computed phase (none / reminder
+	// / escalation / blocked) keyed to the oldest overdue feedback obligation. This is a UI-level
+	// access block, not a data-layer one (see forms.ts getMyEnforcementState for the full judgment
+	// call write-up) — /feedback and the Report Issue dialog must both keep working from the
+	// blocked screen, which is why neither route nor those mutations are gated behind this check.
+	const enforcementResponse = useStableQuery(api.forms.getMyEnforcementState, () =>
+		isAuthReady ? {} : 'skip'
+	);
+	let enforcementPhase = $derived(enforcementResponse.data?.phase ?? 'none');
+	let enforcementClubName = $derived(enforcementResponse.data?.clubName ?? '');
+	let blockedReportDialogOpen = $state(false);
+
+	const REMINDER_DISMISS_KEY = 'feedback-enforcement-reminder-dismissed';
+	const ESCALATION_MODAL_SEEN_KEY = 'feedback-enforcement-escalation-modal-seen';
+	let reminderBannerDismissed = $state(false);
+	let escalationModalOpen = $state(false);
+
+	$effect(() => {
+		if (!browser) return;
+		if (enforcementPhase !== 'reminder') {
+			reminderBannerDismissed = false;
+			return;
+		}
+		reminderBannerDismissed = sessionStorage.getItem(REMINDER_DISMISS_KEY) === '1';
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		if (enforcementPhase !== 'escalation') {
+			escalationModalOpen = false;
+			return;
+		}
+		const alreadySeen = sessionStorage.getItem(ESCALATION_MODAL_SEEN_KEY) === '1';
+		if (alreadySeen) return;
+		escalationModalOpen = true;
+		sessionStorage.setItem(ESCALATION_MODAL_SEEN_KEY, '1');
+	});
+
+	const dismissReminderBanner = () => {
+		reminderBannerDismissed = true;
+		if (browser) sessionStorage.setItem(REMINDER_DISMISS_KEY, '1');
+	};
+
 	$effect(() => {
 		if (!browser) return;
 		if (!isAuthReady) {
@@ -104,6 +148,11 @@
 	};
 
 	let activePath = $derived(page.url.pathname);
+	// PRD 6.11.3 (CL-733): /feedback must stay reachable from every enforcement phase (including
+	// blocked), so both the blocked-screen gate and the reminder/escalation banners suppress
+	// themselves on /feedback routes.
+	let isFeedbackRoute = $derived(activePath === routes.feedback || activePath.startsWith('/feedback/'));
+	let isBlocked = $derived(enforcementPhase === 'blocked' && !isFeedbackRoute);
 
 	let clubIdFromUrl = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
 	let activeClubId = $derived(clubIdFromUrl ?? activeContextResponse.data?.activeClubId ?? null);
@@ -263,6 +312,29 @@
 		showTrigger={false}
 		bind:open={suspendedReportDialogOpen}
 	/>
+{:else if isBlocked}
+	<!-- PRD 6.11.3 (CL-733): day 15+ overdue feedback blocks platform access. Distinct copy from
+	     the suspension screen above (this is about unresolved feedback, not a suspension) — /feedback
+	     itself and the Report Issue dialog both stay reachable (route check in isFeedbackRoute
+	     above lets /feedback render past this block; the dialog is rendered directly here). -->
+	<div class="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+		<h1 class="type-lg-bold text-foreground">{t('feedbackEnforcement.blockedTitle')}</h1>
+		<p class="type-sm max-w-md text-muted-foreground">
+			{t('feedbackEnforcement.blockedBody').replace('{club}', enforcementClubName)}
+		</p>
+		<Button onclick={() => goto(routes.feedback)}>
+			{t('feedbackEnforcement.blockedAction')}
+		</Button>
+		<Button variant="outline" onclick={() => (blockedReportDialogOpen = true)}>
+			{t('feedbackEnforcement.reportIssueAction')}
+		</Button>
+	</div>
+	<ReportIssueDialog
+		targetType="user"
+		targetId={profileResponse.data?._id ?? ''}
+		showTrigger={false}
+		bind:open={blockedReportDialogOpen}
+	/>
 {:else}
 <AppShell
 	title={titleOverride ?? hintedTitle ?? title}
@@ -308,7 +380,64 @@
 				>
 			</Alert>
 		{/if}
+		<!-- PRD 6.11.3 (CL-733): reminder phase (days 1-7 past deadline) — persistent banner,
+		     dismissible for the rest of this browser session (sessionStorage), not per-route. -->
+		{#if enforcementPhase === 'reminder' && !reminderBannerDismissed && !isFeedbackRoute}
+			<Alert class="flex items-start justify-between gap-3">
+				<div>
+					<AlertTitle
+						>{t('feedbackEnforcement.reminderBanner').replace('{club}', enforcementClubName)}</AlertTitle
+					>
+				</div>
+				<div class="flex shrink-0 items-center gap-2">
+					<Button size="sm" onclick={() => goto(routes.feedback)}>
+						{t('feedbackEnforcement.reminderBannerAction')}
+					</Button>
+					<Button size="sm" variant="ghost" onclick={dismissReminderBanner}>
+						{t('feedbackEnforcement.reminderBannerDismiss')}
+					</Button>
+				</div>
+			</Alert>
+		{/if}
+		<!-- Escalation phase (days 8-14): same persistent banner as reminder, plus a once-per-session
+		     modal (below) prompted on app open. -->
+		{#if enforcementPhase === 'escalation' && !isFeedbackRoute}
+			<Alert variant="destructive" class="flex items-start justify-between gap-3">
+				<div>
+					<AlertTitle
+						>{t('feedbackEnforcement.reminderBanner').replace('{club}', enforcementClubName)}</AlertTitle
+					>
+				</div>
+				<Button size="sm" onclick={() => goto(routes.feedback)}>
+					{t('feedbackEnforcement.reminderBannerAction')}
+				</Button>
+			</Alert>
+		{/if}
 		{@render children()}
 	{/if}
 </AppShell>
+
+<Dialog.Root bind:open={escalationModalOpen}>
+	<Dialog.Content class="flex flex-col gap-4">
+		<Dialog.Header class="flex flex-col gap-2">
+			<Dialog.Title>{t('feedbackEnforcement.escalationModalTitle')}</Dialog.Title>
+			<Dialog.Description>
+				{t('feedbackEnforcement.escalationModalBody').replace('{club}', enforcementClubName)}
+			</Dialog.Description>
+		</Dialog.Header>
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => (escalationModalOpen = false)}>
+				{t('feedbackEnforcement.escalationModalDismiss')}
+			</Button>
+			<Button
+				onclick={() => {
+					escalationModalOpen = false;
+					goto(routes.feedback);
+				}}
+			>
+				{t('feedbackEnforcement.escalationModalAction')}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
 {/if}

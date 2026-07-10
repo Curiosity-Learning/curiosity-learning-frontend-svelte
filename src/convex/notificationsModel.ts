@@ -35,6 +35,8 @@ export type NotificationKind =
 	| 'project_invite_decision' // inviter: your invite was accepted/declined (CL-722)
 	| 'project_join_request' // active project members: someone requested to join (CL-722)
 	| 'project_join_request_decision' // requester: your join request was accepted/declined (CL-722)
+	| 'feedback_due' // PRD 6.13.2 (CL-733): 7 days / 3 days / day-of the feedback deadline
+	| 'quality_flag' // PRD 6.11.4/6.13.2 (CL-733): club's feedback average dropped below 7/10
 	// medium
 	| 'member_joined'; // guides: a new member joined the club
 // TODO kinds (no producers exist yet; add here when they land):
@@ -56,7 +58,9 @@ export type NotificationPreferenceKey =
 	| 'sessionActivityChanges'
 	| 'updateLikes'
 	| 'updateComments'
-	| 'chatMessages';
+	| 'chatMessages'
+	| 'feedbackReminders'
+	| 'qualityFlags';
 
 type KindConfig = {
 	tier: NotificationTier;
@@ -80,6 +84,8 @@ export const notificationKindConfig: Record<NotificationKind, KindConfig> = {
 	project_invite_decision: { tier: 'high', preferenceKey: 'projectMemberAdded' },
 	project_join_request: { tier: 'high', preferenceKey: 'projectMemberAdded' },
 	project_join_request_decision: { tier: 'high', preferenceKey: 'projectMemberAdded' },
+	feedback_due: { tier: 'high', preferenceKey: 'feedbackReminders' },
+	quality_flag: { tier: 'high', preferenceKey: 'qualityFlags' },
 	member_joined: { tier: 'medium', preferenceKey: 'clubMemberChanges' }
 };
 

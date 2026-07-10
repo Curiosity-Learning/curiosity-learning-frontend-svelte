@@ -618,7 +618,11 @@ export default defineSchema({
 			sessionActivityChanges: v.boolean(),
 			updateLikes: v.boolean(),
 			updateComments: v.boolean(),
-			chatMessages: v.boolean()
+			chatMessages: v.boolean(),
+			// CL-733: optional (not required) so existing userPreferences documents stay valid
+			// without a migration; missing == on, same "no stored row" default as isKindMuted.
+			feedbackReminders: v.optional(v.boolean()),
+			qualityFlags: v.optional(v.boolean())
 		}),
 		updatedAt: v.number()
 	}).index('by_profile', ['profileId']),
@@ -845,5 +849,36 @@ export default defineSchema({
 		submittedAt: v.number()
 	})
 		.index('by_form_profile_club', ['formId', 'profileId', 'clubId'])
-		.index('by_profile', ['profileId'])
+		.index('by_profile', ['profileId']),
+
+	// PRD 6.13.2: pre-deadline "feedback form due" reminders (HIGH tier, muteable), sent at 7
+	// days before / 3 days before / day-of the season's feedbackDeadline. One row per
+	// (profileId, formId, clubId, stage) dedupes the daily cron so each stage fires exactly once
+	// even though the cron re-scans every outstanding form every day. Post-deadline nagging is a
+	// UI concern (see forms.ts getMyEnforcementState) — no rows are written here after the
+	// deadline passes.
+	feedbackReminders: defineTable({
+		profileId: v.id('profiles'),
+		formId: v.id('forms'),
+		clubId: v.id('clubs'),
+		stage: v.union(v.literal('7d'), v.literal('3d'), v.literal('day_of')),
+		sentAt: v.number()
+	}).index('by_profile_form_club_stage', ['profileId', 'formId', 'clubId', 'stage']),
+
+	// PRD 6.11.4: quality control. One row per (clubId, seasonId) — upserted at submission time
+	// by recomputing the average of all scale_1_10 answers across that club+season's responses.
+	// `status` starts 'open' when created; the row is deleted outright once the recomputed
+	// average rises back to >= 7 (see forms.ts submitResponse) rather than kept around as
+	// 'resolved' — v1 doesn't have a workflow (warning / improvement plan) that needs history yet,
+	// just the existence of an open flag for admins + the CoC/Guides notification at creation time.
+	qualityFlags: defineTable({
+		clubId: v.id('clubs'),
+		seasonId: v.id('seasons'),
+		avgScore: v.number(),
+		formResponseId: v.id('formResponses'),
+		status: v.literal('open'),
+		createdAt: v.number()
+	})
+		.index('by_club_and_season', ['clubId', 'seasonId'])
+		.index('by_status_and_created', ['status', 'createdAt'])
 });
