@@ -883,6 +883,27 @@ const nl = {
 		updatesEmptyTitle: 'Nog geen updates',
 		updatesEmptyDescription: 'De projectupdates van dit lid verschijnen hier.',
 		sharedClubIndicatorLabel: 'Zichtbaar omdat je in dezelfde club zit'
+	},
+	feedback: {
+		entryPointTitle: 'Feedbackformulieren',
+		pageTitle: 'Feedback',
+		pageDescription: 'Feedbackformulieren per kwartaal voor je clubs.',
+		emptyTitle: 'Op dit moment geen feedback nodig',
+		loadErrorTitle: 'Feedbackformulieren konden niet worden geladen',
+		cardTitle: 'Feedback voor {club} — {audience}formulier',
+		audienceGuide: 'Guide',
+		audienceLearner: 'Learner',
+		startAction: 'Starten',
+		submitAction: 'Feedback versturen',
+		submitting: 'Versturen...',
+		submitSuccessTitle: 'Feedback verstuurd',
+		submitFailureTitle: 'Feedback versturen is mislukt',
+		requiredFieldError: 'Deze vraag is verplicht',
+		scaleQuestionHint: 'Beoordeel van 1 (laagst) tot 10 (hoogst)',
+		yesOption: 'Ja',
+		noOption: 'Nee',
+		formLoadErrorTitle: 'Dit formulier kon niet worden geladen',
+		alreadySubmitted: 'Je hebt dit formulier al ingediend.'
 	}
 } as const;
 
