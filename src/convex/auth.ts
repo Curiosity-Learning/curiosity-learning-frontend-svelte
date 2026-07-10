@@ -20,6 +20,8 @@ const trustedOrigins = [
 	// Local dev / preview ports.
 	'http://localhost:5173',
 	'http://localhost:4173',
+	// Admin app dev origin (curiosity-learning-admin, separate repo, CEO admin-split decision).
+	'http://localhost:4174',
 	// ngrok tunnel for external device testing.
 	'https://arrased-semiurban-jean.ngrok-free.dev'
 ].filter((value): value is string => Boolean(value));

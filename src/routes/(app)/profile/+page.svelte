@@ -9,6 +9,7 @@
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import ShieldIcon from '@lucide/svelte/icons/shield';
+	import { env } from '$env/dynamic/public';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { PageHeaderActions, PageHeaderTitle } from '$lib/components/app';
@@ -34,6 +35,10 @@
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
 	const globalRoleResponse = useStableQuery(api.profiles.getMyGlobalRole, {});
 	let isGlobalAdmin = $derived(globalRoleResponse.data === 'admin');
+	// The admin dashboard now lives in a separate repo/deployment (curiosity-learning-admin) —
+	// this link only renders when its URL is configured, so we don't hardcode a path that no
+	// longer resolves inside this app.
+	const adminUrl = env.PUBLIC_ADMIN_URL?.trim() || '';
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 	const updatesResponse = useStableQuery(api.updates.listMine, {});
 	const sessionsAttendedResponse = useStableQuery(api.sessions.countAttendedForViewer, {});
@@ -269,12 +274,10 @@
 				{/if}
 			</a>
 
-			{#if isGlobalAdmin}
+			{#if isGlobalAdmin && adminUrl}
 				<a
-					href={routes.admin}
+					href={adminUrl}
 					class="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-[#f6f7f9] px-3 py-3 transition-colors hover:border-orange-200 hover:bg-orange-50"
-					data-sveltekit-preload-code="hover"
-					data-sveltekit-preload-data="hover"
 				>
 					<div class="flex min-w-0 items-center gap-2">
 						<ShieldIcon class="size-5 shrink-0 text-[#6f73af]" />
