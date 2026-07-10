@@ -25,7 +25,9 @@ const reportTargetTypeValidator = v.union(
 	v.literal('chat_message'),
 	v.literal('project_update'),
 	v.literal('user'),
-	v.literal('club')
+	v.literal('club'),
+	// CL-726: individual comments on project updates.
+	v.literal('comment')
 );
 
 const profileDisplayName = (profile: {

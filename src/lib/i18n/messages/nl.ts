@@ -821,11 +821,28 @@ const nl = {
 		systemBadge: 'Systeem',
 		myClubsEmptyTitle: 'Nog geen updates',
 		myClubsEmptyDescription: 'Projectupdates van jouw clubs verschijnen hier.',
-		globalEmptyTitle: 'Globale feed is nog niet aangesloten',
-		globalEmptyDescription: 'Updates uit het bredere netwerk verschijnen hier binnenkort.',
+		globalEmptyTitle: 'Nog geen updates',
+		globalEmptyDescription: 'Updates van openbare projecten in het netwerk verschijnen hier.',
 		profileEmptyTitle: 'Nog geen updates',
 		profileEmptyDescription: 'Updates die je op je projecten plaatst, verschijnen hier.',
-		reportUpdateAction: 'Deze update melden'
+		reportUpdateAction: 'Deze update melden',
+		loadMoreAction: 'Meer laden',
+		loadingMore: 'Bezig met laden...'
+	},
+	comments: {
+		countZero: 'Nog geen reacties',
+		countOne: '1 reactie',
+		countOther: '{count} reacties',
+		viewAction: 'Reacties bekijken',
+		hideAction: 'Reacties verbergen',
+		emptyState: 'Nog geen reacties. Reageer als eerste.',
+		composerPlaceholder: 'Voeg een reactie toe...',
+		postAction: 'Plaatsen',
+		posting: 'Bezig met plaatsen...',
+		ineligibleNotice: 'Word lid van een club om mee te doen aan het gesprek.',
+		reportCommentAction: 'Deze reactie melden',
+		submitFailure: 'Je reactie kon niet worden geplaatst. Probeer het opnieuw.',
+		loadFailure: 'Reacties konden niet worden geladen.'
 	},
 	reportIssueDialog: {
 		triggerAriaLabel: 'Een probleem melden',

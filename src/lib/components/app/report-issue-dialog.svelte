@@ -10,7 +10,7 @@
 	import { cn } from '$lib/utils';
 	import { _, t } from '$lib/i18n';
 
-	type ReportTargetType = 'chat_message' | 'project_update' | 'user' | 'club';
+	type ReportTargetType = 'chat_message' | 'project_update' | 'user' | 'club' | 'comment';
 	type ReportCategory = 'safeguarding' | 'inappropriate_content' | 'other';
 
 	type Props = {

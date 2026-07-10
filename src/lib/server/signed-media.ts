@@ -240,3 +240,41 @@ export const getSignedViewerUpdateMediaAssets = async (
 
 	return signDeliveryAssets(deliveryAssets, config);
 };
+
+export const getSignedGlobalUpdateAuthorAssets = async (
+	convex: ConvexServerClient,
+	updateIds: Id<'updates'>[],
+	assetIds: Id<'mediaAssets'>[],
+	config?: MediaDeliveryConfig | null
+) => {
+	const uniqueAssetIds = [...new Set(assetIds)];
+	if (!uniqueAssetIds.length || !updateIds.length) {
+		return [] as SignedDeliveryAsset[];
+	}
+
+	const deliveryAssets = await convex.query(api.updates.getGlobalAuthorDeliveryAssets, {
+		updateIds: [...new Set(updateIds)],
+		assetIds: uniqueAssetIds
+	});
+
+	return signDeliveryAssets(deliveryAssets, config);
+};
+
+export const getSignedGlobalUpdateMediaAssets = async (
+	convex: ConvexServerClient,
+	updateIds: Id<'updates'>[],
+	assetIds: Id<'mediaAssets'>[],
+	config?: MediaDeliveryConfig | null
+) => {
+	const uniqueAssetIds = [...new Set(assetIds)];
+	if (!uniqueAssetIds.length || !updateIds.length) {
+		return [] as SignedDeliveryAsset[];
+	}
+
+	const deliveryAssets = await convex.query(api.updates.getGlobalUpdateMediaDeliveryAssets, {
+		updateIds: [...new Set(updateIds)],
+		assetIds: uniqueAssetIds
+	});
+
+	return signDeliveryAssets(deliveryAssets, config);
+};

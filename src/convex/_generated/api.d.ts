@@ -51,6 +51,7 @@ import type * as reports from "../reports.js";
 import type * as roles from "../roles.js";
 import type * as scheduleModel from "../scheduleModel.js";
 import type * as sessions from "../sessions.js";
+import type * as updateComments from "../updateComments.js";
 import type * as updates from "../updates.js";
 import type * as usernameValidator from "../usernameValidator.js";
 
@@ -104,6 +105,7 @@ declare const fullApi: ApiFromModules<{
   roles: typeof roles;
   scheduleModel: typeof scheduleModel;
   sessions: typeof sessions;
+  updateComments: typeof updateComments;
   updates: typeof updates;
   usernameValidator: typeof usernameValidator;
 }>;
