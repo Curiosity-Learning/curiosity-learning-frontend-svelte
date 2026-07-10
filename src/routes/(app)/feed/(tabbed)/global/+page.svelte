@@ -124,6 +124,7 @@
 			{#each visibleUpdates as item (item.updateId)}
 				<UpdateCard
 					updateId={item.updateId}
+					authorProfileId={item.authorProfileId}
 					authorName={item.authorName}
 					authorImageUrl={item.authorImageUrl}
 					createdAt={item.createdAt}

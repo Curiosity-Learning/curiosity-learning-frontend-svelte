@@ -870,6 +870,19 @@ const nl = {
 		chatMessageAction: 'Dit bericht melden',
 		memberAction: 'Melden',
 		clubAction: 'Een probleem melden'
+	},
+	profileDetail: {
+		fallbackName: 'Curiosity-leerling',
+		loadErrorTitle: 'Profiel kon niet worden geladen',
+		clubsTitle: 'Clubs',
+		currentTitle: 'Actueel',
+		currentEmpty: 'Nog geen actuele projecten.',
+		showcaseTitle: 'Showcase',
+		showcaseEmpty: 'Nog geen showcaseprojecten.',
+		updatesTitle: 'Updates',
+		updatesEmptyTitle: 'Nog geen updates',
+		updatesEmptyDescription: 'De projectupdates van dit lid verschijnen hier.',
+		sharedClubIndicatorLabel: 'Zichtbaar omdat je in dezelfde club zit'
 	}
 } as const;
 

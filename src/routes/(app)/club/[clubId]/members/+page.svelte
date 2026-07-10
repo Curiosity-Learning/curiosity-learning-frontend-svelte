@@ -18,6 +18,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { authClient } from '$lib/auth-client';
+	import { routes } from '$lib/routes';
 	import { _, t, formatT } from '$lib/i18n';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
@@ -330,31 +331,40 @@
 	<div
 		class="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 transition-colors hover:border-border sm:p-4"
 	>
-		<Avatar class="size-12 shrink-0 border border-orange-100 bg-orange-50 sm:size-14">
-			{#if memberImageUrl(member)}
-				<AvatarImage src={memberImageUrl(member) ?? undefined} alt={displayNameFor(member)} />
-			{/if}
-			<AvatarFallback class="type-body-bold bg-orange-50 text-orange-600"
-				>{initialsFor(member)}</AvatarFallback
-			>
-		</Avatar>
+		<a
+			href={routes.profileDetail(member.profileId)}
+			class="flex min-w-0 flex-1 items-center gap-3"
+			data-sveltekit-preload-code="hover"
+			data-sveltekit-preload-data="hover"
+		>
+			<Avatar class="size-12 shrink-0 border border-orange-100 bg-orange-50 sm:size-14">
+				{#if memberImageUrl(member)}
+					<AvatarImage src={memberImageUrl(member) ?? undefined} alt={displayNameFor(member)} />
+				{/if}
+				<AvatarFallback class="type-body-bold bg-orange-50 text-orange-600"
+					>{initialsFor(member)}</AvatarFallback
+				>
+			</Avatar>
 
-		<div class="flex min-w-0 flex-1 flex-col gap-0.5">
-			<div class="flex min-w-0 flex-wrap items-center gap-2">
-				<p class="truncate type-body-bold text-foreground">{displayNameFor(member)}</p>
-				{#if member.profileId === myProfileId}
-					<Badge variant="secondary" size="sm" class="type-caption-medium text-muted-foreground">
-						{$_('membersPage.youBadge')}
-					</Badge>
+			<div class="flex min-w-0 flex-1 flex-col gap-0.5">
+				<div class="flex min-w-0 flex-wrap items-center gap-2">
+					<p class="truncate type-body-bold text-foreground hover:underline">
+						{displayNameFor(member)}
+					</p>
+					{#if member.profileId === myProfileId}
+						<Badge variant="secondary" size="sm" class="type-caption-medium text-muted-foreground">
+							{$_('membersPage.youBadge')}
+						</Badge>
+					{/if}
+				</div>
+				{#if member.username}
+					<p class="truncate type-sm text-muted-foreground">@{member.username}</p>
+				{/if}
+				{#if joinedLabelFor(member)}
+					<p class="truncate type-caption text-muted-foreground">{joinedLabelFor(member)}</p>
 				{/if}
 			</div>
-			{#if member.username}
-				<p class="truncate type-sm text-muted-foreground">@{member.username}</p>
-			{/if}
-			{#if joinedLabelFor(member)}
-				<p class="truncate type-caption text-muted-foreground">{joinedLabelFor(member)}</p>
-			{/if}
-		</div>
+		</a>
 
 		{#if member.profileId !== myProfileId}
 			<div

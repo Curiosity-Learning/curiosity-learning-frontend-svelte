@@ -20,6 +20,7 @@ import {
 
 type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
+	profileId: Id<'profiles'> | null;
 	name: string;
 	imageUrl: string | null;
 	imageAssetId: Id<'mediaAssets'> | null;
@@ -43,6 +44,7 @@ const resolveAuthorSummary = async (
 	const cacheKey = profileId;
 	if (!cacheKey) {
 		return {
+			profileId: null,
 			name: 'Unknown',
 			imageUrl: null,
 			imageAssetId: null,
@@ -61,6 +63,7 @@ const resolveAuthorSummary = async (
 		authUserId ||
 		'Unknown';
 	const summary = {
+		profileId: profile?._id ?? null,
 		name,
 		imageUrl: null,
 		imageAssetId: profile?.profileImageMediaAssetId ?? null,
@@ -182,6 +185,7 @@ type FeedItem = {
 	projectName: string | null;
 	questionId: Id<'questions'> | null;
 	questionContent: string | null;
+	authorProfileId: Id<'profiles'> | null;
 	authorName: string;
 	authorImageUrl: string | null;
 	authorImageMediaAssetId: Id<'mediaAssets'> | null;
@@ -314,6 +318,7 @@ export const listForViewer = query({
 				projectName,
 				questionId,
 				questionContent,
+				authorProfileId: author.profileId,
 				authorName: author.name,
 				authorImageUrl: author.imageUrl,
 				authorImageMediaAssetId: author.imageAssetId,
@@ -420,6 +425,7 @@ export const listGlobal = query({
 					projectName: project.name,
 					questionId,
 					questionContent,
+					authorProfileId: author.profileId,
 					authorName: author.name,
 					authorImageUrl: author.imageUrl,
 					authorImageMediaAssetId: author.imageAssetId,
@@ -488,6 +494,7 @@ export const listMine = query({
 			projectName: string | null;
 			questionId: Id<'questions'> | null;
 			questionContent: string | null;
+			authorProfileId: Id<'profiles'> | null;
 			authorName: string;
 			authorImageUrl: string | null;
 			authorImageMediaAssetId: Id<'mediaAssets'> | null;
@@ -520,6 +527,7 @@ export const listMine = query({
 				projectName: project?.name ?? null,
 				questionId,
 				questionContent: question?.content ?? null,
+				authorProfileId: author.profileId,
 				authorName: author.name,
 				authorImageUrl: author.imageUrl,
 				authorImageMediaAssetId: author.imageAssetId,

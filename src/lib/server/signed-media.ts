@@ -260,6 +260,25 @@ export const getSignedGlobalUpdateAuthorAssets = async (
 	return signDeliveryAssets(deliveryAssets, config);
 };
 
+export const getSignedProfileAssets = async (
+	convex: ConvexServerClient,
+	profileId: Id<'profiles'>,
+	assetIds: Id<'mediaAssets'>[],
+	config?: MediaDeliveryConfig | null
+) => {
+	const uniqueAssetIds = [...new Set(assetIds)];
+	if (!uniqueAssetIds.length) {
+		return [] as SignedDeliveryAsset[];
+	}
+
+	const deliveryAssets = await convex.query(api.profiles.getProfileDeliveryAssets, {
+		profileId,
+		assetIds: uniqueAssetIds
+	});
+
+	return signDeliveryAssets(deliveryAssets, config);
+};
+
 export const getSignedGlobalUpdateMediaAssets = async (
 	convex: ConvexServerClient,
 	updateIds: Id<'updates'>[],
