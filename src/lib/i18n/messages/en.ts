@@ -663,6 +663,21 @@ const en = {
 		defaultReason: 'Your account has been suspended by an administrator.',
 		reportIssueAction: 'Report an issue'
 	},
+	feedbackEnforcement: {
+		reminderBanner: 'Your feedback for {club} is due.',
+		reminderBannerAction: 'Give feedback',
+		reminderBannerDismiss: 'Dismiss',
+		escalationModalTitle: 'Your feedback is overdue',
+		escalationModalBody:
+			'Your feedback for {club} is now overdue. Please submit it soon to avoid losing access to the platform.',
+		escalationModalAction: 'Give feedback now',
+		escalationModalDismiss: 'Remind me later',
+		blockedTitle: 'Feedback required to continue',
+		blockedBody:
+			'Your feedback for {club} is significantly overdue. Platform access is blocked until all outstanding feedback forms are submitted.',
+		blockedAction: 'Give feedback now',
+		reportIssueAction: 'Report an issue'
+	},
 	joinRequestChat: {
 		acceptButton: 'Accept',
 		declineButton: 'Decline',

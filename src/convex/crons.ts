@@ -49,6 +49,17 @@ export const runDailyMaintenance = internalAction({
 			});
 		}
 
+		try {
+			// CL-733 / PRD 6.13.2: 7 days / 3 days / day-of feedback deadline reminders.
+			const summary = await ctx.runMutation(internal.forms.sendFeedbackDeadlineReminders, {});
+			console.log('cron:runDailyMaintenance:sendFeedbackDeadlineReminders', summary);
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'crons:runDailyMaintenance:sendFeedbackDeadlineReminders'
+			});
+		}
+
 		return null;
 	}
 });

@@ -660,6 +660,21 @@ const nl = {
 		defaultReason: 'Je account is geschorst door een beheerder.',
 		reportIssueAction: 'Probleem melden'
 	},
+	feedbackEnforcement: {
+		reminderBanner: 'Je feedback voor {club} moet nog worden ingediend.',
+		reminderBannerAction: 'Feedback geven',
+		reminderBannerDismiss: 'Sluiten',
+		escalationModalTitle: 'Je feedback is te laat',
+		escalationModalBody:
+			'Je feedback voor {club} is nu te laat. Dien deze zo snel mogelijk in om je toegang tot het platform te behouden.',
+		escalationModalAction: 'Nu feedback geven',
+		escalationModalDismiss: 'Later herinneren',
+		blockedTitle: 'Feedback vereist om door te gaan',
+		blockedBody:
+			'Je feedback voor {club} is fors te laat. Toegang tot het platform is geblokkeerd totdat alle openstaande feedbackformulieren zijn ingediend.',
+		blockedAction: 'Nu feedback geven',
+		reportIssueAction: 'Probleem melden'
+	},
 	joinRequestChat: {
 		acceptButton: 'Accepteren',
 		declineButton: 'Afwijzen',

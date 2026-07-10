@@ -11,7 +11,9 @@ const defaultPreferences = {
 	sessionActivityChanges: true,
 	updateLikes: true,
 	updateComments: true,
-	chatMessages: true
+	chatMessages: true,
+	feedbackReminders: true,
+	qualityFlags: true
 };
 
 export const get = query({
@@ -52,7 +54,9 @@ export const upsert = mutation({
 				sessionActivityChanges: v.boolean(),
 				updateLikes: v.boolean(),
 				updateComments: v.boolean(),
-				chatMessages: v.boolean()
+				chatMessages: v.boolean(),
+				feedbackReminders: v.optional(v.boolean()),
+				qualityFlags: v.optional(v.boolean())
 			})
 		),
 		activeClubId: v.optional(v.id('clubs'))

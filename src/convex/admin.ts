@@ -421,3 +421,67 @@ export const adminApplicationsPipeline = query({
 		return { statusCounts, items };
 	}
 });
+
+// ---------------------------------------------------------------------------
+// 4. Quality flags (CL-733, PRD 6.11.4).
+//
+// Separate from `adminClubsHealth`'s `qualityRating`/`low_quality` flag above: that column is a
+// live-computed snapshot for the dashboard table, while `qualityFlags` (schema.ts) is the actual
+// flag record created by forms.ts submitResponse whenever a club+season average drops below 7/10
+// (and deleted once it recovers). This query is minimal on purpose — no admin UI is required by
+// this ticket, just a consumable list for CL-732's dashboard to build on later.
+// ---------------------------------------------------------------------------
+
+export type AdminQualityFlagRow = {
+	flagId: Id<'qualityFlags'>;
+	clubId: Id<'clubs'>;
+	clubName: string;
+	seasonId: Id<'seasons'>;
+	seasonName: string;
+	avgScore: number;
+	createdAt: number;
+};
+
+export const adminListQualityFlags = query({
+	args: {},
+	handler: async (ctx): Promise<AdminQualityFlagRow[]> => {
+		await requireGlobalAdmin(ctx);
+
+		const flags = await ctx.db
+			.query('qualityFlags')
+			.withIndex('by_status_and_created', (q) => q.eq('status', 'open'))
+			.order('desc')
+			.collect();
+
+		const clubsById = new Map<Id<'clubs'>, Doc<'clubs'>>();
+		const seasonsById = new Map<Id<'seasons'>, Doc<'seasons'>>();
+
+		const rows: AdminQualityFlagRow[] = [];
+		for (const flag of flags) {
+			let club = clubsById.get(flag.clubId);
+			if (club === undefined) {
+				const fetched = await ctx.db.get(flag.clubId);
+				if (fetched) clubsById.set(flag.clubId, fetched);
+				club = fetched ?? undefined;
+			}
+			let season = seasonsById.get(flag.seasonId);
+			if (season === undefined) {
+				const fetched = await ctx.db.get(flag.seasonId);
+				if (fetched) seasonsById.set(flag.seasonId, fetched);
+				season = fetched ?? undefined;
+			}
+
+			rows.push({
+				flagId: flag._id,
+				clubId: flag.clubId,
+				clubName: club?.name ?? 'Unknown club',
+				seasonId: flag.seasonId,
+				seasonName: season?.name ?? 'Unknown season',
+				avgScore: flag.avgScore,
+				createdAt: flag.createdAt
+			});
+		}
+
+		return rows;
+	}
+});
