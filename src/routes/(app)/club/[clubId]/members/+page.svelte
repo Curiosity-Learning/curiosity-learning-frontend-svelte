@@ -10,6 +10,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
+	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
@@ -22,6 +23,7 @@
 	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
 	import UserMinusIcon from '@lucide/svelte/icons/user-minus';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
+	import FlagIcon from '@lucide/svelte/icons/flag';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import type { PageProps } from './$types';
 
@@ -162,6 +164,23 @@
 		}
 	};
 
+	// ── Report member ────────────────────────────────────────────────────
+	let reportDialogOpen = $state(false);
+	let reportTargetProfileId = $state<Id<'profiles'> | null>(null);
+	let reportTargetContext = $state('');
+
+	const openReportDialog = (member: {
+		profileId: Id<'profiles'>;
+		firstName?: string | null;
+		lastName?: string | null;
+		username?: string | null;
+		userId: string;
+	}) => {
+		reportTargetProfileId = member.profileId;
+		reportTargetContext = displayNameFor(member);
+		reportDialogOpen = true;
+	};
+
 	// ── Remove (kick) with required reason ──────────────────────────────
 	let removeDialogOpen = $state(false);
 	let removeTarget = $state<Id<'clubMembers'> | null>(null);
@@ -270,7 +289,12 @@
 
 	const memberActionItems = (member: {
 		clubMemberId: Id<'clubMembers'>;
+		profileId: Id<'profiles'>;
 		roleKey: 'guide' | 'learner' | null;
+		firstName?: string | null;
+		lastName?: string | null;
+		username?: string | null;
+		userId: string;
 	}) =>
 		[
 			canPromote && member.roleKey === 'learner'
@@ -291,7 +315,14 @@
 						disabled: pending,
 						onSelect: () => openRemoveDialog(member.clubMemberId)
 					}
-				: null
+				: null,
+			{
+				id: 'report',
+				label: t('reportEntryPoints.memberAction'),
+				Icon: FlagIcon,
+				separatorBefore: canPromote || canKick,
+				onSelect: () => openReportDialog(member)
+			}
 		].filter((item): item is NonNullable<typeof item> => item !== null);
 </script>
 
@@ -524,3 +555,13 @@
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
+
+{#if reportTargetProfileId}
+	<ReportIssueDialog
+		bind:open={reportDialogOpen}
+		showTrigger={false}
+		targetType="user"
+		targetId={reportTargetProfileId}
+		contextText={reportTargetContext}
+	/>
+{/if}

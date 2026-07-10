@@ -486,6 +486,7 @@
 					<div class="flex flex-col gap-3">
 						{#each orderedUpdates as update (update._id)}
 							<UpdateCard
+								updateId={update._id}
 								authorName={update.authorName}
 								authorImageUrl={update.authorImageUrl}
 								createdAt={update.createdAt}

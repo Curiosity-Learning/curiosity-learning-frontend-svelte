@@ -23,6 +23,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
@@ -49,6 +50,8 @@
 	};
 	type VisibleMessage = {
 		key: string;
+		/** Only set for messages that have been persisted server-side (reportable). */
+		messageId?: Id<'messages'>;
 		profileId: Id<'profiles'> | null;
 		content: string;
 		createdAt: number;
@@ -165,6 +168,7 @@
 		const entries: VisibleMessage[] = [
 			...serverMessages.map((entry) => ({
 				key: entry._id,
+				messageId: entry._id,
 				profileId: entry.profileId ?? null,
 				content: entry.content,
 				createdAt: entry._creationTime
@@ -848,7 +852,7 @@
 										{:else}
 											<div
 												data-message-key={entry.key}
-												class={`flex ${
+												class={`group flex items-center gap-1.5 ${
 													entry.profileId === viewer.data?._id
 														? isDesktopViewport
 															? 'justify-end'
@@ -858,6 +862,18 @@
 															: 'justify-start pr-11'
 												}`}
 											>
+												{#if entry.messageId && entry.profileId !== viewer.data?._id}
+													<span
+														class="opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
+													>
+														<ReportIssueDialog
+															targetType="chat_message"
+															targetId={entry.messageId}
+															contextText={entry.content}
+															triggerAriaLabel={$_('reportEntryPoints.chatMessageAction')}
+														/>
+													</span>
+												{/if}
 												<div
 													class={`${
 														isDesktopViewport

@@ -3,6 +3,7 @@
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import FlagIcon from '@lucide/svelte/icons/flag';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { api } from '$convex/_generated/api';
@@ -20,10 +21,11 @@
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
 	import HomeEmptyCard from '$lib/components/app/home/home-empty-card.svelte';
-	import { LoadingState, PageHeaderActions } from '$lib/components/app';
+	import { ActionMenu, LoadingState, PageHeaderActions } from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import ClubProjectCard from '$lib/components/app/projects/club-project-card.svelte';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
+	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import noSessionFoundImage from '$lib/assets/images/no_session_found.png';
 	import noProjectsFoundImage from '$lib/assets/images/no_projects_found.png';
 	import noLearnersFoundImage from '$lib/assets/images/no_learners_found.png';
@@ -37,6 +39,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { page } from '$app/state';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import { t } from '$lib/i18n';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -63,6 +66,28 @@
 	let canRsvp = $derived(clubPermissions.includes('session_rsvp:set'));
 	let canEditClub = $derived(clubPermissions.includes('club:edit'));
 	let canShowSessionAttendees = $derived(canReadMembers && canReadAttendance);
+
+	let reportClubDialogOpen = $state(false);
+	let headerActionItems = $derived(
+		[
+			canEditClub && clubId
+				? {
+						id: 'club-settings',
+						label: 'Club settings',
+						Icon: SettingsIcon,
+						onSelect: () => void goto(routes.clubSettings(clubId))
+					}
+				: null,
+			clubIdTyped
+				? {
+						id: 'report-club',
+						label: t('reportEntryPoints.clubAction'),
+						Icon: FlagIcon,
+						onSelect: () => (reportClubDialogOpen = true)
+					}
+				: null
+		].filter((item): item is NonNullable<typeof item> => item !== null)
+	);
 	let rsvpPendingSessionId = $state<Id<'sessions'> | null>(null);
 
 	const upcomingSessionCardsResponse = useStableQuery(
@@ -333,17 +358,17 @@
 	};
 </script>
 
-<PageHeaderActions none={!canEditClub}>
-	<Button
-		variant="ghost"
-		size="icon-sm"
-		aria-label="Open club settings"
-		class="text-[#767b92] hover:text-[#565b72]"
-		href={clubId ? routes.clubSettings(clubId) : undefined}
-	>
-		<SettingsIcon class="size-5" />
-	</Button>
+<PageHeaderActions none={headerActionItems.length === 0}>
+	<ActionMenu items={headerActionItems} ariaLabel="Open club actions" />
 </PageHeaderActions>
+
+<ReportIssueDialog
+	bind:open={reportClubDialogOpen}
+	showTrigger={false}
+	targetType="club"
+	targetId={clubId ?? ''}
+	contextText={clubItem?.clubName ?? undefined}
+/>
 
 <div
 	class="-mx-4 flex min-h-full flex-col gap-8 px-4 py-4 sm:-mx-6 sm:px-6 sm:py-5 lg:-mx-8 lg:px-8 lg:py-6"

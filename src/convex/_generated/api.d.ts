@@ -45,6 +45,7 @@ import type * as profiles from "../profiles.js";
 import type * as projects from "../projects.js";
 import type * as projectsModel from "../projectsModel.js";
 import type * as rateLimiting from "../rateLimiting.js";
+import type * as reports from "../reports.js";
 import type * as roles from "../roles.js";
 import type * as scheduleModel from "../scheduleModel.js";
 import type * as sessions from "../sessions.js";
@@ -95,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   projectsModel: typeof projectsModel;
   rateLimiting: typeof rateLimiting;
+  reports: typeof reports;
   roles: typeof roles;
   scheduleModel: typeof scheduleModel;
   sessions: typeof sessions;

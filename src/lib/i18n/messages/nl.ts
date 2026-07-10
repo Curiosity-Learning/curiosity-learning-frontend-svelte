@@ -784,7 +784,35 @@ const nl = {
 		globalEmptyTitle: 'Globale feed is nog niet aangesloten',
 		globalEmptyDescription: 'Updates uit het bredere netwerk verschijnen hier binnenkort.',
 		profileEmptyTitle: 'Nog geen updates',
-		profileEmptyDescription: 'Updates die je op je projecten plaatst, verschijnen hier.'
+		profileEmptyDescription: 'Updates die je op je projecten plaatst, verschijnen hier.',
+		reportUpdateAction: 'Deze update melden'
+	},
+	reportIssueDialog: {
+		triggerAriaLabel: 'Een probleem melden',
+		dialogTitle: 'Een probleem melden',
+		dialogDescription:
+			'Laat het Core Team weten als er iets aandacht nodig heeft. We nemen elke melding serieus.',
+		categorySafeguardingLabel: 'Veiligheidszorg',
+		categorySafeguardingDescription: 'Een zorg over de veiligheid of het welzijn van een lid.',
+		categoryInappropriateLabel: 'Ongepaste inhoud',
+		categoryInappropriateDescription:
+			'Inhoud die aanstootgevend, beledigend of in strijd met onze richtlijnen is.',
+		categoryOtherLabel: 'Anders',
+		categoryOtherDescription: 'Iets anders waar het Core Team naar zou moeten kijken.',
+		detailsPlaceholder: 'Voeg eventuele details toe die kunnen helpen (optioneel)',
+		cancelAction: 'Annuleren',
+		submitAction: 'Melding versturen',
+		submitting: 'Versturen...',
+		submitFailure: 'Melding versturen is mislukt. Probeer het opnieuw.',
+		rateLimitedError: 'Je hebt recent meerdere meldingen ingediend. Probeer het later opnieuw.',
+		successTitle: 'Melding verstuurd',
+		successDescription: 'Het Core Team is gewaarschuwd.',
+		closeAction: 'Sluiten'
+	},
+	reportEntryPoints: {
+		chatMessageAction: 'Dit bericht melden',
+		memberAction: 'Melden',
+		clubAction: 'Een probleem melden'
 	}
 } as const;
 

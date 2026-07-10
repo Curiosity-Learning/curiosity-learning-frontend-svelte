@@ -14,6 +14,7 @@ import PageContentMode from './page-content-mode.svelte';
 import PageHeaderSearch from './page-header-search.svelte';
 import PageHeaderTitleContent from './page-header-title-content.svelte';
 import PageHeaderTitle from './page-header-title.svelte';
+import ReportIssueDialog from './report-issue-dialog.svelte';
 import RelationAvatarStack from './record-card/relation-avatar-stack.svelte';
 import RelationChipSet from './record-card/relation-chip-set.svelte';
 import RelationListCards from './record-card/relation-list-cards.svelte';
@@ -38,6 +39,7 @@ export {
 	PageHeaderSearch,
 	PageHeaderTitleContent,
 	PageHeaderTitle,
+	ReportIssueDialog,
 	RelationAvatarStack,
 	RelationChipSet,
 	RelationListCards,

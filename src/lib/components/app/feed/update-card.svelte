@@ -7,9 +7,11 @@
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
+	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import { cn } from '$lib/utils';
 	import { formatRelativeTime } from '$lib/domain/date';
 	import { t } from '$lib/i18n';
+	import type { Id } from '$convex/_generated/dataModel';
 
 	type RelatedEntity = {
 		label: string;
@@ -27,6 +29,8 @@
 		class?: ClassValue;
 		/** System/change-log entries render a visually quiet variant with no author block. */
 		variant?: 'default' | 'system';
+		/** Enables the report flag in the card header. Omitted for system entries. */
+		updateId?: Id<'updates'> | null;
 		authorName?: string | null;
 		authorImageUrl?: string | null;
 		createdAt: number;
@@ -42,6 +46,7 @@
 	let {
 		class: className,
 		variant = 'default',
+		updateId = null,
 		authorName = null,
 		authorImageUrl = null,
 		createdAt,
@@ -126,6 +131,15 @@
 					<span class="shrink-0 text-muted-foreground">&middot;</span>
 					<p class="shrink-0 type-sm text-muted-foreground">{timestampLabel}</p>
 				</div>
+
+				{#if updateId}
+					<ReportIssueDialog
+						targetType="project_update"
+						targetId={updateId}
+						contextText={content}
+						triggerAriaLabel={t('feed.reportUpdateAction')}
+					/>
+				{/if}
 			</div>
 
 			{#if showProjectContext && (relatedProject || relatedClub)}
