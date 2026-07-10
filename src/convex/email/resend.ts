@@ -1,7 +1,11 @@
 import type { EmailContent } from './templates';
 import { reportConvexError } from '../monitoring';
 
-export type TransactionalEmailType = 'parent-consent' | 'password-reset' | 'verification-otp';
+export type TransactionalEmailType =
+	| 'parent-consent'
+	| 'password-reset'
+	| 'verification-otp'
+	| 'notification';
 
 export const sendEmail = async (
 	args: EmailContent & { to: string; type: TransactionalEmailType }

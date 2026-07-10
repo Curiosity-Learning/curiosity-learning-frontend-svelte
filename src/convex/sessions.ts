@@ -13,6 +13,7 @@ import {
 	requirePermission,
 	requireProfile
 } from './permissions';
+import { dispatchNotification } from './notificationsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -23,6 +24,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const SESSION_PHOTO_POST_SESSION_WINDOW_MS = 12 * HOUR_MS;
 const ATTENDANCE_LOCK_WINDOW_MS = 12 * HOUR_MS;
 const ATTENDANCE_REMINDER_DELAY_MS = HOUR_MS;
+const SESSION_REMINDER_LEAD_MS = 24 * HOUR_MS;
 const MAX_SESSION_PHOTOS = 4;
 
 const getRsvpForSessionAndProfile = async (
@@ -290,6 +292,37 @@ const rescheduleAttendanceReminder = async (
 	await ctx.db.patch(sessionId, { attendanceReminderJobId: jobId });
 };
 
+// Cancels any previously scheduled 24h member-facing session reminder and, if the (possibly
+// new) startTime is more than 24h away, schedules a fresh one for startTime - 24h. Sessions
+// created or moved to less than 24h ahead get no reminder (the member just saw the session;
+// an immediate reminder would be noise).
+const rescheduleSessionReminder = async (
+	ctx: MutationCtx,
+	sessionId: Id<'sessions'>,
+	existingJobId: Id<'_scheduled_functions'> | undefined,
+	startTime: number,
+	options: { cancelledOnly?: boolean } = {}
+) => {
+	if (existingJobId) {
+		try {
+			await ctx.scheduler.cancel(existingJobId);
+		} catch {
+			// Job may have already run or been cancelled; ignore.
+		}
+	}
+
+	const reminderTime = startTime - SESSION_REMINDER_LEAD_MS;
+	if (options.cancelledOnly || reminderTime <= Date.now()) {
+		await ctx.db.patch(sessionId, { sessionReminderJobId: undefined });
+		return;
+	}
+
+	const jobId = await ctx.scheduler.runAt(reminderTime, internal.sessions.sendSessionReminder, {
+		sessionId
+	});
+	await ctx.db.patch(sessionId, { sessionReminderJobId: jobId });
+};
+
 export const create = mutation({
 	args: {
 		clubId: v.id('clubs'),
@@ -320,6 +353,7 @@ export const create = mutation({
 		});
 
 		await rescheduleAttendanceReminder(ctx, sessionId, undefined, args.startTime);
+		await rescheduleSessionReminder(ctx, sessionId, undefined, args.startTime);
 
 		return await ctx.db.get(sessionId);
 	}
@@ -363,6 +397,12 @@ export const update = mutation({
 				session.attendanceReminderJobId,
 				args.startTime
 			);
+			await rescheduleSessionReminder(
+				ctx,
+				args.sessionId,
+				session.sessionReminderJobId,
+				args.startTime
+			);
 		}
 
 		return await ctx.db.get(args.sessionId);
@@ -401,6 +441,13 @@ export const cancel = mutation({
 			session.startTime,
 			{ cancelledOnly: true }
 		);
+		await rescheduleSessionReminder(
+			ctx,
+			args.sessionId,
+			session.sessionReminderJobId,
+			session.startTime,
+			{ cancelledOnly: true }
+		);
 
 		const club = await ctx.db.get(session.clubId);
 		const rsvps = await ctx.db
@@ -414,8 +461,9 @@ export const cancel = mutation({
 		});
 		for (const rsvp of rsvps) {
 			if (rsvp.status !== 'going') continue;
-			await ctx.runMutation(internal.notifications.createSystemNotification, {
-				profileId: rsvp.profileId,
+			await dispatchNotification(ctx, {
+				recipientProfileId: rsvp.profileId,
+				kind: 'session_cancelled',
 				clubId: session.clubId,
 				title: 'Session cancelled',
 				message: `Session on ${sessionDateLabel} at ${club?.name ?? 'your club'} was cancelled.`,
@@ -905,12 +953,54 @@ export const sendAttendanceReminderIfUnmarked = internalMutation({
 			const role = await ctx.db.get(member.roleId);
 			if (role?.key !== 'guide') continue;
 
-			await ctx.runMutation(internal.notifications.createSystemNotification, {
-				profileId: member.profileId,
+			await dispatchNotification(ctx, {
+				recipientProfileId: member.profileId,
+				kind: 'attendance_reminder',
 				clubId: session.clubId,
 				title: 'Attendance not recorded',
 				message: `Attendance for the session on ${sessionDateLabel} hasn't been recorded yet.`,
 				url: `/session/${args.sessionId}/attendees`
+			});
+		}
+	}
+});
+
+// Internal: 24h-before-start reminder for all active club members (scheduled via
+// rescheduleSessionReminder). Skips cancelled sessions and respects the sessionReminder
+// preference (enforced inside dispatchNotification).
+export const sendSessionReminder = internalMutation({
+	args: {
+		sessionId: v.id('sessions')
+	},
+	handler: async (ctx, args) => {
+		const session = await ctx.db.get(args.sessionId);
+		if (!session || session.cancelled) return;
+		if (session.startTime <= Date.now()) return;
+
+		const club = await ctx.db.get(session.clubId);
+		const sessionDateLabel = new Date(session.startTime).toLocaleDateString(undefined, {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric'
+		});
+		const sessionTimeLabel = new Date(session.startTime).toLocaleTimeString(undefined, {
+			hour: '2-digit',
+			minute: '2-digit'
+		});
+
+		const members = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', session.clubId))
+			.collect();
+		for (const member of members) {
+			if (member.leftAt) continue;
+			await dispatchNotification(ctx, {
+				recipientProfileId: member.profileId,
+				kind: 'session_reminder',
+				clubId: session.clubId,
+				title: 'Session tomorrow',
+				message: `Session at ${club?.name ?? 'your club'} starts ${sessionDateLabel} at ${sessionTimeLabel}.`,
+				url: `/session/${args.sessionId}/activities`
 			});
 		}
 	}

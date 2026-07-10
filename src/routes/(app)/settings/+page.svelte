@@ -13,6 +13,7 @@
 	} from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
@@ -29,6 +30,7 @@
 	const session = authClient.useSession();
 	const convexClient = useConvexClient();
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
+	const preferencesResponse = useStableQuery(api.preferences.get, {});
 	const legalDocumentsResponse = useStableQuery(api.legalDocuments.listActive, () =>
 		$session.data ? {} : 'skip'
 	);
@@ -181,6 +183,90 @@
 		}
 	};
 
+	// Notification preferences (CL-715). Toggles persist immediately via preferences.upsert;
+	// the local copy keeps the UI responsive and is initialized once from the server value.
+	type NotificationPreferences = {
+		clubMemberChanges: boolean;
+		projectDeadlineReminder: boolean;
+		projectMemberAdded: boolean;
+		projectCompleted: boolean;
+		sessionReminder: boolean;
+		sessionActivityChanges: boolean;
+		updateLikes: boolean;
+		updateComments: boolean;
+		chatMessages: boolean;
+	};
+	type NotificationPreferenceKey = keyof NotificationPreferences;
+	let notificationPrefs = $state<NotificationPreferences | null>(null);
+
+	$effect(() => {
+		if (notificationPrefs) return;
+		const data = preferencesResponse.data;
+		if (!data) return;
+		notificationPrefs = { ...data.notificationPreferences };
+	});
+
+	let notificationToggles = $derived(
+		notificationPrefs
+			? [
+					{
+						group: $_('settingsPage.notificationsSessionsGroup'),
+						items: [
+							{
+								key: 'sessionReminder' as const,
+								label: $_('settingsPage.notificationsSessionReminderLabel'),
+								description: $_('settingsPage.notificationsSessionReminderDescription')
+							},
+							{
+								key: 'sessionActivityChanges' as const,
+								label: $_('settingsPage.notificationsSessionChangesLabel'),
+								description: $_('settingsPage.notificationsSessionChangesDescription')
+							}
+						]
+					},
+					{
+						group: $_('settingsPage.notificationsClubGroup'),
+						items: [
+							{
+								key: 'clubMemberChanges' as const,
+								label: $_('settingsPage.notificationsClubMemberChangesLabel'),
+								description: $_('settingsPage.notificationsClubMemberChangesDescription')
+							}
+						]
+					},
+					{
+						group: $_('settingsPage.notificationsProjectsGroup'),
+						items: [
+							{
+								key: 'projectMemberAdded' as const,
+								label: $_('settingsPage.notificationsProjectMembershipLabel'),
+								description: $_('settingsPage.notificationsProjectMembershipDescription')
+							},
+							{
+								key: 'projectCompleted' as const,
+								label: $_('settingsPage.notificationsProjectUpdatesLabel'),
+								description: $_('settingsPage.notificationsProjectUpdatesDescription')
+							}
+						]
+					}
+				]
+			: []
+	);
+
+	const setNotificationPreference = async (key: NotificationPreferenceKey, value: boolean) => {
+		if (!notificationPrefs) return;
+		const previous = notificationPrefs[key];
+		notificationPrefs[key] = value;
+		try {
+			await convexClient.mutation(api.preferences.upsert, {
+				notificationPreferences: { ...notificationPrefs }
+			});
+		} catch {
+			notificationPrefs[key] = previous;
+			errorMessage = t('settingsPage.notificationsSaveFailure');
+		}
+	};
+
 	const policyLinks = $derived(
 		orderedLegalDocuments.length
 			? orderedLegalDocuments.map((document) => ({
@@ -296,6 +382,53 @@
 			<Button disabled={pending} class="lg:col-span-2" onclick={() => void saveProfile()}
 				>Save profile</Button
 			>
+		</CardContent>
+	</Card>
+
+	<Card>
+		<CardHeader class="flex flex-col gap-2">
+			<CardTitle>{$_('settingsPage.notificationsTitle')}</CardTitle>
+			<CardDescription>{$_('settingsPage.notificationsDescription')}</CardDescription>
+		</CardHeader>
+		<CardContent class="flex flex-col gap-4">
+			{#if !notificationPrefs}
+				<p class="text-sm text-muted-foreground">...</p>
+			{:else}
+				{#each notificationToggles as section (section.group)}
+					<div class="flex flex-col gap-2">
+						<p class="text-sm font-semibold text-foreground">{section.group}</p>
+						{#each section.items as item (item.key)}
+							<div
+								class="flex items-start justify-between gap-4 rounded-lg border border-border/70 p-3"
+							>
+								<div class="flex flex-col gap-1">
+									<Label for={`notification-${item.key}`}>{item.label}</Label>
+									<p class="text-sm text-muted-foreground">{item.description}</p>
+								</div>
+								<Switch
+									id={`notification-${item.key}`}
+									checked={notificationPrefs[item.key]}
+									onCheckedChange={(value) => void setNotificationPreference(item.key, value)}
+									class="mt-1 shrink-0"
+								/>
+							</div>
+						{/each}
+					</div>
+				{/each}
+				<div class="flex flex-col gap-2">
+					<p class="text-sm font-semibold text-foreground">
+						{$_('settingsPage.notificationsCriticalGroup')}
+					</p>
+					<div
+						class="flex items-start justify-between gap-4 rounded-lg border border-border/70 bg-muted/40 p-3"
+					>
+						<p class="text-sm text-muted-foreground">
+							{$_('settingsPage.notificationsCriticalDescription')}
+						</p>
+						<Switch checked disabled class="mt-1 shrink-0" />
+					</div>
+				</div>
+			{/if}
 		</CardContent>
 	</Card>
 

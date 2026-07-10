@@ -1,9 +1,9 @@
 import { ConvexError, v } from 'convex/values';
-import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { ensureJoinRequestRoom } from './chatModel';
+import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsModel';
 import {
 	getClubRoleByKey,
 	getMembershipByProfileId,
@@ -95,8 +95,9 @@ export const requestToJoin = mutation({
 		const requesterName = profileDisplayName(profile);
 		const guideMemberships = await listActiveGuideMemberships(ctx, args.clubId);
 		for (const guideMembership of guideMemberships) {
-			await ctx.runMutation(internal.notifications.createSystemNotification, {
-				profileId: guideMembership.profileId,
+			await dispatchNotification(ctx, {
+				recipientProfileId: guideMembership.profileId,
+				kind: 'join_request_received',
 				clubId: args.clubId,
 				title: 'New join request',
 				message: `New join request from ${requesterName}`
@@ -277,6 +278,7 @@ export const acceptJoinRequest = mutation({
 				updatedAt: now
 			});
 			membershipCreated = true;
+			await notifyGuidesOfNewMember(ctx, joinRequest.clubId, requesterProfile);
 		} else if (!existingMembership && !gatesComplete) {
 			// Gates aren't complete yet (pledge not agreed, or under-16 consent still pending).
 			// Reuse the existing pendingClubCode/pendingRole mechanism: it's already consumed at
@@ -300,8 +302,9 @@ export const acceptJoinRequest = mutation({
 			decidedByProfileId: deciderProfile._id
 		});
 
-		await ctx.runMutation(internal.notifications.createSystemNotification, {
-			profileId: requesterProfile._id,
+		await dispatchNotification(ctx, {
+			recipientProfileId: requesterProfile._id,
+			kind: 'join_request_decision',
 			clubId: joinRequest.clubId,
 			title: 'Join request accepted',
 			message: membershipCreated
@@ -347,8 +350,9 @@ export const declineJoinRequest = mutation({
 			decidedByProfileId: deciderProfile._id
 		});
 
-		await ctx.runMutation(internal.notifications.createSystemNotification, {
-			profileId: joinRequest.requesterProfileId,
+		await dispatchNotification(ctx, {
+			recipientProfileId: joinRequest.requesterProfileId,
+			kind: 'join_request_decision',
 			clubId: joinRequest.clubId,
 			title: 'Join request declined',
 			message: `Your request to join ${club?.name ?? 'the club'} was declined.`
