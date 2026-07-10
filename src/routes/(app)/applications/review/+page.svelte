@@ -17,6 +17,7 @@
 	let scores = $state<Record<string, string>>({});
 	let notes = $state<Record<string, string>>({});
 	let pendingApplicationId = $state<string | null>(null);
+	let movingApplicationId = $state<string | null>(null);
 
 	const submitReview = async (applicationId: string) => {
 		const score = Number(scores[applicationId] ?? '');
@@ -41,6 +42,28 @@
 			});
 		} finally {
 			pendingApplicationId = null;
+		}
+	};
+
+	const moveToInterview = async (applicationId: string) => {
+		movingApplicationId = applicationId;
+		try {
+			await convexClient.mutation(api.clubApplications.moveToInterview, {
+				applicationId: applicationId as Id<'clubApplications'>
+			});
+			showGlobalSnackbar({ title: 'Moved to interview' });
+		} catch (error) {
+			captureUnexpectedOperationalError(error, {
+				area: 'admin',
+				operation: 'application-review:move-to-interview',
+				identifiers: { applicationId }
+			});
+			showGlobalSnackbar({
+				title: 'Unable to move to interview',
+				description: error instanceof Error ? error.message : 'Please try again.'
+			});
+		} finally {
+			movingApplicationId = null;
 		}
 	};
 </script>
@@ -96,6 +119,23 @@
 								{pendingApplicationId === application._id ? 'Saving...' : 'Save'}
 							</Button>
 						</div>
+
+						{#if application.myReview}
+							<div class="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+								<p class="text-sm text-gray-600">
+									Once reviewers have scored this application, move it to the interview stage to
+									open scheduling in the applicant's chat.
+								</p>
+								<Button
+									variant="outline"
+									class="shrink-0"
+									disabled={movingApplicationId === application._id}
+									onclick={() => void moveToInterview(application._id)}
+								>
+									{movingApplicationId === application._id ? 'Moving...' : 'Move to interview'}
+								</Button>
+							</div>
+						{/if}
 					</CardContent>
 				</Card>
 			{/each}

@@ -119,7 +119,14 @@ export default defineSchema({
 
 	clubApplications: defineTable({
 		applicantProfileId: v.id('profiles'),
-		status: v.union(v.literal('incomplete'), v.literal('pending'), v.literal('finalized')),
+		status: v.union(
+			v.literal('incomplete'),
+			v.literal('pending'),
+			v.literal('interview'),
+			v.literal('accepted'),
+			v.literal('rejected'),
+			v.literal('finalized')
+		),
 		name: v.string(),
 		description: v.optional(v.string()),
 		location: v.optional(v.string()),
@@ -130,6 +137,26 @@ export default defineSchema({
 		referralSource: v.optional(v.string()),
 		referralOther: v.optional(v.string()),
 		createdClubId: v.optional(v.id('clubs')),
+		// Set when a reviewing Guide moves the application into the interview stage
+		// (moveToInterview in clubApplications.ts).
+		movedToInterviewAt: v.optional(v.number()),
+		movedToInterviewByProfileId: v.optional(v.id('profiles')),
+		// Set on Accept/Reject decisions made from the clubApplication chat (decideApplication).
+		decidedAt: v.optional(v.number()),
+		decidedByProfileId: v.optional(v.id('profiles')),
+		rejectionNote: v.optional(v.string()),
+		// Set once the onboarding call is confirmed, just before club creation runs
+		// (confirmOnboardingCall).
+		onboardingCallCompletedAt: v.optional(v.number()),
+		// Lightweight flag for Core Team follow-up (e.g. interview no-show); does not reject the
+		// application. Surfaced later by CL-730/732 admin tooling.
+		adminFollowUpFlag: v.optional(
+			v.object({
+				reason: v.string(),
+				createdAt: v.number(),
+				createdByProfileId: v.id('profiles')
+			})
+		),
 		finalizedByProfileId: v.optional(v.id('profiles')),
 		finalizedAt: v.optional(v.number()),
 		createdAt: v.number(),
@@ -495,7 +522,9 @@ export default defineSchema({
 
 	messages: defineTable({
 		roomId: v.id('rooms'),
-		profileId: v.id('profiles'),
+		// Optional: unset for system messages (e.g. the automated rejection notice posted by
+		// clubApplications.decideApplication).
+		profileId: v.optional(v.id('profiles')),
 		content: v.string()
 	}).index('by_room', ['roomId']),
 

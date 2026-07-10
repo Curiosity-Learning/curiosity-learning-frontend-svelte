@@ -11,16 +11,43 @@
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
+	import { _ } from '$lib/i18n';
 	import myClubImage from '$lib/assets/images/my_club.png';
 
 	const applicationsResponse = useStableQuery(api.clubApplications.listMyApplications, {});
 	let applications = $derived(applicationsResponse.data ?? []);
-	const applicationStatusLabel = (status: string) =>
-		status === 'finalized'
-			? 'Finalized'
-			: status === 'incomplete'
-				? 'Incomplete'
-				: 'Pending review';
+	const applicationStatusLabel = (status: string) => {
+		switch (status) {
+			case 'incomplete':
+				return $_('applicationStatus.incompleteLabel');
+			case 'interview':
+				return $_('applicationStatus.interviewLabel');
+			case 'accepted':
+				return $_('applicationStatus.acceptedLabel');
+			case 'rejected':
+				return $_('applicationStatus.rejectedLabel');
+			case 'finalized':
+				return $_('applicationStatus.finalizedLabel');
+			default:
+				return $_('applicationStatus.pendingLabel');
+		}
+	};
+	const applicationStatusDescription = (status: string) => {
+		switch (status) {
+			case 'incomplete':
+				return $_('applicationStatus.incompleteDescription');
+			case 'interview':
+				return $_('applicationStatus.interviewDescription');
+			case 'accepted':
+				return $_('applicationStatus.acceptedDescription');
+			case 'rejected':
+				return $_('applicationStatus.rejectedDescription');
+			case 'finalized':
+				return $_('applicationStatus.finalizedDescription');
+			default:
+				return $_('applicationStatus.pendingDescription');
+		}
+	};
 	const applicationDateLabel = (timestamp: number | undefined) => {
 		if (!timestamp) return null;
 		return new Date(timestamp).toLocaleDateString(undefined, {
@@ -117,9 +144,17 @@
 										{applicationStatusLabel(application.status)}
 									</Badge>
 								</div>
+								<p class="type-sm mt-1 text-gray-600">
+									{applicationStatusDescription(application.status)}
+								</p>
 								{#if application.status === 'incomplete'}
 									<Button href={routes.newClubStartVideo} variant="outline" class="mt-3 h-9 px-3">
 										Resume application
+									</Button>
+								{/if}
+								{#if application.status === 'interview' || application.status === 'accepted' || application.status === 'rejected'}
+									<Button href={routes.chat} variant="outline" class="mt-3 h-9 px-3">
+										Open chat
 									</Button>
 								{/if}
 							</div>
