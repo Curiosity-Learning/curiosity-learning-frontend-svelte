@@ -18,12 +18,21 @@
 		project: Doc<'projects'>;
 		status?: 'current' | 'completed';
 		memberPreview?: MemberPreview[];
+		coverImageUrl?: string | null;
 		href?: string;
 		navigationState?: App.PageState;
 		class?: string;
 	};
 
-	let { project, status, memberPreview, href, navigationState, class: className }: Props = $props();
+	let {
+		project,
+		status,
+		memberPreview,
+		coverImageUrl,
+		href,
+		navigationState,
+		class: className
+	}: Props = $props();
 
 	const membersResponse = useStableQuery(api.projects.listMembers, () =>
 		memberPreview ? 'skip' : { projectId: project._id }
@@ -76,6 +85,9 @@
 </script>
 
 {#snippet cardContent()}
+	{#if coverImageUrl}
+		<img src={coverImageUrl} alt="" class="h-32 w-full rounded-t-xl object-cover" />
+	{/if}
 	<CardContent class="flex h-full flex-col gap-5 p-5">
 		<div class="flex flex-col gap-2">
 			<p class="type-h5-bold">{project.name}</p>

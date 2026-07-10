@@ -240,6 +240,7 @@ describe('relational integrity', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Relational project',
 				dueDate: now + 60_000,
+			visibility: 'clubs',
 				createdByProfileId: profileId,
 				createdAt: now,
 				updatedAt: now
@@ -281,6 +282,7 @@ describe('relational integrity', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Historical membership project',
 				dueDate: now + 60_000,
+			visibility: 'clubs',
 				createdByProfileId: profileId,
 				createdAt: now,
 				updatedAt: now

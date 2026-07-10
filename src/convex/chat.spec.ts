@@ -231,6 +231,7 @@ describe('context room chat', () => {
 			const doneProjectId = await ctx.db.insert('projects', {
 				name: 'Done project',
 				dueDate: now,
+			visibility: 'clubs',
 				createdByProfileId: viewerProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -238,6 +239,7 @@ describe('context room chat', () => {
 			const removedProjectId = await ctx.db.insert('projects', {
 				name: 'Removed project',
 				dueDate: now,
+			visibility: 'clubs',
 				createdByProfileId: otherProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -337,6 +339,7 @@ describe('context room chat', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Left project',
 				dueDate: now,
+			visibility: 'clubs',
 				createdByProfileId: otherProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -422,6 +425,7 @@ describe('context room chat', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Archived project',
 				dueDate: now,
+			visibility: 'clubs',
 				createdByProfileId: memberProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -494,6 +498,7 @@ describe('context room chat', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Partially done project',
 				dueDate: now,
+			visibility: 'clubs',
 				createdByProfileId: doneProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -574,6 +579,7 @@ describe('context room chat', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Observed project',
 				dueDate: now,
+			visibility: 'clubs',
 				createdByProfileId: otherProfileId,
 				createdAt: now,
 				updatedAt: now

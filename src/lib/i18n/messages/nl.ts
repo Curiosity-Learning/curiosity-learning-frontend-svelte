@@ -758,7 +758,17 @@ const nl = {
 		leaveProjectFailure: 'Kon het project niet verlaten.',
 		doneMemberEditNotice: 'Klaar-leden kunnen projectdetails niet bewerken of updates plaatsen.',
 		activityTitle: 'Activiteit',
-		activityEmpty: 'Nog geen activiteit.'
+		activityEmpty: 'Nog geen activiteit.',
+		visibilityLabel: 'Zichtbaarheid',
+		visibilityClubsOption: 'Alleen club(s)',
+		visibilityGlobalOption: 'Wereldwijd delen',
+		visibilityExplanation:
+			'"Alleen club(s)" is zichtbaar voor leden van de clubs waaraan dit project is toegewezen. "Wereldwijd delen" is zichtbaar voor elke ingelogde gebruiker.',
+		coverImageLabel: 'Omslagafbeelding',
+		coverImageUploadLabel: 'Omslagafbeelding uploaden',
+		coverImageUploading: 'Uploaden...',
+		coverImageRemove: 'Omslagafbeelding verwijderen',
+		descriptionRequiredError: 'Beschrijving is verplicht.'
 	},
 	feed: {
 		unknownAuthor: 'Onbekend',

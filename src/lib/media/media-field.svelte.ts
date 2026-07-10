@@ -66,6 +66,16 @@ const mediaFieldDefinitions = {
 		},
 		expectedMediaKind: 'image',
 		requireReady: true
+	},
+	projectCover: {
+		constraints: {
+			acceptedContentTypes: ['image/jpeg', 'image/png', 'image/webp'],
+			maxBytes: TEN_MB,
+			enableCompression: true,
+			enableSafetyScreening: true
+		},
+		expectedMediaKind: 'image',
+		requireReady: true
 	}
 } as const satisfies Record<string, MediaFieldDefinition>;
 

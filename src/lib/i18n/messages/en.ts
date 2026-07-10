@@ -760,7 +760,17 @@ const en = {
 		leaveProjectFailure: 'Failed to leave the project.',
 		doneMemberEditNotice: 'Done members cannot edit project details or post updates.',
 		activityTitle: 'Activity',
-		activityEmpty: 'No activity yet.'
+		activityEmpty: 'No activity yet.',
+		visibilityLabel: 'Visibility',
+		visibilityClubsOption: 'Club(s) only',
+		visibilityGlobalOption: 'Share Globally',
+		visibilityExplanation:
+			'"Club(s) only" is visible to members of the clubs this project is attributed to. "Share Globally" is visible to any signed-in user.',
+		coverImageLabel: 'Cover image',
+		coverImageUploadLabel: 'Upload cover image',
+		coverImageUploading: 'Uploading...',
+		coverImageRemove: 'Remove cover image',
+		descriptionRequiredError: 'Description is required.'
 	},
 	feed: {
 		unknownAuthor: 'Unknown',

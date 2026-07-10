@@ -63,6 +63,7 @@ const seedProjectFixture = async (
 		const projectId = await ctx.db.insert('projects', {
 			name: 'Fixture project',
 			dueDate: now + 7 * 24 * 60 * 60 * 1000,
+			visibility: 'clubs',
 			createdByProfileId: clubOwnerProfileId as never,
 			createdAt: now,
 			updatedAt: now
@@ -229,5 +230,279 @@ describe('project member lifecycle (CL-723)', () => {
 
 	it('removeMember mutation no longer exists', () => {
 		expect('removeMember' in api.projects).toBe(false);
+	});
+});
+
+describe('project visibility (CL-718)', () => {
+	it('a "global" project is readable by any authenticated user, even non-members', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+		await t.run(async (ctx) => {
+			await ctx.db.patch(projectId, { visibility: 'global' });
+		});
+
+		const stranger = t.withIdentity({ subject: 'stranger' });
+		await t.run(async (ctx) => {
+			await ctx.db.insert('profiles', {
+				authUserId: 'stranger',
+				username: 'stranger',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+		});
+
+		const project = await stranger.query(api.projects.getById, { projectId });
+		expect(project?._id).toBe(projectId);
+	});
+
+	it('a "clubs" project is not readable by a non-member of any attributed club', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+
+		await t.run(async (ctx) => {
+			await ctx.db.insert('profiles', {
+				authUserId: 'stranger',
+				username: 'stranger',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+		});
+		const stranger = t.withIdentity({ subject: 'stranger' });
+
+		await expect(stranger.query(api.projects.getById, { projectId })).rejects.toThrow(
+			'Permission denied'
+		);
+	});
+
+	it('a "clubs" project is readable by a member of an attributed club who is not a project member', async () => {
+		const { t, projectId, clubId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+
+		const learnerRoleId = await t.run(async (ctx) => {
+			const now = Date.now();
+			const roleId = await ctx.db.insert('clubRoles', {
+				key: 'learner',
+				name: 'Learner',
+				permissions: ['project:read'],
+				order: 1,
+				createdAt: now
+			});
+			const profileId = await ctx.db.insert('profiles', {
+				authUserId: 'clubmate',
+				username: 'clubmate',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId,
+				roleId,
+				createdAt: now
+			});
+			return roleId;
+		});
+		expect(learnerRoleId).toBeTruthy();
+
+		const clubmate = t.withIdentity({ subject: 'clubmate' });
+		const project = await clubmate.query(api.projects.getById, { projectId });
+		expect(project?._id).toBe(projectId);
+	});
+
+	it('a "clubs" project remains readable by its own (even left/done) members regardless of club standing', async () => {
+		const { t, projectId } = await seedProjectFixture([
+			{ authUserId: 'alice' },
+			{ authUserId: 'bob', leftAt: Date.now() - 1000 }
+		]);
+
+		const bob = t.withIdentity({ subject: 'bob' });
+		const project = await bob.query(api.projects.getById, { projectId });
+		expect(project?._id).toBe(projectId);
+	});
+
+	it('any active member can toggle visibility, and it is logged in the change log', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		const updated = await alice.mutation(api.projects.update, {
+			projectId,
+			visibility: 'global'
+		});
+		expect(updated?.visibility).toBe('global');
+
+		const changeLog = await alice.query(api.projects.listChangeLog, { projectId });
+		const entry = changeLog.find((e) => e.entryType === 'visibility_changed');
+		expect(entry?.text).toContain('Share Globally');
+	});
+});
+
+describe('project editing rights are collective, not creator-special (CL-718)', () => {
+	it('a non-member cannot edit the project', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+		await t.run(async (ctx) => {
+			await ctx.db.insert('profiles', {
+				authUserId: 'stranger',
+				username: 'stranger',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+		});
+		const stranger = t.withIdentity({ subject: 'stranger' });
+
+		await expect(
+			stranger.mutation(api.projects.update, { projectId, name: 'Hijacked' })
+		).rejects.toThrow('Permission denied');
+	});
+
+	it('a Done member cannot edit even though they were the creator', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		await alice.mutation(api.projects.markSelfDone, { projectId });
+
+		await expect(
+			alice.mutation(api.projects.update, { projectId, name: 'New name' })
+		).rejects.toThrow('Done members cannot edit this project');
+	});
+
+	it('a non-creator active member can edit exactly like the creator', async () => {
+		const { t, projectId } = await seedProjectFixture([
+			{ authUserId: 'alice' },
+			{ authUserId: 'bob' }
+		]);
+		const bob = t.withIdentity({ subject: 'bob' });
+
+		const updated = await bob.mutation(api.projects.update, {
+			projectId,
+			name: 'Renamed by non-creator'
+		});
+		expect(updated?.name).toBe('Renamed by non-creator');
+	});
+});
+
+describe('project metadata change log (CL-718)', () => {
+	it('logs a change-log entry for each of name, description, deadline, visibility, and cover', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		const assetId = await t.run(async (ctx) => {
+			const now = Date.now();
+			return await ctx.db.insert('mediaAssets', {
+				ownerUserId: 'alice',
+				mediaKind: 'image',
+				status: 'ready',
+				acceptedContentTypes: ['image/jpeg'],
+				maxBytes: 10_000_000,
+				enableCompression: true,
+				enableSafetyScreening: true,
+				storageProvider: 's3',
+				sourceBucket: 'test-bucket',
+				sourceObjectKey: 'test-object-key',
+				sourceObjectRevision: 1,
+				contentType: 'image/jpeg',
+				sizeBytes: 1000,
+				pipelineVersion: 1,
+				attemptCount: 1,
+				stepResults: [],
+				createdAt: now,
+				updatedAt: now,
+				readyAt: now
+			});
+		});
+
+		await alice.mutation(api.projects.update, {
+			projectId,
+			name: 'New name',
+			description: 'New description',
+			dueDate: Date.now() + 30 * 24 * 60 * 60 * 1000,
+			visibility: 'global',
+			coverImageMediaAssetId: assetId
+		});
+
+		const changeLog = await alice.query(api.projects.listChangeLog, { projectId });
+		const entryTypes = changeLog.map((entry) => entry.entryType);
+		expect(entryTypes).toContain('name_changed');
+		expect(entryTypes).toContain('description_changed');
+		expect(entryTypes).toContain('deadline_changed');
+		expect(entryTypes).toContain('visibility_changed');
+		expect(entryTypes).toContain('cover_changed');
+
+		const nameEntry = changeLog.find((entry) => entry.entryType === 'name_changed');
+		expect(nameEntry?.text).toContain('New name');
+		expect(nameEntry?.text).toContain('Fixture project');
+
+		const coverEntry = changeLog.find((entry) => entry.entryType === 'cover_changed');
+		expect(coverEntry?.text).toContain(assetId);
+	});
+
+	it('does not log a change-log entry when a field is left unchanged', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		await alice.mutation(api.projects.update, {
+			projectId,
+			name: 'Fixture project' // same as seeded name
+		});
+
+		const changeLog = await alice.query(api.projects.listChangeLog, { projectId });
+		expect(changeLog.some((entry) => entry.entryType === 'name_changed')).toBe(false);
+	});
+
+	it('rejects a cover asset that is not owned by the caller', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		const assetId = await t.run(async (ctx) => {
+			const now = Date.now();
+			return await ctx.db.insert('mediaAssets', {
+				ownerUserId: 'someone-else',
+				mediaKind: 'image',
+				status: 'ready',
+				acceptedContentTypes: ['image/jpeg'],
+				maxBytes: 10_000_000,
+				enableCompression: true,
+				enableSafetyScreening: true,
+				storageProvider: 's3',
+				sourceObjectRevision: 1,
+				pipelineVersion: 1,
+				attemptCount: 1,
+				stepResults: [],
+				createdAt: now,
+				updatedAt: now
+			});
+		});
+
+		await expect(
+			alice.mutation(api.projects.update, { projectId, coverImageMediaAssetId: assetId })
+		).rejects.toThrow('Cover image not found');
+	});
+
+	it('rejects a cover asset that is not yet ready', async () => {
+		const { t, projectId } = await seedProjectFixture([{ authUserId: 'alice' }]);
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		const assetId = await t.run(async (ctx) => {
+			const now = Date.now();
+			return await ctx.db.insert('mediaAssets', {
+				ownerUserId: 'alice',
+				mediaKind: 'image',
+				status: 'processing',
+				acceptedContentTypes: ['image/jpeg'],
+				maxBytes: 10_000_000,
+				enableCompression: true,
+				enableSafetyScreening: true,
+				storageProvider: 's3',
+				sourceObjectRevision: 1,
+				pipelineVersion: 1,
+				attemptCount: 1,
+				stepResults: [],
+				createdAt: now,
+				updatedAt: now
+			});
+		});
+
+		await expect(
+			alice.mutation(api.projects.update, { projectId, coverImageMediaAssetId: assetId })
+		).rejects.toThrow('Cover image is not ready');
 	});
 });

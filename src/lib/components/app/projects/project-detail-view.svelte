@@ -4,6 +4,7 @@
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import SendIcon from '@lucide/svelte/icons/send';
+	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -22,9 +23,11 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { DatePicker } from '$lib/components/ui/date-picker';
+	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Input } from '$lib/components/ui/input';
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
+	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import {
 		Item,
@@ -35,10 +38,14 @@
 		ItemMedia,
 		ItemTitle
 	} from '$lib/components/ui/item';
+	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { _, t } from '$lib/i18n';
+
+	const PROJECT_NAME_MAX_LENGTH = 50;
+	const PROJECT_DESCRIPTION_MAX_LENGTH = 500;
 
 	type Props = {
 		view: 'overview' | 'members';
@@ -93,8 +100,39 @@
 	let editForm = $state({
 		name: '',
 		description: '',
-		dueDate: null as number | null
+		dueDate: null as number | null,
+		visibility: 'clubs' as 'clubs' | 'global'
 	});
+
+	// PRD 6.6.3: cover image is editable by any active member, independent of the edit dialog's
+	// other fields — uploads immediately, then attaches on save alongside the rest of the form.
+	const editCoverField = createMediaField(convexClient, 'projectCover', { mode: 'immediate' });
+	let editCoverUploadError = $state('');
+	let editCoverRemoved = $state(false);
+
+	onDestroy(() => {
+		editCoverField.destroy();
+	});
+
+	const uploadEditCover = async (files: File[]) => {
+		editCoverUploadError = '';
+		try {
+			await editCoverField.selectFiles(files);
+			if (!editCoverField.isReady || !editCoverField.assetId) {
+				throw new Error(editCoverField.errorMessage || 'Failed to upload cover image.');
+			}
+			editCoverRemoved = false;
+		} catch (error) {
+			editCoverUploadError =
+				error instanceof Error ? error.message : 'Failed to upload cover image.';
+		}
+	};
+
+	const removeEditCover = () => {
+		editCoverField.clear();
+		editCoverUploadError = '';
+		editCoverRemoved = true;
+	};
 
 	let updateContent = $state('');
 	let updatePending = $state(false);
@@ -181,6 +219,19 @@
 
 		return null;
 	};
+	// PRD 6.6.3: cover image appears at the top of the project page. Falls back to nothing
+	// (graceful without) when the project has no cover, the asset isn't ready, or it can't be
+	// resolved for the current viewer.
+	let coverImageUrl = $derived.by(() => {
+		if (!project?.coverImageMediaAssetId) return null;
+		const assets =
+			(page.data.initialProjectCoverImage as
+				| { assetId: Id<'mediaAssets'>; signedUrl: string }
+				| undefined
+				| null) ?? null;
+		return assets && assets.assetId === project.coverImageMediaAssetId ? assets.signedUrl : null;
+	});
+
 	let initialProjectUpdateMedia = $derived(
 		(page.data.initialProjectUpdateMedia as Array<SignedProjectUpdateMedia> | undefined) ?? []
 	);
@@ -216,8 +267,12 @@
 		editForm = {
 			name: project.name,
 			description: project.description ?? '',
-			dueDate: project.dueDate ?? null
+			dueDate: project.dueDate ?? null,
+			visibility: project.visibility
 		};
+		editCoverField.clear();
+		editCoverUploadError = '';
+		editCoverRemoved = false;
 		editDialogOpen = true;
 	};
 
@@ -225,6 +280,10 @@
 		if (!project) return;
 		if (!editForm.name.trim()) {
 			errorMessage = 'Project name is required.';
+			return;
+		}
+		if (!editForm.description.trim()) {
+			errorMessage = t('projectDetail.descriptionRequiredError');
 			return;
 		}
 		if (editForm.dueDate === null) {
@@ -235,11 +294,14 @@
 		pending = true;
 		errorMessage = '';
 		try {
+			const newCoverAssetId = await editCoverField.ensureUploaded();
 			await convexClient.mutation(api.projects.update, {
 				projectId: project._id,
 				name: editForm.name.trim(),
 				description: editForm.description.trim() || undefined,
-				dueDate: editForm.dueDate
+				dueDate: editForm.dueDate,
+				visibility: editForm.visibility,
+				coverImageMediaAssetId: newCoverAssetId ?? (editCoverRemoved ? null : undefined)
 			});
 			editDialogOpen = false;
 		} catch (error) {
@@ -363,6 +425,14 @@
 		{/if}
 
 		{#if view === 'overview'}
+			{#if coverImageUrl}
+				<img
+					src={coverImageUrl}
+					alt=""
+					class="h-48 w-full rounded-2xl object-cover sm:h-64"
+				/>
+			{/if}
+
 			{#if project.description}
 				<p class="type-lead text-muted-foreground">{project.description}</p>
 			{:else}
@@ -506,27 +576,101 @@
 						id="editProjectName"
 						bind:value={editForm.name}
 						placeholder="Project name"
+						maxlength={PROJECT_NAME_MAX_LENGTH}
 						required
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
-					<Label for="editProjectDescription">Description</Label>
+					<FieldLabel for="editProjectDescription" required>Description</FieldLabel>
 					<Textarea
 						id="editProjectDescription"
 						bind:value={editForm.description}
 						rows={3}
+						maxlength={PROJECT_DESCRIPTION_MAX_LENGTH}
 						placeholder="Describe the project..."
+						required
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
 					<FieldLabel for="editProjectDueDate" required>Due date</FieldLabel>
 					<DatePicker id="editProjectDueDate" bind:value={editForm.dueDate} />
 				</div>
+
+				<div
+					class="flex items-start justify-between gap-4 rounded-lg border border-border/70 p-3"
+				>
+					<div class="flex flex-col gap-1">
+						<Label for="editProjectVisibility">{t('projectDetail.visibilityLabel')}</Label>
+						<p class="type-sm text-muted-foreground">{t('projectDetail.visibilityExplanation')}</p>
+						<p class="type-sm text-muted-foreground">
+							{editForm.visibility === 'global'
+								? t('projectDetail.visibilityGlobalOption')
+								: t('projectDetail.visibilityClubsOption')}
+						</p>
+					</div>
+					<Switch
+						id="editProjectVisibility"
+						checked={editForm.visibility === 'global'}
+						onCheckedChange={(checked: boolean) =>
+							(editForm.visibility = checked ? 'global' : 'clubs')}
+						class="mt-1 shrink-0"
+					/>
+				</div>
+
+				<div class="flex flex-col gap-2">
+					<Label for="editProjectCoverUpload">{t('projectDetail.coverImageLabel')}</Label>
+					{#if editCoverField.localPreviewUrl}
+						<div class="flex items-center gap-3">
+							<img
+								src={editCoverField.localPreviewUrl}
+								alt=""
+								class="h-16 w-16 rounded-md object-cover"
+							/>
+							<Button variant="outline" size="sm" onclick={removeEditCover}>
+								{t('projectDetail.coverImageRemove')}
+							</Button>
+						</div>
+					{:else if coverImageUrl && !editCoverRemoved}
+						<div class="flex items-center gap-3">
+							<img src={coverImageUrl} alt="" class="h-16 w-16 rounded-md object-cover" />
+							<Button variant="outline" size="sm" onclick={removeEditCover}>
+								{t('projectDetail.coverImageRemove')}
+							</Button>
+						</div>
+					{:else}
+						<FileDropZone.Root
+							accept={editCoverField.accept}
+							maxFiles={1}
+							fileCount={0}
+							maxFileSize={editCoverField.maxBytes}
+							disabled={editCoverField.isBusy}
+							onUpload={uploadEditCover}
+						>
+							<FileDropZone.Trigger>
+								<div
+									id="editProjectCoverUpload"
+									class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+								>
+									{editCoverField.isBusy
+										? t('projectDetail.coverImageUploading')
+										: t('projectDetail.coverImageUploadLabel')}
+								</div>
+							</FileDropZone.Trigger>
+						</FileDropZone.Root>
+					{/if}
+					{#if editCoverUploadError}
+						<p class="type-sm text-destructive">{editCoverUploadError}</p>
+					{/if}
+				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (editDialogOpen = false)}>Cancel</Button>
 				<Button
-					disabled={pending || !editForm.name.trim() || editForm.dueDate === null}
+					disabled={pending ||
+						!editForm.name.trim() ||
+						!editForm.description.trim() ||
+						editForm.dueDate === null ||
+						editCoverField.isBusy}
 					onclick={() => void saveProject()}
 				>
 					{pending ? 'Saving...' : 'Save'}

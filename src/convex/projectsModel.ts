@@ -110,7 +110,12 @@ export const insertProjectChangeLog = async (
 			| 'member_joined'
 			| 'member_done'
 			| 'member_left'
-			| 'project_archived';
+			| 'project_archived'
+			| 'name_changed'
+			| 'description_changed'
+			| 'deadline_changed'
+			| 'visibility_changed'
+			| 'cover_changed';
 		text: string;
 	}
 ) => {
@@ -121,4 +126,65 @@ export const insertProjectChangeLog = async (
 		text: args.text,
 		createdAt: Date.now()
 	});
+};
+
+/**
+ * PRD 6.6.2/6.6.11: direct-access (getById and other project-detail reads) visibility gate.
+ * 'global' projects are viewable by any authenticated user. 'clubs' projects are viewable only
+ * by (a) members of a club the project is currently attributed to (`projectClubs`), or (b) the
+ * project's own members (so a member can still view/manage a project after leaving every
+ * attributed club, or one with zero attribution at all). This is intentionally independent of
+ * `isProjectPermissionAllowed`'s role-permission check — visibility governs *whether the
+ * project can be viewed at all*, while that helper governs role-scoped actions once access is
+ * established. Feed/discovery surfacing of 'global' projects to non-members is CL-726/727 — this
+ * helper only covers direct access (fetching a specific project by id).
+ */
+export const canViewProject = async (
+	ctx: Ctx,
+	projectId: Id<'projects'>,
+	authUserId: string
+): Promise<boolean> => {
+	const project = await ctx.db.get(projectId);
+	if (!project) {
+		return false;
+	}
+
+	if (project.visibility === 'global') {
+		return true;
+	}
+
+	const profile = await getProfileByAuthUserId(ctx, authUserId);
+	if (!profile) {
+		return false;
+	}
+
+	const memberships = await ctx.db
+		.query('projectMembers')
+		.withIndex('by_project_and_profile', (q) =>
+			q.eq('projectId', projectId).eq('profileId', profile._id)
+		)
+		.collect();
+	if (memberships.length > 0) {
+		// Includes left/done members: they were once part of the project and should not lose
+		// visibility into a project they contributed to just because it's club-restricted.
+		return true;
+	}
+
+	const links = await ctx.db
+		.query('projectClubs')
+		.withIndex('by_project', (q) => q.eq('projectId', projectId))
+		.collect();
+	for (const link of links) {
+		const clubMemberships = await ctx.db
+			.query('clubMembers')
+			.withIndex('by_club_and_profile', (q) =>
+				q.eq('clubId', link.clubId).eq('profileId', profile._id)
+			)
+			.collect();
+		if (clubMemberships.some((membership) => !membership.leftAt)) {
+			return true;
+		}
+	}
+
+	return false;
 };
