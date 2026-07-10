@@ -805,7 +805,10 @@ const nl = {
 		joinRequestsEmpty: 'Geen openstaande deelnameverzoeken.',
 		acceptRequestAction: 'Accepteren',
 		declineRequestAction: 'Afwijzen',
-		requestDecisionFailure: 'Kon dit verzoek niet bijwerken.'
+		requestDecisionFailure: 'Kon dit verzoek niet bijwerken.',
+		updateAttachAction: "Foto's of video toevoegen",
+		updateAttachRemoveAction: 'Bijlage verwijderen',
+		updateAttachUploadFailure: 'Uploaden mislukt'
 	},
 	feed: {
 		unknownAuthor: 'Onbekend',

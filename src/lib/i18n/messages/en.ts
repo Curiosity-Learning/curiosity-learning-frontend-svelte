@@ -807,7 +807,10 @@ const en = {
 		joinRequestsEmpty: 'No pending join requests.',
 		acceptRequestAction: 'Accept',
 		declineRequestAction: 'Decline',
-		requestDecisionFailure: 'Failed to update this request.'
+		requestDecisionFailure: 'Failed to update this request.',
+		updateAttachAction: 'Attach photos or video',
+		updateAttachRemoveAction: 'Remove attachment',
+		updateAttachUploadFailure: 'Failed to upload'
 	},
 	feed: {
 		unknownAuthor: 'Unknown',

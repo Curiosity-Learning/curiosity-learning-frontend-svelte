@@ -101,6 +101,41 @@ export const assertNotDoneMember = async (
 	}
 };
 
+/**
+ * Guard for mutations that only a CURRENT (non-left) project member — or a caller with no
+ * project-membership history at all, e.g. a Guide managing via club role who never joined the
+ * project directly — may perform: posting updates (PRD 6.7.1). `isProjectPermissionAllowed`
+ * (used by `canManageProject`) grants access purely from an attributed club role, without
+ * regard to the caller's own `projectMembers` row, so a member who has explicitly left the
+ * project would otherwise still pass that check via a Guide role in an attributed club. This
+ * helper closes that gap by explicitly rejecting anyone with a `leftAt` project-membership row
+ * (their most recent one) for this project, independent of `assertNotDoneMember`'s Done check.
+ */
+export const assertNotLeftMember = async (
+	ctx: Ctx,
+	projectId: Id<'projects'>,
+	authUserId: string
+): Promise<void> => {
+	const profile = await getProfileByAuthUserId(ctx, authUserId);
+	if (!profile) return;
+
+	const memberships = await ctx.db
+		.query('projectMembers')
+		.withIndex('by_project_and_profile', (q) =>
+			q.eq('projectId', projectId).eq('profileId', profile._id)
+		)
+		.collect();
+	if (!memberships.length) return;
+
+	// Most recent membership row wins (mirrors `getProjectMemberState`'s intent): if it's a
+	// `leftAt` row, the caller has left the project and may not post updates, even if they
+	// retain a club role that would otherwise grant `project:update`.
+	const mostRecent = [...memberships].sort((a, b) => b.createdAt - a.createdAt)[0];
+	if (mostRecent.leftAt) {
+		throw new ConvexError('You have left this project and cannot post updates.');
+	}
+};
+
 export const insertProjectChangeLog = async (
 	ctx: MutationCtx,
 	args: {

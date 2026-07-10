@@ -15,6 +15,7 @@ import {
 import { ensureProjectRoom } from './chatModel';
 import {
 	assertNotDoneMember,
+	assertNotLeftMember,
 	canViewProject,
 	getProjectMemberState,
 	insertProjectChangeLog,
@@ -331,8 +332,10 @@ export const update = mutation({
 		if (!canUpdate) {
 			throw new ConvexError('Permission denied');
 		}
-		// PRD 6.6.4: Done members cannot edit project metadata or change attribution.
+		// PRD 6.6.4: Done members cannot edit project metadata or change attribution, and a
+		// member who left must not retain editing rights through an attributed club role.
 		await assertNotDoneMember(ctx, args.projectId, identity.subject);
+		await assertNotLeftMember(ctx, args.projectId, identity.subject);
 
 		const project = await ctx.db.get(args.projectId);
 		if (!project) {

@@ -9,6 +9,7 @@ import {
 	deleteMediaUpload,
 	describeMediaUploadConstraints,
 	finalizeMediaUpload,
+	getLocalPreviewKind,
 	getMediaUpload,
 	type MediaAssetLifecycleError,
 	type MediaUploadConstraintsInput,
@@ -28,6 +29,11 @@ type MediaFieldDefinition = {
 	constraints: MediaUploadConstraintsInput;
 	expectedMediaKind: 'image' | 'video';
 	requireReady: boolean;
+	maxDurationSeconds?: number;
+};
+
+type MultiMediaFieldDefinition = {
+	constraints: MediaUploadConstraintsInput;
 	maxDurationSeconds?: number;
 };
 
@@ -80,6 +86,28 @@ const mediaFieldDefinitions = {
 } as const satisfies Record<string, MediaFieldDefinition>;
 
 export type MediaFieldName = keyof typeof mediaFieldDefinitions;
+
+// PRD 6.7.1: update attachments accept images AND video mixed in the same picker (unlike the
+// other single-kind fields above), so it lives in its own registry rather than
+// `mediaFieldDefinitions` (whose `expectedMediaKind` is singular per field).
+const multiMediaFieldDefinitions = {
+	updateAttachment: {
+		constraints: {
+			acceptedContentTypes: [
+				'image/jpeg',
+				'image/png',
+				'image/webp',
+				...VIDEO_CONTENT_TYPES
+			],
+			maxBytes: HUNDRED_MB,
+			enableCompression: true,
+			enableSafetyScreening: true
+		},
+		maxDurationSeconds: TWO_MINUTES_SECONDS
+	}
+} as const satisfies Record<string, MultiMediaFieldDefinition>;
+
+export type MultiMediaFieldName = keyof typeof multiMediaFieldDefinitions;
 
 const isLifecycleError = (error: unknown): error is MediaAssetLifecycleError =>
 	error instanceof Error && error.name === 'MediaAssetLifecycleError';
@@ -436,3 +464,253 @@ export const createMediaField = (
 ) => new MediaFieldController(convexClient, fieldName, options);
 
 export const mediaFieldRegistry = mediaFieldDefinitions;
+
+// --- Multi-file field (PRD 6.7.1: up to 4 images/videos on a project update) ---
+
+export type MultiMediaItemPhase =
+	| 'selected'
+	| 'uploading'
+	| 'processing'
+	| 'ready'
+	| 'failed';
+
+export type MultiMediaItem = {
+	readonly key: number;
+	readonly file: File;
+	readonly localPreviewUrl: string | null;
+	readonly mediaKind: 'image' | 'video' | undefined;
+	phase: MultiMediaItemPhase;
+	errorMessage: string;
+	assetId: Id<'mediaAssets'> | null;
+};
+
+/**
+ * Manages a capped list of independently-uploading media items (mixed images/videos) for
+ * composers that need several attachments in one submission (e.g. the update composer), unlike
+ * `MediaFieldController` which only ever tracks a single file. Each item uploads as soon as it's
+ * added (compression for images, the 2-min duration check for videos — same mechanics as
+ * `MediaFieldController`), so by the time the caller submits, `readyAssetIds` is generally
+ * already populated; `ensureAllUploaded` is there for the caller to await stragglers.
+ */
+class MultiMediaFieldController {
+	readonly definition: MultiMediaFieldDefinition;
+	readonly constraints: ReturnType<typeof describeMediaUploadConstraints>;
+	readonly accept: string;
+	readonly maxBytes: number;
+	readonly maxItems: number;
+
+	items = $state<MultiMediaItem[]>([]);
+
+	private nextKey = 0;
+	private destroyed = false;
+
+	constructor(
+		private readonly convexClient: ConvexClient,
+		fieldName: MultiMediaFieldName,
+		options?: { maxItems?: number }
+	) {
+		this.definition = multiMediaFieldDefinitions[fieldName];
+		this.constraints = describeMediaUploadConstraints(this.definition.constraints);
+		this.accept = this.constraints.accept;
+		this.maxBytes = this.constraints.maxBytes;
+		this.maxItems = options?.maxItems ?? 4;
+	}
+
+	count = $derived(this.items.length);
+	isBusy = $derived(this.items.some((item) => item.phase === 'uploading' || item.phase === 'processing'));
+	hasFailures = $derived(this.items.some((item) => item.phase === 'failed'));
+	readyAssetIds = $derived(
+		this.items
+			.filter((item): item is MultiMediaItem & { assetId: Id<'mediaAssets'> } =>
+				item.phase === 'ready' && item.assetId !== null
+			)
+			.map((item) => item.assetId)
+	);
+
+	private setItem = (key: number, patch: Partial<MultiMediaItem>) => {
+		this.items = this.items.map((item) => (item.key === key ? { ...item, ...patch } : item));
+	};
+
+	private uploadItem = async (key: number, file: File) => {
+		try {
+			this.setItem(key, { phase: 'uploading', errorMessage: '' });
+
+			const mediaKind = getLocalPreviewKind(file);
+
+			if (mediaKind === 'video' && this.definition.maxDurationSeconds) {
+				const durationSeconds = await readLocalMediaDurationSeconds(file);
+				if (this.destroyed || !this.items.some((item) => item.key === key)) return;
+				if (
+					typeof durationSeconds === 'number' &&
+					durationSeconds > this.definition.maxDurationSeconds
+				) {
+					this.setItem(key, { phase: 'failed', errorMessage: t('mediaUpload.videoTooLong') });
+					return;
+				}
+			}
+
+			let uploadFile = file;
+			let clientReportedImageCompression = false;
+			if (mediaKind === 'image') {
+				const compressed = await compressImageFileIfPossible(file);
+				if (this.destroyed || !this.items.some((item) => item.key === key)) return;
+				if (compressed) {
+					uploadFile = compressed;
+					clientReportedImageCompression = true;
+				}
+			}
+
+			const beginResult = await beginMediaUpload(
+				this.convexClient,
+				uploadFile,
+				this.definition.constraints,
+				{ clientReportedImageCompression }
+			);
+			const assetId = beginResult.asset.assetId;
+
+			if (this.destroyed || !this.items.some((item) => item.key === key)) {
+				void deleteMediaUpload(this.convexClient, assetId).catch(() => {});
+				return;
+			}
+
+			this.setItem(key, { assetId });
+
+			await uploadFileToDescriptor(uploadFile, beginResult.upload);
+
+			if (this.destroyed || !this.items.some((item) => item.key === key)) {
+				void deleteMediaUpload(this.convexClient, assetId).catch(() => {});
+				return;
+			}
+
+			this.setItem(key, { phase: 'processing' });
+			const finalized = await finalizeMediaUpload(this.convexClient, assetId);
+
+			if (this.destroyed || !this.items.some((item) => item.key === key)) {
+				void deleteMediaUpload(this.convexClient, assetId).catch(() => {});
+				return;
+			}
+
+			if (finalized.status === 'ready') {
+				this.setItem(key, { phase: 'ready' });
+				return;
+			}
+
+			const ready = await waitForMediaUploadReady(this.convexClient, assetId);
+			if (this.destroyed || !this.items.some((item) => item.key === key)) {
+				void deleteMediaUpload(this.convexClient, assetId).catch(() => {});
+				return;
+			}
+			this.setItem(key, { phase: ready.status === 'ready' ? 'ready' : 'failed' });
+		} catch (error) {
+			if (!this.items.some((item) => item.key === key)) return;
+			captureUnexpectedOperationalError(error, {
+				area: 'media',
+				operation: 'media:multi-upload',
+				identifiers: { key }
+			});
+			this.setItem(key, { phase: 'failed', errorMessage: normalizeUploadErrorMessage(error) });
+		}
+	};
+
+	/** Adds files up to the remaining capacity; excess files are silently dropped (the caller's
+	 * FileDropZone `maxFiles`/`fileCount` wiring should already prevent over-selection, but this
+	 * guards direct callers too). Returns the number of files actually accepted. */
+	addFiles = (files: File[]) => {
+		const capacity = Math.max(0, this.maxItems - this.items.length);
+		const accepted = files.slice(0, capacity);
+
+		const newItems = accepted.map((file) => {
+			const key = this.nextKey;
+			this.nextKey += 1;
+			return {
+				key,
+				file,
+				localPreviewUrl: createLocalPreviewUrl(file) ?? null,
+				mediaKind: getLocalPreviewKind(file),
+				phase: 'selected' as MultiMediaItemPhase,
+				errorMessage: '',
+				assetId: null
+			};
+		});
+
+		this.items = [...this.items, ...newItems];
+
+		for (const item of newItems) {
+			void this.uploadItem(item.key, item.file);
+		}
+
+		return accepted.length;
+	};
+
+	remove = (key: number) => {
+		const item = this.items.find((entry) => entry.key === key);
+		if (!item) return;
+		this.items = this.items.filter((entry) => entry.key !== key);
+		revokePreviewUrl(item.localPreviewUrl);
+		if (item.assetId) {
+			void deleteMediaUpload(this.convexClient, item.assetId).catch(() => {});
+		}
+	};
+
+	/** Waits for any items still uploading/processing to settle, then returns the ready asset
+	 * ids. Throws if any item ended up failed, so callers can block submission on a clear
+	 * error rather than silently posting with fewer attachments than the user selected. */
+	ensureAllUploaded = async (): Promise<Id<'mediaAssets'>[]> => {
+		const pending = this.items.filter(
+			(item) => item.phase === 'uploading' || item.phase === 'processing' || item.phase === 'selected'
+		);
+		if (pending.length) {
+			await Promise.all(
+				pending.map(async (item) => {
+					// uploadItem is already in flight (or about to be) from addFiles; just wait for
+					// it to settle by polling the item's phase.
+					while (
+						this.items.some(
+							(entry) =>
+								entry.key === item.key &&
+								(entry.phase === 'uploading' || entry.phase === 'processing' || entry.phase === 'selected')
+						)
+					) {
+						await new Promise((resolve) => setTimeout(resolve, 100));
+					}
+				})
+			);
+		}
+
+		if (this.items.some((item) => item.phase === 'failed')) {
+			throw new Error('Some attachments failed to upload.');
+		}
+
+		return this.readyAssetIds;
+	};
+
+	clear = () => {
+		for (const item of this.items) {
+			revokePreviewUrl(item.localPreviewUrl);
+			if (item.assetId) {
+				void deleteMediaUpload(this.convexClient, item.assetId).catch(() => {});
+			}
+		}
+		this.items = [];
+	};
+
+	/** Clears local state without deleting the now-attached assets server-side (call after a
+	 * successful submission that already persisted the asset ids). */
+	reset = () => {
+		for (const item of this.items) {
+			revokePreviewUrl(item.localPreviewUrl);
+		}
+		this.items = [];
+	};
+
+	destroy = () => {
+		this.destroyed = true;
+		this.clear();
+	};
+}
+
+export const createMultiMediaField = (
+	convexClient: ConvexClient,
+	fieldName: MultiMediaFieldName,
+	options?: { maxItems?: number }
+) => new MultiMediaFieldController(convexClient, fieldName, options);

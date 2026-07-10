@@ -11,7 +11,12 @@ import {
 	requireIdentity,
 	requireProfile
 } from './permissions';
-import { assertNotDoneMember, canViewProject, listAttributedClubIds } from './projectsModel';
+import {
+	assertNotDoneMember,
+	assertNotLeftMember,
+	canViewProject,
+	listAttributedClubIds
+} from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
@@ -557,11 +562,17 @@ export const getViewerUpdateMediaDeliveryAssets = query({
 	}
 });
 
+const UPDATE_CONTENT_MAX_LENGTH = 1000;
+const UPDATE_MAX_MEDIA_ASSETS = 4;
+
 export const create = mutation({
 	args: {
 		projectId: v.id('projects'),
 		content: v.string(),
-		questionId: v.optional(v.id('questions'))
+		questionId: v.optional(v.id('questions')),
+		// PRD 6.7.1: up to 4 images/videos attached atomically with the update. Assets must
+		// already be uploaded (via the media pipeline) and owned by the poster.
+		mediaAssetIds: v.optional(v.array(v.id('mediaAssets')))
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -570,19 +581,60 @@ export const create = mutation({
 		if (!allowed) {
 			throw new ConvexError('Permission denied');
 		}
-		// Cheap correctness guard ahead of CL-724 (posting-updates restriction): a Done member
-		// shouldn't be able to post project updates either.
+		// PRD 6.7.1/6.6.4: neither a Done nor a Left member may post project updates.
+		// `canManageProject` alone isn't sufficient: it grants access from an attributed club
+		// role regardless of the caller's own project-membership state, so a member who has
+		// left the project but still holds e.g. a Guide role in an attributed club would
+		// otherwise pass. `assertNotLeftMember` closes that gap explicitly.
 		await assertNotDoneMember(ctx, args.projectId, identity.subject);
+		await assertNotLeftMember(ctx, args.projectId, identity.subject);
+
+		const trimmedContent = args.content.trim();
+		if (!trimmedContent) {
+			throw new ConvexError('Update text is required.');
+		}
+		if (trimmedContent.length > UPDATE_CONTENT_MAX_LENGTH) {
+			throw new ConvexError(`Updates must be ${UPDATE_CONTENT_MAX_LENGTH} characters or fewer.`);
+		}
+
+		const mediaAssetIds = args.mediaAssetIds ?? [];
+		if (mediaAssetIds.length > UPDATE_MAX_MEDIA_ASSETS) {
+			throw new ConvexError(`Updates can have at most ${UPDATE_MAX_MEDIA_ASSETS} attachments.`);
+		}
+
+		const assets = await Promise.all(
+			mediaAssetIds.map(async (mediaAssetId) => {
+				const asset = await ctx.db.get(mediaAssetId);
+				if (!asset || asset.ownerUserId !== identity.subject) {
+					throw new ConvexError('Media asset not found');
+				}
+				if (asset.status !== 'ready') {
+					throw new ConvexError('Only ready media assets can be attached');
+				}
+				if (asset.mediaKind !== 'image' && asset.mediaKind !== 'video') {
+					throw new ConvexError('Only image or video attachments are supported');
+				}
+				return asset;
+			})
+		);
 
 		const now = Date.now();
 		const updateId = await ctx.db.insert('updates', {
 			projectId: args.projectId,
-			content: args.content,
+			content: trimmedContent,
 			createdByProfileId: profile._id,
 			questionId: args.questionId,
 			createdAt: now,
 			updatedAt: now
 		});
+
+		for (const asset of assets) {
+			await ctx.db.insert('updateFiles', {
+				updateId,
+				mediaAssetId: asset._id,
+				createdAt: now
+			});
+		}
 
 		// Denormalize updates -> clubs for a fast club feed.
 		const attributedClubIds = await listAttributedClubIds(ctx, args.projectId);
@@ -596,73 +648,6 @@ export const create = mutation({
 		}
 
 		return await ctx.db.get(updateId);
-	}
-});
-
-export const update = mutation({
-	args: {
-		updateId: v.id('updates'),
-		content: v.string(),
-		questionId: v.optional(v.id('questions'))
-	},
-	handler: async (ctx, args) => {
-		const identity = await requireIdentity(ctx);
-		const existing = await ctx.db.get(args.updateId);
-		if (!existing || !existing.projectId) {
-			throw new ConvexError('Update not found');
-		}
-
-		const allowed = await canManageProject(ctx, existing.projectId, identity.subject);
-		if (!allowed) {
-			throw new ConvexError('Permission denied');
-		}
-
-		await ctx.db.patch(args.updateId, {
-			content: args.content,
-			questionId: args.questionId,
-			updatedAt: Date.now()
-		});
-
-		return await ctx.db.get(args.updateId);
-	}
-});
-
-export const attachFiles = mutation({
-	args: {
-		updateId: v.id('updates'),
-		mediaAssetIds: v.array(v.id('mediaAssets'))
-	},
-	handler: async (ctx, args) => {
-		const identity = await requireIdentity(ctx);
-		const existing = await ctx.db.get(args.updateId);
-		if (!existing || !existing.projectId) {
-			throw new ConvexError('Update not found');
-		}
-
-		const allowed = await canManageProject(ctx, existing.projectId, identity.subject);
-		if (!allowed) {
-			throw new ConvexError('Permission denied');
-		}
-
-		const inserted = [];
-		for (const mediaAssetId of args.mediaAssetIds) {
-			const asset = await ctx.db.get(mediaAssetId);
-			if (!asset || asset.ownerUserId !== identity.subject) {
-				throw new ConvexError('Media asset not found');
-			}
-			if (asset.status !== 'ready') {
-				throw new ConvexError('Only ready media assets can be attached');
-			}
-
-			const id = await ctx.db.insert('updateFiles', {
-				updateId: args.updateId,
-				mediaAssetId,
-				createdAt: Date.now()
-			});
-			inserted.push(id);
-		}
-
-		return inserted;
 	}
 });
 
