@@ -74,3 +74,458 @@ describe('admin.getOverviewCounts', () => {
 		expect(result.openReportCount).toBe(1);
 	});
 });
+
+const seedClubRoles = async (t: ReturnType<typeof convexTest>) =>
+	t.run(async (ctx) => {
+		const now = Date.now();
+		const guideRoleId = await ctx.db.insert('clubRoles', {
+			key: 'guide',
+			name: 'Guide',
+			permissions: [],
+			order: 0,
+			createdAt: now
+		});
+		const learnerRoleId = await ctx.db.insert('clubRoles', {
+			key: 'learner',
+			name: 'Learner',
+			permissions: [],
+			order: 1,
+			createdAt: now
+		});
+		return { guideRoleId, learnerRoleId };
+	});
+
+describe('admin.getDashboardOverview', () => {
+	it('rejects a non-admin caller', async () => {
+		const t = convexTest(schema, modules);
+		await seedProfile(t, 'regular-user');
+		await expect(
+			t.withIdentity({ subject: 'regular-user' }).query(api.admin.getDashboardOverview, {})
+		).rejects.toThrow('Not authorized');
+	});
+
+	it('computes headline counts for an admin caller', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { guideRoleId, learnerRoleId } = await seedClubRoles(t);
+
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			const guideProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'guide-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const learnerProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'learner-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+
+			const activeClubId = await ctx.db.insert('clubs', {
+				name: 'Active club',
+				discoverable: true,
+				kind: 'curiosity',
+				createdByProfileId: adminProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			// Abandoned club: excluded from active counts.
+			await ctx.db.insert('clubs', {
+				name: 'Abandoned club',
+				discoverable: false,
+				kind: 'curiosity',
+				abandonedAt: now,
+				createdByProfileId: adminProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+
+			await ctx.db.insert('clubMembers', {
+				clubId: activeClubId,
+				profileId: guideProfileId,
+				roleId: guideRoleId,
+				createdAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId: activeClubId,
+				profileId: learnerProfileId,
+				roleId: learnerRoleId,
+				createdAt: now
+			});
+
+			await ctx.db.insert('clubApplications', {
+				applicantProfileId: learnerProfileId,
+				status: 'pending',
+				name: 'App A',
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubApplications', {
+				applicantProfileId: learnerProfileId,
+				status: 'rejected',
+				name: 'App B',
+				createdAt: now,
+				updatedAt: now
+			});
+
+			await ctx.db.insert('reports', {
+				reporterProfileId: adminProfileId,
+				category: 'safeguarding',
+				targetType: 'club',
+				targetId: 'fixture',
+				status: 'open',
+				createdAt: now
+			});
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.getDashboardOverview, {});
+
+		expect(result.activeClubCount).toBe(1);
+		expect(result.activeGuideCount).toBe(1);
+		expect(result.activeLearnerCount).toBe(1);
+		expect(result.pendingApplicationCount).toBe(1);
+		expect(result.openSafeguardingAlertCount).toBe(1);
+	});
+});
+
+describe('admin.adminClubsHealth', () => {
+	it('rejects a non-admin caller', async () => {
+		const t = convexTest(schema, modules);
+		await seedProfile(t, 'regular-user');
+		await expect(
+			t.withIdentity({ subject: 'regular-user' }).query(api.admin.adminClubsHealth, {})
+		).rejects.toThrow('Not authorized');
+	});
+
+	it('computes attendance rate, sessions run, and flags per club', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { guideRoleId, learnerRoleId } = await seedClubRoles(t);
+
+		const { clubId, noSessionClubId } = await t.run(async (ctx) => {
+			const now = Date.now();
+			const guideProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'guide-user-2',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const learnerProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'learner-user-2',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Test club',
+				location: 'Nairobi',
+				discoverable: true,
+				kind: 'curiosity',
+				createdByProfileId: adminProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const noSessionClubId = await ctx.db.insert('clubs', {
+				name: 'Fresh club',
+				discoverable: true,
+				kind: 'curiosity',
+				createdByProfileId: adminProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: guideProfileId,
+				roleId: guideRoleId,
+				createdAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: learnerProfileId,
+				roleId: learnerRoleId,
+				createdAt: now
+			});
+
+			// Past, non-cancelled session with recorded attendance: 1 present, 1 absent -> 50%.
+			const pastSessionId = await ctx.db.insert('sessions', {
+				clubId,
+				startTime: now - 60 * 60 * 1000,
+				endTime: now - 30 * 60 * 1000,
+				createdByProfileId: guideProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			// Cancelled session: excluded from sessionsRun and attendance rate entirely.
+			const cancelledSessionId = await ctx.db.insert('sessions', {
+				clubId,
+				startTime: now - 2 * 60 * 60 * 1000,
+				endTime: now - 90 * 60 * 1000,
+				createdByProfileId: guideProfileId,
+				cancelled: true,
+				cancelledAt: now,
+				createdAt: now,
+				updatedAt: now
+			});
+			// Future session: excluded from sessionsRun (not yet past).
+			await ctx.db.insert('sessions', {
+				clubId,
+				startTime: now + 60 * 60 * 1000,
+				endTime: now + 90 * 60 * 1000,
+				createdByProfileId: guideProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+
+			await ctx.db.insert('attendances', {
+				sessionId: pastSessionId,
+				profileId: guideProfileId,
+				status: 'present',
+				recordedByProfileId: guideProfileId,
+				recordedAt: now
+			});
+			await ctx.db.insert('attendances', {
+				sessionId: pastSessionId,
+				profileId: learnerProfileId,
+				status: 'absent',
+				recordedByProfileId: guideProfileId,
+				recordedAt: now
+			});
+			// Attendance recorded against a cancelled session must not count.
+			await ctx.db.insert('attendances', {
+				sessionId: cancelledSessionId,
+				profileId: guideProfileId,
+				status: 'present',
+				recordedByProfileId: guideProfileId,
+				recordedAt: now
+			});
+
+			return { clubId, noSessionClubId };
+		});
+
+		const rows = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminClubsHealth, {});
+
+		const testClubRow = rows.find((row) => row.clubId === clubId);
+		expect(testClubRow).toBeDefined();
+		expect(testClubRow?.sessionsRun).toBe(1);
+		expect(testClubRow?.attendanceRate).toBeCloseTo(0.5);
+		expect(testClubRow?.guideCount).toBe(1);
+		expect(testClubRow?.learnerCount).toBe(1);
+		expect(testClubRow?.flags).not.toContain('no_sessions_yet');
+
+		const freshClubRow = rows.find((row) => row.clubId === noSessionClubId);
+		expect(freshClubRow).toBeDefined();
+		expect(freshClubRow?.sessionsRun).toBe(0);
+		expect(freshClubRow?.attendanceRate).toBeNull();
+		expect(freshClubRow?.flags).toContain('no_sessions_yet');
+		expect(freshClubRow?.flags).toContain('inactive');
+	});
+
+	it('flags abandoned clubs and low quality ratings', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+
+		const { abandonedClubId, lowQualityClubId } = await t.run(async (ctx) => {
+			const now = Date.now();
+			const guideProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'guide-user-3',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+
+			const abandonedClubId = await ctx.db.insert('clubs', {
+				name: 'Abandoned club',
+				discoverable: false,
+				kind: 'curiosity',
+				abandonedAt: now,
+				createdByProfileId: adminProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+
+			const lowQualityClubId = await ctx.db.insert('clubs', {
+				name: 'Low quality club',
+				discoverable: true,
+				kind: 'curiosity',
+				createdByProfileId: adminProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+
+			const seasonId = await ctx.db.insert('seasons', {
+				name: 'Season 1',
+				startDate: now,
+				endDate: now + 1000,
+				reviewWindowOpen: now,
+				reviewWindowClose: now + 1000,
+				feedbackDeadline: now + 1000,
+				createdAt: now,
+				updatedAt: now
+			});
+			const formId = await ctx.db.insert('forms', {
+				title: 'Learner feedback',
+				audience: 'learner',
+				seasonId,
+				questions: [{ id: 'q1', label: 'Overall', kind: 'scale_1_10', required: true }],
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('formResponses', {
+				formId,
+				profileId: guideProfileId,
+				clubId: lowQualityClubId,
+				answers: [{ questionId: 'q1', value: 3 }],
+				submittedAt: now
+			});
+
+			return { abandonedClubId, lowQualityClubId };
+		});
+
+		const rows = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminClubsHealth, {});
+
+		const abandonedRow = rows.find((row) => row.clubId === abandonedClubId);
+		expect(abandonedRow?.status).toBe('abandoned');
+		expect(abandonedRow?.flags).toContain('abandoned');
+		// Abandoned clubs aren't also double-flagged inactive by this implementation.
+		expect(abandonedRow?.flags).not.toContain('inactive');
+
+		const lowQualityRow = rows.find((row) => row.clubId === lowQualityClubId);
+		expect(lowQualityRow?.qualityRating).toBe(3);
+		expect(lowQualityRow?.flags).toContain('low_quality');
+	});
+});
+
+describe('admin.adminApplicationsPipeline', () => {
+	it('rejects a non-admin caller', async () => {
+		const t = convexTest(schema, modules);
+		await seedProfile(t, 'regular-user');
+		await expect(
+			t.withIdentity({ subject: 'regular-user' }).query(api.admin.adminApplicationsPipeline, {})
+		).rejects.toThrow('Not authorized');
+	});
+
+	it('counts every status and flags in-flight applications with score discrepancies', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+
+		const { discrepantApplicationId, agreeableApplicationId } = await t.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'applicant-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const reviewerAProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'reviewer-a',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const reviewerBProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'reviewer-b',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+
+			const discrepantApplicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'Discrepant application',
+				createdAt: now,
+				updatedAt: now,
+				adminFollowUpFlag: {
+					reason: 'No-show at interview',
+					createdAt: now,
+					createdByProfileId: adminProfileId
+				}
+			});
+			await ctx.db.insert('applicationReviews', {
+				applicationId: discrepantApplicationId,
+				reviewerProfileId: reviewerAProfileId,
+				score: 9,
+				note: 'Great',
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('applicationReviews', {
+				applicationId: discrepantApplicationId,
+				reviewerProfileId: reviewerBProfileId,
+				score: 4,
+				note: 'Concerned',
+				createdAt: now,
+				updatedAt: now
+			});
+
+			const agreeableApplicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'interview',
+				name: 'Agreeable application',
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('applicationReviews', {
+				applicationId: agreeableApplicationId,
+				reviewerProfileId: reviewerAProfileId,
+				score: 8,
+				note: 'Good',
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('applicationReviews', {
+				applicationId: agreeableApplicationId,
+				reviewerProfileId: reviewerBProfileId,
+				score: 7,
+				note: 'Good too',
+				createdAt: now,
+				updatedAt: now
+			});
+
+			// Not in-flight: excluded from the `items` list but counted in `statusCounts`.
+			await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'finalized',
+				name: 'Finalized application',
+				createdAt: now,
+				updatedAt: now
+			});
+
+			return { discrepantApplicationId, agreeableApplicationId };
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminApplicationsPipeline, {});
+
+		expect(result.statusCounts.pending).toBe(1);
+		expect(result.statusCounts.interview).toBe(1);
+		expect(result.statusCounts.finalized).toBe(1);
+		expect(result.items).toHaveLength(2);
+
+		const discrepant = result.items.find((item) => item.applicationId === discrepantApplicationId);
+		expect(discrepant?.reviewCount).toBe(2);
+		expect(discrepant?.avgScore).toBeCloseTo(6.5);
+		expect(discrepant?.scoreDiscrepancyFlag).toBe(true);
+		expect(discrepant?.adminFollowUpFlag?.reason).toBe('No-show at interview');
+
+		const agreeable = result.items.find((item) => item.applicationId === agreeableApplicationId);
+		expect(agreeable?.scoreDiscrepancyFlag).toBe(false);
+		expect(agreeable?.avgScore).toBeCloseTo(7.5);
+	});
+});
