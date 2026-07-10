@@ -29,6 +29,10 @@ export default defineSchema({
 		parentProfileId: v.optional(v.id('profiles')),
 		pendingClubCode: v.optional(v.string()),
 		pendingRole: v.optional(v.union(v.literal('Learner'), v.literal('Guide'))),
+		// PRD 5.10: platform-wide capability, orthogonal to club/project roles. Grants access to
+		// the separate /admin route group (CL-693) only — must never be branched on inside normal
+		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).
+		globalRole: v.optional(v.literal('admin')),
 		updatedAt: v.number()
 	})
 		.index('by_auth_user_id', ['authUserId'])

@@ -1,7 +1,13 @@
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { components } from './_generated/api';
-import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
+import {
+	internalMutation,
+	mutation,
+	query,
+	type MutationCtx,
+	type QueryCtx
+} from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import { listMembershipsForProfile, requireIdentity, requireProfile } from './permissions';
 import { canViewProject, listAttributedClubIds } from './projectsModel';
@@ -55,6 +61,18 @@ export const getMe = query({
 			...profile,
 			coverPhotoUrl: await resolveProfileImageUrl(ctx, profile)
 		};
+	}
+});
+
+// PRD 5.10: lets the frontend gate the admin link on the profile page and the /admin route
+// group without exposing anything else about global roles. Returns null for non-admins so the
+// UI has no signal to distinguish "no role" from "not logged in".
+export const getMyGlobalRole = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		return profile.globalRole ?? null;
 	}
 });
 
@@ -476,5 +494,23 @@ export const getProfileDeliveryAssets = query({
 		return deliveryAssets.filter(
 			(asset): asset is NonNullable<typeof asset> => asset !== null
 		);
+	}
+});
+
+// PRD 5.10: internal-only for v1 — global role assignment happens via CLI/ops
+// (`npx convex run profiles:setGlobalRole '{"profileId": "...", "globalRole": "admin"}'`), not
+// through any UI or public mutation. There is intentionally no public endpoint that can grant
+// this role to avoid privilege escalation via the app itself.
+export const setGlobalRole = internalMutation({
+	args: {
+		profileId: v.id('profiles'),
+		globalRole: v.optional(v.literal('admin'))
+	},
+	handler: async (ctx, args) => {
+		const profile = await ctx.db.get(args.profileId);
+		if (!profile) {
+			throw new ConvexError('Profile not found');
+		}
+		await ctx.db.patch(args.profileId, { globalRole: args.globalRole, updatedAt: Date.now() });
 	}
 });

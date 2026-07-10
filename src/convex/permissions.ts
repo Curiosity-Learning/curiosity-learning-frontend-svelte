@@ -170,3 +170,18 @@ export const roleFromPermissions = (role: Doc<'clubRoles'> | null) => {
 	}
 	return role.key === 'guide' ? 'Guide' : 'Learner';
 };
+
+// PRD 5.10: platform-wide capability gate for the /admin route group (CL-693). Deliberately
+// separate from club/project permissions above — must never be consulted by normal member flows.
+export const isGlobalAdmin = async (ctx: DbCtx, authUserId: string) => {
+	const profile = await getProfileByAuthUserId(ctx, authUserId);
+	return profile?.globalRole === 'admin';
+};
+
+export const requireGlobalAdmin = async (ctx: AuthCtx & DbCtx) => {
+	const identity = await requireIdentity(ctx);
+	if (!(await isGlobalAdmin(ctx, identity.subject))) {
+		throw new ConvexError('Not authorized');
+	}
+	return identity;
+};
