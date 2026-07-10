@@ -653,6 +653,24 @@ export default defineSchema({
 	// PRD 6.15.1/6.15.2: Safeguarding/issue reports. Any authenticated user can report a chat
 	// message, project update, user (profile), or club. v1 only stores the report and pings
 	// the Core Team via Google Chat (see googleChat.ts) — admin review/workflow is CL-730.
+	// PRD 5.7: academic "seasons" (e.g. "Autumn 2026") that future tickets (CL-701 admin UI,
+	// CL-729/709 review-window-gated flows) key off of. All boundaries are stored as absolute ms
+	// timestamps (UTC), same convention as `sessions.startTime`/`endTime` — no per-club timezone
+	// concept at this level. Foundation only here: internal CRUD + authenticated read queries, no
+	// admin UI and no overlap/validation beyond what createSeason/updateSeason enforce.
+	seasons: defineTable({
+		name: v.string(),
+		startDate: v.number(),
+		endDate: v.number(),
+		reviewWindowOpen: v.number(),
+		reviewWindowClose: v.number(),
+		feedbackDeadline: v.number(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_start_date', ['startDate'])
+		.index('by_end_date', ['endDate']),
+
 	reports: defineTable({
 		reporterProfileId: v.id('profiles'),
 		category: v.union(
