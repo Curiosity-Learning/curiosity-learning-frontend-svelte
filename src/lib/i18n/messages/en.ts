@@ -871,6 +871,19 @@ const en = {
 		chatMessageAction: 'Report this message',
 		memberAction: 'Report',
 		clubAction: 'Report an issue'
+	},
+	profileDetail: {
+		fallbackName: 'Curiosity learner',
+		loadErrorTitle: 'Could not load profile',
+		clubsTitle: 'Clubs',
+		currentTitle: 'Current',
+		currentEmpty: 'No current projects yet.',
+		showcaseTitle: 'Showcase',
+		showcaseEmpty: 'No showcase projects yet.',
+		updatesTitle: 'Updates',
+		updatesEmptyTitle: 'No updates yet',
+		updatesEmptyDescription: "This member's project updates will show up here.",
+		sharedClubIndicatorLabel: "Visible because you're in the same club"
 	}
 } as const;
 

@@ -20,6 +20,7 @@ export const routes = {
 	notifications: '/notifications',
 	applicationsReview: '/applications/review',
 
+	profileDetail: (profileId: string) => `/profile/${profileId}`,
 	clubHome: (clubId: string) => `/club/${clubId}`,
 	clubSessions: (clubId: string) => `/club/${clubId}/sessions`,
 	clubProjects: (clubId: string) => `/club/${clubId}/projects`,

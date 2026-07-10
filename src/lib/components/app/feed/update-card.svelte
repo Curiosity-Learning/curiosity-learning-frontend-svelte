@@ -11,6 +11,7 @@
 	import CommentsSection from '$lib/components/app/feed/comments-section.svelte';
 	import { cn } from '$lib/utils';
 	import { formatRelativeTime } from '$lib/domain/date';
+	import { routes } from '$lib/routes';
 	import { t } from '$lib/i18n';
 	import type { Id } from '$convex/_generated/dataModel';
 
@@ -32,6 +33,7 @@
 		variant?: 'default' | 'system';
 		/** Enables the report flag in the card header. Omitted for system entries. */
 		updateId?: Id<'updates'> | null;
+		authorProfileId?: Id<'profiles'> | null;
 		authorName?: string | null;
 		authorImageUrl?: string | null;
 		createdAt: number;
@@ -48,6 +50,7 @@
 		class: className,
 		variant = 'default',
 		updateId = null,
+		authorProfileId = null,
 		authorName = null,
 		authorImageUrl = null,
 		createdAt,
@@ -120,18 +123,42 @@
 			</div>
 		{:else}
 			<div class="flex min-w-0 items-center gap-3">
-				<Avatar class="size-10 shrink-0">
-					{#if authorImageUrl}
-						<AvatarImage src={authorImageUrl} alt={displayAuthorName} />
-					{/if}
-					<AvatarFallback class="type-body-bold">{initialsFor(displayAuthorName)}</AvatarFallback>
-				</Avatar>
+				{#if authorProfileId}
+					<a
+						href={routes.profileDetail(authorProfileId)}
+						class="flex min-w-0 flex-1 items-center gap-3"
+						data-sveltekit-preload-code="hover"
+						data-sveltekit-preload-data="hover"
+					>
+						<Avatar class="size-10 shrink-0">
+							{#if authorImageUrl}
+								<AvatarImage src={authorImageUrl} alt={displayAuthorName} />
+							{/if}
+							<AvatarFallback class="type-body-bold">{initialsFor(displayAuthorName)}</AvatarFallback>
+						</Avatar>
 
-				<div class="flex min-w-0 flex-1 items-center gap-2">
-					<p class="truncate type-body-bold text-foreground">{displayAuthorName}</p>
-					<span class="shrink-0 text-muted-foreground">&middot;</span>
-					<p class="shrink-0 type-sm text-muted-foreground">{timestampLabel}</p>
-				</div>
+						<div class="flex min-w-0 flex-1 items-center gap-2">
+							<p class="truncate type-body-bold text-foreground hover:underline">
+								{displayAuthorName}
+							</p>
+							<span class="shrink-0 text-muted-foreground">&middot;</span>
+							<p class="shrink-0 type-sm text-muted-foreground">{timestampLabel}</p>
+						</div>
+					</a>
+				{:else}
+					<Avatar class="size-10 shrink-0">
+						{#if authorImageUrl}
+							<AvatarImage src={authorImageUrl} alt={displayAuthorName} />
+						{/if}
+						<AvatarFallback class="type-body-bold">{initialsFor(displayAuthorName)}</AvatarFallback>
+					</Avatar>
+
+					<div class="flex min-w-0 flex-1 items-center gap-2">
+						<p class="truncate type-body-bold text-foreground">{displayAuthorName}</p>
+						<span class="shrink-0 text-muted-foreground">&middot;</span>
+						<p class="shrink-0 type-sm text-muted-foreground">{timestampLabel}</p>
+					</div>
+				{/if}
 
 				{#if updateId}
 					<ReportIssueDialog
