@@ -402,6 +402,54 @@ export default defineSchema({
 		.index('by_profile', ['profileId'])
 		.index('by_project_and_profile', ['projectId', 'profileId']),
 
+	// PRD 6.6.10: platform-wide project invitations. Any ACTIVE project member can invite any
+	// user on the platform; the invitee decides via a banner on the project page (see
+	// `canViewProject`'s pending-invite carve-out, projectsModel.ts). One pending invite per
+	// (projectId, inviteeProfileId) at a time — enforced in `projects.inviteMember` via
+	// `by_project_and_invitee`. `decidedAt` is set on accept/decline; cancelling (by the
+	// inviter) reuses the 'cancelled' status rather than deleting the row, matching the
+	// club-level `joinRequests` table's shape.
+	projectInvites: defineTable({
+		projectId: v.id('projects'),
+		inviteeProfileId: v.id('profiles'),
+		invitedByProfileId: v.id('profiles'),
+		status: v.union(
+			v.literal('pending'),
+			v.literal('accepted'),
+			v.literal('declined'),
+			v.literal('cancelled')
+		),
+		createdAt: v.number(),
+		decidedAt: v.optional(v.number())
+	})
+		.index('by_project', ['projectId'])
+		.index('by_invitee', ['inviteeProfileId'])
+		.index('by_project_and_invitee', ['projectId', 'inviteeProfileId'])
+		.index('by_project_and_status', ['projectId', 'status']),
+
+	// PRD 6.6.10: requests to join a project from any user who can currently view it
+	// (`canViewProject`) and isn't already an active member. Any ACTIVE project member can
+	// accept/decline. One pending request per (projectId, requesterProfileId) — enforced in
+	// `projects.requestToJoinProject` via `by_project_and_requester`. No chat is created for
+	// this flow (CL-722 simplification vs. the PRD's `join_request` chat type, which remains
+	// club-scoped only).
+	projectJoinRequests: defineTable({
+		projectId: v.id('projects'),
+		requesterProfileId: v.id('profiles'),
+		status: v.union(
+			v.literal('pending'),
+			v.literal('accepted'),
+			v.literal('declined'),
+			v.literal('cancelled')
+		),
+		createdAt: v.number(),
+		decidedAt: v.optional(v.number())
+	})
+		.index('by_project', ['projectId'])
+		.index('by_requester', ['requesterProfileId'])
+		.index('by_project_and_requester', ['projectId', 'requesterProfileId'])
+		.index('by_project_and_status', ['projectId', 'status']),
+
 	// Immutable audit trail for project member lifecycle events (PRD 6.6.8): member
 	// joined/added, member marked Done, member left, project archived. No update/delete
 	// mutations are exposed — entries are append-only. `actorProfileId` is undefined for
@@ -424,7 +472,10 @@ export default defineSchema({
 			// CL-721: per-member attribution link/unlink (PRD 6.6.6/6.6.8 "Attribution" is one of
 			// the editable/logged fields).
 			v.literal('club_linked'),
-			v.literal('club_unlinked')
+			v.literal('club_unlinked'),
+			// CL-722: distinct from 'member_joined' so the timeline can show "X was invited by Y"
+			// (PRD 6.6.10) rather than the generic join-request wording.
+			v.literal('member_invited')
 		),
 		text: v.string(),
 		createdAt: v.number()

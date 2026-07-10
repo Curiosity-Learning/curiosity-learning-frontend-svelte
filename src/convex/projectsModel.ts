@@ -1,7 +1,7 @@
 import { ConvexError } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { getProfileByAuthUserId } from './permissions';
+import { getMembershipByProfileId, getProfileByAuthUserId } from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -106,18 +106,7 @@ export const insertProjectChangeLog = async (
 	args: {
 		projectId: Id<'projects'>;
 		actorProfileId: Id<'profiles'> | null;
-		entryType:
-			| 'member_joined'
-			| 'member_done'
-			| 'member_left'
-			| 'project_archived'
-			| 'name_changed'
-			| 'description_changed'
-			| 'deadline_changed'
-			| 'visibility_changed'
-			| 'cover_changed'
-			| 'club_linked'
-			| 'club_unlinked';
+		entryType: Doc<'projectChangeLogs'>['entryType'];
 		text: string;
 	}
 ) => {
@@ -200,5 +189,54 @@ export const canViewProject = async (
 		}
 	}
 
+	const pendingInvites = await ctx.db
+		.query('projectInvites')
+		.withIndex('by_project_and_invitee', (q) =>
+			q.eq('projectId', projectId).eq('inviteeProfileId', profile._id)
+		)
+		.collect();
+	// CL-722: a pending invitee can view the project (to decide via the invite banner)
+	// even if they're not yet a member of an attributed club.
+	if (pendingInvites.some((invite) => invite.status === 'pending')) {
+		return true;
+	}
+
 	return false;
+};
+
+/**
+ * CL-722/PRD 6.6.2 "smart defaults" applied to invite/join-request acceptance: when a user
+ * becomes a project member, auto-create their attribution rows only for the UNAMBIGUOUS
+ * overlap - clubs that are BOTH already attributed to the project AND clubs the new member is
+ * CURRENTLY in. If that overlap is empty (no shared club, or the new member is in no clubs),
+ * no attribution is created; the member can always link one manually afterward via `linkClub`.
+ */
+export const applyAttributionOverlapOnJoin = async (
+	ctx: MutationCtx,
+	projectId: Id<'projects'>,
+	newMemberProfileId: Id<'profiles'>
+): Promise<void> => {
+	const attributedClubIds = await listAttributedClubIds(ctx, projectId);
+	if (attributedClubIds.length === 0) return;
+
+	const now = Date.now();
+	for (const clubId of attributedClubIds) {
+		const clubMembership = await getMembershipByProfileId(ctx, clubId, newMemberProfileId);
+		if (!clubMembership) continue;
+
+		const existing = await ctx.db
+			.query('projectAttributions')
+			.withIndex('by_project_and_profile_and_club', (q) =>
+				q.eq('projectId', projectId).eq('profileId', newMemberProfileId).eq('clubId', clubId)
+			)
+			.unique();
+		if (existing) continue;
+
+		await ctx.db.insert('projectAttributions', {
+			projectId,
+			profileId: newMemberProfileId,
+			clubId,
+			createdAt: now
+		});
+	}
 };

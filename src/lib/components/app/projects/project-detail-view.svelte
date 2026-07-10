@@ -4,6 +4,7 @@
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import SendIcon from '@lucide/svelte/icons/send';
+	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
@@ -39,10 +40,11 @@
 		ItemTitle
 	} from '$lib/components/ui/item';
 	import { createMediaField } from '$lib/media/media-field.svelte';
+	import { createDebouncedLookup } from '$lib/forms/debounced-lookup';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
-	import { _, t } from '$lib/i18n';
+	import { _, formatT, t } from '$lib/i18n';
 
 	const PROJECT_NAME_MAX_LENGTH = 50;
 	const PROJECT_DESCRIPTION_MAX_LENGTH = 500;
@@ -214,6 +216,190 @@
 	});
 	let viewerIsDone = $derived(viewerMembership?.state === 'done');
 	let viewerIsActiveMember = $derived(viewerMembership?.state === 'active');
+	// PRD 6.6.10/CL-722: viewer can view the project (canViewProject-gated) but has no
+	// membership row at all — eligible to request to join or see an invite banner.
+	let viewerIsNonMember = $derived(!viewerMembership);
+
+	// --- CL-722: invites ---
+	const pendingInvitesResponse = useStableQuery(api.projectInvites.listPendingInvites, () =>
+		projectIdTyped && viewerIsActiveMember ? { projectId: projectIdTyped } : 'skip'
+	);
+	const myInviteResponse = useStableQuery(api.projectInvites.getMyInviteForProject, () =>
+		projectIdTyped && viewerIsNonMember ? { projectId: projectIdTyped } : 'skip'
+	);
+	let myPendingInvite = $derived(
+		myInviteResponse.data?.status === 'pending' ? myInviteResponse.data : null
+	);
+
+	let inviteDialogOpen = $state(false);
+	let inviteSearchTerm = $state('');
+	let inviteSearchResults = $state<
+		Array<{ profileId: Id<'profiles'>; firstName: string | null; lastName: string | null; username: string | null }>
+	>([]);
+	let inviteSearchPending = $state(false);
+	let invitePending = $state<Id<'profiles'> | null>(null);
+	let inviteCancelPending = $state<Id<'projectInvites'> | null>(null);
+	let inviteDecisionPending = $state(false);
+	const inviteSearchLookup = createDebouncedLookup<typeof inviteSearchResults>(300);
+
+	const openInviteDialog = () => {
+		inviteSearchTerm = '';
+		inviteSearchResults = [];
+		inviteDialogOpen = true;
+	};
+
+	$effect(() => {
+		const term = inviteSearchTerm.trim();
+		inviteSearchLookup.stop();
+		if (!term) {
+			inviteSearchResults = [];
+			inviteSearchPending = false;
+			return;
+		}
+		const excludeIds = memberSummaries.map((member) => member.profileId);
+		inviteSearchLookup.schedule({
+			key: term,
+			onStart: () => {
+				inviteSearchPending = true;
+			},
+			lookup: () =>
+				convexClient.query(api.profiles.searchByUsername, {
+					usernamePrefix: term,
+					excludeProfileIds: excludeIds
+				}),
+			onSuccess: (results) => {
+				inviteSearchResults = results;
+				inviteSearchPending = false;
+			},
+			onError: () => {
+				inviteSearchResults = [];
+				inviteSearchPending = false;
+			}
+		});
+		return () => inviteSearchLookup.stop();
+	});
+
+	const sendInvite = async (inviteeProfileId: Id<'profiles'>) => {
+		if (!projectIdTyped) return;
+		invitePending = inviteeProfileId;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projectInvites.inviteMember, {
+				projectId: projectIdTyped,
+				inviteeProfileId
+			});
+			inviteDialogOpen = false;
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.inviteSendFailure');
+		} finally {
+			invitePending = null;
+		}
+	};
+
+	const cancelInvite = async (inviteId: Id<'projectInvites'>) => {
+		inviteCancelPending = inviteId;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projectInvites.cancelInvite, { inviteId });
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.cancelInviteFailure');
+		} finally {
+			inviteCancelPending = null;
+		}
+	};
+
+	const acceptMyInvite = async () => {
+		if (!myPendingInvite) return;
+		inviteDecisionPending = true;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projectInvites.acceptInvite, { inviteId: myPendingInvite._id });
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.inviteDecisionFailure');
+		} finally {
+			inviteDecisionPending = false;
+		}
+	};
+
+	const declineMyInvite = async () => {
+		if (!myPendingInvite) return;
+		inviteDecisionPending = true;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projectInvites.declineInvite, { inviteId: myPendingInvite._id });
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.inviteDecisionFailure');
+		} finally {
+			inviteDecisionPending = false;
+		}
+	};
+
+	// --- CL-722: join requests ---
+	const myRequestResponse = useStableQuery(api.projectJoinRequests.getMyRequestForProject, () =>
+		projectIdTyped && viewerIsNonMember ? { projectId: projectIdTyped } : 'skip'
+	);
+	let myPendingRequest = $derived(
+		myRequestResponse.data?.status === 'pending' ? myRequestResponse.data : null
+	);
+	const pendingRequestsResponse = useStableQuery(api.projectJoinRequests.listPendingRequests, () =>
+		projectIdTyped && viewerIsActiveMember ? { projectId: projectIdTyped } : 'skip'
+	);
+
+	let requestToJoinPending = $state(false);
+	let requestCancelPending = $state(false);
+	let requestDecisionPending = $state<Id<'projectJoinRequests'> | null>(null);
+
+	const sendJoinRequest = async () => {
+		if (!projectIdTyped) return;
+		requestToJoinPending = true;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projectJoinRequests.requestToJoin, { projectId: projectIdTyped });
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.requestToJoinFailure');
+		} finally {
+			requestToJoinPending = false;
+		}
+	};
+
+	const cancelMyRequest = async () => {
+		if (!myPendingRequest) return;
+		requestCancelPending = true;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projectJoinRequests.cancelRequest, {
+				requestId: myPendingRequest._id
+			});
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.cancelRequestFailure');
+		} finally {
+			requestCancelPending = false;
+		}
+	};
+
+	const acceptJoinRequest = async (requestId: Id<'projectJoinRequests'>) => {
+		requestDecisionPending = requestId;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projectJoinRequests.acceptRequest, { requestId });
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.requestDecisionFailure');
+		} finally {
+			requestDecisionPending = null;
+		}
+	};
+
+	const declineJoinRequest = async (requestId: Id<'projectJoinRequests'>) => {
+		requestDecisionPending = requestId;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.projectJoinRequests.declineRequest, { requestId });
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('projectDetail.requestDecisionFailure');
+		} finally {
+			requestDecisionPending = null;
+		}
+	};
 	let initialProjectMemberImageUrls = $derived.by(() => {
 		return new Map(
 			(
@@ -405,6 +591,13 @@
 		...(viewerIsActiveMember
 			? [
 					{
+						id: 'invite-member',
+						label: t('projectDetail.inviteMemberAction'),
+						Icon: UserPlusIcon,
+						disabled: false,
+						onSelect: openInviteDialog
+					},
+					{
 						id: 'im-done',
 						label: t('projectDetail.imDoneAction'),
 						Icon: CheckIcon,
@@ -452,6 +645,107 @@
 				<AlertTitle>Action failed</AlertTitle>
 				<AlertDescription>{errorMessage}</AlertDescription>
 			</Alert>
+		{/if}
+
+		{#if myPendingInvite}
+			<Alert>
+				<AlertTitle>{t('projectDetail.yourInviteBannerTitle')}</AlertTitle>
+				<AlertDescription class="flex flex-col gap-3">
+					<p>
+						{formatT('projectDetail.yourInviteBannerDescription', {
+							inviterName: myInviteResponse.data?.inviterName ?? 'A member'
+						})}
+					</p>
+					<div class="flex gap-2">
+						<Button size="sm" disabled={inviteDecisionPending} onclick={() => void acceptMyInvite()}>
+							{t('projectDetail.acceptInviteAction')}
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={inviteDecisionPending}
+							onclick={() => void declineMyInvite()}
+						>
+							{t('projectDetail.declineInviteAction')}
+						</Button>
+					</div>
+				</AlertDescription>
+			</Alert>
+		{/if}
+
+		{#if viewerIsNonMember && !myPendingInvite}
+			{#if myPendingRequest}
+				<div class="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
+					<p class="type-sm text-muted-foreground">{t('projectDetail.requestPendingLabel')}</p>
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={requestCancelPending}
+						onclick={() => void cancelMyRequest()}
+					>
+						{t('projectDetail.cancelRequestAction')}
+					</Button>
+				</div>
+			{:else}
+				<div>
+					<Button
+						size="sm"
+						disabled={requestToJoinPending}
+						onclick={() => void sendJoinRequest()}
+					>
+						{requestToJoinPending
+							? t('projectDetail.requestToJoinSending')
+							: t('projectDetail.requestToJoinAction')}
+					</Button>
+				</div>
+			{/if}
+		{/if}
+
+		{#if viewerIsActiveMember && (pendingRequestsResponse.data ?? []).length > 0}
+			<div class="flex flex-col gap-2 rounded-lg border border-border/70 p-3">
+				<p class="type-body-medium">{t('projectDetail.joinRequestsTitle')}</p>
+				{#each pendingRequestsResponse.data ?? [] as request (request.requestId)}
+					<div class="flex items-center justify-between gap-3">
+						<p class="type-sm">{request.requesterName}</p>
+						<div class="flex gap-2">
+							<Button
+								size="sm"
+								disabled={requestDecisionPending === request.requestId}
+								onclick={() => void acceptJoinRequest(request.requestId)}
+							>
+								{t('projectDetail.acceptRequestAction')}
+							</Button>
+							<Button
+								size="sm"
+								variant="outline"
+								disabled={requestDecisionPending === request.requestId}
+								onclick={() => void declineJoinRequest(request.requestId)}
+							>
+								{t('projectDetail.declineRequestAction')}
+							</Button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		{#if viewerIsActiveMember && (pendingInvitesResponse.data ?? []).length > 0}
+			<div class="flex flex-col gap-2 rounded-lg border border-border/70 p-3">
+				<p class="type-body-medium">{t('projectDetail.pendingInvitesTitle')}</p>
+				{#each pendingInvitesResponse.data ?? [] as invite (invite.inviteId)}
+					<div class="flex items-center justify-between gap-3">
+						<p class="type-sm">{invite.inviteeName}</p>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={inviteCancelPending === invite.inviteId}
+							onclick={() => void cancelInvite(invite.inviteId)}
+						>
+							{t('projectDetail.cancelInviteAction')}
+						</Button>
+					</div>
+				{/each}
+			</div>
 		{/if}
 
 		{#if view === 'overview'}
@@ -777,6 +1071,57 @@
 				>
 					{leavePending ? t('common.saving') : $_('projectDetail.leaveProjectConfirmAction')}
 				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
+
+	<Dialog.Root bind:open={inviteDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>{t('projectDetail.inviteDialogTitle')}</Dialog.Title>
+				<Dialog.Description>{t('projectDetail.inviteDialogDescription')}</Dialog.Description>
+			</Dialog.Header>
+			<div class="flex flex-col gap-3">
+				<Input
+					bind:value={inviteSearchTerm}
+					placeholder={t('projectDetail.inviteSearchPlaceholder')}
+				/>
+				{#if inviteSearchPending}
+					<LoadingState label="Searching" />
+				{:else if inviteSearchTerm.trim() && inviteSearchResults.length === 0}
+					<p class="type-sm text-muted-foreground">{t('projectDetail.inviteSearchNoResults')}</p>
+				{:else}
+					<ItemGroup class="gap-2">
+						{#each inviteSearchResults as result (result.profileId)}
+							<Item variant="outline" size="sm">
+								<ItemContent>
+									<ItemTitle>
+										{[result.firstName ?? '', result.lastName ?? ''].join(' ').trim() ||
+											result.username ||
+											'User'}
+									</ItemTitle>
+									{#if result.username}
+										<ItemDescription>@{result.username}</ItemDescription>
+									{/if}
+								</ItemContent>
+								<ItemActions>
+									<Button
+										size="sm"
+										disabled={invitePending === result.profileId}
+										onclick={() => void sendInvite(result.profileId)}
+									>
+										{invitePending === result.profileId
+											? t('projectDetail.inviteSendingAction')
+											: t('projectDetail.inviteSendAction')}
+									</Button>
+								</ItemActions>
+							</Item>
+						{/each}
+					</ItemGroup>
+				{/if}
+			</div>
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (inviteDialogOpen = false)}>Cancel</Button>
 			</Dialog.Footer>
 		</Dialog.Content>
 	</Dialog.Root>
