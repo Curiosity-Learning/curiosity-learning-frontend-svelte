@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import BellIcon from '@lucide/svelte/icons/bell';
+	import ClipboardCheckIcon from '@lucide/svelte/icons/clipboard-check';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
@@ -32,6 +34,11 @@
 	const updatesResponse = useStableQuery(api.updates.listMine, {});
 	const sessionsAttendedResponse = useStableQuery(api.sessions.countAttendedForViewer, {});
 	const projectsCountResponse = useStableQuery(api.projects.countForViewer, {});
+	const unreadNotificationsResponse = useStableQuery(api.notifications.unreadCount, {});
+	const reviewableCountResponse = useStableQuery(api.clubApplications.countReviewableApplications, {});
+	let unreadNotifications = $derived(unreadNotificationsResponse.data ?? 0);
+	// null = viewer is not a Guide anywhere; the review entry point is hidden entirely.
+	let reviewableCount = $derived(reviewableCountResponse.data ?? null);
 
 	const fullName = $derived(
 		[profileResponse.data?.firstName, profileResponse.data?.lastName]
@@ -131,6 +138,24 @@
 	<Button
 		variant="ghost"
 		size="icon-sm"
+		aria-label={unreadNotifications > 0
+			? `Open notifications (${unreadNotifications} unread)`
+			: 'Open notifications'}
+		class="relative text-[#767b92] hover:text-[#565b72]"
+		href={routes.notifications}
+	>
+		<BellIcon class="size-5" />
+		{#if unreadNotifications > 0}
+			<span
+				class="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[0.65rem] leading-none font-bold text-white"
+			>
+				{unreadNotifications > 99 ? '99+' : unreadNotifications}
+			</span>
+		{/if}
+	</Button>
+	<Button
+		variant="ghost"
+		size="icon-sm"
 		aria-label="Open settings"
 		class="text-[#767b92] hover:text-[#565b72]"
 		href={routes.settings}
@@ -199,6 +224,25 @@
 				<p class="text-xs text-[#8b8fa0]">Curiosity learner since</p>
 				<p class="text-[1.05rem] font-bold text-[#6f73af]">{joinedDateText}</p>
 			</div>
+
+			{#if reviewableCount !== null}
+				<a
+					href={routes.applicationsReview}
+					class="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-[#f6f7f9] px-3 py-3 transition-colors hover:border-orange-200 hover:bg-orange-50"
+					data-sveltekit-preload-code="hover"
+					data-sveltekit-preload-data="hover"
+				>
+					<div class="flex min-w-0 items-center gap-2">
+						<ClipboardCheckIcon class="size-5 shrink-0 text-[#6f73af]" />
+						<p class="truncate text-[1.05rem] font-bold text-[#44495f]">Application reviews</p>
+					</div>
+					{#if reviewableCount > 0}
+						<Badge class="shrink-0 rounded-full bg-orange-500 px-2.5 py-0.5 text-sm text-white">
+							{reviewableCount}
+						</Badge>
+					{/if}
+				</a>
+			{/if}
 
 			{#if clubs.length > 0}
 				<div class="flex flex-col gap-3">

@@ -21,6 +21,7 @@ import {
 } from './permissions';
 import { authComponent } from './auth';
 import { ensureClubRoom } from './chatModel';
+import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsModel';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
 
@@ -692,6 +693,7 @@ export const joinClubWithCode = mutation({
 			pendingRole: undefined,
 			updatedAt: Date.now()
 		});
+		await notifyGuidesOfNewMember(ctx, club._id, profile);
 
 		return {
 			ok: true as const,
@@ -751,6 +753,7 @@ export const joinClubWithGuideInviteCode = mutation({
 			pendingRole: undefined,
 			updatedAt: Date.now()
 		});
+		await notifyGuidesOfNewMember(ctx, club._id, profile);
 
 		return {
 			ok: true as const,
@@ -1187,8 +1190,9 @@ export const kickMember = mutation({
 		});
 
 		const club = await ctx.db.get(target.clubId);
-		await ctx.runMutation(internal.notifications.createSystemNotification, {
-			profileId: target.profileId,
+		await dispatchNotification(ctx, {
+			recipientProfileId: target.profileId,
+			kind: 'kicked_from_club',
 			clubId: target.clubId,
 			title: 'Removed from club',
 			message: `You have been removed from ${club?.name ?? 'the club'}. Reason: ${reason}`
@@ -1222,8 +1226,9 @@ export const promoteMember = mutation({
 		});
 
 		const club = await ctx.db.get(target.clubId);
-		await ctx.runMutation(internal.notifications.createSystemNotification, {
-			profileId: target.profileId,
+		await dispatchNotification(ctx, {
+			recipientProfileId: target.profileId,
+			kind: 'promoted_to_guide',
 			clubId: target.clubId,
 			title: 'Promoted to Guide',
 			message: `You have been promoted to Guide in ${club?.name ?? 'the club'}.`

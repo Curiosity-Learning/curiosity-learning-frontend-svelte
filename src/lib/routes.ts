@@ -18,6 +18,7 @@ export const routes = {
 	settings: '/settings',
 	settingsMediaUploadDev: '/settings/media-upload-dev',
 	notifications: '/notifications',
+	applicationsReview: '/applications/review',
 
 	clubHome: (clubId: string) => `/club/${clubId}`,
 	clubSessions: (clubId: string) => `/club/${clubId}/sessions`,

@@ -228,6 +228,9 @@ export default defineSchema({
 		// Scheduled function id for the "attendance unmarked" reminder (fires at startTime + 1h).
 		// Tracked so it can be cancelled and rescheduled if the session's startTime changes or it's cancelled.
 		attendanceReminderJobId: v.optional(v.id('_scheduled_functions')),
+		// Scheduled function id for the member-facing session reminder (fires at startTime - 24h).
+		// Same cancel/reschedule lifecycle as attendanceReminderJobId.
+		sessionReminderJobId: v.optional(v.id('_scheduled_functions')),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})

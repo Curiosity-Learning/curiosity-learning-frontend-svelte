@@ -9,6 +9,7 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as authEmail from "../authEmail.js";
 import type * as booklet from "../booklet.js";
 import type * as chat from "../chat.js";
 import type * as chatModel from "../chatModel.js";
@@ -34,6 +35,7 @@ import type * as mediaShared from "../mediaShared.js";
 import type * as mediaStorage from "../mediaStorage.js";
 import type * as monitoring from "../monitoring.js";
 import type * as notifications from "../notifications.js";
+import type * as notificationsModel from "../notificationsModel.js";
 import type * as permissions from "../permissions.js";
 import type * as pledges from "../pledges.js";
 import type * as preferences from "../preferences.js";
@@ -56,6 +58,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  authEmail: typeof authEmail;
   booklet: typeof booklet;
   chat: typeof chat;
   chatModel: typeof chatModel;
@@ -81,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   mediaStorage: typeof mediaStorage;
   monitoring: typeof monitoring;
   notifications: typeof notifications;
+  notificationsModel: typeof notificationsModel;
   permissions: typeof permissions;
   pledges: typeof pledges;
   preferences: typeof preferences;

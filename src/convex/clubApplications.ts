@@ -6,11 +6,13 @@ import { internalMutation, mutation, query } from './_generated/server';
 import {
 	getClubRoleByKey,
 	getMembershipByProfileId,
+	getProfileByAuthUserId,
 	listMembershipsForProfile,
 	requireIdentity,
 	requireProfile
 } from './permissions';
 import { ensureClubApplicationRoom, ensureClubRoom } from './chatModel';
+import { dispatchNotification } from './notificationsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -42,7 +44,7 @@ const getRoleByKey = async (ctx: Ctx, key: 'guide' | 'learner') => {
 	return role;
 };
 
-const requireGuideSomewhere = async (ctx: Ctx, userId: string) => {
+const isGuideSomewhere = async (ctx: Ctx, userId: string) => {
 	const profile = await requireProfile(ctx, userId);
 	const memberships = await listMembershipsForProfile(ctx, profile);
 
@@ -50,11 +52,17 @@ const requireGuideSomewhere = async (ctx: Ctx, userId: string) => {
 		if (membership.leftAt) continue;
 		const role = await ctx.db.get(membership.roleId);
 		if (role?.key === 'guide') {
-			return;
+			return true;
 		}
 	}
 
-	throw new ConvexError('Only Guides can review applications');
+	return false;
+};
+
+const requireGuideSomewhere = async (ctx: Ctx, userId: string) => {
+	if (!(await isGuideSomewhere(ctx, userId))) {
+		throw new ConvexError('Only Guides can review applications');
+	}
 };
 
 // A "deciding Guide" for an application is any Guide who has reviewed it (has an
@@ -354,6 +362,40 @@ export const listReviewableApplications = query({
 	}
 });
 
+// Count of pending applications still awaiting the current Guide's review (no
+// applicationReviews row from them yet). Powers the badge on the Application Reviews entry
+// point (PRD 6.13: no per-review notifications, just a count badge). Returns null when the
+// viewer is not a Guide anywhere (the entry point is hidden entirely for them).
+export const countReviewableApplications = query({
+	args: {},
+	returns: v.union(v.number(), v.null()),
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return null;
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
+		if (!profile) return null;
+		if (!(await isGuideSomewhere(ctx, identity.subject))) return null;
+
+		const applications = await ctx.db
+			.query('clubApplications')
+			.withIndex('by_status_and_created_at', (q) => q.eq('status', 'pending'))
+			.collect();
+
+		let count = 0;
+		for (const application of applications) {
+			if (application.applicantProfileId === profile._id) continue;
+			const existingReview = await ctx.db
+				.query('applicationReviews')
+				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+					q.eq('applicationId', application._id).eq('reviewerProfileId', profile._id)
+				)
+				.unique();
+			if (!existingReview) count += 1;
+		}
+		return count;
+	}
+});
+
 export const upsertApplicationReview = mutation({
 	args: {
 		applicationId: v.id('clubApplications'),
@@ -516,8 +558,9 @@ export const moveToInterview = mutation({
 		});
 		await ensureClubApplicationRoom(ctx, application._id);
 
-		await ctx.runMutation(internal.notifications.createSystemNotification, {
-			profileId: application.applicantProfileId,
+		await dispatchNotification(ctx, {
+			recipientProfileId: application.applicantProfileId,
+			kind: 'application_status',
 			title: 'Your application moved to interview',
 			message: 'Your application moved to interview — expect a message to schedule a call.'
 		});
@@ -572,14 +615,16 @@ export const decideApplication = mutation({
 				roomId,
 				content: 'This application was not accepted.'
 			});
-			await ctx.runMutation(internal.notifications.createSystemNotification, {
-				profileId: application.applicantProfileId,
+			await dispatchNotification(ctx, {
+				recipientProfileId: application.applicantProfileId,
+				kind: 'application_status',
 				title: 'Application update',
 				message: 'Your application was not accepted this time.'
 			});
 		} else {
-			await ctx.runMutation(internal.notifications.createSystemNotification, {
-				profileId: application.applicantProfileId,
+			await dispatchNotification(ctx, {
+				recipientProfileId: application.applicantProfileId,
+				kind: 'application_status',
 				title: 'Application accepted',
 				message: 'Accepted! Schedule your onboarding call in this chat before your club activates.'
 			});
