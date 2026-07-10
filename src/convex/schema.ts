@@ -240,6 +240,25 @@ export default defineSchema({
 		.index('by_token', ['token'])
 		.index('by_status_and_created_at', ['status', 'createdAt']),
 
+	// PRD 2.4/6.1.10 (CL-703): materialized parent<->child link, derived lazily from an approved
+	// `parentChildConsents` row whose `parentEmail` matches the CURRENT authenticated user's auth
+	// email (see `parentAccounts.claimParentLinks`). One row per (parentProfileId, childProfileId)
+	// pair — enforced app-side via `by_parent_and_child` before insert (no native unique
+	// constraint). A parent can have many children; v1 has no reverse case (a child has exactly
+	// one linked parent via `parentChildConsents.parentProfileId`, but the link row is still keyed
+	// both ways so child-side queries — e.g. `unlinkParent` — can look it up without scanning by
+	// parent). Severed only by the CHILD once they turn 16 (see `unlinkParent`); parent-side reads
+	// keep working until then even past the child's 16th birthday, per PRD "access doesn't
+	// auto-sever until they unlink".
+	parentLinks: defineTable({
+		parentProfileId: v.id('profiles'),
+		childProfileId: v.id('profiles'),
+		createdAt: v.number()
+	})
+		.index('by_parent', ['parentProfileId'])
+		.index('by_child', ['childProfileId'])
+		.index('by_parent_and_child', ['parentProfileId', 'childProfileId']),
+
 	sessions: defineTable({
 		clubId: v.id('clubs'),
 		description: v.optional(v.string()),

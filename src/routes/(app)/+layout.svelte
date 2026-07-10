@@ -217,7 +217,9 @@
 			activePath.startsWith(`${routes.newClub}/`) ||
 			activePath === routes.profile ||
 			activePath === routes.settings ||
-			activePath === routes.notifications
+			activePath === routes.notifications ||
+			activePath === routes.child ||
+			activePath.startsWith(`${routes.child}/`)
 		) {
 			return;
 		}
