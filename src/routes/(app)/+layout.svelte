@@ -113,7 +113,8 @@
 		clubs.map((club) => ({
 			clubId: club.clubId,
 			clubName: club.clubName,
-			roleKey: club.roleKey
+			roleKey: club.roleKey,
+			clubKind: club.clubKind
 		}))
 	);
 

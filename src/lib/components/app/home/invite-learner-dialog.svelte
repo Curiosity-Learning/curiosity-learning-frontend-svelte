@@ -18,6 +18,10 @@
 		clubCode: string | null | undefined;
 		guideInviteCode?: string | null;
 		canInviteGuide?: boolean;
+		// CoC (Club of Clubs) groups only ever have Guide members — inviting a "learner" into a
+		// CoC group doesn't make sense, so the learner tab is hidden and this dialog always
+		// behaves as if only the Guide invite is available (CL-707).
+		clubKind?: 'curiosity' | 'coc';
 		triggerLabel?: string;
 		triggerStyle?: 'link' | 'card' | 'button';
 		cardMinHeightClass?: string;
@@ -28,12 +32,16 @@
 		clubCode,
 		guideInviteCode = null,
 		canInviteGuide = false,
+		clubKind = 'curiosity',
 		triggerLabel,
 		triggerStyle = 'link',
 		cardMinHeightClass = 'min-h-56'
 	}: Props = $props();
 
 	const convexClient = useConvexClient();
+
+	let isCocClub = $derived(clubKind === 'coc');
+	let showRoleTabs = $derived(canInviteGuide && !isCocClub);
 
 	let open = $state(false);
 	let copiedField = $state<string | null>(null);
@@ -111,7 +119,7 @@
 			<Dialog.Description>{$_('inviteLearnerDialog.dialogDescription')}</Dialog.Description>
 		</Dialog.Header>
 
-		{#if canInviteGuide}
+		{#if showRoleTabs}
 			<Tabs.Root bind:value={roleTab}>
 				<Tabs.List class="grid w-full grid-cols-2">
 					<Tabs.Trigger value="learner">{$_('inviteLearnerDialog.roleTabLearner')}</Tabs.Trigger>
@@ -120,7 +128,7 @@
 			</Tabs.Root>
 		{/if}
 
-		{#if roleTab === 'learner' || !canInviteGuide}
+		{#if !isCocClub && (roleTab === 'learner' || !showRoleTabs)}
 			{#if !clubCode}
 				<p class="type-sm text-muted-foreground">{$_('inviteLearnerDialog.noLearnerCode')}</p>
 			{:else}

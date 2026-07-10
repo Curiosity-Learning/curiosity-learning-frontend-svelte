@@ -18,6 +18,7 @@ import type * as childSignup from "../childSignup.js";
 import type * as clubApplications from "../clubApplications.js";
 import type * as clubScheduleSlots from "../clubScheduleSlots.js";
 import type * as clubs from "../clubs.js";
+import type * as cocModel from "../cocModel.js";
 import type * as email_resend from "../email/resend.js";
 import type * as email_templates from "../email/templates.js";
 import type * as googleChat from "../googleChat.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   clubApplications: typeof clubApplications;
   clubScheduleSlots: typeof clubScheduleSlots;
   clubs: typeof clubs;
+  cocModel: typeof cocModel;
   "email/resend": typeof email_resend;
   "email/templates": typeof email_templates;
   googleChat: typeof googleChat;

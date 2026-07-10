@@ -355,6 +355,7 @@
 				clubCode={clubItem?.clubCode}
 				guideInviteCode={clubItem?.clubGuideInviteCode}
 				canInviteGuide={clubPermissions.includes('club_member:invite_guide')}
+				clubKind={clubItem?.clubKind}
 				triggerLabel={$_('membersPage.inviteAction')}
 				triggerStyle="button"
 			/>
@@ -395,6 +396,7 @@
 								clubCode={clubItem?.clubCode}
 								guideInviteCode={clubItem?.clubGuideInviteCode}
 								canInviteGuide={clubPermissions.includes('club_member:invite_guide')}
+								clubKind={clubItem?.clubKind}
 								triggerLabel={$_('membersPage.inviteAction')}
 								triggerStyle="button"
 							/>

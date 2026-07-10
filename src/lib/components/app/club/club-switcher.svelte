@@ -23,6 +23,7 @@
 		clubId: string;
 		clubName: string;
 		roleKey: 'guide' | 'learner' | null;
+		clubKind?: 'curiosity' | 'coc';
 	};
 
 	type Props = {
@@ -94,6 +95,11 @@
 				>
 					<span class="flex min-w-0 flex-1 items-center gap-2">
 						<span class="truncate">{club.clubName}</span>
+						{#if club.clubKind === 'coc'}
+							<span class="type-xs shrink-0 rounded-full bg-orange-100 px-1.5 py-0.5 text-orange-700">
+								{t('clubSwitcher.cocBadge')}
+							</span>
+						{/if}
 						{#if roleLabel(club.roleKey)}
 							<span class="type-xs shrink-0 text-muted-foreground">{roleLabel(club.roleKey)}</span>
 						{/if}

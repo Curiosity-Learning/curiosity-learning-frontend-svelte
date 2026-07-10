@@ -13,6 +13,7 @@ import {
 } from './permissions';
 import { ensureClubApplicationRoom, ensureClubRoom } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
+import { assignClubToCocGroup } from './cocModel';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -490,6 +491,7 @@ const createClubFromApplication = async (
 		videoMediaAssetId: application.videoMediaAssetId,
 		// Private by default: newly created clubs must be explicitly opted in to discovery.
 		discoverable: false,
+		kind: 'curiosity',
 		createdByProfileId: application.applicantProfileId,
 		createdAt: now,
 		updatedAt: now
@@ -527,6 +529,12 @@ const createClubFromApplication = async (
 		firstLoginCompleted: true,
 		updatedAt: now
 	});
+
+	const createdClub = await ctx.db.get(clubId);
+	if (createdClub) {
+		// PRD 6.5 step 7 / CL-707: launch auto-assigns the new club to a Club of Clubs group.
+		await assignClubToCocGroup(ctx, createdClub, application.applicantProfileId);
+	}
 
 	return { clubId };
 };

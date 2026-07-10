@@ -99,6 +99,7 @@ const en = {
 		menuLabel: 'Switch club',
 		roleGuide: 'Guide',
 		roleLearner: 'Learner',
+		cocBadge: 'Club of Clubs',
 		switchFailureTitle: 'Unable to switch club',
 		switchFailureDescription: 'Please try again.'
 	},
