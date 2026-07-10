@@ -363,14 +363,24 @@ export default defineSchema({
 		updatedAt: v.number()
 	}),
 
-	projectClubs: defineTable({
+	// PRD 5.11/6.6.6: per-member, per-club attribution links (replaces the old project-level
+	// `projectClubs` table entirely — no back-compat). A project's "attributed clubs" is the
+	// distinct set of `clubId`s across all its attribution rows; a club attribution naturally
+	// disappears once the last row for that club is removed ("last person out", PRD 6.6.6).
+	// Unique per (projectId, profileId, clubId) — enforced by the app layer via
+	// `by_project_and_profile_and_club` lookups before insert, since Convex has no native unique
+	// constraint.
+	projectAttributions: defineTable({
 		projectId: v.id('projects'),
+		profileId: v.id('profiles'),
 		clubId: v.id('clubs'),
 		createdAt: v.number()
 	})
 		.index('by_project', ['projectId'])
 		.index('by_club', ['clubId'])
-		.index('by_club_and_project', ['clubId', 'projectId']),
+		.index('by_club_and_project', ['clubId', 'projectId'])
+		.index('by_project_and_profile', ['projectId', 'profileId'])
+		.index('by_project_and_profile_and_club', ['projectId', 'profileId', 'clubId']),
 
 	projectMembers: defineTable({
 		projectId: v.id('projects'),
@@ -410,7 +420,11 @@ export default defineSchema({
 			v.literal('description_changed'),
 			v.literal('deadline_changed'),
 			v.literal('visibility_changed'),
-			v.literal('cover_changed')
+			v.literal('cover_changed'),
+			// CL-721: per-member attribution link/unlink (PRD 6.6.6/6.6.8 "Attribution" is one of
+			// the editable/logged fields).
+			v.literal('club_linked'),
+			v.literal('club_unlinked')
 		),
 		text: v.string(),
 		createdAt: v.number()

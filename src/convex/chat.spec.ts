@@ -430,7 +430,12 @@ describe('context room chat', () => {
 				createdAt: now,
 				updatedAt: now
 			});
-			await ctx.db.insert('projectClubs', { projectId, clubId, createdAt: now });
+			await ctx.db.insert('projectAttributions', {
+				projectId,
+				profileId: memberProfileId,
+				clubId,
+				createdAt: now
+			});
 			const roomId = await ctx.db.insert('rooms', { contextType: 'project', projectId });
 			await ctx.db.insert('projectMembers', {
 				projectId,
@@ -584,8 +589,9 @@ describe('context room chat', () => {
 				createdAt: now,
 				updatedAt: now
 			});
-			await ctx.db.insert('projectClubs', {
+			await ctx.db.insert('projectAttributions', {
 				projectId,
+				profileId: otherProfileId,
 				clubId,
 				createdAt: now
 			});

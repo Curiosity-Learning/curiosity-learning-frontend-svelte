@@ -121,13 +121,14 @@ export const isProjectPermissionAllowed = async (
 	userId: string,
 	permission: string
 ) => {
-	const links = await ctx.db
-		.query('projectClubs')
+	const attributionRows = await ctx.db
+		.query('projectAttributions')
 		.withIndex('by_project', (q) => q.eq('projectId', projectId))
 		.collect();
+	const attributedClubIds = [...new Set(attributionRows.map((row) => row.clubId))];
 
-	for (const link of links) {
-		if (await hasPermission(ctx, link.clubId, userId, permission)) {
+	for (const clubId of attributedClubIds) {
+		if (await hasPermission(ctx, clubId, userId, permission)) {
 			return true;
 		}
 	}

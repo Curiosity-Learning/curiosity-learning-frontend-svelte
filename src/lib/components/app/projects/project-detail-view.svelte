@@ -93,6 +93,18 @@
 		view === 'overview' && projectIdTyped ? { projectId: projectIdTyped } : 'skip'
 	);
 
+	// PRD 5.11/6.6.6: per-member club attribution — attributed clubs, which of those the viewer
+	// personally linked, and the viewer's own current clubs (for link/unlink controls).
+	const attributionsResponse = useStableQuery(api.projects.listAttributions, () =>
+		view === 'overview' && projectIdTyped ? { projectId: projectIdTyped } : 'skip'
+	);
+	let attributedClubs = $derived(attributionsResponse.data?.attributedClubs ?? []);
+	let viewerClubs = $derived(attributionsResponse.data?.viewerClubs ?? []);
+	let viewerCanChangeAttribution = $derived(
+		attributionsResponse.data?.viewerCanChangeAttribution ?? false
+	);
+	let attributionPendingClubId = $state<Id<'clubs'> | null>(null);
+
 	let pending = $state(false);
 	let errorMessage = $state('');
 
@@ -347,6 +359,24 @@
 		}
 	};
 
+	const toggleClubAttribution = async (clubId: Id<'clubs'>, currentlyLinked: boolean) => {
+		if (!projectIdTyped) return;
+		attributionPendingClubId = clubId;
+		errorMessage = '';
+		try {
+			if (currentlyLinked) {
+				await convexClient.mutation(api.projects.unlinkClub, { projectId: projectIdTyped, clubId });
+			} else {
+				await convexClient.mutation(api.projects.linkClub, { projectId: projectIdTyped, clubId });
+			}
+		} catch (error) {
+			errorMessage =
+				error instanceof Error ? error.message : t('projectDetail.attributionUpdateFailure');
+		} finally {
+			attributionPendingClubId = null;
+		}
+	};
+
 	const postUpdate = async () => {
 		if (!projectIdTyped || !updateContent.trim()) return;
 		updatePending = true;
@@ -448,6 +478,39 @@
 				<p>{statusLabel}</p>
 				{#if isCompleted}
 					<Badge variant="secondary" class="bg-chart-2/15 text-chart-2">Done</Badge>
+				{/if}
+			</div>
+
+			<div class="flex flex-col gap-2">
+				<p class="type-body-medium">{t('projectDetail.clubsTitle')}</p>
+				{#if attributedClubs.length === 0}
+					<p class="type-sm text-muted-foreground">{t('projectDetail.clubsEmpty')}</p>
+				{:else}
+					<div class="flex flex-wrap gap-2">
+						{#each attributedClubs as club (club.clubId)}
+							<Badge variant="outline">{club.name}</Badge>
+						{/each}
+					</div>
+				{/if}
+
+				{#if viewerCanChangeAttribution && viewerClubs.length > 0}
+					<div class="mt-1 flex flex-col gap-1">
+						{#each viewerClubs as club (club.clubId)}
+							<div class="flex items-center justify-between gap-3">
+								<p class="type-sm">{club.name}</p>
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={attributionPendingClubId === club.clubId}
+									onclick={() => void toggleClubAttribution(club.clubId, club.linkedByViewer)}
+								>
+									{club.linkedByViewer
+										? t('projectDetail.unlinkClubAction')
+										: t('projectDetail.linkClubAction')}
+								</Button>
+							</div>
+						{/each}
+					</div>
 				{/if}
 			</div>
 

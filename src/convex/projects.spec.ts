@@ -68,7 +68,12 @@ const seedProjectFixture = async (
 			createdAt: now,
 			updatedAt: now
 		});
-		await ctx.db.insert('projectClubs', { projectId, clubId, createdAt: now });
+		await ctx.db.insert('projectAttributions', {
+			projectId,
+			profileId: clubOwnerProfileId as never,
+			clubId,
+			createdAt: now
+		});
 
 		const memberIds: Record<string, string> = {};
 		for (const spec of memberSpecs) {
@@ -504,5 +509,589 @@ describe('project metadata change log (CL-718)', () => {
 		await expect(
 			alice.mutation(api.projects.update, { projectId, coverImageMediaAssetId: assetId })
 		).rejects.toThrow('Cover image is not ready');
+	});
+});
+
+describe('per-member club attribution (CL-721)', () => {
+	/**
+	 * Builds a project with a creator (alice, member of `firstClubId` via a Guide role) and lets
+	 * the caller add extra clubs/members freely. Distinct from `seedProjectFixture` above in that
+	 * it exposes the learner role id so tests can add club memberships for other project members.
+	 */
+	const seedAttributionFixture = async () => {
+		const t = convexTest(schema, modules);
+		const ids = await t.run(async (ctx) => {
+			const now = Date.now();
+			const contributorRoleId = await ctx.db.insert('projectRoles', {
+				key: 'contributor',
+				name: 'Contributor',
+				permissions: ['project:read', 'project:update'],
+				order: 0,
+				createdAt: now
+			});
+			const guideRoleId = await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['project:read', 'project:create'],
+				order: 0,
+				createdAt: now
+			});
+			const learnerRoleId = await ctx.db.insert('clubRoles', {
+				key: 'learner',
+				name: 'Learner',
+				permissions: ['project:read'],
+				order: 1,
+				createdAt: now
+			});
+
+			const aliceProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'alice',
+				username: 'alice',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const bobProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'bob',
+				username: 'bob',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+
+			const clubAId = await ctx.db.insert('clubs', {
+				name: 'Club A',
+				discoverable: false,
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const clubBId = await ctx.db.insert('clubs', {
+				name: 'Club B',
+				discoverable: false,
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId: clubAId,
+				profileId: aliceProfileId,
+				roleId: guideRoleId,
+				createdAt: now
+			});
+
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Attribution fixture project',
+				dueDate: now + 7 * 24 * 60 * 60 * 1000,
+				visibility: 'clubs',
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('projectAttributions', {
+				projectId,
+				profileId: aliceProfileId,
+				clubId: clubAId,
+				createdAt: now
+			});
+
+			const aliceMemberId = await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: aliceProfileId,
+				roleId: contributorRoleId,
+				createdAt: now
+			});
+			const bobMemberId = await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: bobProfileId,
+				roleId: contributorRoleId,
+				createdAt: now
+			});
+
+			return {
+				projectId,
+				clubAId,
+				clubBId,
+				learnerRoleId,
+				guideRoleId,
+				aliceProfileId,
+				bobProfileId,
+				aliceMemberId,
+				bobMemberId
+			};
+		});
+
+		return { t, ...ids };
+	};
+
+	it('linkClub requires the caller to be a current member of that club', async () => {
+		const { t, projectId, clubBId } = await seedAttributionFixture();
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		await expect(alice.mutation(api.projects.linkClub, { projectId, clubId: clubBId })).rejects.toThrow(
+			'You must be a current member of this club to link it'
+		);
+	});
+
+	it('linkClub succeeds for an active project member who currently belongs to the club, and logs it', async () => {
+		const { t, projectId, clubBId, bobProfileId, learnerRoleId } = await seedAttributionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.insert('clubMembers', {
+				clubId: clubBId,
+				profileId: bobProfileId,
+				roleId: learnerRoleId,
+				createdAt: Date.now()
+			});
+		});
+		const bob = t.withIdentity({ subject: 'bob' });
+
+		await bob.mutation(api.projects.linkClub, { projectId, clubId: clubBId });
+
+		const attributions = await bob.query(api.projects.listAttributions, { projectId });
+		expect(attributions.attributedClubs.map((c) => c.clubId)).toContain(clubBId);
+
+		const changeLog = await bob.query(api.projects.listChangeLog, { projectId });
+		expect(changeLog.some((entry) => entry.entryType === 'club_linked')).toBe(true);
+	});
+
+	it('linkClub rejects a Done member', async () => {
+		const { t, projectId, clubAId, bobProfileId, bobMemberId, learnerRoleId } =
+			await seedAttributionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.insert('clubMembers', {
+				clubId: clubAId,
+				profileId: bobProfileId,
+				roleId: learnerRoleId,
+				createdAt: Date.now()
+			});
+			await ctx.db.patch(bobMemberId as never, { doneDate: Date.now() });
+		});
+		const bob = t.withIdentity({ subject: 'bob' });
+
+		await expect(bob.mutation(api.projects.linkClub, { projectId, clubId: clubAId })).rejects.toThrow(
+			'Done members cannot change attribution'
+		);
+	});
+
+	it('linkClub rejects changes on an archived project', async () => {
+		const { t, projectId, clubBId, bobProfileId, learnerRoleId } = await seedAttributionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.insert('clubMembers', {
+				clubId: clubBId,
+				profileId: bobProfileId,
+				roleId: learnerRoleId,
+				createdAt: Date.now()
+			});
+			await ctx.db.patch(projectId, { archivedAt: Date.now() });
+		});
+		const bob = t.withIdentity({ subject: 'bob' });
+
+		await expect(bob.mutation(api.projects.linkClub, { projectId, clubId: clubBId })).rejects.toThrow(
+			'Archived projects cannot change attribution'
+		);
+	});
+
+	it('a member can link the same project to multiple clubs they belong to', async () => {
+		const { t, projectId, clubAId, clubBId, aliceProfileId, guideRoleId } =
+			await seedAttributionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.insert('clubMembers', {
+				clubId: clubBId,
+				profileId: aliceProfileId,
+				roleId: guideRoleId,
+				createdAt: Date.now()
+			});
+		});
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		await alice.mutation(api.projects.linkClub, { projectId, clubId: clubBId });
+
+		const attributions = await alice.query(api.projects.listAttributions, { projectId });
+		const clubIds = attributions.attributedClubs.map((c) => c.clubId);
+		expect(clubIds).toContain(clubAId);
+		expect(clubIds).toContain(clubBId);
+	});
+
+	it('unlinkClub only removes the caller\'s own attribution row, not other members\' links to the same club', async () => {
+		const { t, projectId, clubAId, bobProfileId, learnerRoleId } = await seedAttributionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.insert('clubMembers', {
+				clubId: clubAId,
+				profileId: bobProfileId,
+				roleId: learnerRoleId,
+				createdAt: Date.now()
+			});
+		});
+		const bob = t.withIdentity({ subject: 'bob' });
+		await bob.mutation(api.projects.linkClub, { projectId, clubId: clubAId });
+
+		await bob.mutation(api.projects.unlinkClub, { projectId, clubId: clubAId });
+
+		// Alice's own attribution row to clubA (from project creation) is untouched, so the
+		// project remains attributed to clubA.
+		const attributions = await bob.query(api.projects.listAttributions, { projectId });
+		expect(attributions.attributedClubs.map((c) => c.clubId)).toContain(clubAId);
+
+		const changeLog = await bob.query(api.projects.listChangeLog, { projectId });
+		expect(changeLog.some((entry) => entry.entryType === 'club_unlinked')).toBe(true);
+	});
+
+	it('"last person out": a club disappears from attribution once its final attribution row is removed', async () => {
+		const { t, projectId, clubAId } = await seedAttributionFixture();
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		await alice.mutation(api.projects.unlinkClub, { projectId, clubId: clubAId });
+
+		const attributions = await alice.query(api.projects.listAttributions, { projectId });
+		expect(attributions.attributedClubs.map((c) => c.clubId)).not.toContain(clubAId);
+	});
+
+	it('unlinkClub does not require current club membership (can unlink a club you have since left)', async () => {
+		const { t, projectId, clubAId, aliceProfileId } = await seedAttributionFixture();
+		await t.run(async (ctx) => {
+			const membership = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', clubAId).eq('profileId', aliceProfileId)
+				)
+				.unique();
+			await ctx.db.patch(membership!._id, { leftAt: Date.now() });
+		});
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		await alice.mutation(api.projects.unlinkClub, { projectId, clubId: clubAId });
+
+		const attributions = await alice.query(api.projects.listAttributions, { projectId });
+		expect(attributions.attributedClubs.map((c) => c.clubId)).not.toContain(clubAId);
+	});
+
+	it('leaving a club does NOT remove existing attribution rows', async () => {
+		const { t, projectId, clubAId, aliceProfileId } = await seedAttributionFixture();
+		await t.run(async (ctx) => {
+			const membership = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', clubAId).eq('profileId', aliceProfileId)
+				)
+				.unique();
+			await ctx.db.patch(membership!._id, { leftAt: Date.now() });
+		});
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		const attributions = await alice.query(api.projects.listAttributions, { projectId });
+		expect(attributions.attributedClubs.map((c) => c.clubId)).toContain(clubAId);
+	});
+
+	it('cannot re-link a club after leaving it (linking requires current membership)', async () => {
+		const { t, projectId, clubAId, aliceProfileId } = await seedAttributionFixture();
+		await t.run(async (ctx) => {
+			const membership = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', clubAId).eq('profileId', aliceProfileId)
+				)
+				.unique();
+			await ctx.db.patch(membership!._id, { leftAt: Date.now() });
+		});
+		const alice = t.withIdentity({ subject: 'alice' });
+		await alice.mutation(api.projects.unlinkClub, { projectId, clubId: clubAId });
+
+		await expect(alice.mutation(api.projects.linkClub, { projectId, clubId: clubAId })).rejects.toThrow(
+			'You must be a current member of this club to link it'
+		);
+	});
+
+	it('projects.create works without a clubId (zero attribution)', async () => {
+		const t = convexTest(schema, modules);
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			await ctx.db.insert('clubRoles', {
+				key: 'learner',
+				name: 'Learner',
+				permissions: ['project:read', 'project:create'],
+				order: 1,
+				createdAt: now
+			});
+			await ctx.db.insert('projectRoles', {
+				key: 'creator',
+				name: 'Creator',
+				permissions: ['project:read', 'project:update'],
+				order: 0,
+				createdAt: now
+			});
+			const aliceProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'alice',
+				username: 'alice',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Solo club',
+				discoverable: false,
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const learnerRole = await ctx.db
+				.query('clubRoles')
+				.withIndex('by_key', (q) => q.eq('key', 'learner'))
+				.unique();
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: aliceProfileId,
+				roleId: learnerRole!._id,
+				createdAt: now
+			});
+		});
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		const project = await alice.mutation(api.projects.create, {
+			name: 'No club project',
+			description: 'desc',
+			dueDate: Date.now() + 1000
+		});
+		expect(project?._id).toBeTruthy();
+
+		const attributions = await alice.query(api.projects.listAttributions, {
+			projectId: project!._id
+		});
+		expect(attributions.attributedClubs).toHaveLength(0);
+	});
+
+	it('projects.create rejects a caller with no club:project:create permission when clubId is omitted', async () => {
+		const t = convexTest(schema, modules);
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			await ctx.db.insert('clubRoles', {
+				key: 'learner',
+				name: 'Learner',
+				permissions: ['project:read'],
+				order: 1,
+				createdAt: now
+			});
+			const aliceProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'alice',
+				username: 'alice',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Solo club',
+				discoverable: false,
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const learnerRole = await ctx.db
+				.query('clubRoles')
+				.withIndex('by_key', (q) => q.eq('key', 'learner'))
+				.unique();
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: aliceProfileId,
+				roleId: learnerRole!._id,
+				createdAt: now
+			});
+		});
+		const alice = t.withIdentity({ subject: 'alice' });
+
+		await expect(
+			alice.mutation(api.projects.create, {
+				name: 'No club project',
+				description: 'desc',
+				dueDate: Date.now() + 1000
+			})
+		).rejects.toThrow('Permission denied');
+	});
+});
+
+describe('club dashboard tabs derive from projectAttributions (CL-721/CL-723)', () => {
+	it('Current: attributed to the club AND >=1 active project member (any active member) currently belongs to it', async () => {
+		const t = convexTest(schema, modules);
+		const now = Date.now();
+		const ids = await t.run(async (ctx) => {
+			const guideRoleId = await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['project:read', 'project:create'],
+				order: 0,
+				createdAt: now
+			});
+			const contributorRoleId = await ctx.db.insert('projectRoles', {
+				key: 'contributor',
+				name: 'Contributor',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const aliceProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'alice',
+				username: 'alice',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const bobProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'bob',
+				username: 'bob',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Tabs club',
+				discoverable: false,
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: aliceProfileId,
+				roleId: guideRoleId,
+				createdAt: now
+			});
+			// Bob is an active project member and a current club member, but never personally
+			// attributed the project to this club — PRD 6.6.7 says the "Current" active-member
+			// check considers all active members, not just attributing ones.
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: bobProfileId,
+				roleId: guideRoleId,
+				createdAt: now
+			});
+
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Tabs project',
+				dueDate: now + 60_000,
+				visibility: 'clubs',
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			// Only alice's attribution row exists; bob never linked, but is an active member.
+			await ctx.db.insert('projectAttributions', {
+				projectId,
+				profileId: aliceProfileId,
+				clubId,
+				createdAt: now
+			});
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: aliceProfileId,
+				roleId: contributorRoleId,
+				createdAt: now
+			});
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: bobProfileId,
+				roleId: contributorRoleId,
+				createdAt: now
+			});
+
+			return { clubId, projectId };
+		});
+
+		const alice = t.withIdentity({ subject: 'alice' });
+		const previews = await alice.query(api.projects.listPreviewsByClub, { clubId: ids.clubId });
+		const preview = previews.find((p) => p.project._id === ids.projectId);
+		expect(preview?.isShowcase).toBe(false);
+	});
+
+	it('Showcase: attributed AND zero active members are currently in this club', async () => {
+		const t = convexTest(schema, modules);
+		const now = Date.now();
+		const ids = await t.run(async (ctx) => {
+			const guideRoleId = await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['project:read', 'project:create'],
+				order: 0,
+				createdAt: now
+			});
+			const contributorRoleId = await ctx.db.insert('projectRoles', {
+				key: 'contributor',
+				name: 'Contributor',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const aliceProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'alice',
+				username: 'alice',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Tabs club',
+				discoverable: false,
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: aliceProfileId,
+				roleId: guideRoleId,
+				createdAt: now,
+				// Alice has since left the club: attribution stays, but no active member remains.
+				leftAt: now
+			});
+
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Tabs project',
+				dueDate: now + 60_000,
+				visibility: 'clubs',
+				createdByProfileId: aliceProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('projectAttributions', {
+				projectId,
+				profileId: aliceProfileId,
+				clubId,
+				createdAt: now
+			});
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: aliceProfileId,
+				roleId: contributorRoleId,
+				createdAt: now
+			});
+
+			return { clubId, projectId };
+		});
+
+		// A club-read permission is required by listPreviewsByClub; use a fresh Guide identity
+		// still in the club to read the tab classification.
+		const guideId = await t.run(async (ctx) => {
+			const guideRoleId = await ctx.db
+				.query('clubRoles')
+				.withIndex('by_key', (q) => q.eq('key', 'guide'))
+				.unique();
+			const profileId = await ctx.db.insert('profiles', {
+				authUserId: 'reader',
+				username: 'reader',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId: ids.clubId,
+				profileId,
+				roleId: guideRoleId!._id,
+				createdAt: Date.now()
+			});
+			return profileId;
+		});
+		void guideId;
+
+		const reader = t.withIdentity({ subject: 'reader' });
+		const previews = await reader.query(api.projects.listPreviewsByClub, { clubId: ids.clubId });
+		const preview = previews.find((p) => p.project._id === ids.projectId);
+		expect(preview?.isShowcase).toBe(true);
 	});
 });

@@ -3,7 +3,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { hasPermissionForProfile, requireIdentity, requireProfile } from './permissions';
-import { isProjectArchived } from './projectsModel';
+import { isProjectArchived, listAttributedClubIds } from './projectsModel';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -35,17 +35,12 @@ const getProjectObserverAccess = async (
 	profileId: Id<'profiles'>
 ): Promise<{ canRead: boolean; canSend: boolean }> => {
 	const access = { canRead: false, canSend: false };
-	const links = await ctx.db
-		.query('projectClubs')
-		.withIndex('by_project', (q) => q.eq('projectId', projectId))
-		.collect();
+	const attributedClubIds = await listAttributedClubIds(ctx, projectId);
 
-	for (const link of links) {
+	for (const clubId of attributedClubIds) {
 		const memberships = await ctx.db
 			.query('clubMembers')
-			.withIndex('by_club_and_profile', (q) =>
-				q.eq('clubId', link.clubId).eq('profileId', profileId)
-			)
+			.withIndex('by_club_and_profile', (q) => q.eq('clubId', clubId).eq('profileId', profileId))
 			.collect();
 		for (const membership of memberships) {
 			const role = await ctx.db.get(membership.roleId);
@@ -271,12 +266,13 @@ export const listRoomSummaries = query({
 
 			const role = await ctx.db.get(membership.roleId);
 			if (role?.permissions.includes('project:read')) {
-				const links = await ctx.db
-					.query('projectClubs')
+				const attributionRows = await ctx.db
+					.query('projectAttributions')
 					.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
 					.collect();
-				for (const link of links) {
-					await addRoomByProject(ctx, rooms, link.projectId);
+				const projectIds = new Set(attributionRows.map((row) => row.projectId));
+				for (const projectId of projectIds) {
+					await addRoomByProject(ctx, rooms, projectId);
 				}
 			}
 

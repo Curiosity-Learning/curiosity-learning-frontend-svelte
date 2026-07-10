@@ -768,7 +768,15 @@ const nl = {
 		coverImageUploadLabel: 'Omslagafbeelding uploaden',
 		coverImageUploading: 'Uploaden...',
 		coverImageRemove: 'Omslagafbeelding verwijderen',
-		descriptionRequiredError: 'Beschrijving is verplicht.'
+		descriptionRequiredError: 'Beschrijving is verplicht.',
+		attributionLabel: 'Clubtoewijzing',
+		attributionAttributedTo: 'Toegewezen aan {clubName}.',
+		attributionNotAttributed: 'Wordt niet toegewezen aan een club.',
+		clubsTitle: 'Clubs',
+		clubsEmpty: 'Nog niet toegewezen aan een club.',
+		linkClubAction: 'Koppelen',
+		unlinkClubAction: 'Ontkoppelen',
+		attributionUpdateFailure: 'Kon de clubtoewijzing niet bijwerken.'
 	},
 	feed: {
 		unknownAuthor: 'Onbekend',
