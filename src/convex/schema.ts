@@ -194,6 +194,14 @@ export default defineSchema({
 	applicationReviews: defineTable({
 		applicationId: v.id('clubApplications'),
 		reviewerProfileId: v.id('profiles'),
+		// PRD 6.9.2 (CL-709): reviewers score two dimensions — alignment with the Guiding
+		// Principles and safety. `score` is kept as the computed average of the two (rounded to 1
+		// decimal) so CL-710's decision flow and CL-732's discrepancy math, which both read
+		// `score`, stay untouched. Optional only for backward-compatibility with pre-CL-709 rows;
+		// the CL-709 backfill sets both to the pre-existing `score` on every existing row, so in
+		// practice every row has them going forward.
+		principlesScore: v.optional(v.number()),
+		safetyScore: v.optional(v.number()),
 		score: v.number(),
 		note: v.string(),
 		createdAt: v.number(),
@@ -202,6 +210,32 @@ export default defineSchema({
 		.index('by_application_id', ['applicationId'])
 		.index('by_reviewer_profile_id', ['reviewerProfileId'])
 		.index('by_application_id_and_reviewer_profile_id', ['applicationId', 'reviewerProfileId']),
+
+	// PRD 6.9.2/6.9.3 (CL-709): windowed auto-assignment replaces reviewer self-select. Each row
+	// assigns one pending application to one eligible Guide for peer review during a season's
+	// review window. Unique per (applicationId, reviewerProfileId) — the assignment mutation
+	// enforces this via `by_application_id_and_reviewer_profile_id`.
+	applicationReviewAssignments: defineTable({
+		applicationId: v.id('clubApplications'),
+		reviewerProfileId: v.id('profiles'),
+		seasonId: v.id('seasons'),
+		assignedAt: v.number()
+	})
+		.index('by_application_id', ['applicationId'])
+		.index('by_application_id_and_reviewer_profile_id', ['applicationId', 'reviewerProfileId'])
+		.index('by_reviewer_profile_id', ['reviewerProfileId'])
+		// Powers "fewest assignments this season" load balancing in assignReviewsForOpenWindow.
+		.index('by_reviewer_profile_id_and_season_id', ['reviewerProfileId', 'seasonId'])
+		.index('by_season_id', ['seasonId']),
+
+	// PRD 6.9.2/6.9.3 (CL-709): tiny admin-configurable singleton for the review-assignment
+	// algorithm. Absent = defaults (reviewersPerApplication: 3, maxReviewsPerGuidePerSeason: 10).
+	// Never more than one row; adminUpdateReviewSettings upserts it.
+	reviewSettings: defineTable({
+		reviewersPerApplication: v.number(),
+		maxReviewsPerGuidePerSeason: v.number(),
+		updatedAt: v.number()
+	}),
 
 	joinRequests: defineTable({
 		clubId: v.id('clubs'),

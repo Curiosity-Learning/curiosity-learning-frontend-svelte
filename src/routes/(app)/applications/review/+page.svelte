@@ -14,19 +14,21 @@
 	const convexClient = useConvexClient();
 	const applicationsResponse = useStableQuery(api.clubApplications.listReviewableApplications, {});
 	let applications = $derived(applicationsResponse.data ?? []);
-	let scores = $state<Record<string, string>>({});
+	let principlesScores = $state<Record<string, string>>({});
+	let safetyScores = $state<Record<string, string>>({});
 	let notes = $state<Record<string, string>>({});
 	let pendingApplicationId = $state<string | null>(null);
-	let movingApplicationId = $state<string | null>(null);
 
 	const submitReview = async (applicationId: string) => {
-		const score = Number(scores[applicationId] ?? '');
+		const principlesScore = Number(principlesScores[applicationId] ?? '');
+		const safetyScore = Number(safetyScores[applicationId] ?? '');
 		const note = notes[applicationId]?.trim() ?? '';
 		pendingApplicationId = applicationId;
 		try {
 			await convexClient.mutation(api.clubApplications.upsertApplicationReview, {
 				applicationId: applicationId as Id<'clubApplications'>,
-				score,
+				principlesScore,
+				safetyScore,
 				note
 			});
 			showGlobalSnackbar({ title: 'Review saved' });
@@ -44,34 +46,12 @@
 			pendingApplicationId = null;
 		}
 	};
-
-	const moveToInterview = async (applicationId: string) => {
-		movingApplicationId = applicationId;
-		try {
-			await convexClient.mutation(api.clubApplications.moveToInterview, {
-				applicationId: applicationId as Id<'clubApplications'>
-			});
-			showGlobalSnackbar({ title: 'Moved to interview' });
-		} catch (error) {
-			captureUnexpectedOperationalError(error, {
-				area: 'admin',
-				operation: 'application-review:move-to-interview',
-				identifiers: { applicationId }
-			});
-			showGlobalSnackbar({
-				title: 'Unable to move to interview',
-				description: error instanceof Error ? error.message : 'Please try again.'
-			});
-		} finally {
-			movingApplicationId = null;
-		}
-	};
 </script>
 
 <div class="flex w-full flex-col gap-6 py-6">
 	<div class="flex flex-col gap-2">
 		<h1 class="text-2xl font-bold text-gray-900">Club applications</h1>
-		<p class="text-sm leading-6 text-gray-600">Review pending Start Club applications.</p>
+		<p class="text-sm leading-6 text-gray-600">Assigned to you for peer review.</p>
 	</div>
 
 	{#if applicationsResponse.isLoading}
@@ -82,7 +62,7 @@
 		</p>
 	{:else if applications.length === 0}
 		<p class="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
-			No applications are ready for your review.
+			No applications are currently assigned to you for review.
 		</p>
 	{:else}
 		<div class="grid gap-4">
@@ -97,19 +77,37 @@
 							{#if application.description}<p>{application.description}</p>{/if}
 						</div>
 
-						<div class="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)_auto]">
-							<Input
-								type="number"
-								min="0"
-								max="10"
-								step="1"
-								placeholder="0-10"
-								value={scores[application._id] ?? application.myReview?.score?.toString() ?? ''}
-								oninput={(event) => (scores[application._id] = event.currentTarget.value)}
-							/>
+						<div class="grid gap-3 sm:grid-cols-2">
+							<label class="flex flex-col gap-1 text-sm text-gray-600">
+								Guiding Principles alignment (0-10)
+								<Input
+									type="number"
+									min="0"
+									max="10"
+									step="1"
+									placeholder="0-10"
+									value={principlesScores[application._id] ?? ''}
+									oninput={(event) =>
+										(principlesScores[application._id] = event.currentTarget.value)}
+								/>
+							</label>
+							<label class="flex flex-col gap-1 text-sm text-gray-600">
+								Safety (0-10)
+								<Input
+									type="number"
+									min="0"
+									max="10"
+									step="1"
+									placeholder="0-10"
+									value={safetyScores[application._id] ?? ''}
+									oninput={(event) => (safetyScores[application._id] = event.currentTarget.value)}
+								/>
+							</label>
+						</div>
+						<div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
 							<Textarea
 								placeholder="Required review note"
-								value={notes[application._id] ?? application.myReview?.note ?? ''}
+								value={notes[application._id] ?? ''}
 								oninput={(event) => (notes[application._id] = event.currentTarget.value)}
 							/>
 							<Button
@@ -119,23 +117,6 @@
 								{pendingApplicationId === application._id ? 'Saving...' : 'Save'}
 							</Button>
 						</div>
-
-						{#if application.myReview}
-							<div class="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-								<p class="text-sm text-gray-600">
-									Once reviewers have scored this application, move it to the interview stage to
-									open scheduling in the applicant's chat.
-								</p>
-								<Button
-									variant="outline"
-									class="shrink-0"
-									disabled={movingApplicationId === application._id}
-									onclick={() => void moveToInterview(application._id)}
-								>
-									{movingApplicationId === application._id ? 'Moving...' : 'Move to interview'}
-								</Button>
-							</div>
-						{/if}
 					</CardContent>
 				</Card>
 			{/each}

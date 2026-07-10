@@ -14,6 +14,10 @@ import {
 import { ensureClubApplicationRoom, ensureClubRoom } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
 import { assignClubToCocGroup } from './cocModel';
+import {
+	assignReviewsForApplicationIfWindowOpen,
+	maybeNotifyScoreDiscrepancy
+} from './reviewAssignmentModel';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -289,6 +293,9 @@ export const submitApplication = mutation({
 				applicantRole: payload.applicantRole,
 				referralSource: payload.referralSource
 			});
+			// PRD 6.9.2 point 3: if a review window is currently open, assign this application
+			// right away instead of waiting for the next daily cron pass.
+			await assignReviewsForApplicationIfWindowOpen(ctx, existing._id);
 			return { applicationId: existing._id };
 		}
 
@@ -306,6 +313,9 @@ export const submitApplication = mutation({
 			applicantRole: payload.applicantRole,
 			referralSource: payload.referralSource
 		});
+
+		// PRD 6.9.2 point 3: rolling mid-window assignment for new submissions too.
+		await assignReviewsForApplicationIfWindowOpen(ctx, applicationId);
 
 		return { applicationId };
 	}
@@ -335,6 +345,23 @@ export const listMyApplications = query({
 	}
 });
 
+// Assignment rows for a given reviewer, keyed by applicationId, for quick lookup.
+const getAssignment = async (
+	ctx: Ctx,
+	applicationId: Id<'clubApplications'>,
+	reviewerProfileId: Id<'profiles'>
+) => {
+	return await ctx.db
+		.query('applicationReviewAssignments')
+		.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+			q.eq('applicationId', applicationId).eq('reviewerProfileId', reviewerProfileId)
+		)
+		.unique();
+};
+
+// CL-709: assignment-based. Only applications ASSIGNED to the current Guide (still pending, not
+// yet reviewed by them) show up — this replaces the old self-select "every pending application"
+// list.
 export const listReviewableApplications = query({
 	args: {},
 	returns: v.any(),
@@ -342,31 +369,28 @@ export const listReviewableApplications = query({
 		const identity = await requireIdentity(ctx);
 		await requireGuideSomewhere(ctx, identity.subject);
 		const profile = await requireProfile(ctx, identity.subject);
-		const applications = await ctx.db
-			.query('clubApplications')
-			.withIndex('by_status_and_created_at', (q) => q.eq('status', 'pending'))
-			.order('desc')
+
+		const assignments = await ctx.db
+			.query('applicationReviewAssignments')
+			.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
 			.collect();
 
 		const items = [];
-		for (const application of applications) {
-			if (application.applicantProfileId === profile._id) continue;
-			const existingReview = await ctx.db
-				.query('applicationReviews')
-				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
-					q.eq('applicationId', application._id).eq('reviewerProfileId', profile._id)
-				)
-				.unique();
-			items.push({ ...application, myReview: existingReview ?? null });
+		for (const assignment of assignments) {
+			const application = await ctx.db.get(assignment.applicationId);
+			if (!application || application.status !== 'pending') continue;
+			const existingReview = await getApplicationReview(ctx, application._id, profile._id);
+			if (existingReview) continue;
+			items.push({ ...application, myReview: null });
 		}
+		items.sort((a, b) => b.createdAt - a.createdAt);
 		return items;
 	}
 });
 
-// Count of pending applications still awaiting the current Guide's review (no
-// applicationReviews row from them yet). Powers the badge on the Application Reviews entry
-// point (PRD 6.13: no per-review notifications, just a count badge). Returns null when the
-// viewer is not a Guide anywhere (the entry point is hidden entirely for them).
+// Count of assigned-but-unreviewed applications for the current Guide. Powers the badge on the
+// Application Reviews entry point (PRD 6.13: no per-review notifications, just a count badge).
+// Returns null when the viewer is not a Guide anywhere (the entry point is hidden for them).
 export const countReviewableApplications = query({
 	args: {},
 	returns: v.union(v.number(), v.null()),
@@ -377,30 +401,34 @@ export const countReviewableApplications = query({
 		if (!profile) return null;
 		if (!(await isGuideSomewhere(ctx, identity.subject))) return null;
 
-		const applications = await ctx.db
-			.query('clubApplications')
-			.withIndex('by_status_and_created_at', (q) => q.eq('status', 'pending'))
+		const assignments = await ctx.db
+			.query('applicationReviewAssignments')
+			.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
 			.collect();
 
 		let count = 0;
-		for (const application of applications) {
-			if (application.applicantProfileId === profile._id) continue;
-			const existingReview = await ctx.db
-				.query('applicationReviews')
-				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
-					q.eq('applicationId', application._id).eq('reviewerProfileId', profile._id)
-				)
-				.unique();
+		for (const assignment of assignments) {
+			const application = await ctx.db.get(assignment.applicationId);
+			if (!application || application.status !== 'pending') continue;
+			const existingReview = await getApplicationReview(ctx, application._id, profile._id);
 			if (!existingReview) count += 1;
 		}
 		return count;
 	}
 });
 
+const clampScore = (value: number, label: string) => {
+	if (!Number.isInteger(value) || value < 0 || value > 10) {
+		throw new ConvexError(`${label} must be an integer from 0 to 10`);
+	}
+	return value;
+};
+
 export const upsertApplicationReview = mutation({
 	args: {
 		applicationId: v.id('clubApplications'),
-		score: v.number(),
+		principlesScore: v.number(),
+		safetyScore: v.number(),
 		note: v.string()
 	},
 	returns: v.object({
@@ -420,42 +448,54 @@ export const upsertApplicationReview = mutation({
 		if (application.applicantProfileId === profile._id) {
 			throw new ConvexError('You cannot review your own application');
 		}
-		if (!Number.isInteger(args.score) || args.score < 0 || args.score > 10) {
-			throw new ConvexError('Score must be an integer from 0 to 10');
-		}
+		const principlesScore = clampScore(args.principlesScore, 'Guiding Principles score');
+		const safetyScore = clampScore(args.safetyScore, 'Safety score');
 		const note = args.note.trim();
 		if (!note) {
 			throw new ConvexError('Review note is required');
 		}
 
+		const existing = await getApplicationReview(ctx, args.applicationId, profile._id);
+		// CL-709: reviewing requires an assignment — unless a review row already exists (ops/admin
+		// escape hatch: a Guide who reviewed before assignment existed, e.g. via direct data access,
+		// can still edit their own review; this also keeps CL-710's decision flow, which is gated
+		// on "has an applicationReviews row" rather than on assignment, working unchanged).
+		if (!existing) {
+			const assignment = await getAssignment(ctx, args.applicationId, profile._id);
+			if (!assignment) {
+				throw new ConvexError('This application is not assigned to you');
+			}
+		}
+
+		const score = Math.round(((principlesScore + safetyScore) / 2) * 10) / 10;
 		const now = Date.now();
-		const existing = await ctx.db
-			.query('applicationReviews')
-			.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
-				q.eq('applicationId', args.applicationId).eq('reviewerProfileId', profile._id)
-			)
-			.unique();
 
 		if (existing) {
 			await ctx.db.patch(existing._id, {
 				reviewerProfileId: profile._id,
-				score: args.score,
+				principlesScore,
+				safetyScore,
+				score,
 				note,
 				updatedAt: now
 			});
 			await ensureClubApplicationRoom(ctx, args.applicationId);
+			await maybeNotifyScoreDiscrepancy(ctx, args.applicationId);
 			return { reviewId: existing._id };
 		}
 
 		const reviewId = await ctx.db.insert('applicationReviews', {
 			applicationId: args.applicationId,
 			reviewerProfileId: profile._id,
-			score: args.score,
+			principlesScore,
+			safetyScore,
+			score,
 			note,
 			createdAt: now,
 			updatedAt: now
 		});
 		await ensureClubApplicationRoom(ctx, args.applicationId);
+		await maybeNotifyScoreDiscrepancy(ctx, args.applicationId);
 		return { reviewId };
 	}
 });

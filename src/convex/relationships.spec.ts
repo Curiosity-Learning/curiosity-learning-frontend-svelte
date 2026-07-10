@@ -204,6 +204,22 @@ describe('relational integrity', () => {
 				createdAt: now,
 				updatedAt: now
 			});
+			const seasonId = await ctx.db.insert('seasons', {
+				name: 'Test season',
+				startDate: now,
+				endDate: now + 1,
+				reviewWindowOpen: now - 1,
+				reviewWindowClose: now + 1,
+				feedbackDeadline: now + 2,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId: guideProfileId,
+				seasonId,
+				assignedAt: now
+			});
 			return { guideProfileId, applicationId };
 		});
 		const guide = t.withIdentity({ subject: 'guide-user' });
@@ -213,7 +229,8 @@ describe('relational integrity', () => {
 
 		const result = await guide.mutation(api.clubApplications.upsertApplicationReview, {
 			applicationId: ids.applicationId,
-			score: 8,
+			principlesScore: 8,
+			safetyScore: 8,
 			note: 'Strong application'
 		});
 		const review = await t.run((ctx) => ctx.db.get(result.reviewId));

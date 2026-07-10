@@ -53,6 +53,7 @@ import type * as projects from "../projects.js";
 import type * as projectsModel from "../projectsModel.js";
 import type * as rateLimiting from "../rateLimiting.js";
 import type * as reports from "../reports.js";
+import type * as reviewAssignmentModel from "../reviewAssignmentModel.js";
 import type * as roles from "../roles.js";
 import type * as scheduleModel from "../scheduleModel.js";
 import type * as seasons from "../seasons.js";
@@ -113,6 +114,7 @@ declare const fullApi: ApiFromModules<{
   projectsModel: typeof projectsModel;
   rateLimiting: typeof rateLimiting;
   reports: typeof reports;
+  reviewAssignmentModel: typeof reviewAssignmentModel;
   roles: typeof roles;
   scheduleModel: typeof scheduleModel;
   seasons: typeof seasons;

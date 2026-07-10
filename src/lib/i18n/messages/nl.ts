@@ -724,6 +724,12 @@ const nl = {
 		rejecting: 'Afwijzen...',
 		acceptFailure: 'Kan deze aanvraag niet accepteren.',
 		rejectFailure: 'Kan deze aanvraag niet afwijzen.',
+		moveToInterviewButton: 'Verplaats naar interview',
+		movingToInterview: 'Verplaatsen...',
+		moveToInterviewFailure: 'Kan deze aanvraag niet naar de interviewfase verplaatsen.',
+		pendingBannerTitle: 'Deze aanvraag is aan jou toegewezen voor beoordeling',
+		pendingBannerDescription:
+			'Zodra beoordelaars deze aanvraag hebben gescoord, verplaats je hem naar de interviewfase om hier te kunnen plannen.',
 		confirmOnboardingButton: 'Bevestig dat het onboardinggesprek heeft plaatsgevonden',
 		confirmingOnboarding: 'Bevestigen...',
 		confirmOnboardingFailure: 'Kan het onboardinggesprek niet bevestigen.',
