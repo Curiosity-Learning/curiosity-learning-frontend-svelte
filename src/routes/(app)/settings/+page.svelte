@@ -15,6 +15,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
@@ -34,6 +35,55 @@
 	const legalDocumentsResponse = useStableQuery(api.legalDocuments.listActive, () =>
 		$session.data ? {} : 'skip'
 	);
+
+	// PRD 2.4/6.1.10 (CL-703): "View as Child". Parent side: lazily claim any approved
+	// parentChildConsents rows into parentLinks once per settings page load, then list them.
+	// Child side: whether this account has a linked parent, and whether they're old enough (>=16)
+	// to unlink it themselves.
+	let parentLinksSynced = $state(false);
+	$effect(() => {
+		if (parentLinksSynced) return;
+		if (!$session.data) return;
+		parentLinksSynced = true;
+		void convexClient.mutation(api.parentAccounts.syncParentLinks, {}).catch(() => {
+			// Best-effort: if this fails, getMyLinkedChildren just returns whatever was already
+			// claimed on a prior visit.
+		});
+	});
+	const linkedChildrenResponse = useStableQuery(api.parentAccounts.getMyLinkedChildren, () =>
+		$session.data ? {} : 'skip'
+	);
+	const myParentLinkResponse = useStableQuery(api.parentAccounts.getMyParentLink, () =>
+		$session.data ? {} : 'skip'
+	);
+	let linkedChildren = $derived(linkedChildrenResponse.data ?? []);
+	let myParentLink = $derived(myParentLinkResponse.data ?? null);
+
+	const childDisplayName = (child: { firstName: string | null; lastName: string | null; username: string | null }) =>
+		[child.firstName, child.lastName].filter(Boolean).join(' ').trim() ||
+		child.username ||
+		t('profileDetail.fallbackName');
+
+	let unlinkDialogOpen = $state(false);
+	let unlinkPending = $state(false);
+	let unlinkError = $state('');
+
+	const confirmUnlinkParent = async () => {
+		if (!myParentLink) return;
+		unlinkPending = true;
+		unlinkError = '';
+		try {
+			await convexClient.mutation(api.parentAccounts.unlinkParent, {
+				parentProfileId: myParentLink.parentProfileId
+			});
+			successMessage = t('parentAccounts.unlinkSuccess');
+			unlinkDialogOpen = false;
+		} catch (error) {
+			unlinkError = error instanceof Error ? error.message : t('parentAccounts.unlinkFailure');
+		} finally {
+			unlinkPending = false;
+		}
+	};
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
 		mode: 'immediate'
 	});
@@ -432,6 +482,62 @@
 		</CardContent>
 	</Card>
 
+	{#if linkedChildren.length > 0}
+		<Card>
+			<CardHeader class="flex flex-col gap-2">
+				<CardTitle>{$_('parentAccounts.linkedChildrenTitle')}</CardTitle>
+				<CardDescription>{$_('parentAccounts.linkedChildrenDescription')}</CardDescription>
+			</CardHeader>
+			<CardContent class="flex flex-col gap-2">
+				{#each linkedChildren as child (child.childProfileId)}
+					<div
+						class="flex items-center justify-between gap-4 rounded-lg border border-border/70 p-3"
+					>
+						<div class="flex flex-col">
+							<p class="type-sm-bold text-foreground">{childDisplayName(child)}</p>
+							{#if child.username}
+								<p class="text-sm text-muted-foreground">@{child.username}</p>
+							{/if}
+						</div>
+						<Button href={routes.childOverview(child.childProfileId)} variant="outline">
+							{t('parentAccounts.viewAsAction').replace('{name}', childDisplayName(child))}
+						</Button>
+					</div>
+				{/each}
+			</CardContent>
+		</Card>
+	{/if}
+
+	{#if myParentLink}
+		<Card>
+			<CardHeader class="flex flex-col gap-2">
+				<CardTitle>{$_('parentAccounts.linkedParentTitle')}</CardTitle>
+				<CardDescription>{$_('parentAccounts.linkedParentDescription')}</CardDescription>
+			</CardHeader>
+			<CardContent class="flex flex-col gap-3">
+				<div class="flex items-center justify-between gap-4 rounded-lg border border-border/70 p-3">
+					<p class="type-sm-bold text-foreground">
+						{[myParentLink.parentFirstName, myParentLink.parentLastName]
+							.filter(Boolean)
+							.join(' ')
+							.trim() || t('profileDetail.fallbackName')}
+					</p>
+					{#if myParentLink.canUnlink}
+						<Button
+							variant="outline"
+							onclick={() => {
+								unlinkError = '';
+								unlinkDialogOpen = true;
+							}}
+						>
+							{$_('parentAccounts.unlinkAction')}
+						</Button>
+					{/if}
+				</div>
+			</CardContent>
+		</Card>
+	{/if}
+
 	<Card>
 		<CardHeader class="flex flex-col gap-2">
 			<CardTitle>{$_('settingsPage.policiesTitle')}</CardTitle>
@@ -444,3 +550,25 @@
 		</CardContent>
 	</Card>
 </div>
+
+<Dialog.Root bind:open={unlinkDialogOpen}>
+	<Dialog.Content>
+		<Dialog.Header>
+			<Dialog.Title>{$_('parentAccounts.unlinkConfirmTitle')}</Dialog.Title>
+			<Dialog.Description>{$_('parentAccounts.unlinkConfirmDescription')}</Dialog.Description>
+		</Dialog.Header>
+		{#if unlinkError}
+			<Alert variant="destructive">
+				<AlertDescription>{unlinkError}</AlertDescription>
+			</Alert>
+		{/if}
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => (unlinkDialogOpen = false)} disabled={unlinkPending}>
+				{$_('parentAccounts.unlinkCancel')}
+			</Button>
+			<Button variant="destructive" disabled={unlinkPending} onclick={() => void confirmUnlinkParent()}>
+				{$_('parentAccounts.unlinkConfirmAction')}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
