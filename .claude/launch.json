@@ -1,0 +1,18 @@
+{
+	"version": "0.0.1",
+	"configurations": [
+		{
+			"name": "web",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": ["run", "dev", "--", "--port", "4173", "--strictPort"],
+			"port": 4173,
+			"autoPort": false
+		},
+		{
+			"name": "convex",
+			"runtimeExecutable": "npx",
+			"runtimeArgs": ["convex", "dev"],
+			"port": 3210
+		}
+	]
+}
