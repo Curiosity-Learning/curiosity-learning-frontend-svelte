@@ -68,6 +68,20 @@ export default defineSchema({
 		// Set when the club has no remaining Guides (PRD 6.2.3). Codes are invalidated and the
 		// club is excluded from discovery; history (sessions/projects/chat) stays intact.
 		abandonedAt: v.optional(v.number()),
+		// PRD 6.10/5.3: distinguishes a regular Curiosity Club from a Club of Clubs (CoC) group.
+		// CoC groups are clubs rows too, so they get chat/sessions/projects/attendance "for free".
+		// Optional only so pre-existing dev rows can be backfilled via clubs.backfillClubKind;
+		// once backfilled, every row has a kind and new rows always set it explicitly.
+		kind: v.optional(v.union(v.literal('curiosity'), v.literal('coc'))),
+		// Set on a Curiosity Club once it is auto-assigned to a CoC group at launch (CL-707).
+		// Points at the CoC group's clubs row. One assignment per club, permanent for v1 (leaving
+		// the CoC via the normal leave-club path is possible and out of scope to prevent, see
+		// clubs.ts leaveClub).
+		cocGroupId: v.optional(v.id('clubs')),
+		// Set on a CoC group club at creation time (CL-707), derived from its first member club's
+		// longitude. Used to keep matching newly-launched clubs to groups within +/-3h without
+		// recomputing from member clubs on every assignment.
+		timezoneOffset: v.optional(v.number()),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
@@ -75,7 +89,9 @@ export default defineSchema({
 		.index('by_created_by_profile', ['createdByProfileId'])
 		.index('by_club_code', ['clubCode'])
 		.index('by_guide_invite_code', ['guideInviteCode'])
-		.index('by_video_media_asset', ['videoMediaAssetId']),
+		.index('by_video_media_asset', ['videoMediaAssetId'])
+		.index('by_coc_group', ['cocGroupId'])
+		.index('by_kind', ['kind']),
 
 	clubScheduleSlots: defineTable({
 		clubId: v.id('clubs'),

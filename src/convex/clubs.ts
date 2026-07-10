@@ -24,6 +24,7 @@ import { ensureClubRoom } from './chatModel';
 import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsModel';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
+import { addNewGuideToClubsCocGroup, assignClubToCocGroup } from './cocModel';
 
 // Authenticated users get a per-user window; unauthenticated code-preview lookups have no
 // reliable client identity in a Convex function, so we apply a modest global-per-code
@@ -190,6 +191,9 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubCode: club.clubCode ?? null,
 		clubGuideInviteCode: club.guideInviteCode ?? null,
 		clubDiscoverable: club.discoverable,
+		// Defaults to 'curiosity' for legacy rows predating the kind backfill; see
+		// clubs.backfillClubKind.
+		clubKind: club.kind ?? 'curiosity',
 		memberId: membership._id,
 		memberProfileId: profile?._id ?? null,
 		memberUserId: profile ? getProfileAuthUserId(profile) : null,
@@ -467,8 +471,14 @@ export const listPublicClubs = query({
 		const clubs = await ctx.db.query('clubs').collect();
 		// Belt and braces: abandonment already clears clubCode/discoverable, but exclude
 		// abandoned clubs explicitly too (PRD 6.2.3 — no one can join an abandoned club).
+		// Club of Clubs groups are always excluded: they're an internal Guide support
+		// structure, never a public/discoverable Curiosity Club (PRD 6.10).
 		const publicClubs = clubs.filter(
-			(club) => Boolean(club.clubCode) && club.discoverable && !club.abandonedAt
+			(club) =>
+				Boolean(club.clubCode) &&
+				club.discoverable &&
+				!club.abandonedAt &&
+				club.kind !== 'coc'
 		);
 
 		return await Promise.all(
@@ -598,6 +608,7 @@ export const createClub = mutation({
 			videoMediaAssetId: args.videoMediaAssetId,
 			// Private by default: newly created clubs must be explicitly opted in to discovery.
 			discoverable: false,
+			kind: 'curiosity',
 			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
@@ -633,6 +644,12 @@ export const createClub = mutation({
 			firstLoginCompleted: true,
 			updatedAt: now
 		});
+
+		const createdClub = await ctx.db.get(clubId);
+		if (createdClub) {
+			// CL-707: auto-assign every newly launched Curiosity Club to a Club of Clubs group.
+			await assignClubToCocGroup(ctx, createdClub, profile._id);
+		}
 
 		return { clubId, code: inviteCode };
 	}
@@ -754,6 +771,9 @@ export const joinClubWithGuideInviteCode = mutation({
 			updatedAt: Date.now()
 		});
 		await notifyGuidesOfNewMember(ctx, club._id, profile);
+		// CL-707: a new Guide (via guide invite code) also gets guide access to the club's
+		// Club of Clubs group, if it has one.
+		await addNewGuideToClubsCocGroup(ctx, club, profile._id);
 
 		return {
 			ok: true as const,
@@ -1233,6 +1253,11 @@ export const promoteMember = mutation({
 			title: 'Promoted to Guide',
 			message: `You have been promoted to Guide in ${club?.name ?? 'the club'}.`
 		});
+		// CL-707: a newly promoted Guide also gets guide access to the club's Club of Clubs
+		// group, if it has one.
+		if (club) {
+			await addNewGuideToClubsCocGroup(ctx, club, target.profileId);
+		}
 
 		return { success: true };
 	}
@@ -1341,6 +1366,24 @@ export const backfillDiscoverable = internalMutation({
 		for (const club of clubs) {
 			if (club.discoverable !== undefined) continue;
 			await ctx.db.patch(club._id, { discoverable: true });
+			updated += 1;
+		}
+		return { updated, total: clubs.length };
+	}
+});
+
+// One-off backfill migration (CL-707): pre-existing clubs predate the `kind` field. Every
+// existing club at the time of this migration is a Curiosity Club — Club of Clubs groups are a
+// brand new concept and only ever get created going forward by assignClubToCocGroup. Run once
+// via `npx convex run clubs:backfillClubKind` after deploying the schema change, then delete.
+export const backfillClubKind = internalMutation({
+	args: {},
+	handler: async (ctx) => {
+		const clubs = await ctx.db.query('clubs').collect();
+		let updated = 0;
+		for (const club of clubs) {
+			if (club.kind !== undefined) continue;
+			await ctx.db.patch(club._id, { kind: 'curiosity' });
 			updated += 1;
 		}
 		return { updated, total: clubs.length };
