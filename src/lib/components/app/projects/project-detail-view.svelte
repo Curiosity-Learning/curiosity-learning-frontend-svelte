@@ -1,10 +1,13 @@
 <script lang="ts">
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import SendIcon from '@lucide/svelte/icons/send';
 	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
+	import VideoIcon from '@lucide/svelte/icons/video';
+	import XIcon from '@lucide/svelte/icons/x';
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
@@ -39,7 +42,7 @@
 		ItemMedia,
 		ItemTitle
 	} from '$lib/components/ui/item';
-	import { createMediaField } from '$lib/media/media-field.svelte';
+	import { createMediaField, createMultiMediaField } from '$lib/media/media-field.svelte';
 	import { createDebouncedLookup } from '$lib/forms/debounced-lookup';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
@@ -148,8 +151,26 @@
 		editCoverRemoved = true;
 	};
 
+	const UPDATE_CONTENT_MAX_LENGTH = 1000;
+	const UPDATE_MAX_ATTACHMENTS = 4;
+
 	let updateContent = $state('');
 	let updatePending = $state(false);
+	// PRD 6.7.1: up to 4 images/videos attached to a project update, uploaded as soon as they're
+	// selected so `postUpdate` mostly just waits for stragglers (see `ensureAllUploaded`).
+	const updateAttachmentsField = createMultiMediaField(convexClient, 'updateAttachment', {
+		maxItems: UPDATE_MAX_ATTACHMENTS
+	});
+	let updateAttachmentError = $state('');
+
+	onDestroy(() => {
+		updateAttachmentsField.destroy();
+	});
+
+	const selectUpdateAttachments = (files: File[]) => {
+		updateAttachmentError = '';
+		updateAttachmentsField.addFiles(files);
+	};
 
 	let imDoneDialogOpen = $state(false);
 	let imDonePending = $state(false);
@@ -567,12 +588,16 @@
 		if (!projectIdTyped || !updateContent.trim()) return;
 		updatePending = true;
 		errorMessage = '';
+		updateAttachmentError = '';
 		try {
+			const mediaAssetIds = await updateAttachmentsField.ensureAllUploaded();
 			await convexClient.mutation(api.updates.create, {
 				projectId: projectIdTyped,
-				content: updateContent.trim()
+				content: updateContent.trim(),
+				mediaAssetIds
 			});
 			updateContent = '';
+			updateAttachmentsField.reset();
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to post update.';
 		} finally {
@@ -814,22 +839,106 @@
 				{#if canManage && viewerIsDone}
 					<p class="type-sm text-muted-foreground">{$_('projectDetail.doneMemberEditNotice')}</p>
 				{:else if canManage}
-					<div class="flex gap-3">
-						<Textarea
-							bind:value={updateContent}
-							placeholder="Post an update..."
-							rows={2}
-							class="flex-1 resize-none"
-						/>
-						<Button
-							size="icon"
-							variant="ghost"
-							disabled={updatePending || !updateContent.trim()}
-							onclick={() => void postUpdate()}
-							aria-label="Post update"
-						>
-							<SendIcon class="size-5" />
-						</Button>
+					<div class="flex flex-col gap-2">
+						<div class="flex gap-3">
+							<Textarea
+								bind:value={updateContent}
+								placeholder="Post an update..."
+								rows={2}
+								maxlength={UPDATE_CONTENT_MAX_LENGTH}
+								class="flex-1 resize-none"
+							/>
+							<div class="flex flex-col items-center gap-1">
+								<FileDropZone.Root
+									accept={updateAttachmentsField.accept}
+									maxFiles={UPDATE_MAX_ATTACHMENTS}
+									fileCount={updateAttachmentsField.count}
+									maxFileSize={updateAttachmentsField.maxBytes}
+									disabled={updatePending || updateAttachmentsField.count >= UPDATE_MAX_ATTACHMENTS}
+									onUpload={async (files) => selectUpdateAttachments(files)}
+								>
+									<FileDropZone.Trigger>
+										<div
+											class="inline-flex size-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+											aria-label={t('projectDetail.updateAttachAction')}
+										>
+											<ImagePlusIcon class="size-4" />
+										</div>
+									</FileDropZone.Trigger>
+								</FileDropZone.Root>
+								<Button
+									size="icon"
+									variant="ghost"
+									disabled={updatePending ||
+										!updateContent.trim() ||
+										updateAttachmentsField.isBusy ||
+										updateAttachmentsField.hasFailures}
+									onclick={() => void postUpdate()}
+									aria-label="Post update"
+								>
+									<SendIcon class="size-5" />
+								</Button>
+							</div>
+						</div>
+
+						{#if updateAttachmentsField.count > 0}
+							<div class="flex flex-wrap gap-2">
+								{#each updateAttachmentsField.items as item (item.key)}
+									<div
+										class="relative size-16 shrink-0 overflow-hidden rounded-lg border border-border/70 bg-muted/30"
+									>
+										{#if item.localPreviewUrl && item.mediaKind === 'image'}
+											<img src={item.localPreviewUrl} alt="" class="size-full object-cover" />
+										{:else if item.localPreviewUrl && item.mediaKind === 'video'}
+											<video
+												src={item.localPreviewUrl}
+												class="size-full object-cover"
+												muted
+												aria-hidden="true"
+											></video>
+											<div
+												class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30"
+											>
+												<VideoIcon class="size-4 text-white" />
+											</div>
+										{:else}
+											<div class="flex size-full items-center justify-center">
+												<ImagePlusIcon class="size-4 text-muted-foreground" />
+											</div>
+										{/if}
+
+										{#if item.phase === 'uploading' || item.phase === 'processing'}
+											<div
+												class="absolute inset-0 flex items-center justify-center bg-black/40 type-caption text-white"
+											>
+												...
+											</div>
+										{/if}
+
+										<button
+											type="button"
+											class="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+											aria-label={t('projectDetail.updateAttachRemoveAction')}
+											onclick={() => updateAttachmentsField.remove(item.key)}
+										>
+											<XIcon class="size-3" />
+										</button>
+
+										{#if item.phase === 'failed'}
+											<div
+												class="absolute inset-0 flex items-center justify-center bg-destructive/80 p-1 text-center type-caption text-white"
+											>
+												{item.errorMessage || t('projectDetail.updateAttachUploadFailure')}
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}
+
+						{#if updateAttachmentError}
+							<p class="type-sm text-destructive">{updateAttachmentError}</p>
+						{/if}
 					</div>
 				{/if}
 
