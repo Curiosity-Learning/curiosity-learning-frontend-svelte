@@ -27,7 +27,7 @@
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
-	import { t } from '$lib/i18n';
+	import { formatT, t } from '$lib/i18n';
 	import ClubProjectCard from './club-project-card.svelte';
 
 	const PROJECT_NAME_MAX_LENGTH = 50;
@@ -63,6 +63,9 @@
 	let createDescription = $state('');
 	let createDueDate = $state<number | null>(null);
 	let createVisibility = $state<'clubs' | 'global'>('clubs');
+	// PRD 6.6.2/6.6.6: creating from within a club dashboard defaults attribution to that club,
+	// but attribution is optional — a member can opt out via this toggle instead.
+	let createAttributeToClub = $state(true);
 	let createPending = $state(false);
 	let createError = $state('');
 
@@ -96,6 +99,7 @@
 		createDescription = '';
 		createDueDate = null;
 		createVisibility = 'clubs';
+		createAttributeToClub = true;
 		createError = '';
 		coverUploadError = '';
 		createCoverField.clear();
@@ -116,7 +120,7 @@
 		try {
 			const coverImageMediaAssetId = await createCoverField.ensureUploaded();
 			const project = await convexClient.mutation(api.projects.create, {
-				clubId: clubIdTyped,
+				clubId: createAttributeToClub ? clubIdTyped : undefined,
 				name: createName.trim(),
 				description: createDescription.trim(),
 				dueDate: createDueDate,
@@ -322,6 +326,27 @@
 					<FieldLabel for="projectDueDate" required>Due date</FieldLabel>
 					<DatePicker id="projectDueDate" bind:value={createDueDate} />
 				</div>
+
+				{#if clubItem}
+					<div
+						class="flex items-start justify-between gap-4 rounded-lg border border-border/70 p-3"
+					>
+						<div class="flex flex-col gap-1">
+							<Label for="projectAttributeToClub">{t('projectDetail.attributionLabel')}</Label>
+							<p class="type-sm text-muted-foreground">
+								{createAttributeToClub
+									? formatT('projectDetail.attributionAttributedTo', { clubName: clubItem.clubName })
+									: t('projectDetail.attributionNotAttributed')}
+							</p>
+						</div>
+						<Switch
+							id="projectAttributeToClub"
+							checked={createAttributeToClub}
+							onCheckedChange={(checked: boolean) => (createAttributeToClub = checked)}
+							class="mt-1 shrink-0"
+						/>
+					</div>
+				{/if}
 
 				<div
 					class="flex items-start justify-between gap-4 rounded-lg border border-border/70 p-3"

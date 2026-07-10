@@ -115,7 +115,9 @@ export const insertProjectChangeLog = async (
 			| 'description_changed'
 			| 'deadline_changed'
 			| 'visibility_changed'
-			| 'cover_changed';
+			| 'cover_changed'
+			| 'club_linked'
+			| 'club_unlinked';
 		text: string;
 	}
 ) => {
@@ -129,10 +131,27 @@ export const insertProjectChangeLog = async (
 };
 
 /**
+ * PRD 5.11/6.6.6: a project's "attributed clubs" is the distinct set of `clubId`s across all its
+ * `projectAttributions` rows (per-member links), regardless of which member owns each row. This
+ * is the single source of truth other helpers/queries should use rather than re-querying
+ * `projectAttributions` and de-duping themselves.
+ */
+export const listAttributedClubIds = async (
+	ctx: Ctx,
+	projectId: Id<'projects'>
+): Promise<Array<Id<'clubs'>>> => {
+	const rows = await ctx.db
+		.query('projectAttributions')
+		.withIndex('by_project', (q) => q.eq('projectId', projectId))
+		.collect();
+	return [...new Set(rows.map((row) => row.clubId))];
+};
+
+/**
  * PRD 6.6.2/6.6.11: direct-access (getById and other project-detail reads) visibility gate.
  * 'global' projects are viewable by any authenticated user. 'clubs' projects are viewable only
- * by (a) members of a club the project is currently attributed to (`projectClubs`), or (b) the
- * project's own members (so a member can still view/manage a project after leaving every
+ * by (a) members of a club the project is currently attributed to (`projectAttributions`), or (b)
+ * the project's own members (so a member can still view/manage a project after leaving every
  * attributed club, or one with zero attribution at all). This is intentionally independent of
  * `isProjectPermissionAllowed`'s role-permission check — visibility governs *whether the
  * project can be viewed at all*, while that helper governs role-scoped actions once access is
@@ -170,16 +189,11 @@ export const canViewProject = async (
 		return true;
 	}
 
-	const links = await ctx.db
-		.query('projectClubs')
-		.withIndex('by_project', (q) => q.eq('projectId', projectId))
-		.collect();
-	for (const link of links) {
+	const attributedClubIds = await listAttributedClubIds(ctx, projectId);
+	for (const clubId of attributedClubIds) {
 		const clubMemberships = await ctx.db
 			.query('clubMembers')
-			.withIndex('by_club_and_profile', (q) =>
-				q.eq('clubId', link.clubId).eq('profileId', profile._id)
-			)
+			.withIndex('by_club_and_profile', (q) => q.eq('clubId', clubId).eq('profileId', profile._id))
 			.collect();
 		if (clubMemberships.some((membership) => !membership.leftAt)) {
 			return true;

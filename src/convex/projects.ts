@@ -3,6 +3,7 @@ import { mutation, query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import {
+	getMembershipByProfileId,
 	hasPermission,
 	getProjectRoleByKey,
 	getRelatedProfile,
@@ -60,12 +61,13 @@ export const listByClub = query({
 			throw new ConvexError('Permission denied');
 		}
 
-		const links = await ctx.db
-			.query('projectClubs')
+		const attributionRows = await ctx.db
+			.query('projectAttributions')
 			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
 			.collect();
+		const projectIds = [...new Set(attributionRows.map((row) => row.projectId))];
 
-		const projects = await Promise.all(links.map((link) => ctx.db.get(link.projectId)));
+		const projects = await Promise.all(projectIds.map((projectId) => ctx.db.get(projectId)));
 		return projects.filter((project): project is NonNullable<typeof project> => Boolean(project));
 	}
 });
@@ -83,12 +85,12 @@ export const countForViewer = query({
 			const canRead = await hasPermission(ctx, membership.clubId, identity.subject, 'project:read');
 			if (!canRead) continue;
 
-			const links = await ctx.db
-				.query('projectClubs')
+			const attributionRows = await ctx.db
+				.query('projectAttributions')
 				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
 				.collect();
-			for (const link of links) {
-				seen.add(link.projectId);
+			for (const row of attributionRows) {
+				seen.add(row.projectId);
 			}
 		}
 
@@ -108,12 +110,13 @@ export const listPreviewsByClub = query({
 			throw new ConvexError('Permission denied');
 		}
 
-		const links = await ctx.db
-			.query('projectClubs')
+		const attributionRows = await ctx.db
+			.query('projectAttributions')
 			.withIndex('by_club', (q) => q.eq('clubId', args.clubId))
 			.collect();
+		const projectIds = [...new Set(attributionRows.map((row) => row.projectId))];
 
-		const projects = (await Promise.all(links.map((link) => ctx.db.get(link.projectId)))).filter(
+		const projects = (await Promise.all(projectIds.map((projectId) => ctx.db.get(projectId)))).filter(
 			(project): project is NonNullable<typeof project> => Boolean(project)
 		);
 
@@ -138,7 +141,23 @@ export const listPreviewsByClub = query({
 			const currentMemberships = memberships.filter((membership) => !membership.leftAt);
 			const activeMemberships = currentMemberships.filter((membership) => !membership.doneDate);
 			const archived = Boolean(project.archivedAt) || (await isProjectArchived(ctx, project._id));
-			const isShowcase = archived || activeMemberships.length === 0;
+
+			// PRD 6.6.7: Current = attributed to this club AND >=1 ACTIVE project member (any
+			// active member, not just ones who personally attributed here) is currently a member
+			// of this club. Showcase = attributed AND (archived OR zero active members in this
+			// club). Checked per active member's club membership rather than reusing the
+			// attribution rows, since attribution and current club membership can diverge (e.g. a
+			// member attributed the project here but has since left the club, while a different
+			// active member who never attributed is still in the club).
+			let hasActiveMemberInClub = false;
+			for (const membership of activeMemberships) {
+				const clubMembership = await getMembershipByProfileId(ctx, args.clubId, membership.profileId);
+				if (clubMembership) {
+					hasActiveMemberInClub = true;
+					break;
+				}
+			}
+			const isShowcase = archived || !hasActiveMemberInClub;
 
 			const previewMembers = currentMemberships.slice(0, 3);
 			const members = await Promise.all(
@@ -191,7 +210,12 @@ export const getById = query({
 
 export const create = mutation({
 	args: {
-		clubId: v.id('clubs'),
+		// PRD 5.11/6.6.2/6.6.6: attribution is optional and per-member from the start — a project
+		// can be created with zero club attribution. When provided, the creator's own attribution
+		// row for that club is created alongside the project (defaults handled client-side: the
+		// dashboard context club, or the caller's sole club, per 6.6.2's "Club attribution
+		// defaults").
+		clubId: v.optional(v.id('clubs')),
 		name: v.string(),
 		description: v.optional(v.string()),
 		dueDate: v.number(),
@@ -203,9 +227,29 @@ export const create = mutation({
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		const canCreate = await hasPermission(ctx, args.clubId, identity.subject, 'project:create');
-		if (!canCreate) {
-			throw new ConvexError('Permission denied');
+
+		if (args.clubId) {
+			const canCreate = await hasPermission(ctx, args.clubId, identity.subject, 'project:create');
+			if (!canCreate) {
+				throw new ConvexError('Permission denied');
+			}
+		} else {
+			// No club context: PRD 6.6.2 "Any Learner or Guide can create a project" — require the
+			// caller to hold `project:create` in at least one of their current club memberships,
+			// same bar as creating from within a specific club dashboard.
+			const profile = await requireProfile(ctx, identity.subject);
+			const memberships = await listMembershipsForProfile(ctx, profile);
+			const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+			let canCreate = false;
+			for (const membership of activeMemberships) {
+				if (await hasPermission(ctx, membership.clubId, identity.subject, 'project:create')) {
+					canCreate = true;
+					break;
+				}
+			}
+			if (!canCreate) {
+				throw new ConvexError('Permission denied');
+			}
 		}
 
 		const profile = await requireProfile(ctx, identity.subject);
@@ -227,11 +271,14 @@ export const create = mutation({
 		});
 		await ensureProjectRoom(ctx, projectId);
 
-		await ctx.db.insert('projectClubs', {
-			projectId,
-			clubId: args.clubId,
-			createdAt: now
-		});
+		if (args.clubId) {
+			await ctx.db.insert('projectAttributions', {
+				projectId,
+				profileId: profile._id,
+				clubId: args.clubId,
+				createdAt: now
+			});
+		}
 
 		const creatorRole = await getProjectRoleByKey(ctx, 'creator');
 		if (creatorRole) {
@@ -700,5 +747,195 @@ export const canManageProject = query({
 			identity.subject,
 			'project:update'
 		);
+	}
+});
+
+/**
+ * PRD 5.11/6.6.6: this project's attributed clubs (distinct, derived from all members'
+ * attribution rows), plus which of those the viewer personally attributed (so the UI can show
+ * "you've linked this project to X" and offer per-club unlink), plus the viewer's own current
+ * clubs not yet linked (so the UI can offer link controls without a second round trip). Returns
+ * an empty/false shape for a non-member viewer rather than throwing, so the project detail view
+ * can render read-only club chips for anyone who can already view the project.
+ */
+export const listAttributions = query({
+	args: {
+		projectId: v.id('projects')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const canRead = await canViewProject(ctx, args.projectId, identity.subject);
+		if (!canRead) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const attributionRows = await ctx.db
+			.query('projectAttributions')
+			.withIndex('by_project', (q) => q.eq('projectId', args.projectId))
+			.collect();
+
+		const clubIds = [...new Set(attributionRows.map((row) => row.clubId))];
+		const clubs = await Promise.all(
+			clubIds.map(async (clubId) => {
+				const club = await ctx.db.get(clubId);
+				return club ? { clubId, name: club.name } : null;
+			})
+		);
+		const attributedClubs = clubs.filter(
+			(club): club is NonNullable<typeof club> => club !== null
+		);
+
+		const profile = await requireProfile(ctx, identity.subject);
+		const viewerLinkedClubIds = new Set(
+			attributionRows
+				.filter((row) => row.profileId === profile._id)
+				.map((row) => row.clubId)
+		);
+
+		const viewerMembership = await requireOwnProjectMembership(ctx, args.projectId, identity.subject).catch(
+			() => null
+		);
+		const viewerCanChangeAttribution = Boolean(
+			viewerMembership && !viewerMembership.doneDate && !viewerMembership.leftAt
+		);
+
+		const viewerMemberships = await listMembershipsForProfile(ctx, profile);
+		const viewerActiveClubMemberships = viewerMemberships.filter((membership) => !membership.leftAt);
+		const viewerClubs = await Promise.all(
+			viewerActiveClubMemberships.map(async (membership) => {
+				const club = await ctx.db.get(membership.clubId);
+				return club
+					? {
+							clubId: membership.clubId,
+							name: club.name,
+							linkedByViewer: viewerLinkedClubIds.has(membership.clubId)
+						}
+					: null;
+			})
+		);
+
+		return {
+			attributedClubs,
+			viewerLinkedClubIds: [...viewerLinkedClubIds],
+			viewerClubs: viewerClubs.filter((club): club is NonNullable<typeof club> => club !== null),
+			viewerCanChangeAttribution
+		};
+	}
+});
+
+/**
+ * PRD 6.6.6: self-service linking. While Active, a member can link the project to any club
+ * they're currently a member of; a single member can link the same project to multiple clubs.
+ * Rejects Done members and frozen (archived) projects outright — archival "freezes" all
+ * attribution links (6.6.6's "Archiving: All attribution links frozen").
+ */
+export const linkClub = mutation({
+	args: {
+		projectId: v.id('projects'),
+		clubId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const membership = await requireOwnProjectMembership(ctx, args.projectId, identity.subject);
+		if (membership.doneDate) {
+			throw new ConvexError('Done members cannot change attribution');
+		}
+
+		const project = await ctx.db.get(args.projectId);
+		if (!project) {
+			throw new ConvexError('Project not found');
+		}
+		if (project.archivedAt) {
+			throw new ConvexError('Archived projects cannot change attribution');
+		}
+
+		// Linking requires CURRENT membership in that club (6.6.6: "Cannot re-link a club you've
+		// left").
+		const clubMembership = await getMembershipByProfileId(ctx, args.clubId, membership.profileId);
+		if (!clubMembership) {
+			throw new ConvexError('You must be a current member of this club to link it');
+		}
+
+		const existing = await ctx.db
+			.query('projectAttributions')
+			.withIndex('by_project_and_profile_and_club', (q) =>
+				q.eq('projectId', args.projectId).eq('profileId', membership.profileId).eq('clubId', args.clubId)
+			)
+			.unique();
+		if (existing) {
+			return { success: true };
+		}
+
+		const club = await ctx.db.get(args.clubId);
+		const profile = await getRelatedProfile(ctx, membership.profileId);
+		const now = Date.now();
+		await ctx.db.insert('projectAttributions', {
+			projectId: args.projectId,
+			profileId: membership.profileId,
+			clubId: args.clubId,
+			createdAt: now
+		});
+		await insertProjectChangeLog(ctx, {
+			projectId: args.projectId,
+			actorProfileId: membership.profileId,
+			entryType: 'club_linked',
+			text: `${memberDisplayName(profile ?? membership)} linked this project to ${club?.name ?? 'a club'}`
+		});
+
+		return { success: true };
+	}
+});
+
+/**
+ * PRD 6.6.6: self-service unlinking. Only removes the caller's OWN attribution row(s) for that
+ * club — "last person out" (project disappears from a club's tabs once its final attribution row
+ * is removed) is a natural consequence of tab queries deriving from `projectAttributions`, not
+ * special-cased here. Unlinking does not require current club membership (a member who has left
+ * a club can still remove their own stale attribution to it), only active project membership.
+ */
+export const unlinkClub = mutation({
+	args: {
+		projectId: v.id('projects'),
+		clubId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const membership = await requireOwnProjectMembership(ctx, args.projectId, identity.subject);
+		if (membership.doneDate) {
+			throw new ConvexError('Done members cannot change attribution');
+		}
+
+		const project = await ctx.db.get(args.projectId);
+		if (!project) {
+			throw new ConvexError('Project not found');
+		}
+		if (project.archivedAt) {
+			throw new ConvexError('Archived projects cannot change attribution');
+		}
+
+		const ownRows = await ctx.db
+			.query('projectAttributions')
+			.withIndex('by_project_and_profile_and_club', (q) =>
+				q.eq('projectId', args.projectId).eq('profileId', membership.profileId).eq('clubId', args.clubId)
+			)
+			.collect();
+		if (ownRows.length === 0) {
+			return { success: true };
+		}
+
+		for (const row of ownRows) {
+			await ctx.db.delete(row._id);
+		}
+
+		const club = await ctx.db.get(args.clubId);
+		const profile = await getRelatedProfile(ctx, membership.profileId);
+		await insertProjectChangeLog(ctx, {
+			projectId: args.projectId,
+			actorProfileId: membership.profileId,
+			entryType: 'club_unlinked',
+			text: `${memberDisplayName(profile ?? membership)} unlinked this project from ${club?.name ?? 'a club'}`
+		});
+
+		return { success: true };
 	}
 });

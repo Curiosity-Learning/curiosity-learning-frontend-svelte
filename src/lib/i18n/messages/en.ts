@@ -770,7 +770,15 @@ const en = {
 		coverImageUploadLabel: 'Upload cover image',
 		coverImageUploading: 'Uploading...',
 		coverImageRemove: 'Remove cover image',
-		descriptionRequiredError: 'Description is required.'
+		descriptionRequiredError: 'Description is required.',
+		attributionLabel: 'Club attribution',
+		attributionAttributedTo: 'Attributed to {clubName}.',
+		attributionNotAttributed: "Won't be attributed to a club.",
+		clubsTitle: 'Clubs',
+		clubsEmpty: 'Not attributed to any club yet.',
+		linkClubAction: 'Link',
+		unlinkClubAction: 'Unlink',
+		attributionUpdateFailure: 'Failed to update club attribution.'
 	},
 	feed: {
 		unknownAuthor: 'Unknown',

@@ -11,7 +11,7 @@ import {
 	requireIdentity,
 	requireProfile
 } from './permissions';
-import { assertNotDoneMember, canViewProject } from './projectsModel';
+import { assertNotDoneMember, canViewProject, listAttributedClubIds } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 type AuthorSummary = {
@@ -585,14 +585,11 @@ export const create = mutation({
 		});
 
 		// Denormalize updates -> clubs for a fast club feed.
-		const projectLinks = await ctx.db
-			.query('projectClubs')
-			.withIndex('by_project', (q) => q.eq('projectId', args.projectId))
-			.collect();
-		for (const link of projectLinks) {
+		const attributedClubIds = await listAttributedClubIds(ctx, args.projectId);
+		for (const clubId of attributedClubIds) {
 			await ctx.db.insert('updateClubs', {
 				updateId,
-				clubId: link.clubId,
+				clubId,
 				projectId: args.projectId,
 				createdAt: now
 			});

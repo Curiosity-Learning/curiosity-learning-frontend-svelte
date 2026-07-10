@@ -245,8 +245,9 @@ describe('relational integrity', () => {
 				createdAt: now,
 				updatedAt: now
 			});
-			await ctx.db.insert('projectClubs', {
+			await ctx.db.insert('projectAttributions', {
 				projectId,
+				profileId,
 				clubId: firstClubId,
 				createdAt: now
 			});
@@ -287,8 +288,9 @@ describe('relational integrity', () => {
 				createdAt: now,
 				updatedAt: now
 			});
-			await ctx.db.insert('projectClubs', {
+			await ctx.db.insert('projectAttributions', {
 				projectId,
+				profileId,
 				clubId: firstClubId,
 				createdAt: now
 			});
