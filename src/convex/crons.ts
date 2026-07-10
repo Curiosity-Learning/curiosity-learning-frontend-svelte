@@ -60,6 +60,20 @@ export const runDailyMaintenance = internalAction({
 			});
 		}
 
+		try {
+			// PRD 6.9.2/6.9.3 (CL-709): daily assignment pass for whichever season's review window
+			// is currently open. Also covers rolling distribution for applications submitted
+			// mid-window (submitApplication triggers this inline too, see clubApplications.ts, so
+			// mid-window applicants don't wait for the next day's run).
+			const summary = await ctx.runMutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+			console.log('cron:runDailyMaintenance:assignReviewsForOpenWindow', summary);
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'crons:runDailyMaintenance:assignReviewsForOpenWindow'
+			});
+		}
+
 		return null;
 	}
 });

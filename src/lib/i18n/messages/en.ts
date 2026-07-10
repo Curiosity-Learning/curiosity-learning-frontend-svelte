@@ -727,6 +727,12 @@ const en = {
 		rejecting: 'Rejecting...',
 		acceptFailure: 'Unable to accept this application.',
 		rejectFailure: 'Unable to reject this application.',
+		moveToInterviewButton: 'Move to interview',
+		movingToInterview: 'Moving...',
+		moveToInterviewFailure: 'Unable to move this application to interview.',
+		pendingBannerTitle: 'This application is assigned to you for review',
+		pendingBannerDescription:
+			'Once reviewers have scored this application, move it to the interview stage to open scheduling here.',
 		confirmOnboardingButton: 'Confirm onboarding call happened',
 		confirmingOnboarding: 'Confirming...',
 		confirmOnboardingFailure: 'Unable to confirm the onboarding call.',

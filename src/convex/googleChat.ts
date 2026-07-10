@@ -104,6 +104,40 @@ export const notifyReportSubmitted = internalAction({
 	}
 });
 
+// PRD 6.9.2/6.13 (CL-709): fired when a peer-reviewed application accumulates >= 2 reviews with
+// a `score` spread >= 4. Admins have no notification-recipient concept, so this Google Chat post
+// to the Core Team space is the alert; CL-732's dashboard flag is the independent at-rest view of
+// the same condition. No auto-decision is made here or anywhere else off this signal.
+export const notifyApplicationScoreDiscrepancy = internalAction({
+	args: {
+		applicationId: v.id('clubApplications'),
+		applicationName: v.string(),
+		reviewCount: v.number(),
+		minScore: v.number(),
+		maxScore: v.number()
+	},
+	handler: async (_ctx, args) => {
+		try {
+			await postGoogleChatMessage(
+				compactLines([
+					'Application review score discrepancy',
+					`Application: ${args.applicationName}`,
+					`Reviews so far: ${args.reviewCount}`,
+					`Score spread: ${args.minScore}-${args.maxScore}`,
+					`Application ID: ${args.applicationId}`
+				])
+			);
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'google-chat:application-score-discrepancy',
+				identifiers: { applicationId: args.applicationId, provider: 'google-chat' }
+			});
+			// Don't rethrow: a failed alert shouldn't obscure that the review itself already saved.
+		}
+	}
+});
+
 export const notifyClubInterestSignupCreated = internalAction({
 	args: {
 		signupId: v.id('clubInterestSignups'),

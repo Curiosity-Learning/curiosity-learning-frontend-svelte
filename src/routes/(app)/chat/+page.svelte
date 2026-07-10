@@ -457,6 +457,22 @@
 		}
 	};
 
+	const moveToInterviewAction = async () => {
+		if (!applicationInfo) return;
+		applicationActionPending = true;
+		applicationActionError = '';
+		try {
+			await convexClient.mutation(api.clubApplications.moveToInterview, {
+				applicationId: applicationInfo.applicationId
+			});
+		} catch (error) {
+			applicationActionError =
+				error instanceof Error ? error.message : t('applicationChat.moveToInterviewFailure');
+		} finally {
+			applicationActionPending = false;
+		}
+	};
+
 	const acceptApplicationAction = async () => {
 		if (!applicationInfo) return;
 		applicationActionPending = true;
@@ -696,7 +712,23 @@
 					>
 						<div class="flex min-h-full flex-col">
 							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
-								{#if applicationInfo.status === 'interview' && applicationInfo.canDecide}
+								{#if applicationInfo.status === 'pending' && applicationInfo.canDecide}
+									<div class={`flex flex-wrap gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
+										<Button
+											type="button"
+											disabled={applicationActionPending}
+											onclick={() => void moveToInterviewAction()}
+										>
+											{applicationActionPending
+												? $_('applicationChat.movingToInterview')
+												: $_('applicationChat.moveToInterviewButton')}
+										</Button>
+									</div>
+									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<AlertTitle>{$_('applicationChat.pendingBannerTitle')}</AlertTitle>
+										<AlertDescription>{$_('applicationChat.pendingBannerDescription')}</AlertDescription>
+									</Alert>
+								{:else if applicationInfo.status === 'interview' && applicationInfo.canDecide}
 									<div class={`flex flex-wrap gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
 										<Button
 											type="button"
