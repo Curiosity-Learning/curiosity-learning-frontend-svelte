@@ -1,6 +1,6 @@
 import { convexTest } from 'convex-test';
 import { describe, expect, it } from 'vitest';
-import { api } from './_generated/api';
+import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
@@ -366,5 +366,78 @@ describe('profiles.getById', () => {
 		expect(result.isSelf).toBe(true);
 		expect(result.projects.current).toHaveLength(1);
 		expect(result.projects.current[0]?.sharedClub).toBe(false);
+	});
+});
+
+describe('profiles.getMyGlobalRole', () => {
+	it('returns null for a profile with no global role', async () => {
+		const { t } = await seedBase();
+		await insertProfile(t, 'regular-user');
+
+		const result = await t
+			.withIdentity({ subject: 'regular-user' })
+			.query(api.profiles.getMyGlobalRole, {});
+
+		expect(result).toBeNull();
+	});
+
+	it("returns 'admin' once setGlobalRole has been applied", async () => {
+		const { t } = await seedBase();
+		const profileId = await insertProfile(t, 'admin-user');
+
+		await t.run((ctx) =>
+			ctx.runMutation(internal.profiles.setGlobalRole, { profileId, globalRole: 'admin' })
+		);
+
+		const result = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.profiles.getMyGlobalRole, {});
+
+		expect(result).toBe('admin');
+	});
+});
+
+describe('profiles.setGlobalRole', () => {
+	it('is internal-only: not reachable through the public api object', () => {
+		const hasPublicSetGlobalRole = 'setGlobalRole' in (api.profiles as Record<string, unknown>);
+		expect(hasPublicSetGlobalRole).toBe(false);
+		expect(typeof internal.profiles.setGlobalRole).toBe('object');
+	});
+
+	it('patches the profile globalRole field', async () => {
+		const { t } = await seedBase();
+		const profileId = await insertProfile(t, 'target-user');
+
+		await t.run((ctx) =>
+			ctx.runMutation(internal.profiles.setGlobalRole, { profileId, globalRole: 'admin' })
+		);
+
+		const profile = await t.run((ctx) => ctx.db.get(profileId));
+		expect(profile?.globalRole).toBe('admin');
+	});
+
+	it('can clear the role by omitting globalRole', async () => {
+		const { t } = await seedBase();
+		const profileId = await insertProfile(t, 'target-user');
+
+		await t.run((ctx) =>
+			ctx.runMutation(internal.profiles.setGlobalRole, { profileId, globalRole: 'admin' })
+		);
+		await t.run((ctx) => ctx.runMutation(internal.profiles.setGlobalRole, { profileId }));
+
+		const profile = await t.run((ctx) => ctx.db.get(profileId));
+		expect(profile?.globalRole).toBeUndefined();
+	});
+
+	it('throws for an unknown profile', async () => {
+		const { t } = await seedBase();
+		const profileId = await insertProfile(t, 'to-delete');
+		await t.run((ctx) => ctx.db.delete(profileId));
+
+		await expect(
+			t.run((ctx) =>
+				ctx.runMutation(internal.profiles.setGlobalRole, { profileId, globalRole: 'admin' })
+			)
+		).rejects.toThrow('Profile not found');
 	});
 });

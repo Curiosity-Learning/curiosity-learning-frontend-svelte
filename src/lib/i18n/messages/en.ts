@@ -905,6 +905,20 @@ const en = {
 		noOption: 'No',
 		formLoadErrorTitle: 'Could not load this form',
 		alreadySubmitted: "You've already submitted this form."
+	},
+	admin: {
+		shellTitle: 'Curiosity Admin',
+		navOverview: 'Overview',
+		navModeration: 'Moderation',
+		navSeasonsBooklet: 'Seasons & Booklet',
+		navUsers: 'Users',
+		profileLinkLabel: 'Admin',
+		overviewTitle: 'Overview',
+		overviewClubs: 'Clubs',
+		overviewProfiles: 'Profiles',
+		overviewOpenReports: 'Open reports',
+		comingSoonTitle: 'Coming soon',
+		comingSoonDescription: 'This section is not built yet.'
 	}
 } as const;
 

@@ -8,6 +8,7 @@
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import ShieldIcon from '@lucide/svelte/icons/shield';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { PageHeaderActions, PageHeaderTitle } from '$lib/components/app';
@@ -31,6 +32,8 @@
 	let { data }: PageProps = $props();
 
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
+	const globalRoleResponse = useStableQuery(api.profiles.getMyGlobalRole, {});
+	let isGlobalAdmin = $derived(globalRoleResponse.data === 'admin');
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, {});
 	const updatesResponse = useStableQuery(api.updates.listMine, {});
 	const sessionsAttendedResponse = useStableQuery(api.sessions.countAttendedForViewer, {});
@@ -265,6 +268,22 @@
 					</Badge>
 				{/if}
 			</a>
+
+			{#if isGlobalAdmin}
+				<a
+					href={routes.admin}
+					class="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-[#f6f7f9] px-3 py-3 transition-colors hover:border-orange-200 hover:bg-orange-50"
+					data-sveltekit-preload-code="hover"
+					data-sveltekit-preload-data="hover"
+				>
+					<div class="flex min-w-0 items-center gap-2">
+						<ShieldIcon class="size-5 shrink-0 text-[#6f73af]" />
+						<p class="truncate text-[1.05rem] font-bold text-[#44495f]">
+							{t('admin.profileLinkLabel')}
+						</p>
+					</div>
+				</a>
+			{/if}
 
 			{#if clubs.length > 0}
 				<div class="flex flex-col gap-3">

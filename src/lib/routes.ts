@@ -20,6 +20,10 @@ export const routes = {
 	notifications: '/notifications',
 	applicationsReview: '/applications/review',
 	feedback: '/feedback',
+	admin: '/admin',
+	adminModeration: '/admin/moderation',
+	adminSeasonsBooklet: '/admin/seasons-booklet',
+	adminUsers: '/admin/users',
 
 	profileDetail: (profileId: string) => `/profile/${profileId}`,
 	feedbackSubmit: (formId: string, clubId: string) => `/feedback/${formId}/${clubId}`,
