@@ -926,18 +926,10 @@ const nl = {
 		alreadySubmitted: 'Je hebt dit formulier al ingediend.'
 	},
 	admin: {
-		shellTitle: 'Curiosity Admin',
-		navOverview: 'Overview',
-		navModeration: 'Moderation',
-		navSeasonsBooklet: 'Seasons & Booklet',
-		navUsers: 'Users',
-		profileLinkLabel: 'Admin',
-		overviewTitle: 'Overview',
-		overviewClubs: 'Clubs',
-		overviewProfiles: 'Profiles',
-		overviewOpenReports: 'Open reports',
-		comingSoonTitle: 'Coming soon',
-		comingSoonDescription: 'This section is not built yet.'
+		// The admin dashboard now lives in a separate repo (curiosity-learning-admin); this app
+		// only needs the profile-page link label, not the (now-ported, English-only) admin UI
+		// strings themselves.
+		profileLinkLabel: 'Admin'
 	}
 } as const;
 
