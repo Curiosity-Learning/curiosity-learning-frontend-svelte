@@ -29,10 +29,13 @@ export type NotificationKind =
 	| 'join_request_received' // guides: someone requested to join
 	| 'join_request_decision' // requester: accepted / declined
 	| 'promoted_to_guide'
+	| 'project_invite' // invitee: someone invited you to a project (CL-722)
+	| 'project_invite_decision' // inviter: your invite was accepted/declined (CL-722)
+	| 'project_join_request' // active project members: someone requested to join (CL-722)
+	| 'project_join_request_decision' // requester: your join request was accepted/declined (CL-722)
 	// medium
 	| 'member_joined'; // guides: a new member joined the club
 // TODO kinds (no producers exist yet; add here when they land):
-// - 'project_invite' / 'project_join_request' (high, preference: projectMemberAdded)
 // - 'project_update' / 'project_completed' (medium, preference: projectCompleted)
 // - chat message emails/digests are OUT OF SCOPE for v1 (deliberate anti-spam decision;
 //   PRD 6.13 allows this simplification). The `chatMessages` preference field is reserved.
@@ -69,6 +72,10 @@ export const notificationKindConfig: Record<NotificationKind, KindConfig> = {
 	join_request_received: { tier: 'high', preferenceKey: 'clubMemberChanges' },
 	join_request_decision: { tier: 'high', preferenceKey: 'clubMemberChanges' },
 	promoted_to_guide: { tier: 'high', preferenceKey: 'clubMemberChanges' },
+	project_invite: { tier: 'high', preferenceKey: 'projectMemberAdded' },
+	project_invite_decision: { tier: 'high', preferenceKey: 'projectMemberAdded' },
+	project_join_request: { tier: 'high', preferenceKey: 'projectMemberAdded' },
+	project_join_request_decision: { tier: 'high', preferenceKey: 'projectMemberAdded' },
 	member_joined: { tier: 'medium', preferenceKey: 'clubMemberChanges' }
 };
 

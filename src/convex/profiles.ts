@@ -174,6 +174,46 @@ export const updateMe = mutation({
 	}
 });
 
+/**
+ * Minimal username-prefix search for platform-wide user pickers (CL-722's project invite
+ * dialog). Prefix match only (no fuzzy/substring search) on `profiles.username`, case-sensitive
+ * to match the `by_username` index's stored casing (usernames are already lowercased at
+ * signup/update time — see `usernameValidator.ts`). Excludes the caller and any profileIds the
+ * caller explicitly asks to exclude (e.g. current active project members). Capped at 10 results.
+ */
+export const searchByUsername = query({
+	args: {
+		usernamePrefix: v.string(),
+		excludeProfileIds: v.optional(v.array(v.id('profiles')))
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+
+		const prefix = args.usernamePrefix.trim().toLowerCase();
+		if (!prefix) {
+			return [];
+		}
+
+		const excluded = new Set([profile._id, ...(args.excludeProfileIds ?? [])]);
+
+		const matches = await ctx.db
+			.query('profiles')
+			.withIndex('by_username', (q) => q.gte('username', prefix).lt('username', `${prefix}￿`))
+			.take(20);
+
+		return matches
+			.filter((match) => !excluded.has(match._id))
+			.slice(0, 10)
+			.map((match) => ({
+				profileId: match._id,
+				firstName: match.firstName ?? null,
+				lastName: match.lastName ?? null,
+				username: match.username ?? null
+			}));
+	}
+});
+
 export const checkUsernameAvailability = query({
 	args: {
 		username: v.string()

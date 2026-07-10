@@ -42,6 +42,8 @@ import type * as pledges from "../pledges.js";
 import type * as preferences from "../preferences.js";
 import type * as privacyPolicy from "../privacyPolicy.js";
 import type * as profiles from "../profiles.js";
+import type * as projectInvites from "../projectInvites.js";
+import type * as projectJoinRequests from "../projectJoinRequests.js";
 import type * as projects from "../projects.js";
 import type * as projectsModel from "../projectsModel.js";
 import type * as rateLimiting from "../rateLimiting.js";
@@ -93,6 +95,8 @@ declare const fullApi: ApiFromModules<{
   preferences: typeof preferences;
   privacyPolicy: typeof privacyPolicy;
   profiles: typeof profiles;
+  projectInvites: typeof projectInvites;
+  projectJoinRequests: typeof projectJoinRequests;
   projects: typeof projects;
   projectsModel: typeof projectsModel;
   rateLimiting: typeof rateLimiting;
