@@ -268,7 +268,17 @@ export const takedownProject = mutation({
 			takedown: { byProfileId: admin._id, at: Date.now(), reason: args.reason?.trim() || undefined }
 		});
 		await recordAction(ctx, admin._id, 'takedown_project', 'project', project._id, args.reason);
-		await markReportsActionedForTarget(ctx, 'project_update', project._id, admin._id);
+		// 'project_update' reports carry an *update* id as their targetId (see takedownUpdate
+		// above), never a project id — so taking down a project must resolve every open report
+		// against that project's updates, not one (nonexistent) report keyed by the project id
+		// itself.
+		const projectUpdates = await ctx.db
+			.query('updates')
+			.withIndex('by_project', (q) => q.eq('projectId', project._id))
+			.collect();
+		for (const update of projectUpdates) {
+			await markReportsActionedForTarget(ctx, 'project_update', update._id, admin._id);
+		}
 		return { ok: true as const };
 	}
 });

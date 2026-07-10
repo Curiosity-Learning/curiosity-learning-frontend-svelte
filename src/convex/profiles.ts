@@ -354,6 +354,11 @@ export const getById = query({
 
 			const project = await ctx.db.get(membership.projectId);
 			if (!project) continue;
+			// PRD 6.14.4 (CL-730): a taken-down project is hidden from every member-facing surface,
+			// "including its own members" (projectsModel.canViewProject) — must be excluded before
+			// the `isSelf` shortcut below, otherwise the project's own owner/creator would still
+			// see it on their own profile.
+			if (project.takedown) continue;
 
 			const canView = isSelf || (await canViewProject(ctx, project._id, identity.subject));
 			if (!canView) continue;
@@ -416,22 +421,26 @@ export const getById = query({
 			if (update.takedown) continue;
 			if (!update.projectId) continue;
 
+			const project: Doc<'projects'> | null = await ctx.db.get(update.projectId);
+			// Same takedown carve-out as the projects loop above, and for the same reason: the
+			// project being taken down must hide its updates from every member-facing surface,
+			// including the owner's own profile, before the `isSelf` shortcut below runs. Checked
+			// here (not just relying on the `viewableProjectIds` cache) because that cache is only
+			// ever populated for projects that passed this same check.
+			if (project?.takedown) continue;
+
 			let sharedClub = viewableProjectIds.get(update.projectId);
 			if (sharedClub === undefined) {
 				const canView = isSelf || (await canViewProject(ctx, update.projectId, identity.subject));
 				if (!canView) continue;
 				sharedClub = false;
-				if (!isSelf) {
-					const project = await ctx.db.get(update.projectId);
-					if (project?.visibility === 'clubs') {
-						const attributedClubIds = await listAttributedClubIds(ctx, update.projectId);
-						sharedClub = attributedClubIds.some((clubId) => viewerClubIdSet.has(clubId));
-					}
+				if (!isSelf && project?.visibility === 'clubs') {
+					const attributedClubIds = await listAttributedClubIds(ctx, update.projectId);
+					sharedClub = attributedClubIds.some((clubId) => viewerClubIdSet.has(clubId));
 				}
 				viewableProjectIds.set(update.projectId, sharedClub);
 			}
 
-			const project: Doc<'projects'> | null = await ctx.db.get(update.projectId);
 			const files = await ctx.db
 				.query('updateFiles')
 				.withIndex('by_update', (q) => q.eq('updateId', update._id))

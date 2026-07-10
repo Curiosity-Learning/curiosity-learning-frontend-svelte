@@ -1,12 +1,6 @@
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import {
-	internalAction,
-	internalMutation,
-	internalQuery,
-	mutation,
-	query
-} from './_generated/server';
+import { internalAction, internalQuery, mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { sendEmail } from './email/resend';
@@ -157,26 +151,5 @@ export const sendNotificationEmail = internalAction({
 		} catch {
 			// Already reported inside sendEmail.
 		}
-	}
-});
-
-export const createSystemNotification = internalMutation({
-	args: {
-		profileId: v.id('profiles'),
-		title: v.string(),
-		message: v.string(),
-		url: v.optional(v.string()),
-		clubId: v.optional(v.id('clubs'))
-	},
-	handler: async (ctx, args) => {
-		return await ctx.db.insert('notifications', {
-			profileId: args.profileId,
-			title: args.title,
-			message: args.message,
-			url: args.url,
-			clubId: args.clubId,
-			isRead: false,
-			createdAt: Date.now()
-		});
 	}
 });

@@ -367,6 +367,47 @@ describe('profiles.getById', () => {
 		expect(result.projects.current).toHaveLength(1);
 		expect(result.projects.current[0]?.sharedClub).toBe(false);
 	});
+
+	it('excludes a taken-down project (and its updates) from the owner\'s own profile', async () => {
+		const { t, learnerRoleId, contributorRoleId } = await seedBase();
+		const ownerProfileId = await insertProfile(t, 'owner');
+		const adminProfileId = await insertProfile(t, 'admin-user');
+		await t.run((ctx) =>
+			ctx.runMutation(internal.profiles.setGlobalRole, {
+				profileId: adminProfileId,
+				globalRole: 'admin'
+			})
+		);
+
+		const clubId = await insertClub(t, ownerProfileId);
+		await joinClub(t, clubId, ownerProfileId, learnerRoleId);
+
+		const projectId = await insertProject(t, {
+			creatorProfileId: ownerProfileId,
+			visibility: 'global',
+			name: 'Taken down project'
+		});
+		await addProjectMember(t, projectId, ownerProfileId, contributorRoleId);
+		await insertUpdate(t, {
+			projectId,
+			authorProfileId: ownerProfileId,
+			content: 'Update on the taken-down project',
+			createdAt: Date.now()
+		});
+
+		await t
+			.withIdentity({ subject: 'admin-user' })
+			.mutation(api.moderation.takedownProject, { projectId });
+
+		const result = await t
+			.withIdentity({ subject: 'owner' })
+			.query(api.profiles.getById, { profileId: ownerProfileId });
+
+		expect(result.isSelf).toBe(true);
+		expect(result.projects.current.map((project) => project.projectId)).not.toContain(projectId);
+		expect(result.projects.showcase.map((project) => project.projectId)).not.toContain(projectId);
+		expect(result.updates.map((update) => update.projectId)).not.toContain(projectId);
+	});
 });
 
 describe('profiles.getMyGlobalRole', () => {

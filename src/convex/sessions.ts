@@ -204,9 +204,11 @@ export const listByClub = query({
 			return args.upcomingOnly ? base.gte('startTime', now) : base;
 		});
 
-		const sessions = args.limit
-			? await queryBuilder.take(args.limit * 2 + 10)
-			: await queryBuilder.collect();
+		// Sessions are club-scoped and bounded in practice, so collect the whole (index-ordered)
+		// set for this club rather than over-fetching a multiple of `limit` — a heavily-cancelled
+		// club could otherwise starve results even though enough non-cancelled sessions exist
+		// further down the index.
+		const sessions = await queryBuilder.collect();
 		const visible = sessions.filter((session) => !session.cancelled);
 		return args.limit ? visible.slice(0, args.limit) : visible;
 	}
@@ -615,9 +617,9 @@ export const listCardPreviewsByClub = query({
 			const base = q.eq('clubId', args.clubId);
 			return args.upcomingOnly ? base.gte('startTime', now) : base;
 		});
-		const rawSessions = args.limit
-			? await queryBuilder.take(args.limit * 2 + 10)
-			: await queryBuilder.collect();
+		// See listByClub above: collect the whole club-scoped (index-ordered) set instead of
+		// over-fetching a multiple of `limit`, so heavy cancellation can't under-return sessions.
+		const rawSessions = await queryBuilder.collect();
 		const visibleSessions = rawSessions.filter((session) => !session.cancelled);
 		const sessions = args.limit ? visibleSessions.slice(0, args.limit) : visibleSessions;
 
