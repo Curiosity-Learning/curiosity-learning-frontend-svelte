@@ -54,8 +54,21 @@ Bottom nav on mobile; single column mobile → 2-col grids ≥lg. Hit areas ≥4
 
 ## Recurring patterns
 - Status banners: Alert-based, one parameterized block per surface (see the
-  enforcement banners in (app)/+layout.svelte); read-only chat states use the
-  established banner + disabled composer idiom.
+  enforcement banners in (app)/+layout.svelte). Chat action banners (Accept/Decline,
+  Move to interview, etc.) render the action buttons INSIDE the Alert as a compact
+  `size="sm"` row (`secondary` for the primary action, `ghost` for the secondary/
+  decline one) — CEO review 2026-07-11: standalone solid buttons read as "too in
+  your face". Read-only/closed chat states show the explanatory banner and remove
+  the composer entirely (no disabled-input idiom) — CEO review 2026-07-11.
+- Chat member overview: a join_request/clubApplication room's header shows the
+  "other party" (requester/applicant) name+avatar directly, with a `Users` icon
+  affordance opening a "Chat members" Dialog listing every participant
+  (name/avatar/role) — see chat.getRoomParticipants. Inbound messages (not the
+  viewer's own) always show sender name+avatar; own messages don't.
+- Chat list actionability: rooms carry an `actionState` (`open`/`action_needed`/
+  `closed`) from chat.listRoomSummaries; the list only renders a Badge for the
+  two states worth a glance (action_needed: filled orange; closed: outline) —
+  nothing shown for the unremarkable "open" default.
 - Report entry points: flag affordance via ReportIssueDialog on any user content.
 - i18n: every user-facing string through src/lib/i18n (en + nl), always.
 - Empty/loading are mandatory per data region; async actions show pending state.

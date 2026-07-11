@@ -360,3 +360,86 @@ describe('getJoinRequestForRoom', () => {
 		expect(asGuide).toMatchObject({ isRequester: false, canDecide: true, status: 'pending' });
 	});
 });
+
+// CL-690 CEO review item F: the no-club page needs to list join requests alongside Start Club
+// applications, each with a roomId to link straight to its chat.
+describe('listMyJoinRequests', () => {
+	it('returns the requester own join requests with club name, status, and roomId', async () => {
+		const { requester, clubId } = await seedClubFixture();
+		const { roomId, joinRequestId } = await requester.mutation(api.joinRequests.requestToJoin, {
+			clubId
+		});
+
+		const result = await requester.query(api.joinRequests.listMyJoinRequests, {});
+
+		expect(result).toHaveLength(1);
+		expect(result[0]).toMatchObject({
+			joinRequestId,
+			roomId,
+			clubId,
+			clubName: 'Curiosity Club',
+			status: 'pending'
+		});
+	});
+
+	it('does not surface another profile\'s join requests', async () => {
+		const { guide, clubId } = await seedClubFixture();
+		await guide.query(api.joinRequests.listMyJoinRequests, {}).then((result) => {
+			expect(result).toHaveLength(0);
+		});
+		expect(clubId).toBeDefined();
+	});
+});
+
+// CL-695/725 CEO review items A and E: the chat member overview and the chat-list
+// open/action-needed/closed badge for join_request rooms.
+describe('join request chat overview and action state', () => {
+	it('lists the requester and deciding guides as participants, highlighting the requester for the guide', async () => {
+		const { requester, guide, clubId, requesterProfileId, guideProfileId } =
+			await seedClubFixture();
+		const { roomId } = await requester.mutation(api.joinRequests.requestToJoin, { clubId });
+
+		const asGuide = await guide.query(api.chat.getRoomParticipants, { roomId });
+		expect(asGuide.primaryProfileId).toBe(requesterProfileId);
+		expect(asGuide.participants).toContainEqual(
+			expect.objectContaining({ profileId: requesterProfileId, roleLabel: 'Requester' })
+		);
+		expect(asGuide.participants).toContainEqual(
+			expect.objectContaining({ profileId: guideProfileId, roleLabel: 'Guide' })
+		);
+
+		const asRequester = await requester.query(api.chat.getRoomParticipants, { roomId });
+		expect(asRequester.primaryProfileId).toBeNull();
+	});
+
+	it('flags actionState as action_needed for the deciding guide and open for the waiting requester', async () => {
+		const { requester, guide, clubId } = await seedClubFixture();
+		const { roomId } = await requester.mutation(api.joinRequests.requestToJoin, { clubId });
+
+		const guideSummaries = await guide.query(api.chat.listRoomSummaries, {});
+		const requesterSummaries = await requester.query(api.chat.listRoomSummaries, {});
+
+		expect(guideSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'action_needed' })
+		);
+		expect(requesterSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'open' })
+		);
+	});
+
+	it('flags actionState as closed for both parties once decided', async () => {
+		const { requester, guide, clubId } = await seedClubFixture();
+		const { roomId, joinRequestId } = await requester.mutation(api.joinRequests.requestToJoin, {
+			clubId
+		});
+		await guide.mutation(api.joinRequests.declineJoinRequest, { joinRequestId });
+
+		const guideSummaries = await guide.query(api.chat.listRoomSummaries, {});
+		const requesterSummaries = await requester.query(api.chat.listRoomSummaries, {});
+
+		expect(guideSummaries).toContainEqual(expect.objectContaining({ roomId, actionState: 'closed' }));
+		expect(requesterSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'closed' })
+		);
+	});
+});

@@ -652,7 +652,13 @@ const en = {
 		messageSearchPlaceholder: 'Search messages',
 		messageSearchToggle: 'Search in this conversation',
 		messageSearchNoMatches: 'No loaded messages match your search.',
-		messageSearchLoadedOnly: 'Searching loaded messages only — scroll up to load older ones.'
+		messageSearchLoadedOnly: 'Searching loaded messages only — scroll up to load older ones.',
+		membersDialogTitle: 'Chat members',
+		membersDialogTrigger: 'View chat members',
+		membersCountLabel: '{count} members',
+		actionNeededBadge: 'Action needed',
+		openBadge: 'Open',
+		closedBadge: 'Closed'
 	},
 	suspendedScreen: {
 		title: 'Your account is suspended',
@@ -679,6 +685,10 @@ const en = {
 		reportIssueAction: 'Report an issue'
 	},
 	joinRequestChat: {
+		pendingBannerTitle: 'New join request from {name}',
+		pendingBannerDescription: 'Review this request and decide below.',
+		pendingRequesterBannerTitle: 'Your request to join is pending',
+		pendingRequesterBannerDescription: 'A Guide will review your request. You can cancel it any time.',
 		acceptButton: 'Accept',
 		declineButton: 'Decline',
 		cancelButton: 'Cancel request',
@@ -718,6 +728,24 @@ const en = {
 		rejectedDescription: 'This application was not accepted this time.',
 		finalizedLabel: 'Club live',
 		finalizedDescription: 'Your club has been created.'
+	},
+	joinRequestStatus: {
+		pendingLabel: 'Pending',
+		pendingDescription: 'Guides are reviewing your request to join.',
+		acceptedLabel: 'Accepted',
+		acceptedDescription: 'Your request to join was accepted.',
+		declinedLabel: 'Declined',
+		declinedDescription: 'Your request to join was not accepted.',
+		cancelledLabel: 'Cancelled',
+		cancelledDescription: 'You cancelled this join request.'
+	},
+	noClubApplications: {
+		cardDescription: 'Requests to join a club and applications to start one.',
+		emptyState: 'You have not submitted a join request or a Start Club application yet.',
+		openChat: 'Open chat',
+		resumeApplication: 'Resume application',
+		startKindLabel: 'Start Club application',
+		joinKindLabel: 'Join request'
 	},
 	applicationChat: {
 		cancel: 'Cancel',

@@ -108,7 +108,9 @@ describe('context room chat', () => {
 			contextType: 'club',
 			lastMessagePreview: 'Welcome',
 			roomId,
-			roomName: 'Updated club'
+			roomName: 'Updated club',
+			// CL-695/725 CEO review item E: the chat-list badge state.
+			actionState: 'open'
 		});
 		expect('participantDisplayNames' in summaries[0]).toBe(false);
 	});
@@ -142,6 +144,7 @@ describe('context room chat', () => {
 		expect(summaries).toHaveLength(1);
 		expect(summaries[0].canSend).toBe(false);
 		expect(summaries[0].sendBlockedReason).toBe('not_participant');
+		expect(summaries[0].actionState).toBe('closed');
 		expect(result.messages.map((entry) => entry.content)).toEqual(['Welcome']);
 		expect(result.hasMore).toBe(false);
 		await expect(
@@ -201,6 +204,51 @@ describe('context room chat', () => {
 
 		expect(latestPage.messages.map((message) => message._id)).toEqual([sent?._id]);
 		expect(latestPage.hasMore).toBe(true);
+	});
+
+	// CL-695/725 CEO review item B: sender attribution for every message, so the frontend can show
+	// name/avatar on inbound messages without a second round-trip per sender.
+	it('attaches sender name and avatar to every message', async () => {
+		const { viewer, roomId } = await seedClubChatFixture();
+
+		const result = await viewer.query(api.chat.listMessages, { roomId });
+
+		expect(result.messages).toHaveLength(1);
+		expect(result.messages[0]).toMatchObject({
+			content: 'Welcome',
+			senderName: 'Other Person',
+			senderAvatarUrl: null
+		});
+	});
+
+	// CL-695/725 CEO review item A: the chat member overview.
+	it('lists active club members as participants for a club room', async () => {
+		const { viewer, roomId, viewerProfileId, otherProfileId } = await seedClubChatFixture();
+
+		const result = await viewer.query(api.chat.getRoomParticipants, { roomId });
+
+		expect(result.contextType).toBe('club');
+		expect(result.primaryProfileId).toBeNull();
+		expect(result.participants).toContainEqual(
+			expect.objectContaining({ profileId: viewerProfileId, roleLabel: 'Guide' })
+		);
+		expect(result.participants).toContainEqual(
+			expect.objectContaining({ profileId: otherProfileId, name: 'Other Person', roleLabel: 'Guide' })
+		);
+	});
+
+	it('excludes a member who left from the participants list', async () => {
+		const { viewer, roomId, otherProfileId } = await seedClubChatFixture({
+			viewerLeftAt: Date.now()
+		});
+
+		const result = await viewer.query(api.chat.getRoomParticipants, { roomId });
+
+		// The viewer left, so only the other (still-active) member should remain.
+		expect(result.participants).toHaveLength(1);
+		expect(result.participants).toContainEqual(
+			expect.objectContaining({ profileId: otherProfileId })
+		);
 	});
 
 	it('allows done project members to chat and removed project members to read only', async () => {

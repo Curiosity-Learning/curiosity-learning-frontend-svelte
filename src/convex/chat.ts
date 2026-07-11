@@ -2,8 +2,17 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
-import { getRoomAccess, getRoomName, type SendBlockedReason } from './chatModel';
-import { requireIdentity, requireProfile } from './permissions';
+import {
+	getRoomAccess,
+	getRoomActionState,
+	getRoomName,
+	summarizeProfileForChat,
+	type ChatParticipantSummary,
+	type RoomActionState,
+	type SendBlockedReason
+} from './chatModel';
+import { getRelatedProfile, requireIdentity, requireProfile } from './permissions';
+import { listAttributedClubIds } from './projectsModel';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -161,6 +170,8 @@ export const listRoomSummaries = query({
 			lastMessageAt: number;
 			canSend: boolean;
 			sendBlockedReason: SendBlockedReason;
+			// CL-695/725 CEO review item E: powers the chat-list open/action-needed/closed badge.
+			actionState: RoomActionState;
 		}> = [];
 
 		for (const room of rooms.values()) {
@@ -179,13 +190,39 @@ export const listRoomSummaries = query({
 				lastMessagePreview: latestMessage?.content ?? null,
 				lastMessageAt: latestMessage?._creationTime ?? room._creationTime,
 				canSend: access.canSend,
-				sendBlockedReason: access.sendBlockedReason
+				sendBlockedReason: access.sendBlockedReason,
+				actionState: await getRoomActionState(ctx, room, profile._id, access)
 			});
 		}
 
 		return summaries.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
 	}
 });
+
+// CL-695/725 CEO review item B: sender attribution for every chat, including 1:1-like ones. The
+// caller (chat/+page.svelte) only renders name/avatar for INBOUND messages (its own messages are
+// obviously self-attributed), but resolving it here for every distinct sender keeps the frontend
+// from needing a second round-trip per message.
+const attachSenderSummaries = async (ctx: QueryCtx, records: Doc<'messages'>[]) => {
+	const profileIds = [...new Set(records.map((record) => record.profileId).filter(Boolean))] as Id<
+		'profiles'
+	>[];
+	const summaries = new Map<Id<'profiles'>, ChatParticipantSummary>();
+	for (const profileId of profileIds) {
+		const profile = await getRelatedProfile(ctx, profileId);
+		if (!profile) continue;
+		summaries.set(profileId, await summarizeProfileForChat(ctx, profile, ''));
+	}
+
+	return records.map((record) => {
+		const sender = record.profileId ? summaries.get(record.profileId) : undefined;
+		return {
+			...record,
+			senderName: sender?.name ?? null,
+			senderAvatarUrl: sender?.avatarUrl ?? null
+		};
+	});
+};
 
 export const listMessages = query({
 	args: {
@@ -205,10 +242,141 @@ export const listMessages = query({
 			.order('desc')
 			.take(limit + 1);
 		const hasMore = records.length > limit;
+		const page = records.slice(0, limit).reverse();
 		return {
-			messages: records.slice(0, limit).reverse(),
+			messages: await attachSenderSummaries(ctx, page),
 			hasMore
 		};
+	}
+});
+
+// CL-695/725 CEO review item A: chat member overview. Returns who's in the chat, shaped per
+// context type per PRD 6.8.1's participant model (club: all members; project: members + attributed
+// Guides; join_request: requester + club Guides; club_application: applicant + reviewers).
+// `primaryProfileId` flags the "other party" worth highlighting directly in a 1:1-like chat header
+// (e.g. the requester, from a Guide's point of view) — null for group chats or when the viewer IS
+// that other party.
+export const getRoomParticipants = query({
+	args: {
+		roomId: v.id('rooms')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const room = await requireRoomAccess(ctx, args.roomId, profile._id, 'read');
+
+		const participants: ChatParticipantSummary[] = [];
+		let primaryProfileId: Id<'profiles'> | null = null;
+
+		switch (room.contextType) {
+			case 'club': {
+				const members = (
+					await ctx.db
+						.query('clubMembers')
+						.withIndex('by_club', (q) => q.eq('clubId', room.clubId))
+						.collect()
+				).filter((member) => !member.leftAt);
+				for (const member of members) {
+					const memberProfile = await getRelatedProfile(ctx, member.profileId);
+					if (!memberProfile) continue;
+					const role = await ctx.db.get(member.roleId);
+					participants.push(
+						await summarizeProfileForChat(ctx, memberProfile, role?.name ?? 'Member')
+					);
+				}
+				break;
+			}
+			case 'project': {
+				const seenProfileIds = new Set<Id<'profiles'>>();
+				const memberships = (
+					await ctx.db
+						.query('projectMembers')
+						.withIndex('by_project', (q) => q.eq('projectId', room.projectId))
+						.collect()
+				).filter((member) => !member.leftAt);
+				for (const membership of memberships) {
+					const memberProfile = await getRelatedProfile(ctx, membership.profileId);
+					if (!memberProfile) continue;
+					seenProfileIds.add(membership.profileId);
+					const role = await ctx.db.get(membership.roleId);
+					participants.push(
+						await summarizeProfileForChat(ctx, memberProfile, role?.name ?? 'Member')
+					);
+				}
+
+				// PRD 6.8.1: attributed clubs' Guides observe the project chat even without project
+				// membership (mirrors chatModel.getProjectObserverAccess).
+				const attributedClubIds = await listAttributedClubIds(ctx, room.projectId);
+				for (const clubId of attributedClubIds) {
+					const guideMembers = (
+						await ctx.db
+							.query('clubMembers')
+							.withIndex('by_club', (q) => q.eq('clubId', clubId))
+							.collect()
+					).filter((member) => !member.leftAt);
+					for (const guideMember of guideMembers) {
+						if (seenProfileIds.has(guideMember.profileId)) continue;
+						const role = await ctx.db.get(guideMember.roleId);
+						if (role?.key !== 'guide') continue;
+						const guideProfile = await getRelatedProfile(ctx, guideMember.profileId);
+						if (!guideProfile) continue;
+						seenProfileIds.add(guideMember.profileId);
+						participants.push(await summarizeProfileForChat(ctx, guideProfile, 'Guide (observer)'));
+					}
+				}
+				break;
+			}
+			case 'joinRequest': {
+				const joinRequest = await ctx.db.get(room.joinRequestId);
+				if (joinRequest) {
+					const requesterProfile = await getRelatedProfile(ctx, joinRequest.requesterProfileId);
+					if (requesterProfile) {
+						participants.push(await summarizeProfileForChat(ctx, requesterProfile, 'Requester'));
+						if (profile._id !== joinRequest.requesterProfileId) {
+							primaryProfileId = joinRequest.requesterProfileId;
+						}
+					}
+					const guideMembers = (
+						await ctx.db
+							.query('clubMembers')
+							.withIndex('by_club', (q) => q.eq('clubId', joinRequest.clubId))
+							.collect()
+					).filter((member) => !member.leftAt);
+					for (const guideMember of guideMembers) {
+						const role = await ctx.db.get(guideMember.roleId);
+						if (role?.key !== 'guide') continue;
+						const guideProfile = await getRelatedProfile(ctx, guideMember.profileId);
+						if (!guideProfile) continue;
+						participants.push(await summarizeProfileForChat(ctx, guideProfile, 'Guide'));
+					}
+				}
+				break;
+			}
+			case 'clubApplication': {
+				const application = await ctx.db.get(room.clubApplicationId);
+				if (application) {
+					const applicantProfile = await getRelatedProfile(ctx, application.applicantProfileId);
+					if (applicantProfile) {
+						participants.push(await summarizeProfileForChat(ctx, applicantProfile, 'Applicant'));
+						if (profile._id !== application.applicantProfileId) {
+							primaryProfileId = application.applicantProfileId;
+						}
+					}
+					const reviews = await ctx.db
+						.query('applicationReviews')
+						.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
+						.collect();
+					for (const review of reviews) {
+						const reviewerProfile = await getRelatedProfile(ctx, review.reviewerProfileId);
+						if (!reviewerProfile) continue;
+						participants.push(await summarizeProfileForChat(ctx, reviewerProfile, 'Reviewer'));
+					}
+				}
+				break;
+			}
+		}
+
+		return { contextType: room.contextType, primaryProfileId, participants };
 	}
 });
 
