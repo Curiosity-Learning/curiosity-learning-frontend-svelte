@@ -172,24 +172,24 @@
 	<div class={contentClass}>
 		{#if preview.isLoading}
 			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
-				<p class="text-base text-gray-600">{$_('onboarding.joinClubDetails.loading')}</p>
+				<p class="type-lead text-gray-600">{$_('onboarding.joinClubDetails.loading')}</p>
 			</div>
 		{:else if !club}
 			<div class="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-5">
-				<h1 class="text-2xl font-bold text-gray-900">
+				<h1 class="type-h4-bold text-gray-900">
 					{$_('onboarding.joinClubDetails.invalidTitle')}
 				</h1>
-				<p class="text-base text-red-700">{$_('onboarding.joinClubDetails.invalidDescription')}</p>
+				<p class="type-lead text-red-700">{$_('onboarding.joinClubDetails.invalidDescription')}</p>
 				<Button href={joinClubPath} variant="outline" size="xl" class="h-12 w-full">
 					{$_('onboarding.joinClubDetails.enterAnother')}
 				</Button>
 			</div>
 		{:else if forcedGoogleSignupRecoveryPending}
 			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
-				<h1 class="text-2xl font-bold text-gray-900">
+				<h1 class="type-h4-bold text-gray-900">
 					{$_('onboarding.joinClubDetails.checkingAccountTitle')}
 				</h1>
-				<p class="text-base text-gray-600">
+				<p class="type-lead text-gray-600">
 					{$_('onboarding.joinClubDetails.checkingAccountDescription')}
 				</p>
 			</div>
@@ -232,7 +232,7 @@
 			</div>
 
 			{#if errorMessage}
-				<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+				<p class="type-body-compact rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
 					{errorMessage}
 				</p>
 			{/if}

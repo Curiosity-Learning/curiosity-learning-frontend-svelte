@@ -574,12 +574,12 @@
 {/if}
 <PageHeaderTitleContent enabled={isMobileDetailView}>
 	<div class="flex min-w-0 items-center gap-3">
-		<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
-			<AvatarFallback class="text-[0.68rem] font-bold text-slate-700">
+		<Avatar class="size-8 shrink-0 bg-gray-200">
+			<AvatarFallback class="type-caption-bold">
 				{initialsFromName(roomDisplayName(activeRoom))}
 			</AvatarFallback>
 		</Avatar>
-		<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
+		<p class="type-h5-bold truncate text-foreground">
 			{roomDisplayName(activeRoom)}
 		</p>
 	</div>
@@ -632,29 +632,27 @@
 							<button
 								type="button"
 								class={`flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
-									selectedRoomId === room.roomId ? 'bg-[#f5e2d2]' : 'hover:bg-[#f7f3ee]'
+									selectedRoomId === room.roomId ? 'bg-orange-100' : 'hover:bg-muted'
 								}`}
 								onclick={() => void openRoom(room.roomId)}
 							>
-								<Avatar class="size-11 shrink-0 bg-[#d8dbe5]">
-									<AvatarFallback class="text-[0.72rem] font-bold text-slate-700">
+								<Avatar class="size-11 shrink-0 bg-gray-200">
+									<AvatarFallback class="type-caption-bold">
 										{initialsFromName(room.roomName)}
 									</AvatarFallback>
 								</Avatar>
 
 								<div class="min-w-0 flex-1">
 									<div class="flex items-start justify-between gap-2">
-										<p
-											class="truncate text-[1rem] leading-tight font-bold text-[#242424] sm:text-[1.08rem]"
-										>
+										<p class="type-body-bold truncate text-foreground">
 											{roomDisplayName(room)}
 										</p>
-										<p class="shrink-0 text-xs text-gray-500">
+										<p class="type-sm shrink-0 text-muted-foreground">
 											{formatRelativeTime(room.lastMessageAt)}
 										</p>
 									</div>
 									<div class="mt-1 flex items-center gap-2">
-										<p class="min-w-0 flex-1 truncate text-[0.82rem] text-gray-600 sm:text-sm">
+										<p class="type-sm min-w-0 flex-1 truncate text-muted-foreground">
 											{roomPreviewText(room)}
 										</p>
 									</div>
@@ -675,12 +673,12 @@
 				>
 					<div class="hidden items-center border-b border-border/60 px-4 py-3 lg:flex">
 						<div class="flex min-w-0 flex-1 items-center gap-4 pr-2">
-							<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
-								<AvatarFallback class="text-[0.72rem] font-bold text-slate-700">
+							<Avatar class="size-8 shrink-0 bg-gray-200">
+								<AvatarFallback class="type-caption-bold">
 									{initialsFromName(roomDisplayName(activeRoom))}
 								</AvatarFallback>
 							</Avatar>
-							<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
+							<p class="type-h5-bold truncate text-foreground">
 								{roomDisplayName(activeRoom)}
 							</p>
 						</div>
@@ -702,7 +700,7 @@
 						bind:this={messageScrollRef}
 						onscroll={handleMessagesScroll}
 						class={`min-h-0 flex-1 overflow-y-auto ${
-							isDesktopViewport ? 'bg-[#fbfaf8] px-4 py-4' : 'bg-transparent px-0 py-0'
+							isDesktopViewport ? 'bg-card px-4 py-4' : 'bg-transparent px-0 py-0'
 						}`}
 					>
 						<div class="flex min-h-full flex-col">
@@ -885,32 +883,32 @@
 							{#if messagesResponse.isLoading && visibleMessages.length === 0}
 								<LoadingState label="Loading messages" />
 							{:else if visibleMessages.length === 0}
-								<p class="px-4 text-sm text-muted-foreground lg:px-0">
+								<p class="type-body px-4 text-muted-foreground lg:px-0">
 									{activeRoom?.canSend
 										? 'No messages yet. Send the first one.'
 										: 'No messages yet.'}
 								</p>
 							{:else}
 								{#if isMessageSearching && hasMoreMessages}
-									<p class="mb-3 text-center text-xs text-muted-foreground">
+									<p class="type-sm mb-3 text-center text-muted-foreground">
 										{$_('chat.messageSearchLoadedOnly')}
 									</p>
 								{:else if messagesResponse.isLoading && visibleMessages.length > 0}
-									<p class="mb-3 text-center text-xs text-muted-foreground">
+									<p class="type-sm mb-3 text-center text-muted-foreground">
 										Loading older messages...
 									</p>
 								{:else if hasMoreMessages}
-									<p class="mb-3 text-center text-xs text-muted-foreground">
+									<p class="type-sm mb-3 text-center text-muted-foreground">
 										Scroll up to load older messages
 									</p>
 								{/if}
 								{#if isMessageSearching && displayedMessages.length === 0}
-									<p class="mt-auto px-4 text-center text-sm text-muted-foreground lg:px-0">
+									<p class="type-body mt-auto px-4 text-center text-muted-foreground lg:px-0">
 										{$_('chat.messageSearchNoMatches')}
 									</p>
 								{:else if !isMessageSearching}
 									<p
-										class={`mt-auto text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
+										class={`type-sm mt-auto text-center text-muted-foreground ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
 									>
 										Today
 									</p>
@@ -922,7 +920,7 @@
 										{#if entry.profileId === null}
 											<div data-message-key={entry.key} class="flex justify-center">
 												<p
-													class="max-w-[85%] rounded-full bg-[#f0f0f2] px-3 py-1 text-center text-xs text-[#6b6f80]"
+													class="type-sm max-w-[85%] rounded-full bg-gray-100 px-3 py-1 text-center text-muted-foreground"
 												>
 													{entry.content}
 												</p>
@@ -959,12 +957,12 @@
 															: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
 													} ${
 														entry.profileId === viewer.data?._id
-															? 'bg-[#f5e2d2] text-[#2b2b2b]'
-															: 'bg-[#e7e9f3] text-[#2b2b2b]'
+															? 'bg-orange-100 text-foreground'
+															: 'bg-purple-100 text-foreground'
 													}`}
 												>
 													<p
-														class={`break-words ${isDesktopViewport ? 'text-[1.03rem] leading-6' : 'text-[14px] leading-6'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
+														class={`break-words ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
 													>
 														{#each linkifySegments(entry.content) as segment, index (index)}
 															{#if segment.type === 'url'}
@@ -982,7 +980,7 @@
 														{/each}
 													</p>
 													<p
-														class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
+														class={`text-right text-muted-foreground ${isDesktopViewport ? 'type-sm mt-1' : 'type-caption mt-[2px]'}`}
 													>
 														{#if entry.status === 'sending'}
 															Sending...
@@ -1020,11 +1018,11 @@
 							onkeydown={handleMessageComposerKeydown}
 						/>
 						<div
-							class={`flex items-center justify-end text-[#7b8090] ${isDesktopViewport ? 'mt-2' : 'px-4 pt-0.5 pb-1.5'}`}
+							class={`flex items-center justify-end text-muted-foreground ${isDesktopViewport ? 'mt-2' : 'px-4 pt-0.5 pb-1.5'}`}
 						>
 							<button
 								type="button"
-								class={`grid size-8 place-items-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+								class={`grid size-10 place-items-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
 									isDesktopViewport
 										? 'text-orange-500 hover:text-orange-600'
 										: 'text-orange-400 hover:text-orange-500'
@@ -1043,8 +1041,8 @@
 					class="hidden flex-1 items-center justify-center rounded-[1.1rem] bg-white/65 px-6 shadow-sm ring-1 ring-black/5 lg:flex"
 				>
 					<div class="max-w-sm text-center">
-						<p class="text-base font-semibold text-[#242424]">Select a chat</p>
-						<p class="mt-1 text-sm text-muted-foreground">
+						<p class="type-h6-bold text-foreground">Select a chat</p>
+						<p class="type-body mt-1 text-muted-foreground">
 							Choose a club, project, or application chat to view its messages.
 						</p>
 					</div>

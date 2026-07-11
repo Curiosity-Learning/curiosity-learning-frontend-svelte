@@ -4,6 +4,7 @@
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
+	import EmptyState from '../empty-state.svelte';
 	import LoadingState from '../loading-state.svelte';
 	import UpdateCard from './update-card.svelte';
 	import type { UpdateCardMediaItem } from './update-card.svelte';
@@ -142,10 +143,11 @@
 			<AlertDescription>{searchResponse.error.message}</AlertDescription>
 		</Alert>
 	{:else if !hasResults}
-		<div class="rounded-2xl border border-dashed border-border/80 bg-card px-4 py-8 text-center">
-			<p class="type-body-bold text-foreground">{t('feed.searchNoResultsTitle')}</p>
-			<p class="type-sm mt-1 text-muted-foreground">{t('feed.searchNoResultsDescription')}</p>
-		</div>
+		<EmptyState
+			title={t('feed.searchNoResultsTitle')}
+			description={t('feed.searchNoResultsDescription')}
+			class="px-4 py-8"
+		/>
 	{:else}
 		{#if resultProjects.length > 0}
 			<section class="flex flex-col gap-3">

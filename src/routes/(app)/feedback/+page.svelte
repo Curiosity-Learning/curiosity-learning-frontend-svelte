@@ -3,7 +3,12 @@
 	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import { api } from '$convex/_generated/api';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import {
+		EmptyState,
+		LoadingState,
+		PageHeaderBackButton,
+		PageHeaderTitle
+	} from '$lib/components/app';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
 	import { t } from '$lib/i18n';
@@ -19,7 +24,7 @@
 <PageHeaderTitle title={t('feedback.pageTitle')} />
 
 <div class="flex w-full flex-col gap-4 py-4">
-	<p class="text-[1.02rem] text-[#6b6f80]">{t('feedback.pageDescription')}</p>
+	<p class="type-lead text-muted-foreground">{t('feedback.pageDescription')}</p>
 
 	{#if outstandingFormsResponse.error}
 		<Alert variant="destructive">
@@ -31,12 +36,7 @@
 	{#if outstandingFormsResponse.isLoading && outstandingForms.length === 0}
 		<LoadingState label="Loading feedback forms" />
 	{:else if outstandingForms.length === 0}
-		<div
-			class="rounded-[1.1rem] border border-dashed border-border/80 bg-white px-4 py-8 text-center"
-		>
-			<MessageSquareTextIcon class="mx-auto mb-2 size-8 text-[#8b8fa0]" />
-			<p class="type-body-bold text-foreground">{t('feedback.emptyTitle')}</p>
-		</div>
+		<EmptyState icon={MessageSquareTextIcon} title={t('feedback.emptyTitle')} class="py-8" />
 	{:else}
 		<div class="flex flex-col gap-3">
 			{#each outstandingForms as item (item.formId + item.clubId)}
@@ -47,13 +47,13 @@
 					data-sveltekit-preload-data="hover"
 				>
 					<div class="min-w-0">
-						<p class="truncate text-[1.05rem] font-bold text-[#44495f]">
+						<p class="type-lead-bold truncate text-foreground">
 							{t('feedback.cardTitle')
 								.replace('{club}', item.clubName)
 								.replace('{audience}', audienceLabel(item.audience))}
 						</p>
 					</div>
-					<ChevronRightIcon class="size-5 shrink-0 text-[#8b8fa0]" />
+					<ChevronRightIcon class="size-5 shrink-0 text-muted-foreground" />
 				</a>
 			{/each}
 		</div>

@@ -2,7 +2,7 @@
 	import LockIcon from '@lucide/svelte/icons/lock';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { PageHeaderTitle } from '$lib/components/app';
+	import { EmptyState, PageHeaderTitle } from '$lib/components/app';
 	import UpdateCard from '$lib/components/app/feed/update-card.svelte';
 	import type { UpdateCardMediaItem } from '$lib/components/app/feed/update-card.svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -86,19 +86,19 @@
 		<div class="flex flex-col gap-5">
 			<div class="grid grid-cols-[minmax(0,1fr)_auto] gap-4">
 				<div class="min-w-0">
-					<p class="truncate text-[2rem] leading-[2.2rem] font-bold text-[#262626]">
+					<p class="truncate text-[2rem] leading-[2.2rem] font-bold text-foreground">
 						{displayName}
 					</p>
 					{#if handle}
-						<p class="truncate text-sm text-[#8b8fa0]">{handle}</p>
+						<p class="truncate type-body-compact text-muted-foreground">{handle}</p>
 					{/if}
 					{#if bio}
-						<p class="mt-2 text-[1.03rem] leading-7 text-[#353535]">{bio}</p>
+						<p class="mt-2 type-lead text-foreground">{bio}</p>
 					{/if}
 				</div>
 				<Avatar class="mt-1 size-20 shrink-0 border border-border/70 sm:size-24">
 					<AvatarImage src={profileImageUrl ?? undefined} alt={displayName} />
-					<AvatarFallback class="bg-[#d8dbe5] text-lg font-bold text-[#3a3f50]"
+					<AvatarFallback class="bg-gray-200 text-lg font-bold text-gray-800"
 						>{fallback}</AvatarFallback
 					>
 				</Avatar>
@@ -106,14 +106,14 @@
 
 			{#if clubs.length > 0}
 				<div class="flex flex-col gap-3">
-					<p class="text-[1.2rem] leading-6 font-bold text-[#44495f]">
+					<p class="type-h5-bold text-foreground">
 						{t('profileDetail.clubsTitle')}
 					</p>
 					<div class="flex flex-wrap gap-2">
 						{#each clubs as club (club.clubId)}
 							<a
 								href={routes.clubHome(club.clubId)}
-								class="flex items-center gap-2 rounded-full border border-[#f0decc] bg-[#f8ecdf] px-3 py-1.5 transition-colors hover:border-orange-200 hover:bg-orange-50"
+								class="flex items-center gap-2 rounded-full border border-orange-100 bg-orange-50 px-3 py-1.5 transition-colors hover:border-orange-200 hover:bg-orange-50"
 								data-sveltekit-preload-code="hover"
 								data-sveltekit-preload-data="hover"
 							>
@@ -122,7 +122,7 @@
 									<Badge
 										class={club.roleKey === 'guide'
 											? 'rounded-full bg-orange-500 px-2 py-0 text-xs text-white'
-											: 'rounded-full bg-[#e4dccf] px-2 py-0 text-xs text-[#7a5c45]'}
+											: 'rounded-full bg-orange-100 px-2 py-0 text-xs text-orange-700'}
 									>
 										{club.roleName}
 									</Badge>
@@ -137,11 +137,11 @@
 
 	{#snippet sharedClubIndicator()}
 		<span
-			class="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+			class="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
 			title={t('profileDetail.sharedClubIndicatorLabel')}
 			aria-label={t('profileDetail.sharedClubIndicatorLabel')}
 		>
-			<LockIcon class="size-3.5" />
+			<LockIcon class="size-3" />
 		</span>
 	{/snippet}
 
@@ -183,12 +183,12 @@
 	{/snippet}
 
 	<section class="flex flex-col gap-3">
-		<p class="text-[1.5rem] leading-8 font-bold text-[#44495f]">{t('profileDetail.currentTitle')}</p>
+		<p class="type-h4-bold text-foreground">{t('profileDetail.currentTitle')}</p>
 		{@render projectList(currentProjects, t('profileDetail.currentEmpty'))}
 	</section>
 
 	<section class="flex flex-col gap-3">
-		<p class="text-[1.5rem] leading-8 font-bold text-[#44495f]">
+		<p class="type-h4-bold text-foreground">
 			{t('profileDetail.showcaseTitle')}
 		</p>
 		{@render projectList(showcaseProjects, t('profileDetail.showcaseEmpty'))}
@@ -196,17 +196,18 @@
 
 	<section class="flex flex-col gap-3">
 		<div class="flex items-center justify-between gap-3">
-			<p class="text-[1.5rem] leading-8 font-bold text-[#44495f]">{t('profileDetail.updatesTitle')}</p>
+			<p class="type-h4-bold text-foreground">{t('profileDetail.updatesTitle')}</p>
 		</div>
 		{#if profileResponse.isLoading && updates.length === 0}
 			<div class="rounded-[1.1rem] border border-border/80 bg-white px-4 py-6 text-center">
-				<p class="text-[1.02rem] text-[#6b6f80]">{t('common.loading')}</p>
+				<p class="type-lead text-muted-foreground">{t('common.loading')}</p>
 			</div>
 		{:else if updates.length === 0}
-			<div class="rounded-[1.1rem] border border-dashed border-border/80 bg-white px-4 py-6 text-center">
-				<p class="type-body-bold text-foreground">{t('profileDetail.updatesEmptyTitle')}</p>
-				<p class="type-sm mt-1 text-muted-foreground">{t('profileDetail.updatesEmptyDescription')}</p>
-			</div>
+			<EmptyState
+				title={t('profileDetail.updatesEmptyTitle')}
+				description={t('profileDetail.updatesEmptyDescription')}
+				class="px-4 py-6"
+			/>
 		{:else}
 			<div class="flex flex-col gap-3">
 				{#each updates as item (item.updateId)}

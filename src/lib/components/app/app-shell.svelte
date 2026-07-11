@@ -201,7 +201,7 @@
 		)}
 	>
 		<aside
-			class="hidden w-60 flex-col border-r border-border bg-[#f6f7f9] lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
+			class="hidden w-60 flex-col border-r border-border bg-gray-50 lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
 		>
 			<div class="border-b border-border px-5 py-6">
 				<div class="flex items-center gap-3">
@@ -223,7 +223,7 @@
 										'relative flex w-full items-center gap-1 overflow-hidden rounded-none',
 										activeNav === nav.key
 											? 'bg-[#f8ecdf] text-orange-500'
-											: 'text-[#5e637a] hover:bg-[#eef0f5] hover:text-[#44495f]'
+											: 'text-[#5e637a] hover:bg-gray-100 hover:text-[#44495f]'
 									)}
 								>
 									{#if activeNav === nav.key}
@@ -242,7 +242,7 @@
 										<span>{nav.label}</span>
 									</a>
 									<CollapsibleTrigger
-										class="flex size-9 items-center justify-center rounded-md hover:bg-[#e8ebf2]"
+										class="flex size-9 items-center justify-center rounded-md hover:bg-gray-100"
 										aria-label={clubNavOpen ? `Collapse ${nav.label}` : `Expand ${nav.label}`}
 									>
 										<ChevronDownIcon
@@ -287,7 +287,7 @@
 								<div
 									class={cn(
 										'flex items-center justify-between rounded-lg px-2 py-2',
-										activeNav === nav.key ? 'bg-[#f8ecdf]' : 'hover:bg-[#eef0f5]'
+										activeNav === nav.key ? 'bg-[#f8ecdf]' : 'hover:bg-gray-100'
 									)}
 								>
 									<a
@@ -296,7 +296,7 @@
 										data-sveltekit-preload-code="hover"
 										data-sveltekit-preload-data="hover"
 									>
-										<Avatar class="size-9 shrink-0 border border-border/80 bg-[#d8dbe5]">
+										<Avatar class="size-9 shrink-0 border border-border/80 bg-gray-200">
 											{#if sidebarProfileImageUrl}
 												<AvatarImage
 													src={sidebarProfileImageUrl}
@@ -307,7 +307,7 @@
 												{sidebarProfileInitials ?? 'PR'}
 											</AvatarFallback>
 										</Avatar>
-										<p class="truncate text-[1.03rem] leading-6 font-medium text-[#3e414c]">
+										<p class="truncate text-[1.03rem] leading-6 font-medium text-gray-800">
 											{sidebarProfileName ?? nav.label}
 										</p>
 									</a>

@@ -401,7 +401,7 @@
 			{#if selectedLocationCoordinates}
 				<section class="flex flex-col gap-3">
 					{#if clubsResponse.isLoading}
-						<p class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
+						<p class="type-body-compact rounded-lg border border-gray-200 bg-white px-4 py-3 text-gray-600">
 							{$_('common.loading')}
 						</p>
 					{:else if nearbyClubs.length > 0}
@@ -409,7 +409,7 @@
 							<h2 class="text-lg font-bold text-gray-900">
 								{$_('onboarding.joinClub.nearbyTitle')}
 							</h2>
-							<p class="text-sm text-gray-600">
+							<p class="type-body-compact text-gray-600">
 								{$_('onboarding.joinClub.nearbyDescription')}
 							</p>
 						</div>
@@ -445,7 +445,7 @@
 							<h3 class="type-h6-bold text-gray-900">
 								{$_('onboarding.joinClub.noClubsTitle')}
 							</h3>
-							<p class="text-sm leading-6 text-gray-600">
+							<p class="type-body text-gray-600">
 								{$_('onboarding.joinClub.noClubsDescription')}
 							</p>
 							<div class="flex flex-col gap-2">
@@ -473,10 +473,10 @@
 									</Button>
 								</div>
 								{#if interestMessage}
-									<p class="text-sm text-green-700">{interestMessage}</p>
+									<p class="type-body-compact text-green-700">{interestMessage}</p>
 								{/if}
 								{#if interestError}
-									<p class="text-sm text-red-700">{interestError}</p>
+									<p class="type-body-compact text-red-700">{interestError}</p>
 								{/if}
 							</div>
 							<div class="flex items-center gap-3 text-sm font-semibold text-gray-400">
@@ -519,7 +519,7 @@
 			</section>
 
 			{#if codeError}
-				<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+				<p class="type-body-compact rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
 					{codeError}
 				</p>
 			{/if}

@@ -7,6 +7,7 @@
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
+	import { FieldError } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { ToggleGroup, ToggleGroupItem } from '$lib/components/ui/toggle-group';
@@ -121,9 +122,10 @@
 						</Label>
 
 						{#if question.kind === 'scale_1_10'}
-							<p class="text-xs text-muted-foreground">{t('feedback.scaleQuestionHint')}</p>
+							<p class="type-sm text-muted-foreground">{t('feedback.scaleQuestionHint')}</p>
 							<ToggleGroup
 								type="single"
+								size="lg"
 								value={answers[question.id] !== undefined ? String(answers[question.id]) : ''}
 								onValueChange={(value) => {
 									touched[question.id] = true;
@@ -144,6 +146,7 @@
 						{:else if question.kind === 'yes_no'}
 							<ToggleGroup
 								type="single"
+								size="lg"
 								value={answers[question.id] === undefined
 									? ''
 									: answers[question.id]
@@ -174,7 +177,7 @@
 						{/if}
 
 						{#if touched[question.id] && isAnswerMissing(question.id, question.required)}
-							<p class="text-xs text-destructive">{t('feedback.requiredFieldError')}</p>
+							<FieldError>{t('feedback.requiredFieldError')}</FieldError>
 						{/if}
 					</div>
 				{/each}
