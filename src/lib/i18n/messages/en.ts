@@ -171,9 +171,8 @@ const en = {
 	sessionRsvp: {
 		going: 'Going',
 		notGoing: 'Not going',
-		goingCountOne: '{count} person going',
-		goingCountOther: '{count} people going',
-		notGoingCountSuffix: '· {count} not going',
+		goingSectionTitle: 'Going',
+		changeAria: 'Change your RSVP',
 		updateFailure: 'Failed to update RSVP.',
 		indicatorGoing: 'RSVP: Going',
 		indicatorNotGoing: 'RSVP: Not going'
@@ -182,6 +181,7 @@ const en = {
 		actionLabel: 'Cancel session',
 		confirm: 'Cancel this session? Members who RSVP’d "Going" will be notified.',
 		failure: 'Failed to cancel session.',
+		badge: 'Cancelled',
 		cancelledTitle: 'Session cancelled',
 		cancelledDescription: 'This session has been cancelled and is no longer scheduled.'
 	},
@@ -201,15 +201,17 @@ const en = {
 	},
 	sessionEditor: {
 		locationLabel: 'Location',
-		locationPlaceholder: 'Address, description, or meeting URL'
+		locationPlaceholder: 'Address, description, or meeting URL',
+		discardTitle: 'Discard unsaved changes?',
+		discardDescription: 'Your edits to this session have not been saved.',
+		keepEditing: 'Keep editing',
+		discard: 'Discard changes'
 	},
 	sessionAttendance: {
 		present: 'Present',
 		absent: 'Absent',
 		notRecorded: 'Not recorded',
-		windowNotStarted: 'Attendance opens when the session starts.',
-		windowLocked: 'Attendance is locked for this session.',
-		windowCancelled: 'Attendance cannot be marked for a cancelled session.',
+		lockedIconLabel: 'Attendance is locked',
 		updateFailure: 'Failed to update attendance.',
 		emptyState: 'No one was in the club when this session started.'
 	},

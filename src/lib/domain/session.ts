@@ -2,6 +2,13 @@ import type { Doc } from '$convex/_generated/dataModel';
 
 export type SessionBucket = 'Today' | 'Tomorrow' | 'Upcoming' | 'Past';
 
+const HOUR_MS = 60 * 60 * 1000;
+
+// Client-side mirrors of the windows enforced in src/convex/sessions.ts (ATTENDANCE_LOCK_WINDOW_MS
+// and SESSION_PHOTO_POST_SESSION_WINDOW_MS) — keep the values in sync with the server.
+export const ATTENDANCE_LOCK_WINDOW_MS = 12 * HOUR_MS;
+export const SESSION_PHOTO_UPLOAD_WINDOW_MS = 12 * HOUR_MS;
+
 const normalizeDate = (value: number) => {
 	const date = new Date(value);
 	return new Date(date.getFullYear(), date.getMonth(), date.getDate());

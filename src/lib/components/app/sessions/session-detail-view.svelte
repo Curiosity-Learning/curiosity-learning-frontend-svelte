@@ -20,15 +20,20 @@
 	} from '$lib/app/connectivity';
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
 	import SessionLocation from '$lib/components/app/sessions/session-location.svelte';
-	import SessionRsvp from '$lib/components/app/sessions/session-rsvp.svelte';
 	import { routes } from '$lib/routes';
-	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import { ATTENDANCE_LOCK_WINDOW_MS, formatSessionHeaderLine } from '$lib/domain/session';
 	import { t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import {
+		DropdownMenu,
+		DropdownMenuContent,
+		DropdownMenuItem,
+		DropdownMenuTrigger
+	} from '$lib/components/ui/dropdown-menu';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Input } from '$lib/components/ui/input';
@@ -36,10 +41,13 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import BanIcon from '@lucide/svelte/icons/ban';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
+	import XIcon from '@lucide/svelte/icons/x';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
@@ -82,18 +90,13 @@
 	let canDeleteActivity = $derived(clubPermissions.includes('session_activity:delete'));
 	let canReadAttendance = $derived(clubPermissions.includes('attendance:read'));
 	let canManageAttendance = $derived(clubPermissions.includes('attendance:create'));
-	let canReadAllRsvps = $derived(clubPermissions.includes('session_rsvp:read_all'));
 	let sessionHasStarted = $derived(Boolean(session && session.startTime <= Date.now()));
 	let hasSessionPhotoPermission = $derived(clubPermissions.includes('session_photo:create'));
-	let attendanceWindowReason = $derived.by(() => {
-		if (!session) return null;
-		if (session.cancelled) return 'cancelled' as const;
+	let attendanceWindowOpen = $derived.by(() => {
+		if (!session || session.cancelled) return false;
 		const now = Date.now();
-		if (now < session.startTime) return 'not_started' as const;
-		if (now > session.endTime + 12 * 60 * 60 * 1000) return 'locked' as const;
-		return null;
+		return now >= session.startTime && now <= session.endTime + ATTENDANCE_LOCK_WINDOW_MS;
 	});
-	let attendanceWindowOpen = $derived(attendanceWindowReason === null);
 
 	const canMutateOnlineState = fromStore(canMutateOnlineStore);
 	const connectivityMessageState = fromStore(connectivityMessageStore);
@@ -108,8 +111,11 @@
 	let canManageAttendanceOnline = $derived(
 		canManageAttendance && canMutateOnline && attendanceWindowOpen
 	);
+	// RSVP is only actionable before the session starts and while it isn't cancelled; anywhere
+	// this is false the control is hidden entirely (CEO decision 2026-07-11). Transient offline
+	// keeps the control visible but disabled, matching the rest of the app.
 	let canRsvpToSession = $derived(
-		clubPermissions.includes('session_rsvp:set') && !isCancelled && canMutateOnline
+		clubPermissions.includes('session_rsvp:set') && !isCancelled && !sessionHasStarted
 	);
 
 	const activitiesResponse = useStableQuery(api.sessions.listActivities, () =>
@@ -118,23 +124,16 @@
 	const blocksResponse = useStableQuery(api.sessions.listBuildingBlocks, () =>
 		view === 'activities' ? {} : 'skip'
 	);
+	// The attendance roster is only meaningful once the session has started; before that the
+	// attendees tab shows the RSVP roster instead.
 	const attendanceRosterResponse = useStableQuery(api.sessions.listAttendanceRoster, () =>
-		sessionIdTyped && canReadAttendance && view === 'attendees'
+		sessionIdTyped && canReadAttendance && view === 'attendees' && sessionHasStarted
 			? { sessionId: sessionIdTyped }
 			: 'skip'
 	);
-	const sessionCardDataResponse = useStableQuery(api.sessions.getSessionCardData, () =>
-		sessionIdTyped ? { sessionId: sessionIdTyped, includeAttendees: false } : 'skip'
+	const rsvpRosterResponse = useStableQuery(api.sessions.listRsvpRoster, () =>
+		sessionIdTyped && view === 'attendees' ? { sessionId: sessionIdTyped } : 'skip'
 	);
-	const rsvpsResponse = useStableQuery(api.sessions.listRsvps, () =>
-		sessionIdTyped && canReadAllRsvps && view === 'attendees'
-			? { sessionId: sessionIdTyped }
-			: 'skip'
-	);
-	let rsvpCountsResponse = $derived(
-		sessionCardDataResponse.data?.rsvpCounts ?? { going: 0, notGoing: 0 }
-	);
-	let myRsvpStatus = $derived(sessionCardDataResponse.data?.myRsvpStatus ?? null);
 	let rsvpPending = $state(false);
 
 	const photosResponse = useStableQuery(api.sessions.listPhotos, () =>
@@ -245,6 +244,42 @@
 		description: '',
 		location: ''
 	});
+	// Snapshot of the form as it was opened, so closing with unsaved edits can ask first.
+	let sessionFormSnapshot = $state<string | null>(null);
+	// Inline discard-confirmation shown *inside* the edit dialog (no dialog-on-top-of-dialog).
+	let sessionDiscardPromptVisible = $state(false);
+
+	const serializeSessionForm = () =>
+		JSON.stringify([
+			sessionForm.startTime,
+			sessionForm.endTime,
+			sessionForm.description,
+			sessionForm.location
+		]);
+	let sessionFormDirty = $derived(
+		sessionFormSnapshot !== null && serializeSessionForm() !== sessionFormSnapshot
+	);
+
+	// All close paths (X button, Escape, overlay click, footer Cancel) funnel through here; a
+	// dirty form swaps the dialog footer for an inline "discard changes?" confirmation instead
+	// of closing.
+	const requestSessionDialogOpenChange = (next: boolean) => {
+		if (!next && sessionFormDirty && !sessionDiscardPromptVisible) {
+			sessionDiscardPromptVisible = true;
+			return;
+		}
+		sessionDialogOpen = next;
+		if (!next) {
+			sessionDiscardPromptVisible = false;
+			sessionFormSnapshot = null;
+		}
+	};
+
+	const discardSessionEdits = () => {
+		sessionDiscardPromptVisible = false;
+		sessionFormSnapshot = null;
+		sessionDialogOpen = false;
+	};
 
 	let activityDialogOpen = $state(false);
 	let activityEditId = $state<Id<'sessionActivities'> | null>(null);
@@ -298,7 +333,7 @@
 		(blocksResponse.data ?? []).map((block) => ({ id: String(block._id), name: block.name }))
 	);
 	let rsvpStatusByProfileId = $derived(
-		new Map((rsvpsResponse.data ?? []).map((row) => [row.profileId, row.status] as const))
+		new Map((rsvpRosterResponse.data ?? []).map((row) => [row.profileId, row.status] as const))
 	);
 
 	const formatDisplayName = (person: {
@@ -407,26 +442,31 @@
 			description: session.description ?? '',
 			location: session.location ?? ''
 		};
+		sessionDiscardPromptVisible = false;
+		sessionFormSnapshot = serializeSessionForm();
 		sessionDialogOpen = true;
 	};
 
 	const saveSession = async () => {
 		if (!session || sessionForm.startTime === null || sessionForm.endTime === null) return;
+		const location = sessionForm.location.trim();
+		if (!location) return;
 		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 
 		pending = true;
 		errorMessage = '';
 		try {
 			const desc = sessionForm.description.trim();
-			const location = sessionForm.location.trim();
 			await convexClient.mutation(api.sessions.update, {
 				sessionId: session._id,
 				startTime: sessionForm.startTime,
 				endTime: sessionForm.endTime,
-				...(desc ? { description: desc } : {}),
-				...(location ? { location } : {})
+				location,
+				...(desc ? { description: desc } : {})
 			});
 			reportMutationSuccess();
+			sessionFormSnapshot = null;
+			sessionDiscardPromptVisible = false;
 			sessionDialogOpen = false;
 		} catch (error) {
 			reportMutationFailure(error);
@@ -446,7 +486,7 @@
 		try {
 			await convexClient.mutation(api.sessions.cancel, { sessionId: session._id });
 			reportMutationSuccess();
-			await goto(routes.clubSessions(session.clubId));
+			// Stay on the session (CEO decision 2026-07-11) — the cancelled banner takes over.
 		} catch (error) {
 			reportMutationFailure(error);
 			errorMessage = error instanceof Error ? error.message : t('sessionCancel.failure');
@@ -556,6 +596,7 @@
 
 	const setRsvpStatus = async (status: 'going' | 'not_going') => {
 		if (!sessionIdTyped || !canRsvpToSession) return;
+		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		rsvpPending = true;
 		errorMessage = '';
 		try {
@@ -569,31 +610,40 @@
 		}
 	};
 
-	let sessionActionItems = $derived([
-		{
-			id: 'edit-session',
-			label: 'Edit details',
-			Icon: PencilIcon,
-			disabled: !canUpdateSessionOnline,
-			onSelect: openSessionEditor
-		},
-		{
-			id: 'cancel-session',
-			label: t('sessionCancel.actionLabel'),
-			Icon: BanIcon,
-			tone: 'destructive' as const,
-			separatorBefore: canUpdateSessionOnline,
-			disabled: !canCancelSessionOnline,
-			onSelect: () => (cancelSessionDialogOpen = true)
-		}
-	]);
+	// Only actions that can ever apply to this session appear; permanently impossible ones
+	// (cancelled/past session) are dropped rather than disabled (CEO decision 2026-07-11).
+	// `disabled` is reserved for the transient offline state.
+	let sessionActionItems = $derived(
+		[
+			canUpdateSession
+				? {
+						id: 'edit-session',
+						label: 'Edit details',
+						Icon: PencilIcon,
+						disabled: !canUpdateSessionOnline,
+						onSelect: openSessionEditor
+					}
+				: null,
+			canCancelSession
+				? {
+						id: 'cancel-session',
+						label: t('sessionCancel.actionLabel'),
+						Icon: BanIcon,
+						tone: 'destructive' as const,
+						separatorBefore: canUpdateSession,
+						disabled: !canCancelSessionOnline,
+						onSelect: () => (cancelSessionDialogOpen = true)
+					}
+				: null
+		].filter((item): item is NonNullable<typeof item> => item !== null)
+	);
 </script>
 
 <PageHeaderBackButton {fallbackHref} />
 {#if headerTitle}
 	<PageHeaderTitle title={headerTitle} />
 {/if}
-<PageHeaderActions>
+<PageHeaderActions none={sessionActionItems.length === 0}>
 	<ActionMenu items={sessionActionItems} ariaLabel="Open session actions" />
 </PageHeaderActions>
 
@@ -631,23 +681,17 @@
 			</Alert>
 		{/if}
 
-		{#if session.location}
-			<SessionLocation location={session.location} />
-		{/if}
-
-		<SessionRsvp
-			myStatus={myRsvpStatus}
-			goingCount={rsvpCountsResponse.going}
-			notGoingCount={rsvpCountsResponse.notGoing}
-			canRsvp={canRsvpToSession}
-			locked={sessionHasStarted}
-			pending={rsvpPending}
-			onSetStatus={(status) => void setRsvpStatus(status)}
-		/>
-
 		{#if view === 'activities'}
-			{#if session.description}
-				<p class="type-lead text-muted-foreground">{session.description}</p>
+			<!-- Overview: location + description live here (only), not repeated on every tab. -->
+			{#if session.location || session.description}
+				<div class="flex flex-col gap-2">
+					{#if session.location}
+						<SessionLocation location={session.location} />
+					{/if}
+					{#if session.description}
+						<p class="type-lead text-muted-foreground">{session.description}</p>
+					{/if}
+				</div>
 			{/if}
 			{#if (activitiesResponse.data?.length ?? 0) === 0}
 				<div
@@ -796,54 +840,103 @@
 			{/if}
 		{:else if view === 'attendees'}
 			<div class="flex flex-col gap-3">
-				{#if !canReadAttendance}
-					<p class="type-sm text-muted-foreground">You do not have access to attendees.</p>
-				{:else if attendanceWindowReason === 'not_started'}
-					<Alert>
-						<AlertDescription>{t('sessionAttendance.windowNotStarted')}</AlertDescription>
-					</Alert>
-				{/if}
-				{#if canReadAttendance && attendanceWindowReason === 'locked'}
-					<Alert>
-						<AlertDescription>{t('sessionAttendance.windowLocked')}</AlertDescription>
-					</Alert>
-				{/if}
-				{#if canReadAttendance}
-					{#if attendanceRosterResponse.isLoading}
+				{#if !sessionHasStarted}
+					<!-- Before the session starts this tab is the RSVP roster: every member with their
+					     going/not-going status (default going, CL-712). Your own row carries the only
+					     RSVP control — a dropdown to switch status — and only while it's actionable. -->
+					{#if rsvpRosterResponse.isLoading}
 						<LoadingState label="Loading attendees" />
-					{:else if (attendanceRosterResponse.data?.length ?? 0) === 0}
+					{:else if (rsvpRosterResponse.data?.length ?? 0) === 0}
 						<p class="type-sm text-muted-foreground">{t('sessionAttendance.emptyState')}</p>
 					{:else}
-						{#each attendanceRosterResponse.data ?? [] as member (member.profileId)}
+						{#each rsvpRosterResponse.data ?? [] as member (member.profileId)}
 							<div
 								class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
 							>
-								<div class="flex flex-col gap-1">
-									<p class="type-body-medium">
-										{member.isPastMember ? 'Past member' : formatDisplayName(member)}
+								<p class="type-body-medium">{formatDisplayName(member)}</p>
+								{#if member.isSelf && canRsvpToSession}
+									<DropdownMenu>
+										<DropdownMenuTrigger>
+											<Button
+												variant="outline"
+												size="sm"
+												disabled={rsvpPending || !canMutateOnline}
+												aria-label={t('sessionRsvp.changeAria')}
+											>
+												{#if member.status === 'going'}
+													<CheckIcon class="size-4 text-green-500" />
+													{t('sessionRsvp.going')}
+												{:else}
+													<XIcon class="size-4 text-destructive" />
+													{t('sessionRsvp.notGoing')}
+												{/if}
+												<ChevronDownIcon class="size-4 text-muted-foreground" />
+											</Button>
+										</DropdownMenuTrigger>
+										<DropdownMenuContent align="end" class="w-44">
+											<DropdownMenuItem onSelect={() => void setRsvpStatus('going')}>
+												<CheckIcon class="size-4" />
+												<span>{t('sessionRsvp.going')}</span>
+											</DropdownMenuItem>
+											<DropdownMenuItem onSelect={() => void setRsvpStatus('not_going')}>
+												<XIcon class="size-4" />
+												<span>{t('sessionRsvp.notGoing')}</span>
+											</DropdownMenuItem>
+										</DropdownMenuContent>
+									</DropdownMenu>
+								{:else}
+									<p
+										class={`type-sm ${member.status === 'going' ? 'text-muted-foreground' : 'text-destructive'}`}
+									>
+										{member.status === 'going'
+											? t('sessionRsvp.going')
+											: t('sessionRsvp.notGoing')}
 									</p>
-									{#if rsvpStatusByProfileId.has(member.profileId)}
-										<p class="type-sm text-muted-foreground">
-											{rsvpStatusByProfileId.get(member.profileId) === 'going'
-												? t('sessionRsvp.indicatorGoing')
-												: t('sessionRsvp.indicatorNotGoing')}
-										</p>
-									{/if}
-									{#if member.status === null}
-										<p class="type-sm text-muted-foreground">
-											{t('sessionAttendance.notRecorded')}
-										</p>
-									{/if}
-								</div>
-								<div class="relative z-10 flex items-center">
+								{/if}
+							</div>
+						{/each}
+					{/if}
+				{:else if !canReadAttendance}
+					<p class="type-sm text-muted-foreground">You do not have access to attendees.</p>
+				{:else if attendanceRosterResponse.isLoading}
+					<LoadingState label="Loading attendees" />
+				{:else if (attendanceRosterResponse.data?.length ?? 0) === 0}
+					<p class="type-sm text-muted-foreground">{t('sessionAttendance.emptyState')}</p>
+				{:else}
+					{#each attendanceRosterResponse.data ?? [] as member (member.profileId)}
+						<div
+							class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
+						>
+							<div class="flex flex-col gap-1">
+								<p class="type-body-medium">
+									{member.isPastMember ? 'Past member' : formatDisplayName(member)}
+								</p>
+								{#if rsvpStatusByProfileId.has(member.profileId)}
+									<p class="type-sm text-muted-foreground">
+										{rsvpStatusByProfileId.get(member.profileId) === 'going'
+											? t('sessionRsvp.indicatorGoing')
+											: t('sessionRsvp.indicatorNotGoing')}
+									</p>
+								{/if}
+								{#if member.status === null}
+									<p class="type-sm text-muted-foreground">
+										{t('sessionAttendance.notRecorded')}
+									</p>
+								{/if}
+							</div>
+							<div class="relative z-10 flex items-center">
+								<!-- Controls render only while attendance can still change (permission + open
+								     window); permanently-locked states show plain status instead of dead
+								     buttons. Transient offline keeps the convention of disabling. -->
+								{#if canManageAttendance && attendanceWindowOpen && !member.isPastMember}
 									<ToggleGroup.Root
 										type="single"
 										variant="outline"
 										size="sm"
 										value={member.status ?? undefined}
-										disabled={!canManageAttendanceOnline || member.isPastMember}
+										disabled={!canMutateOnline}
 										onValueChange={(value) => {
-											if (!canManageAttendanceOnline || member.isPastMember) return;
+											if (!canManageAttendanceOnline) return;
 											if (value !== 'present' && value !== 'absent') return;
 											void setAttendance(member.profileId, value);
 										}}
@@ -855,10 +948,18 @@
 											{t('sessionAttendance.absent')}
 										</ToggleGroup.Item>
 									</ToggleGroup.Root>
-								</div>
+								{:else if member.status !== null}
+									<!-- Read-only (locked window / no permission): plain status, no dead controls.
+									     The lock itself is conveyed by the icon on this tab. -->
+									<p class="type-sm-bold text-muted-foreground">
+										{member.status === 'present'
+											? t('sessionAttendance.present')
+											: t('sessionAttendance.absent')}
+									</p>
+								{/if}
 							</div>
-						{/each}
-					{/if}
+						</div>
+					{/each}
 				{/if}
 			</div>
 		{:else}
@@ -944,7 +1045,7 @@
 		{/if}
 	</div>
 
-	<Dialog.Root bind:open={sessionDialogOpen}>
+	<Dialog.Root bind:open={() => sessionDialogOpen, requestSessionDialogOpenChange}>
 		<Dialog.Content>
 			<Dialog.Header>
 				<Dialog.Title>Edit session</Dialog.Title>
@@ -956,11 +1057,12 @@
 					bind:endTime={sessionForm.endTime}
 				/>
 				<div class="flex flex-col gap-2">
-					<FieldLabel for="sessionLocation">{t('sessionEditor.locationLabel')}</FieldLabel>
+					<FieldLabel for="sessionLocation" required>{t('sessionEditor.locationLabel')}</FieldLabel>
 					<Input
 						id="sessionLocation"
 						bind:value={sessionForm.location}
 						placeholder={t('sessionEditor.locationPlaceholder')}
+						required
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
@@ -968,12 +1070,36 @@
 					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
 				</div>
 			</div>
-			<Dialog.Footer>
-				<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
-				<Button disabled={pending || !canUpdateSessionOnline} onclick={() => void saveSession()}
-					>{pending ? 'Saving...' : 'Save session'}</Button
+			{#if sessionDiscardPromptVisible}
+				<!-- Inline unsaved-changes confirmation: swaps in for the footer instead of stacking a
+				     second dialog on top of this one. -->
+				<div
+					class="flex flex-col gap-3 rounded-xl border border-border bg-muted/40 p-4"
+					role="alertdialog"
+					aria-label={t('sessionEditor.discardTitle')}
 				>
-			</Dialog.Footer>
+					<p class="type-body-medium">{t('sessionEditor.discardTitle')}</p>
+					<p class="type-sm text-muted-foreground">{t('sessionEditor.discardDescription')}</p>
+					<div class="flex justify-end gap-2">
+						<Button variant="outline" onclick={() => (sessionDiscardPromptVisible = false)}>
+							{t('sessionEditor.keepEditing')}
+						</Button>
+						<Button variant="destructive" onclick={discardSessionEdits}>
+							{t('sessionEditor.discard')}
+						</Button>
+					</div>
+				</div>
+			{:else}
+				<Dialog.Footer>
+					<Button variant="outline" onclick={() => requestSessionDialogOpenChange(false)}
+						>Cancel</Button
+					>
+					<Button
+						disabled={pending || !canUpdateSessionOnline || !sessionForm.location.trim()}
+						onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
+					>
+				</Dialog.Footer>
+			{/if}
 		</Dialog.Content>
 	</Dialog.Root>
 

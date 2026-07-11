@@ -36,6 +36,7 @@
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { FieldLabel } from '$lib/components/ui/field';
+	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { page } from '$app/state';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
@@ -135,7 +136,8 @@
 	let createSessionForm = $state({
 		startTime: null as number | null,
 		endTime: null as number | null,
-		description: ''
+		description: '',
+		location: ''
 	});
 	let projectRailNode = $state<HTMLDivElement | null>(null);
 
@@ -160,7 +162,8 @@
 		return {
 			startTime: now + 3_600_000,
 			endTime: now + 7_200_000,
-			description: ''
+			description: '',
+			location: ''
 		};
 	};
 
@@ -173,7 +176,8 @@
 	const createSession = async () => {
 		const startTime = createSessionForm.startTime;
 		const endTime = createSessionForm.endTime;
-		if (!canCreateSession || !clubIdTyped || startTime === null || endTime === null) {
+		const location = createSessionForm.location.trim();
+		if (!canCreateSession || !clubIdTyped || startTime === null || endTime === null || !location) {
 			return;
 		}
 
@@ -186,6 +190,7 @@
 					clubId: clubIdTyped,
 					startTime,
 					endTime,
+					location,
 					...(desc ? { description: desc } : {})
 				}),
 				SESSION_CREATE_TIMEOUT_MS,
@@ -427,7 +432,6 @@
 							attendees: entry.attendees,
 							activityItems: entry.activityItems,
 							hiddenActivitiesCount: entry.hiddenActivitiesCount,
-							rsvpCounts: entry.rsvpCounts,
 							myRsvpStatus: entry.myRsvpStatus
 						}}
 						canReadMembers={canShowSessionAttendees}
@@ -466,6 +470,17 @@
 							bind:endTime={createSessionForm.endTime}
 						/>
 						<div class="flex flex-col gap-2">
+							<FieldLabel for="sessionLocation" required
+								>{t('sessionEditor.locationLabel')}</FieldLabel
+							>
+							<Input
+								id="sessionLocation"
+								bind:value={createSessionForm.location}
+								placeholder={t('sessionEditor.locationPlaceholder')}
+								required
+							/>
+						</div>
+						<div class="flex flex-col gap-2">
 							<FieldLabel for="sessionDescription">Description</FieldLabel>
 							<Textarea
 								id="sessionDescription"
@@ -479,7 +494,10 @@
 							>Cancel</Button
 						>
 						<Button
-							disabled={createSessionPending || !canCreateSession || !canMutateOnline}
+							disabled={createSessionPending ||
+								!canCreateSession ||
+								!canMutateOnline ||
+								!createSessionForm.location.trim()}
 							onclick={() => void createSession()}
 						>
 							{createSessionPending ? 'Creating...' : 'Open'}

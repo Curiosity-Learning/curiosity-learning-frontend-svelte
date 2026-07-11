@@ -173,9 +173,8 @@ const nl = {
 	sessionRsvp: {
 		going: 'Ik kom',
 		notGoing: 'Ik kom niet',
-		goingCountOne: '{count} persoon komt',
-		goingCountOther: '{count} personen komen',
-		notGoingCountSuffix: '· {count} komen niet',
+		goingSectionTitle: 'Komt',
+		changeAria: 'Wijzig je RSVP',
 		updateFailure: 'Kan RSVP niet bijwerken.',
 		indicatorGoing: 'RSVP: Komt',
 		indicatorNotGoing: 'RSVP: Komt niet'
@@ -184,6 +183,7 @@ const nl = {
 		actionLabel: 'Sessie annuleren',
 		confirm: 'Deze sessie annuleren? Leden die "Ik kom" hebben aangegeven krijgen een melding.',
 		failure: 'Kan sessie niet annuleren.',
+		badge: 'Geannuleerd',
 		cancelledTitle: 'Sessie geannuleerd',
 		cancelledDescription: 'Deze sessie is geannuleerd en staat niet meer gepland.'
 	},
@@ -203,15 +203,17 @@ const nl = {
 	},
 	sessionEditor: {
 		locationLabel: 'Locatie',
-		locationPlaceholder: 'Adres, beschrijving of vergaderlink'
+		locationPlaceholder: 'Adres, beschrijving of vergaderlink',
+		discardTitle: 'Niet-opgeslagen wijzigingen verwijderen?',
+		discardDescription: 'Je wijzigingen aan deze sessie zijn nog niet opgeslagen.',
+		keepEditing: 'Verder bewerken',
+		discard: 'Wijzigingen verwijderen'
 	},
 	sessionAttendance: {
 		present: 'Aanwezig',
 		absent: 'Afwezig',
 		notRecorded: 'Niet geregistreerd',
-		windowNotStarted: 'Aanwezigheid kan worden geregistreerd zodra de sessie begint.',
-		windowLocked: 'Aanwezigheid is vergrendeld voor deze sessie.',
-		windowCancelled: 'Aanwezigheid kan niet worden geregistreerd voor een geannuleerde sessie.',
+		lockedIconLabel: 'Aanwezigheid is vergrendeld',
 		updateFailure: 'Kan aanwezigheid niet bijwerken.',
 		emptyState: 'Niemand was lid van de club toen deze sessie begon.'
 	},

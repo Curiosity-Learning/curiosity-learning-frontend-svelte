@@ -13,10 +13,13 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	const convex = getConvexServerClient(locals.token);
 	const clubId = params.clubId as Id<'clubs'>;
+	// Mirror the client-side sessions page query (includeCancelled) so every attendee avatar
+	// that can render there has a signed URL prepared here.
 	const sessionCards = await convex.query(api.sessions.listCardPreviewsByClub, {
 		clubId,
 		upcomingOnly: false,
-		includeAttendees: true
+		includeAttendees: true,
+		includeCancelled: true
 	});
 	const assetIds = sessionCards
 		.flatMap((entry) => entry.attendees.map((attendee) => attendee.profileImageMediaAssetId))
