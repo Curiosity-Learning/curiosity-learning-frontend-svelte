@@ -455,6 +455,43 @@ describe('club code rate limiting', () => {
 		expect(rows).toEqual([]);
 	});
 
+	// CL-708: guide invite codes were removed — joinClubWithCode has no way to request the
+	// Guide role. Every code-based join lands as a Learner; promotion is the only path to Guide.
+	it('joinClubWithCode always assigns the learner role, never guide', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.patch(clubId, { clubCode: 'LEARN1' });
+			await ctx.db.insert('profiles', {
+				authUserId: 'code-joiner',
+				isVerified: true,
+				firstLoginCompleted: false,
+				updatedAt: Date.now()
+			});
+		});
+
+		const result = await t
+			.withIdentity({ subject: 'code-joiner' })
+			.mutation(api.clubs.joinClubWithCode, { code: 'LEARN1' });
+		expect(result).toMatchObject({ ok: true, clubId });
+
+		const membership = await t.run(async (ctx) => {
+			const profile = await ctx.db
+				.query('profiles')
+				.withIndex('by_auth_user_id', (q) => q.eq('authUserId', 'code-joiner'))
+				.unique();
+			const member = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', clubId).eq('profileId', profile!._id)
+				)
+				.unique();
+			const role = member ? await ctx.db.get(member.roleId) : null;
+			return { role };
+		});
+
+		expect(membership.role?.key).toBe('learner');
+	});
+
 	it('checkClubCodeLookupRateLimit blocks unauthenticated lookups after the global window is exceeded', async () => {
 		const t = convexTest(schema, modules);
 

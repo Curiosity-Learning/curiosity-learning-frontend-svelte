@@ -1,12 +1,18 @@
 <script lang="ts">
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
-	import { LoadingState, ActionMenu, ConfirmDialog, EmptyState } from '$lib/components/app';
+	import {
+		LoadingState,
+		ActionMenu,
+		ConfirmDialog,
+		EmptyState,
+		PageHeaderActions,
+		PageHeaderBackButton,
+		PageHeaderSearch
+	} from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import { Card, CardContent } from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
-	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
@@ -21,7 +27,6 @@
 	import { routes } from '$lib/routes';
 	import { _, t, formatT } from '$lib/i18n';
 	import { formatMonthYear } from '$lib/domain/date';
-	import SearchIcon from '@lucide/svelte/icons/search';
 	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
 	import UserMinusIcon from '@lucide/svelte/icons/user-minus';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
@@ -125,29 +130,6 @@
 		if (!member.joinedAt) return null;
 		return formatT('membersPage.joinedOn', { date: formatMonthYear(member.joinedAt) });
 	};
-
-	const pluralizedCount = (count: number, singularKey: string, pluralKey: string) =>
-		count === 1 ? t(singularKey) : formatT(pluralKey, { count });
-
-	let memberCountSummary = $derived(
-		formatT('membersPage.memberCountSummary', {
-			count: pluralizedCount(
-				allMembers.length,
-				'membersPage.memberCountSingular',
-				'membersPage.memberCountPlural'
-			),
-			guideCount: pluralizedCount(
-				guideMembers.length,
-				'membersPage.guideCountSingular',
-				'membersPage.guideCountPlural'
-			),
-			learnerCount: pluralizedCount(
-				learnerMembers.length,
-				'membersPage.learnerCountSingular',
-				'membersPage.learnerCountPlural'
-			)
-		})
-	);
 
 	// ── Promote ──────────────────────────────────────────────────────────
 	const promoteMember = async (clubMemberId: Id<'clubMembers'>) => {
@@ -386,7 +368,6 @@
 			icon={UsersIcon}
 			title={$_('membersPage.noLearnersYetTitle')}
 			description={$_('membersPage.noLearnersYetDescription')}
-			class="border-border/70 bg-muted/20"
 		>
 			<InviteLearnerDialog
 				clubCode={clubItem?.clubCode}
@@ -401,6 +382,28 @@
 	{/if}
 {/snippet}
 
+<PageHeaderBackButton fallbackHref={clubId ? routes.clubHome(clubId) : '/onboarding/get-started'} />
+<PageHeaderSearch
+	bind:value={filter}
+	placeholder={$_('membersPage.searchPlaceholder')}
+	ariaLabel={$_('membersPage.searchLabel')}
+	mode="auto"
+/>
+<PageHeaderActions none={!canInvite && !myProfileId}>
+	<div class="flex items-center gap-2">
+		{#if canInvite}
+			<InviteLearnerDialog
+				clubCode={clubItem?.clubCode}
+				triggerLabel={$_('membersPage.inviteAction')}
+				triggerStyle="button"
+			/>
+		{/if}
+		{#if myProfileId}
+			<ActionMenu items={selfActionItems} ariaLabel={$_('membersPage.openActionsLabel')} />
+		{/if}
+	</div>
+</PageHeaderActions>
+
 {#if !clubIdTyped}
 	<Alert>
 		<AlertTitle>No active club</AlertTitle>
@@ -412,72 +415,21 @@
 		<AlertDescription>{$_('membersPage.accessDeniedDescription')}</AlertDescription>
 	</Alert>
 {:else}
-	<div class="flex flex-col gap-4">
-		<Card class="rounded-2xl border-border/70">
-			<CardContent class="flex flex-col gap-4 p-5 sm:p-6">
-				<div class="flex flex-wrap items-start justify-between gap-3">
-					<div class="flex flex-col gap-1.5">
-						<h1 class="type-h3 text-foreground">{$_('membersPage.title')}</h1>
-						<p class="type-sm text-muted-foreground">{$_('membersPage.description')}</p>
-						{#if !membersResponse.isLoading}
-							<p class="type-sm-bold text-foreground">{memberCountSummary}</p>
-						{/if}
-					</div>
-					<div class="flex shrink-0 items-center gap-2">
-						{#if canInvite}
-							<InviteLearnerDialog
-								clubCode={clubItem?.clubCode}
-								triggerLabel={$_('membersPage.inviteAction')}
-								triggerStyle="button"
-							/>
-						{/if}
-						{#if myProfileId}
-							<ActionMenu items={selfActionItems} ariaLabel={$_('membersPage.openActionsLabel')} />
-						{/if}
-					</div>
-				</div>
-
-				{#if errorMessage}
-					<Alert variant="destructive">
-						<AlertTitle>{$_('membersPage.actionFailedTitle')}</AlertTitle>
-						<AlertDescription>{errorMessage}</AlertDescription>
-					</Alert>
-				{/if}
-
-				<div class="flex flex-col gap-2">
-					<Label for="memberFilter" class="sr-only">{$_('membersPage.searchLabel')}</Label>
-					<div class="relative">
-						<SearchIcon
-							class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-						/>
-						<Input
-							id="memberFilter"
-							bind:value={filter}
-							placeholder={$_('membersPage.searchPlaceholder')}
-							class="pl-9"
-						/>
-					</div>
-				</div>
-			</CardContent>
-		</Card>
+	<div class="flex w-full flex-col gap-4">
+		{#if errorMessage}
+			<Alert variant="destructive">
+				<AlertTitle>{$_('membersPage.actionFailedTitle')}</AlertTitle>
+				<AlertDescription>{errorMessage}</AlertDescription>
+			</Alert>
+		{/if}
 
 		{#if membersResponse.isLoading}
-			<Card class="rounded-2xl border-border/70">
-				<CardContent class="p-6">
-					<LoadingState label={$_('membersPage.title')} />
-				</CardContent>
-			</Card>
+			<LoadingState label="Loading members" />
 		{:else if isSearching && !hasAnyResults}
-			<Card class="rounded-2xl border-border/70">
-				<CardContent class="p-8">
-					<EmptyState
-						bordered={false}
-						title={$_('membersPage.noSearchResultsTitle')}
-						description={$_('membersPage.noSearchResultsDescription')}
-						class="gap-1"
-					/>
-				</CardContent>
-			</Card>
+			<EmptyState
+				title={$_('membersPage.noSearchResultsTitle')}
+				description={$_('membersPage.noSearchResultsDescription')}
+			/>
 		{:else}
 			<section class="flex flex-col gap-3">
 				<div class="flex items-center gap-2 px-1">
