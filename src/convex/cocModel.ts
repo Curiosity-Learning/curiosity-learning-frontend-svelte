@@ -47,15 +47,22 @@ const findCompatibleCocGroup = async (
 		.withIndex('by_kind', (q) => q.eq('kind', 'coc'))
 		.collect();
 
-	for (const cocClub of cocClubs) {
-		if (cocClub.abandonedAt) continue;
-		if (cocClub.timezoneOffset === undefined) continue;
-		const offsetDiff = Math.abs(cocClub.timezoneOffset - timezoneOffset);
-		if (offsetDiff > COC_TIMEZONE_TOLERANCE_HOURS) continue;
+	const timezoneCompatible = cocClubs.filter((cocClub) => {
+		if (cocClub.abandonedAt) return false;
+		if (cocClub.timezoneOffset === undefined) return false;
+		return Math.abs(cocClub.timezoneOffset - timezoneOffset) <= COC_TIMEZONE_TOLERANCE_HOURS;
+	});
 
-		const memberCount = await countMemberClubs(ctx, cocClub._id);
-		if (memberCount < COC_GROUP_CAPACITY) {
-			return cocClub;
+	// Capacity counts are independent per candidate — batch them instead of counting (and
+	// early-exiting) one at a time. The original selection order/first-match semantics are
+	// preserved by scanning `timezoneCompatible` afterward in the same order.
+	const memberCounts = await Promise.all(
+		timezoneCompatible.map((cocClub) => countMemberClubs(ctx, cocClub._id))
+	);
+
+	for (let index = 0; index < timezoneCompatible.length; index += 1) {
+		if (memberCounts[index] < COC_GROUP_CAPACITY) {
+			return timezoneCompatible[index];
 		}
 	}
 

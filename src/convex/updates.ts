@@ -491,10 +491,14 @@ const buildSearchFeedItem = async (
 	clubId: Id<'clubs'> | null,
 	authorCache: Map<string, AuthorSummary>
 ): Promise<FeedItem> => {
-	const club = clubId ? await ctx.db.get(clubId) : null;
-	const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
 	const questionId = update.questionId ?? null;
-	const question = questionId ? await ctx.db.get(questionId) : null;
+	// Independent lookups — batched instead of sequential awaits.
+	const [club, author, question, mediaAssetIds] = await Promise.all([
+		clubId ? ctx.db.get(clubId) : Promise.resolve(null),
+		resolveAuthorSummary(ctx, update.createdByProfileId, authorCache),
+		questionId ? ctx.db.get(questionId) : Promise.resolve(null),
+		listUpdateMediaAssetIds(ctx, update._id)
+	]);
 
 	return {
 		updateId: update._id,
@@ -511,7 +515,7 @@ const buildSearchFeedItem = async (
 		content: update.content,
 		createdAt: update.createdAt,
 		createdByUserId: author.authUserId ?? 'unknown',
-		mediaAssetIds: await listUpdateMediaAssetIds(ctx, update._id)
+		mediaAssetIds
 	};
 };
 
@@ -551,32 +555,52 @@ export const searchGlobalFeed = query({
 		}
 
 		const authorCache = new Map<string, AuthorSummary>();
-		const projectCache = new Map<Id<'projects'>, Doc<'projects'> | null>();
-		const getProjectCached = async (projectId: Id<'projects'>) => {
-			if (projectCache.has(projectId)) return projectCache.get(projectId) ?? null;
-			const project = await ctx.db.get(projectId);
-			projectCache.set(projectId, project);
-			return project;
-		};
 
 		const updateHits = await ctx.db
 			.query('updates')
 			.withSearchIndex('search_content', (q) => q.search('content', term))
 			.take(SEARCH_SCAN_LIMIT);
 
-		const updates: FeedItem[] = [];
-		for (const update of updateHits) {
-			if (updates.length >= SEARCH_MAX_RESULTS) break;
-			// Same gates as `listGlobal`: no takedowns, project must be globally visible.
-			if (update.takedown || !update.projectId) continue;
-			const project = await getProjectCached(update.projectId);
-			if (!project || project.visibility !== 'global' || project.takedown) continue;
+		// Batch the project fetch for every hit (deduped) instead of a sequential get per hit.
+		const hitProjectIds = [
+			...new Set(
+				updateHits
+					.filter((update) => update.projectId)
+					.map((update) => update.projectId as Id<'projects'>)
+			)
+		];
+		const projectEntries = await Promise.all(hitProjectIds.map((id) => ctx.db.get(id)));
+		const projectById = new Map(projectEntries.map((project, index) => [hitProjectIds[index], project]));
 
-			const attributedClubIds = await listAttributedClubIds(ctx, update.projectId);
-			updates.push(
-				await buildSearchFeedItem(ctx, update, project, attributedClubIds[0] ?? null, authorCache)
-			);
-		}
+		// Same gates as `listGlobal`: no takedowns, project must be globally visible. Filtering
+		// (rather than breaking early at 25) preserves identical hit ordering/results while
+		// letting the project fetches above run as one batch instead of stopping-and-starting.
+		const eligibleHits = updateHits.filter((update) => {
+			if (update.takedown || !update.projectId) return false;
+			const project = projectById.get(update.projectId);
+			return Boolean(project) && project?.visibility === 'global' && !project.takedown;
+		});
+		const cappedHits = eligibleHits.slice(0, SEARCH_MAX_RESULTS);
+
+		// Batch attribution lookups per unique project among the (at most 25) hits actually used.
+		const attributionProjectIds = [
+			...new Set(cappedHits.map((update) => update.projectId as Id<'projects'>))
+		];
+		const attributionEntries = await Promise.all(
+			attributionProjectIds.map((id) => listAttributedClubIds(ctx, id))
+		);
+		const attributedClubIdsByProjectId = new Map(
+			attributionEntries.map((clubIds, index) => [attributionProjectIds[index], clubIds])
+		);
+
+		const updates = await Promise.all(
+			cappedHits.map((update) => {
+				const project = projectById.get(update.projectId as Id<'projects'>)!;
+				const attributedClubIds =
+					attributedClubIdsByProjectId.get(update.projectId as Id<'projects'>) ?? [];
+				return buildSearchFeedItem(ctx, update, project, attributedClubIds[0] ?? null, authorCache);
+			})
+		);
 
 		const projects: ProjectSearchResult[] = [];
 		for (const project of await searchProjectsByTerm(ctx, term)) {
@@ -600,13 +624,18 @@ export const searchMyClubsFeed = query({
 			return { updates: [], projects: [] };
 		}
 
-		// Same club scoping as `listForViewer`: clubs the viewer holds `project:read` in.
+		// Same club scoping as `listForViewer`: clubs the viewer holds `project:read` in. Roles
+		// are a tiny, low-cardinality table — batch the distinct roleIds referenced instead of a
+		// sequential `get` per membership.
 		const viewerProfile = await requireProfile(ctx, identity.subject);
 		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
 		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+		const roleIds = [...new Set(activeMemberships.map((membership) => membership.roleId))];
+		const roleEntries = await Promise.all(roleIds.map((roleId) => ctx.db.get(roleId)));
+		const roleById = new Map(roleEntries.map((role, index) => [roleIds[index], role]));
 		const readableClubIdSet = new Set<Id<'clubs'>>();
 		for (const membership of activeMemberships) {
-			const role = await ctx.db.get(membership.roleId);
+			const role = roleById.get(membership.roleId);
 			if (role?.permissions.includes('project:read')) {
 				readableClubIdSet.add(membership.clubId);
 			}
@@ -622,26 +651,56 @@ export const searchMyClubsFeed = query({
 			.withSearchIndex('search_content', (q) => q.search('content', term))
 			.take(SEARCH_SCAN_LIMIT);
 
-		const updates: FeedItem[] = [];
-		for (const update of updateHits) {
-			if (updates.length >= SEARCH_MAX_RESULTS) break;
-			if (update.takedown || !update.projectId) continue;
+		const candidateHits = updateHits.filter((update) => !update.takedown && update.projectId);
 
-			// The update must be attributed (via `updateClubs`, same denormalized stream the
-			// My Clubs feed reads) to at least one club the viewer can read.
-			const updateClubRows = await ctx.db
-				.query('updateClubs')
-				.withIndex('by_update', (q) => q.eq('updateId', update._id))
-				.collect();
+		// Batch the `updateClubs` attribution lookup for every candidate hit instead of a
+		// sequential collect per hit.
+		const updateClubRowsByIndex = await Promise.all(
+			candidateHits.map((update) =>
+				ctx.db
+					.query('updateClubs')
+					.withIndex('by_update', (q) => q.eq('updateId', update._id))
+					.collect()
+			)
+		);
+		const viewerClubIdByUpdateId = new Map<Id<'updates'>, Id<'clubs'> | null>();
+		candidateHits.forEach((update, index) => {
 			const viewerClubId =
-				updateClubRows.find((row) => readableClubIdSet.has(row.clubId))?.clubId ?? null;
-			if (!viewerClubId) continue;
+				updateClubRowsByIndex[index].find((row) => readableClubIdSet.has(row.clubId))?.clubId ??
+				null;
+			viewerClubIdByUpdateId.set(update._id, viewerClubId);
+		});
+		const hitsWithViewerClub = candidateHits.filter((update) =>
+			Boolean(viewerClubIdByUpdateId.get(update._id))
+		);
 
-			const project = await ctx.db.get(update.projectId);
-			if (!project || project.takedown) continue;
+		// Batch the project fetch (deduped) for the hits that passed attribution, instead of a
+		// sequential get per hit.
+		const projectIds = [
+			...new Set(hitsWithViewerClub.map((update) => update.projectId as Id<'projects'>))
+		];
+		const projectEntries = await Promise.all(projectIds.map((id) => ctx.db.get(id)));
+		const projectById = new Map(projectEntries.map((project, index) => [projectIds[index], project]));
 
-			updates.push(await buildSearchFeedItem(ctx, update, project, viewerClubId, authorCache));
-		}
+		// Filtering (rather than breaking early at 25) preserves identical hit ordering/results
+		// while letting the lookups above run as batches instead of stopping-and-starting.
+		const eligibleHits = hitsWithViewerClub.filter((update) => {
+			const project = projectById.get(update.projectId as Id<'projects'>);
+			return Boolean(project) && !project?.takedown;
+		});
+		const cappedHits = eligibleHits.slice(0, SEARCH_MAX_RESULTS);
+
+		const updates = await Promise.all(
+			cappedHits.map((update) =>
+				buildSearchFeedItem(
+					ctx,
+					update,
+					projectById.get(update.projectId as Id<'projects'>)!,
+					viewerClubIdByUpdateId.get(update._id) ?? null,
+					authorCache
+				)
+			)
+		);
 
 		const projects: ProjectSearchResult[] = [];
 		for (const project of await searchProjectsByTerm(ctx, term)) {

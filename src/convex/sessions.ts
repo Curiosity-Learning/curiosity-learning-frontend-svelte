@@ -954,20 +954,29 @@ export const sendAttendanceReminderIfUnmarked = internalMutation({
 			day: 'numeric'
 		});
 
-		for (const member of members) {
-			if (member.leftAt) continue;
-			const role = await ctx.db.get(member.roleId);
-			if (role?.key !== 'guide') continue;
+		const activeMembers = members.filter((member) => !member.leftAt);
+		// Roles are a tiny, low-cardinality table — batch the distinct roleIds instead of a
+		// sequential `get` per member.
+		const roleIds = [...new Set(activeMembers.map((member) => member.roleId))];
+		const roleEntries = await Promise.all(roleIds.map((roleId) => ctx.db.get(roleId)));
+		const roleById = new Map(roleEntries.map((role, index) => [roleIds[index], role]));
+		const guideMembers = activeMembers.filter(
+			(member) => roleById.get(member.roleId)?.key === 'guide'
+		);
 
-			await dispatchNotification(ctx, {
-				recipientProfileId: member.profileId,
-				kind: 'attendance_reminder',
-				clubId: session.clubId,
-				title: 'Attendance not recorded',
-				message: `Attendance for the session on ${sessionDateLabel} hasn't been recorded yet.`,
-				url: `/session/${args.sessionId}/attendees`
-			});
-		}
+		// Each notification is independent — fan out concurrently instead of one at a time.
+		await Promise.all(
+			guideMembers.map((member) =>
+				dispatchNotification(ctx, {
+					recipientProfileId: member.profileId,
+					kind: 'attendance_reminder',
+					clubId: session.clubId,
+					title: 'Attendance not recorded',
+					message: `Attendance for the session on ${sessionDateLabel} hasn't been recorded yet.`,
+					url: `/session/${args.sessionId}/attendees`
+				})
+			)
+		);
 	}
 });
 
@@ -998,17 +1007,20 @@ export const sendSessionReminder = internalMutation({
 			.query('clubMembers')
 			.withIndex('by_club', (q) => q.eq('clubId', session.clubId))
 			.collect();
-		for (const member of members) {
-			if (member.leftAt) continue;
-			await dispatchNotification(ctx, {
-				recipientProfileId: member.profileId,
-				kind: 'session_reminder',
-				clubId: session.clubId,
-				title: 'Session tomorrow',
-				message: `Session at ${club?.name ?? 'your club'} starts ${sessionDateLabel} at ${sessionTimeLabel}.`,
-				url: `/session/${args.sessionId}/activities`
-			});
-		}
+		const activeMembers = members.filter((member) => !member.leftAt);
+		// Each notification is independent — fan out concurrently instead of one at a time.
+		await Promise.all(
+			activeMembers.map((member) =>
+				dispatchNotification(ctx, {
+					recipientProfileId: member.profileId,
+					kind: 'session_reminder',
+					clubId: session.clubId,
+					title: 'Session tomorrow',
+					message: `Session at ${club?.name ?? 'your club'} starts ${sessionDateLabel} at ${sessionTimeLabel}.`,
+					url: `/session/${args.sessionId}/activities`
+				})
+			)
+		);
 	}
 });
 

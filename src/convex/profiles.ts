@@ -399,9 +399,10 @@ export const getById = query({
 		// the viewer is already one of its members, matching `canViewProject`).
 		const authoredUpdates = await ctx.db
 			.query('updates')
-			.withIndex('by_created')
+			.withIndex('by_created_by_profile_and_created', (q) =>
+				q.eq('createdByProfileId', profile._id)
+			)
 			.order('desc')
-			.filter((q) => q.eq(q.field('createdByProfileId'), profile._id))
 			.take(UPDATES_PREVIEW_LIMIT * 4);
 
 		const updates: Array<{

@@ -97,11 +97,15 @@ export const syncParentLinks = mutation({
 		}
 		const normalizedEmail = normalizeEmail(authEmail);
 
-		const approvedConsents = await ctx.db
-			.query('parentChildConsents')
-			.withIndex('by_parent_email', (q) => q.eq('parentEmail', normalizedEmail))
-			.filter((q) => q.eq(q.field('status'), 'approved'))
-			.collect();
+		// `status` isn't part of `by_parent_email`, so the equality check runs as an in-memory
+		// array filter (allowed) over the already-indexed rows rather than a query-level
+		// `.filter()` (a convex_rules.txt violation — it would force a non-indexed scan).
+		const approvedConsents = (
+			await ctx.db
+				.query('parentChildConsents')
+				.withIndex('by_parent_email', (q) => q.eq('parentEmail', normalizedEmail))
+				.collect()
+		).filter((consent) => consent.status === 'approved');
 
 		let linkedCount = 0;
 		for (const consent of approvedConsents) {
@@ -341,9 +345,10 @@ export const getChildOverview = query({
 		// set (same shape as profiles.getById).
 		const authoredUpdates = await ctx.db
 			.query('updates')
-			.withIndex('by_created')
+			.withIndex('by_created_by_profile_and_created', (q) =>
+				q.eq('createdByProfileId', child._id)
+			)
 			.order('desc')
-			.filter((q) => q.eq(q.field('createdByProfileId'), child._id))
 			.take(UPDATES_PREVIEW_LIMIT * 4);
 
 		const updates: Array<{

@@ -172,13 +172,16 @@ const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
 };
 
 const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'clubMembers'>) => {
-	const role = await ctx.db.get(membership.roleId);
+	// Independent lookups — batched instead of sequential awaits.
+	const [role, profile, clubVideoUrl, scheduleSlots] = await Promise.all([
+		ctx.db.get(membership.roleId),
+		getRelatedProfile(ctx, membership.profileId),
+		resolveClubVideoUrl(ctx, club),
+		listScheduleSlotsForClub(ctx, club._id)
+	]);
 	// Club codes are visible to Guides only (PRD 6.1.3) — Learner memberships never
 	// receive them, or any member could hand out instant joins.
 	const isGuide = role?.key === 'guide';
-	const profile = await getRelatedProfile(ctx, membership.profileId);
-	const clubVideoUrl = await resolveClubVideoUrl(ctx, club);
-	const scheduleSlots = await listScheduleSlotsForClub(ctx, club._id);
 
 	return {
 		clubId: club._id,
@@ -297,13 +300,66 @@ export const getMyClubs = query({
 			activeMemberships.map((membership) => ctx.db.get(membership.clubId))
 		);
 
-		const items = [] as Awaited<ReturnType<typeof mapClubListItem>>[];
+		// Per-club mapping is independent across clubs, so it's parallelized rather than awaited
+		// sequentially in a loop.
+		const items = await Promise.all(
+			activeMemberships
+				.map((membership, index) => ({ membership, club: clubs[index] }))
+				.filter((entry): entry is { membership: (typeof activeMemberships)[number]; club: Doc<'clubs'> } =>
+					Boolean(entry.club)
+				)
+				.map((entry) => mapClubListItem(ctx, entry.club, entry.membership))
+		);
+
+		return items;
+	}
+});
+
+// Lightweight companion to `getMyClubs` for the app-shell club switcher, which only needs
+// clubId/clubName/roleKey/clubKind (see +layout.svelte). `getMyClubs` additionally fetches
+// schedule slots, video URLs, and profiles per club — unnecessary weight for a query that runs
+// on every authenticated page load. Keep `getMyClubs` for consumers that need the full payload
+// (club settings, sessions/projects/members pages, etc.) — this query must never be substituted
+// for those without re-checking what fields they actually use.
+export const getMyClubSwitcherItems = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const memberships = await listMembershipsForProfile(ctx, profile);
+		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+
+		const clubs = await Promise.all(
+			activeMemberships.map((membership) => ctx.db.get(membership.clubId))
+		);
+
+		// Roles come from a tiny, low-cardinality table (guide/learner) — dedupe before
+		// fetching so repeated roles across clubs only cost one `get` each.
+		const roleIds = [...new Set(activeMemberships.map((membership) => membership.roleId))];
+		const roleEntries = await Promise.all(roleIds.map((roleId) => ctx.db.get(roleId)));
+		const roleById = new Map(roleEntries.map((role, index) => [roleIds[index], role]));
+
+		const items: Array<{
+			clubId: Id<'clubs'>;
+			clubName: string;
+			roleKey: 'guide' | 'learner' | null;
+			clubKind: 'curiosity' | 'coc';
+		}> = [];
+
 		for (let index = 0; index < activeMemberships.length; index += 1) {
 			const club = clubs[index];
 			if (!club) {
 				continue;
 			}
-			items.push(await mapClubListItem(ctx, club, activeMemberships[index]));
+			const role = roleById.get(activeMemberships[index].roleId);
+			items.push({
+				clubId: club._id,
+				clubName: club.name,
+				roleKey: (role?.key as 'guide' | 'learner' | undefined) ?? null,
+				// Defaults to 'curiosity' for legacy rows predating the kind backfill; see
+				// clubs.backfillClubKind.
+				clubKind: club.kind ?? 'curiosity'
+			});
 		}
 
 		return items;

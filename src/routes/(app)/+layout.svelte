@@ -42,7 +42,13 @@
 	let ensuredProfileForSession = $state(false);
 
 	const convexClient = useConvexClient();
-	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
+	// Only clubId/clubName/roleKey/clubKind are used in this layout (switcher items + the
+	// clubName title fallback below) — the lightweight switcher query avoids the schedule
+	// slots/video URL/profile fetches `getMyClubs` does per club. Pages that need the full
+	// payload (settings, sessions, members, etc.) still query `getMyClubs` directly.
+	const clubsResponse = useStableQuery(api.clubs.getMyClubSwitcherItems, () =>
+		isAuthReady ? {} : 'skip'
+	);
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
 		isAuthReady ? {} : 'skip'
 	);
