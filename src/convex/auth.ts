@@ -12,6 +12,7 @@ import { sendEmail } from './email/resend';
 import { passwordResetEmail, verificationOtpEmail } from './email/templates';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 import { setPendingClubJoin } from './pendingClubJoinsModel';
+import { autoCreateJoinRequestFromNextPath } from './joinRequests';
 
 export const authComponent = createClient(components.betterAuth);
 
@@ -420,6 +421,12 @@ export const completeSignupProfile = mutation({
 				await setPendingClubJoin(ctx, profileId, club._id, 'code');
 			}
 		}
+
+		// CL-711 CEO feedback item 6: if `nextPath` points at a public club preview
+		// (/clubs/{clubId}), the visitor tapped "Request to Join" before an account existed. Now
+		// that the profile is created (adults don't have a separate consent gate), auto-complete
+		// the join request they intended to send instead of requiring a second tap.
+		await autoCreateJoinRequestFromNextPath(ctx, args.nextPath, profileId);
 
 		if (desiredUsername && desiredUsername !== authUsername) {
 			await ctx.runMutation(components.betterAuth.adapter.updateOne, {

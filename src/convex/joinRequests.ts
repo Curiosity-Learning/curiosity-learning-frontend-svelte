@@ -52,6 +52,68 @@ const listActiveGuideMemberships = async (ctx: Ctx, clubId: Id<'clubs'>) => {
 	return members.filter((member) => !member.leftAt && member.roleId === guideRole._id);
 };
 
+type CreateJoinRequestResult =
+	| { ok: true; joinRequestId: Id<'joinRequests'>; roomId: Id<'rooms'> }
+	| { ok: false; reason: 'club_unavailable' | 'already_member' | 'already_pending' };
+
+// Core "create a join request" logic, shared by the interactive `requestToJoin` mutation below
+// and `autoCreateJoinRequestFromNextPath` (CL-711 CEO feedback item 6): a logged-out visitor who
+// taps "Request to Join" is redirected to sign-up before any request can be created; once their
+// account exists, the request they intended to send should be created automatically instead of
+// requiring a second tap. Both call sites need identical eligibility checks, so this is factored
+// out rather than duplicated.
+const createJoinRequestForProfile = async (
+	ctx: MutationCtx,
+	clubId: Id<'clubs'>,
+	profileId: Id<'profiles'>
+): Promise<CreateJoinRequestResult> => {
+	const club = await ctx.db.get(clubId);
+	if (!club || !club.discoverable || club.abandonedAt) {
+		return { ok: false, reason: 'club_unavailable' };
+	}
+
+	const existingMembership = await getMembershipByProfileId(ctx, clubId, profileId);
+	if (existingMembership) {
+		return { ok: false, reason: 'already_member' };
+	}
+
+	const existingRequests = await ctx.db
+		.query('joinRequests')
+		.withIndex('by_club_and_requester', (q) =>
+			q.eq('clubId', clubId).eq('requesterProfileId', profileId)
+		)
+		.collect();
+	if (existingRequests.some((request) => request.status === 'pending')) {
+		return { ok: false, reason: 'already_pending' };
+	}
+
+	const now = Date.now();
+	const joinRequestId = await ctx.db.insert('joinRequests', {
+		clubId,
+		requesterProfileId: profileId,
+		status: 'pending',
+		createdAt: now
+	});
+	const roomId = await ensureJoinRequestRoom(ctx, joinRequestId);
+
+	const profile = await ctx.db.get(profileId);
+	if (profile) {
+		const requesterName = profileDisplayName(profile);
+		const guideMemberships = await listActiveGuideMemberships(ctx, clubId);
+		for (const guideMembership of guideMemberships) {
+			await dispatchNotification(ctx, {
+				recipientProfileId: guideMembership.profileId,
+				kind: 'join_request_received',
+				clubId,
+				title: 'New join request',
+				message: `New join request from ${requesterName}`
+			});
+		}
+	}
+
+	return { ok: true, joinRequestId, roomId };
+};
+
 export const requestToJoin = mutation({
 	args: {
 		clubId: v.id('clubs')
@@ -64,50 +126,64 @@ export const requestToJoin = mutation({
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
 
-		const club = await ctx.db.get(args.clubId);
-		if (!club || !club.discoverable || club.abandonedAt) {
+		const result = await createJoinRequestForProfile(ctx, args.clubId, profile._id);
+		if (!result.ok) {
+			if (result.reason === 'already_member') {
+				throw new ConvexError('You are already a member of this club');
+			}
+			if (result.reason === 'already_pending') {
+				throw new ConvexError('You already have a pending request to join this club');
+			}
 			throw new ConvexError('This club is not open for join requests');
 		}
 
-		const existingMembership = await getMembershipByProfileId(ctx, args.clubId, profile._id);
-		if (existingMembership) {
-			throw new ConvexError('You are already a member of this club');
-		}
-
-		const existingRequests = await ctx.db
-			.query('joinRequests')
-			.withIndex('by_club_and_requester', (q) =>
-				q.eq('clubId', args.clubId).eq('requesterProfileId', profile._id)
-			)
-			.collect();
-		if (existingRequests.some((request) => request.status === 'pending')) {
-			throw new ConvexError('You already have a pending request to join this club');
-		}
-
-		const now = Date.now();
-		const joinRequestId = await ctx.db.insert('joinRequests', {
-			clubId: args.clubId,
-			requesterProfileId: profile._id,
-			status: 'pending',
-			createdAt: now
-		});
-		const roomId = await ensureJoinRequestRoom(ctx, joinRequestId);
-
-		const requesterName = profileDisplayName(profile);
-		const guideMemberships = await listActiveGuideMemberships(ctx, args.clubId);
-		for (const guideMembership of guideMemberships) {
-			await dispatchNotification(ctx, {
-				recipientProfileId: guideMembership.profileId,
-				kind: 'join_request_received',
-				clubId: args.clubId,
-				title: 'New join request',
-				message: `New join request from ${requesterName}`
-			});
-		}
-
-		return { joinRequestId, roomId };
+		return { joinRequestId: result.joinRequestId, roomId: result.roomId };
 	}
 });
+
+// Parses a `/clubs/{clubId}` next-path (the public club preview / request-to-join surface) into
+// the raw clubId segment, or undefined if the path doesn't match. Mirrors auth.ts's
+// extractPendingJoinCode / childSignup.ts's getPendingJoinCode for the code-join flow, but for the
+// discoverable-club "Request to Join" flow.
+export const extractPendingRequestJoinClubId = (nextPath?: string | null): string | undefined => {
+	if (!nextPath) {
+		return undefined;
+	}
+
+	const prefix = '/clubs/';
+	if (!nextPath.startsWith(prefix)) {
+		return undefined;
+	}
+
+	const rawClubId = nextPath.slice(prefix.length).split(/[/?#]/)[0] ?? '';
+	return rawClubId.length > 0 ? rawClubId : undefined;
+};
+
+// Best-effort, non-throwing counterpart to `requestToJoin` for automatic completion once an
+// account exists post-signup (CL-711 CEO feedback item 6). Called from auth.ts's
+// completeSignupProfile (adults — profile exists as soon as signup completes) and
+// childSignup.ts's approveConsent (minors — only once parental consent clears, per PRD 6.1.4).
+// Silently no-ops for any condition that would make `requestToJoin` throw (invalid/
+// non-discoverable/abandoned club, already a member, already has a pending request): this runs
+// unattended, so there's nowhere to surface an error, and the club preview page's own
+// viewerIsMember/viewerPendingJoinRequestId already reflect the true state either way.
+export const autoCreateJoinRequestFromNextPath = async (
+	ctx: MutationCtx,
+	nextPath: string | null | undefined,
+	profileId: Id<'profiles'>
+): Promise<void> => {
+	const rawClubId = extractPendingRequestJoinClubId(nextPath);
+	if (!rawClubId) {
+		return;
+	}
+
+	const clubId = ctx.db.normalizeId('clubs', rawClubId);
+	if (!clubId) {
+		return;
+	}
+
+	await createJoinRequestForProfile(ctx, clubId, profileId);
+};
 
 export const getJoinRequestForRoom = query({
 	args: {

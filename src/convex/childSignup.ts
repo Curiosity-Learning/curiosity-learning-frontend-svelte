@@ -26,6 +26,7 @@ import {
 	getLatestPendingClubJoin,
 	setPendingClubJoin
 } from './pendingClubJoinsModel';
+import { autoCreateJoinRequestFromNextPath } from './joinRequests';
 
 // PRD 6.1.6/8.5: parental consent must be obtained within 90 days of account creation, or the
 // child account and all associated data are automatically purged. See `purgeExpiredChildConsents`
@@ -379,6 +380,17 @@ export const approveConsent = mutation({
 			}
 		}
 
+		// CL-711 CEO feedback item 6: if the child's original sign-up flow was started from a
+		// public club preview (/clubs/{clubId} — "Request to Join"), the request couldn't be
+		// created until now: minors only get a join request once parental consent clears (PRD
+		// 6.1.4). `onboardingIntentPath` is the `nextPath` recorded at registration time (see
+		// createPendingChildAccount above).
+		await autoCreateJoinRequestFromNextPath(
+			ctx,
+			consent.onboardingIntentPath,
+			consent.childProfileId
+		);
+
 		await ctx.db.patch(consent._id, {
 			status: 'approved',
 			parentProfileId,
@@ -477,7 +489,9 @@ export const purgeExpiredChildConsentData = internalMutation({
 
 		const incompleteApplications = await ctx.db
 			.query('clubApplications')
-			.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', consent.childProfileId))
+			.withIndex('by_applicant_profile_id', (q) =>
+				q.eq('applicantProfileId', consent.childProfileId)
+			)
 			.collect();
 		for (const application of incompleteApplications) {
 			if (application.status === 'incomplete') {
@@ -551,9 +565,7 @@ export const purgeExpiredChildConsents = internalAction({
 		purged: v.number(),
 		failed: v.number()
 	}),
-	handler: async (
-		ctx
-	): Promise<{ scanned: number; purged: number; failed: number }> => {
+	handler: async (ctx): Promise<{ scanned: number; purged: number; failed: number }> => {
 		const olderThan = Date.now() - CONSENT_EXPIRY_MS;
 		const candidates: Array<{
 			consentId: Id<'parentChildConsents'>;

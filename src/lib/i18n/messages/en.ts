@@ -71,7 +71,8 @@ const en = {
 		preferencesSaved: 'Preferences saved.',
 		savePreferencesFailure: 'Unable to save preferences.',
 		notificationsTitle: 'Notifications',
-		notificationsDescription: 'Choose which notifications you receive. Critical account notices are always sent.',
+		notificationsDescription:
+			'Choose which notifications you receive. Critical account notices are always sent.',
 		notificationsSessionsGroup: 'Sessions',
 		notificationsSessionReminderLabel: 'Session reminders',
 		notificationsSessionReminderDescription: 'A reminder 24 hours before a club session starts.',
@@ -79,14 +80,16 @@ const en = {
 		notificationsSessionChangesDescription: 'Cancelled sessions and attendance reminders.',
 		notificationsClubGroup: 'Club activity',
 		notificationsClubMemberChangesLabel: 'Members and join requests',
-		notificationsClubMemberChangesDescription: 'New members, join requests and their outcomes, and role changes.',
+		notificationsClubMemberChangesDescription:
+			'New members, join requests and their outcomes, and role changes.',
 		notificationsProjectsGroup: 'Projects',
 		notificationsProjectMembershipLabel: 'Project invitations',
 		notificationsProjectMembershipDescription: 'Invitations and membership changes in projects.',
 		notificationsProjectUpdatesLabel: 'Project updates',
 		notificationsProjectUpdatesDescription: 'Progress and completion updates for your projects.',
 		notificationsCriticalGroup: 'Always on',
-		notificationsCriticalDescription: 'Application decisions, removal from a club, and parental consent requests are always delivered in-app and by email.',
+		notificationsCriticalDescription:
+			'Application decisions, removal from a club, and parental consent requests are always delivered in-app and by email.',
 		notificationsSaveFailure: 'Unable to save notification preferences.',
 		activeClubUpdated: 'Active club updated.',
 		switchClubFailure: 'Failed to switch club.'
@@ -458,7 +461,7 @@ const en = {
 			currentLocationFailure: 'Unable to use your current location.',
 			search: 'Search',
 			nearbyTitle: 'Public clubs nearby',
-			nearbyDescription: 'Select a club on the map or in the list to view it and request to join.',
+			nearbyDescription: 'Select a club to view it and request to join.',
 			noClubsTitle: 'No public clubs nearby yet',
 			noClubsDescription:
 				'Leave your email and we will let you know if a Curiosity Club opens in this area.',
@@ -891,11 +894,12 @@ const en = {
 		triggerAriaLabel: 'Report an issue',
 		dialogTitle: 'Report an issue',
 		dialogDescription:
-			"Let the Core Team know if something needs attention. We take every report seriously.",
+			'Let the Core Team know if something needs attention. We take every report seriously.',
 		categorySafeguardingLabel: 'Safeguarding concern',
 		categorySafeguardingDescription: 'A safety or wellbeing concern involving a member.',
 		categoryInappropriateLabel: 'Inappropriate content',
-		categoryInappropriateDescription: 'Content that is offensive, abusive, or against our guidelines.',
+		categoryInappropriateDescription:
+			'Content that is offensive, abusive, or against our guidelines.',
 		categoryOtherLabel: 'Other',
 		categoryOtherDescription: "Something else you'd like the Core Team to look into.",
 		detailsPlaceholder: 'Add any details that might help (optional)',

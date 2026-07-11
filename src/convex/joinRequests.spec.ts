@@ -4,6 +4,7 @@ import { convexTest } from 'convex-test';
 import { describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
 import schema from './schema';
+import { autoCreateJoinRequestFromNextPath, extractPendingRequestJoinClubId } from './joinRequests';
 
 const modules = import.meta.glob('./**/*.ts');
 
@@ -194,9 +195,7 @@ describe('chat access for joinRequest rooms', () => {
 		await guide.mutation(api.joinRequests.declineJoinRequest, { joinRequestId });
 
 		const requesterSummaries = await requester.query(api.chat.listRoomSummaries, {});
-		expect(requesterSummaries).toContainEqual(
-			expect.objectContaining({ roomId, canSend: false })
-		);
+		expect(requesterSummaries).toContainEqual(expect.objectContaining({ roomId, canSend: false }));
 		await expect(
 			requester.mutation(api.chat.sendMessage, { roomId, content: 'Still here?' })
 		).rejects.toThrow('You can no longer send messages in this chat');
@@ -358,5 +357,176 @@ describe('getJoinRequestForRoom', () => {
 
 		expect(asRequester).toMatchObject({ isRequester: true, canDecide: false, status: 'pending' });
 		expect(asGuide).toMatchObject({ isRequester: false, canDecide: true, status: 'pending' });
+	});
+});
+
+describe('extractPendingRequestJoinClubId', () => {
+	it('extracts the clubId segment from a /clubs/{clubId} path', () => {
+		expect(extractPendingRequestJoinClubId('/clubs/abc123')).toBe('abc123');
+	});
+
+	it('strips a trailing query string or hash', () => {
+		expect(extractPendingRequestJoinClubId('/clubs/abc123?foo=bar')).toBe('abc123');
+		expect(extractPendingRequestJoinClubId('/clubs/abc123#section')).toBe('abc123');
+	});
+
+	it('returns undefined for unrelated paths', () => {
+		expect(extractPendingRequestJoinClubId('/onboarding/join-club/ABCDEF')).toBeUndefined();
+		expect(extractPendingRequestJoinClubId('/')).toBeUndefined();
+		expect(extractPendingRequestJoinClubId(undefined)).toBeUndefined();
+		expect(extractPendingRequestJoinClubId(null)).toBeUndefined();
+	});
+
+	it('returns undefined when the clubId segment is empty', () => {
+		expect(extractPendingRequestJoinClubId('/clubs/')).toBeUndefined();
+	});
+});
+
+// CL-711 CEO feedback item 6: a logged-out visitor who taps "Request to Join" is redirected to
+// sign-up before any request can exist. `autoCreateJoinRequestFromNextPath` is the auto-completion
+// path invoked once the account exists (auth.ts's completeSignupProfile for adults,
+// childSignup.ts's approveConsent for minors) so the visitor never has to tap "Request to Join"
+// again.
+describe('autoCreateJoinRequestFromNextPath', () => {
+	it('creates a join request, room, and guide notification when nextPath points at the club', async () => {
+		const { t, clubId, guideProfileId, requesterProfileId } = await seedClubFixture();
+
+		await t.run((ctx) =>
+			autoCreateJoinRequestFromNextPath(ctx, `/clubs/${clubId}`, requesterProfileId)
+		);
+
+		const joinRequest = await t.run((ctx) =>
+			ctx.db
+				.query('joinRequests')
+				.withIndex('by_club_and_requester', (q) =>
+					q.eq('clubId', clubId).eq('requesterProfileId', requesterProfileId)
+				)
+				.first()
+		);
+		expect(joinRequest).toMatchObject({ clubId, status: 'pending' });
+
+		const room = await t.run((ctx) =>
+			ctx.db
+				.query('rooms')
+				.withIndex('by_join_request_id', (q) => q.eq('joinRequestId', joinRequest!._id))
+				.first()
+		);
+		expect(room).toMatchObject({ contextType: 'joinRequest' });
+
+		const notifications = await t.run((ctx) =>
+			ctx.db
+				.query('notifications')
+				.withIndex('by_profile', (q) => q.eq('profileId', guideProfileId))
+				.collect()
+		);
+		expect(notifications.some((n) => n.title === 'New join request')).toBe(true);
+	});
+
+	it('is a no-op when nextPath does not point at a club preview', async () => {
+		const { t, requesterProfileId } = await seedClubFixture();
+
+		await t.run((ctx) =>
+			autoCreateJoinRequestFromNextPath(ctx, '/onboarding/join-club/ABCDEF', requesterProfileId)
+		);
+		await t.run((ctx) => autoCreateJoinRequestFromNextPath(ctx, undefined, requesterProfileId));
+
+		const requests = await t.run((ctx) => ctx.db.query('joinRequests').collect());
+		expect(
+			requests.filter((request) => request.requesterProfileId === requesterProfileId)
+		).toHaveLength(0);
+	});
+
+	it('is a no-op when the clubId segment does not resolve to a real club', async () => {
+		const { t, requesterProfileId } = await seedClubFixture();
+
+		await t.run((ctx) =>
+			autoCreateJoinRequestFromNextPath(ctx, '/clubs/not-a-real-id', requesterProfileId)
+		);
+
+		const requests = await t.run((ctx) => ctx.db.query('joinRequests').collect());
+		expect(
+			requests.filter((request) => request.requesterProfileId === requesterProfileId)
+		).toHaveLength(0);
+	});
+
+	it('is a no-op when the club is not discoverable', async () => {
+		const { t, clubId, requesterProfileId } = await seedClubFixture({ discoverable: false });
+
+		await t.run((ctx) =>
+			autoCreateJoinRequestFromNextPath(ctx, `/clubs/${clubId}`, requesterProfileId)
+		);
+
+		const requests = await t.run((ctx) =>
+			ctx.db
+				.query('joinRequests')
+				.withIndex('by_club_and_requester', (q) =>
+					q.eq('clubId', clubId).eq('requesterProfileId', requesterProfileId)
+				)
+				.collect()
+		);
+		expect(requests).toHaveLength(0);
+	});
+
+	it('is a no-op when the club has been abandoned', async () => {
+		const { t, clubId, requesterProfileId } = await seedClubFixture({ abandonedAt: Date.now() });
+
+		await t.run((ctx) =>
+			autoCreateJoinRequestFromNextPath(ctx, `/clubs/${clubId}`, requesterProfileId)
+		);
+
+		const requests = await t.run((ctx) =>
+			ctx.db
+				.query('joinRequests')
+				.withIndex('by_club_and_requester', (q) =>
+					q.eq('clubId', clubId).eq('requesterProfileId', requesterProfileId)
+				)
+				.collect()
+		);
+		expect(requests).toHaveLength(0);
+	});
+
+	it('is a no-op when the profile is already a member of the club', async () => {
+		const { t, clubId, requesterProfileId, learnerRoleId } = await seedClubFixture();
+		await t.run((ctx) =>
+			ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: requesterProfileId,
+				roleId: learnerRoleId,
+				createdAt: Date.now()
+			})
+		);
+
+		await t.run((ctx) =>
+			autoCreateJoinRequestFromNextPath(ctx, `/clubs/${clubId}`, requesterProfileId)
+		);
+
+		const requests = await t.run((ctx) =>
+			ctx.db
+				.query('joinRequests')
+				.withIndex('by_club_and_requester', (q) =>
+					q.eq('clubId', clubId).eq('requesterProfileId', requesterProfileId)
+				)
+				.collect()
+		);
+		expect(requests).toHaveLength(0);
+	});
+
+	it('is a no-op (and does not throw) when a pending request already exists', async () => {
+		const { t, requester, clubId, requesterProfileId } = await seedClubFixture();
+		await requester.mutation(api.joinRequests.requestToJoin, { clubId });
+
+		await t.run((ctx) =>
+			autoCreateJoinRequestFromNextPath(ctx, `/clubs/${clubId}`, requesterProfileId)
+		);
+
+		const requests = await t.run((ctx) =>
+			ctx.db
+				.query('joinRequests')
+				.withIndex('by_club_and_requester', (q) =>
+					q.eq('clubId', clubId).eq('requesterProfileId', requesterProfileId)
+				)
+				.collect()
+		);
+		expect(requests).toHaveLength(1);
 	});
 });
