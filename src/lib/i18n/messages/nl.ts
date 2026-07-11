@@ -72,22 +72,27 @@ const nl = {
 		preferencesSaved: 'Voorkeuren opgeslagen.',
 		savePreferencesFailure: 'Kan voorkeuren niet opslaan.',
 		notificationsTitle: 'Meldingen',
-		notificationsDescription: 'Kies welke meldingen je ontvangt. Kritieke accountberichten worden altijd verstuurd.',
+		notificationsDescription:
+			'Kies welke meldingen je ontvangt. Kritieke accountberichten worden altijd verstuurd.',
 		notificationsSessionsGroup: 'Sessies',
 		notificationsSessionReminderLabel: 'Sessieherinneringen',
-		notificationsSessionReminderDescription: 'Een herinnering 24 uur voordat een clubsessie begint.',
+		notificationsSessionReminderDescription:
+			'Een herinnering 24 uur voordat een clubsessie begint.',
 		notificationsSessionChangesLabel: 'Sessiewijzigingen',
 		notificationsSessionChangesDescription: 'Geannuleerde sessies en aanwezigheidsherinneringen.',
 		notificationsClubGroup: 'Clubactiviteit',
 		notificationsClubMemberChangesLabel: 'Leden en lidmaatschapsverzoeken',
-		notificationsClubMemberChangesDescription: 'Nieuwe leden, lidmaatschapsverzoeken en hun uitkomsten, en rolwijzigingen.',
+		notificationsClubMemberChangesDescription:
+			'Nieuwe leden, lidmaatschapsverzoeken en hun uitkomsten, en rolwijzigingen.',
 		notificationsProjectsGroup: 'Projecten',
 		notificationsProjectMembershipLabel: 'Projectuitnodigingen',
-		notificationsProjectMembershipDescription: 'Uitnodigingen en lidmaatschapswijzigingen in projecten.',
+		notificationsProjectMembershipDescription:
+			'Uitnodigingen en lidmaatschapswijzigingen in projecten.',
 		notificationsProjectUpdatesLabel: 'Projectupdates',
 		notificationsProjectUpdatesDescription: 'Voortgangs- en afrondingsupdates voor je projecten.',
 		notificationsCriticalGroup: 'Altijd aan',
-		notificationsCriticalDescription: 'Aanvraagbeslissingen, verwijdering uit een club en toestemmingsverzoeken voor ouders worden altijd in de app en per e-mail bezorgd.',
+		notificationsCriticalDescription:
+			'Aanvraagbeslissingen, verwijdering uit een club en toestemmingsverzoeken voor ouders worden altijd in de app en per e-mail bezorgd.',
 		notificationsSaveFailure: 'Kan meldingsvoorkeuren niet opslaan.',
 		activeClubUpdated: 'Actieve club bijgewerkt.',
 		switchClubFailure: 'Wisselen van club mislukt.'
@@ -453,8 +458,7 @@ const nl = {
 			currentLocationFailure: 'Kan je huidige locatie niet gebruiken.',
 			search: 'Zoeken',
 			nearbyTitle: 'Openbare clubs in de buurt',
-			nearbyDescription:
-				'Selecteer een club op de kaart of in de lijst om deze te bekijken en lidmaatschap aan te vragen.',
+			nearbyDescription: 'Selecteer een club om deze te bekijken en lidmaatschap aan te vragen.',
 			noClubsTitle: 'Nog geen openbare clubs in de buurt',
 			noClubsDescription:
 				'Laat je e-mailadres achter en we laten het weten als er een Curiosity Club in deze buurt opent.',
@@ -935,8 +939,7 @@ const nl = {
 		linkedParentNone: 'Er is momenteel geen ouder gekoppeld aan je account.',
 		unlinkAction: 'Ouder ontkoppelen',
 		unlinkConfirmTitle: 'Ouderaccount ontkoppelen?',
-		unlinkConfirmDescription:
-			'Je ouder kan je clubs, projecten en chats niet meer bekijken.',
+		unlinkConfirmDescription: 'Je ouder kan je clubs, projecten en chats niet meer bekijken.',
 		unlinkConfirmAction: 'Ontkoppelen',
 		unlinkCancel: 'Annuleren',
 		unlinkFailure: 'Kan ouderaccount niet ontkoppelen.',
