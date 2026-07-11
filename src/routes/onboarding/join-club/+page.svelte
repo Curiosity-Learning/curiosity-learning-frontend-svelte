@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, replaceState } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import { env } from '$env/dynamic/public';
 	import { page } from '$app/state';
@@ -407,9 +407,11 @@
 
 	// CL-711 CEO feedback item 5: keep the current search in the URL so that opening a club from
 	// the results and pressing back restores the previous results/query instead of wiping the
-	// search. Uses replaceState (not goto/pushState) so typing a search doesn't spam browser
-	// history — only the *current* history entry's URL is kept in sync; navigating to a club
-	// preview below pushes a new entry on top of it via goto.
+	// search. Uses goto with replaceState (not shallow replaceState from $app/navigation): the
+	// shallow variant updates location.href but leaves the router's recorded page URL
+	// (history.state['sveltekit:pageurl']) at the bare path, so back-navigation restored the
+	// URL without params and the search was lost — verified in-browser. replaceState:true keeps
+	// typing from spamming history; navigating to a club preview pushes a new entry via goto.
 	$effect(() => {
 		if (!browser) return;
 		const coordinates = selectedLocationCoordinates;
@@ -451,7 +453,7 @@
 		const currentUrl = `${window.location.pathname}${window.location.search}`;
 		const nextUrl = `${url.pathname}${url.search}`;
 		if (currentUrl !== nextUrl) {
-			replaceState(url, page.state);
+			void goto(nextUrl, { replaceState: true, keepFocus: true, noScroll: true });
 		}
 	});
 </script>
