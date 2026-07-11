@@ -2,7 +2,7 @@
 	import { authClient } from '$lib/auth-client';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { FeedSearch, LoadingState, UpdateCard } from '$lib/components/app';
+	import { EmptyState, FeedSearch, LoadingState, UpdateCard } from '$lib/components/app';
 	import type { UpdateCardMediaItem } from '$lib/components/app/feed/update-card.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
@@ -124,10 +124,11 @@
 				<AlertDescription>{firstPage.error.message}</AlertDescription>
 			</Alert>
 		{:else if visibleUpdates.length === 0}
-			<div class="rounded-2xl border border-dashed border-border/80 bg-card px-4 py-8 text-center">
-				<p class="type-body-bold text-foreground">{t('feed.globalEmptyTitle')}</p>
-				<p class="type-sm mt-1 text-muted-foreground">{t('feed.globalEmptyDescription')}</p>
-			</div>
+			<EmptyState
+				title={t('feed.globalEmptyTitle')}
+				description={t('feed.globalEmptyDescription')}
+				class="px-4 py-8"
+			/>
 		{:else}
 			{#each visibleUpdates as item (item.updateId)}
 				<UpdateCard

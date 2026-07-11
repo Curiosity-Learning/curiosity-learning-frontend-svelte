@@ -11,6 +11,7 @@
 		reportMutationSuccess
 	} from '$lib/app/connectivity';
 	import {
+		ConfirmDialog,
 		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
@@ -231,8 +232,17 @@
 		}
 	};
 
-	const cancelSession = async (sessionId: Id<'sessions'>) => {
-		if (!window.confirm(t('sessionCancel.confirm'))) return;
+	let cancelSessionDialogOpen = $state(false);
+	let cancelSessionTarget = $state<Id<'sessions'> | null>(null);
+
+	const openCancelSessionDialog = (sessionId: Id<'sessions'>) => {
+		cancelSessionTarget = sessionId;
+		cancelSessionDialogOpen = true;
+	};
+
+	const cancelSession = async () => {
+		const sessionId = cancelSessionTarget;
+		if (!sessionId) return;
 		pending = true;
 		errorMessage = '';
 		try {
@@ -309,7 +319,7 @@
 						canDelete={canCancel}
 						{canRsvp}
 						rsvpPending={rsvpPendingSessionId === entry.session._id}
-						onDelete={() => void cancelSession(entry.session._id)}
+						onDelete={() => openCancelSessionDialog(entry.session._id)}
 						onSetRsvp={(status) => void setRsvp(entry.session._id, status)}
 					/>
 				{/each}
@@ -352,3 +362,12 @@
 		</Dialog.Content>
 	</Dialog.Root>
 {/if}
+
+<ConfirmDialog
+	bind:open={cancelSessionDialogOpen}
+	title={t('sessionCancel.actionLabel')}
+	description={t('sessionCancel.confirm')}
+	confirmLabel={t('sessionCancel.actionLabel')}
+	variant="destructive"
+	onConfirm={cancelSession}
+/>

@@ -574,12 +574,12 @@
 {/if}
 <PageHeaderTitleContent enabled={isMobileDetailView}>
 	<div class="flex min-w-0 items-center gap-3">
-		<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
+		<Avatar class="size-8 shrink-0 bg-gray-200">
 			<AvatarFallback class="text-[0.68rem] font-bold text-slate-700">
 				{initialsFromName(roomDisplayName(activeRoom))}
 			</AvatarFallback>
 		</Avatar>
-		<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
+		<p class="truncate text-[1.25rem] leading-6 font-bold text-foreground">
 			{roomDisplayName(activeRoom)}
 		</p>
 	</div>
@@ -632,11 +632,11 @@
 							<button
 								type="button"
 								class={`flex items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
-									selectedRoomId === room.roomId ? 'bg-[#f5e2d2]' : 'hover:bg-[#f7f3ee]'
+									selectedRoomId === room.roomId ? 'bg-orange-100' : 'hover:bg-muted'
 								}`}
 								onclick={() => void openRoom(room.roomId)}
 							>
-								<Avatar class="size-11 shrink-0 bg-[#d8dbe5]">
+								<Avatar class="size-11 shrink-0 bg-gray-200">
 									<AvatarFallback class="text-[0.72rem] font-bold text-slate-700">
 										{initialsFromName(room.roomName)}
 									</AvatarFallback>
@@ -645,7 +645,7 @@
 								<div class="min-w-0 flex-1">
 									<div class="flex items-start justify-between gap-2">
 										<p
-											class="truncate text-[1rem] leading-tight font-bold text-[#242424] sm:text-[1.08rem]"
+											class="truncate text-[1rem] leading-tight font-bold text-foreground sm:text-[1.08rem]"
 										>
 											{roomDisplayName(room)}
 										</p>
@@ -675,12 +675,12 @@
 				>
 					<div class="hidden items-center border-b border-border/60 px-4 py-3 lg:flex">
 						<div class="flex min-w-0 flex-1 items-center gap-4 pr-2">
-							<Avatar class="size-8 shrink-0 bg-[#d8dbe5]">
+							<Avatar class="size-8 shrink-0 bg-gray-200">
 								<AvatarFallback class="text-[0.72rem] font-bold text-slate-700">
 									{initialsFromName(roomDisplayName(activeRoom))}
 								</AvatarFallback>
 							</Avatar>
-							<p class="truncate text-[1.25rem] leading-6 font-bold text-[#191919]">
+							<p class="truncate text-[1.25rem] leading-6 font-bold text-foreground">
 								{roomDisplayName(activeRoom)}
 							</p>
 						</div>
@@ -702,7 +702,7 @@
 						bind:this={messageScrollRef}
 						onscroll={handleMessagesScroll}
 						class={`min-h-0 flex-1 overflow-y-auto ${
-							isDesktopViewport ? 'bg-[#fbfaf8] px-4 py-4' : 'bg-transparent px-0 py-0'
+							isDesktopViewport ? 'bg-card px-4 py-4' : 'bg-transparent px-0 py-0'
 						}`}
 					>
 						<div class="flex min-h-full flex-col">
@@ -910,7 +910,7 @@
 									</p>
 								{:else if !isMessageSearching}
 									<p
-										class={`mt-auto text-center text-xs font-normal text-[#838799] ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
+										class={`mt-auto text-center text-xs font-normal text-muted-foreground ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
 									>
 										Today
 									</p>
@@ -922,7 +922,7 @@
 										{#if entry.profileId === null}
 											<div data-message-key={entry.key} class="flex justify-center">
 												<p
-													class="max-w-[85%] rounded-full bg-[#f0f0f2] px-3 py-1 text-center text-xs text-[#6b6f80]"
+													class="max-w-[85%] rounded-full bg-gray-100 px-3 py-1 text-center text-xs text-muted-foreground"
 												>
 													{entry.content}
 												</p>
@@ -959,8 +959,8 @@
 															: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
 													} ${
 														entry.profileId === viewer.data?._id
-															? 'bg-[#f5e2d2] text-[#2b2b2b]'
-															: 'bg-[#e7e9f3] text-[#2b2b2b]'
+															? 'bg-orange-100 text-foreground'
+															: 'bg-purple-100 text-foreground'
 													}`}
 												>
 													<p
@@ -982,7 +982,7 @@
 														{/each}
 													</p>
 													<p
-														class={`text-right text-[#6b6f80] ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
+														class={`text-right text-muted-foreground ${isDesktopViewport ? 'mt-1 text-xs' : 'mt-[2px] text-[10px] leading-4'}`}
 													>
 														{#if entry.status === 'sending'}
 															Sending...
@@ -1020,7 +1020,7 @@
 							onkeydown={handleMessageComposerKeydown}
 						/>
 						<div
-							class={`flex items-center justify-end text-[#7b8090] ${isDesktopViewport ? 'mt-2' : 'px-4 pt-0.5 pb-1.5'}`}
+							class={`flex items-center justify-end text-muted-foreground ${isDesktopViewport ? 'mt-2' : 'px-4 pt-0.5 pb-1.5'}`}
 						>
 							<button
 								type="button"
@@ -1043,7 +1043,7 @@
 					class="hidden flex-1 items-center justify-center rounded-[1.1rem] bg-white/65 px-6 shadow-sm ring-1 ring-black/5 lg:flex"
 				>
 					<div class="max-w-sm text-center">
-						<p class="text-base font-semibold text-[#242424]">Select a chat</p>
+						<p class="text-base font-semibold text-foreground">Select a chat</p>
 						<p class="mt-1 text-sm text-muted-foreground">
 							Choose a club, project, or application chat to view its messages.
 						</p>

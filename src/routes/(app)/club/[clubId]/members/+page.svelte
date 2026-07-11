@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
-	import { LoadingState, ActionMenu } from '$lib/components/app';
+	import { LoadingState, ActionMenu, ConfirmDialog, EmptyState } from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -218,9 +218,10 @@
 	};
 
 	// ── Self demote ──────────────────────────────────────────────────────
+	let demoteSelfDialogOpen = $state(false);
+
 	const demoteSelf = async () => {
 		if (!clubIdTyped) return;
-		if (!window.confirm(t('membersPage.demoteSelfConfirm'))) return;
 		pending = true;
 		errorMessage = '';
 		try {
@@ -233,10 +234,14 @@
 	};
 
 	// ── Leave club ───────────────────────────────────────────────────────
-	const leaveClub = async () => {
+	let leaveClubDialogOpen = $state(false);
+	let leaveClubIsAbandon = $derived(
+		isGuide && guideMembers.length <= 1 && learnerMembers.length === 0
+	);
+
+	const openLeaveClubDialog = () => {
 		if (!clubIdTyped) return;
-		const activeGuideCount = guideMembers.length;
-		const isLastGuide = isGuide && activeGuideCount <= 1;
+		const isLastGuide = isGuide && guideMembers.length <= 1;
 		const hasLearners = learnerMembers.length > 0;
 
 		if (isLastGuide && hasLearners) {
@@ -244,12 +249,11 @@
 			return;
 		}
 
-		const confirmMessage =
-			isLastGuide && !hasLearners
-				? `${t('membersPage.leaveClubAbandonWarning')}\n\n${t('membersPage.leaveClubConfirm')}`
-				: t('membersPage.leaveClubConfirm');
-		if (!window.confirm(confirmMessage)) return;
+		leaveClubDialogOpen = true;
+	};
 
+	const leaveClub = async () => {
+		if (!clubIdTyped) return;
 		pending = true;
 		errorMessage = '';
 		try {
@@ -270,7 +274,7 @@
 						label: t('membersPage.demoteSelfAction'),
 						Icon: UserMinusIcon,
 						disabled: pending,
-						onSelect: () => void demoteSelf()
+						onSelect: () => (demoteSelfDialogOpen = true)
 					}
 				: null,
 			{
@@ -280,7 +284,7 @@
 				tone: 'destructive' as const,
 				separatorBefore: isGuide,
 				disabled: pending,
-				onSelect: () => void leaveClub()
+				onSelect: openLeaveClubDialog
 			}
 		].filter((item): item is NonNullable<typeof item> => item !== null)
 	);
@@ -378,16 +382,12 @@
 
 {#snippet sectionEmptyState(kind: 'guides' | 'learners')}
 	{#if kind === 'learners' && isGuide && !isSearching}
-		<div
-			class="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-muted/20 p-8 text-center"
+		<EmptyState
+			icon={UsersIcon}
+			title={$_('membersPage.noLearnersYetTitle')}
+			description={$_('membersPage.noLearnersYetDescription')}
+			class="border-border/70 bg-muted/20"
 		>
-			<div class="flex size-11 items-center justify-center rounded-xl bg-orange-50 text-orange-500">
-				<UsersIcon class="size-5" />
-			</div>
-			<div class="flex flex-col gap-1">
-				<p class="type-body-bold text-foreground">{$_('membersPage.noLearnersYetTitle')}</p>
-				<p class="type-sm text-muted-foreground">{$_('membersPage.noLearnersYetDescription')}</p>
-			</div>
 			<InviteLearnerDialog
 				clubId={clubIdTyped}
 				clubCode={clubItem?.clubCode}
@@ -397,7 +397,7 @@
 				triggerLabel={$_('membersPage.inviteAction')}
 				triggerStyle="button"
 			/>
-		</div>
+		</EmptyState>
 	{:else}
 		<p class="type-sm text-muted-foreground">
 			{kind === 'guides' ? $_('membersPage.noGuidesMatch') : $_('membersPage.noLearnersMatch')}
@@ -477,11 +477,13 @@
 			</Card>
 		{:else if isSearching && !hasAnyResults}
 			<Card class="rounded-2xl border-border/70">
-				<CardContent class="flex flex-col items-center gap-1 p-8 text-center">
-					<p class="type-body-bold text-foreground">{$_('membersPage.noSearchResultsTitle')}</p>
-					<p class="type-sm text-muted-foreground">
-						{$_('membersPage.noSearchResultsDescription')}
-					</p>
+				<CardContent class="p-8">
+					<EmptyState
+						bordered={false}
+						title={$_('membersPage.noSearchResultsTitle')}
+						description={$_('membersPage.noSearchResultsDescription')}
+						class="gap-1"
+					/>
 				</CardContent>
 			</Card>
 		{:else}
@@ -572,3 +574,20 @@
 		contextText={reportTargetContext}
 	/>
 {/if}
+
+<ConfirmDialog
+	bind:open={demoteSelfDialogOpen}
+	title={t('membersPage.demoteSelfConfirm')}
+	confirmLabel={t('membersPage.demoteSelfAction')}
+	variant="destructive"
+	onConfirm={demoteSelf}
+/>
+
+<ConfirmDialog
+	bind:open={leaveClubDialogOpen}
+	title={t('membersPage.leaveClubConfirm')}
+	description={leaveClubIsAbandon ? t('membersPage.leaveClubAbandonWarning') : undefined}
+	confirmLabel={t('membersPage.leaveClubAction')}
+	variant="destructive"
+	onConfirm={leaveClub}
+/>

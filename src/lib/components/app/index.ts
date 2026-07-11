@@ -2,6 +2,8 @@ import HeaderTabs from './header-tabs.svelte';
 import ActionMenu from './action-menu.svelte';
 import AutoFitCardGrid from './auto-fit-card-grid.svelte';
 import AppShell from './app-shell.svelte';
+import ConfirmDialog from './confirm-dialog.svelte';
+import EmptyState from './empty-state.svelte';
 import LoadingState from './loading-state.svelte';
 import UpdateCard from './feed/update-card.svelte';
 import FeedSearch from './feed/feed-search.svelte';
@@ -28,6 +30,8 @@ export {
 	ActionMenu,
 	AutoFitCardGrid,
 	AppShell,
+	ConfirmDialog,
+	EmptyState,
 	LoadingState,
 	UpdateCard,
 	FeedSearch,

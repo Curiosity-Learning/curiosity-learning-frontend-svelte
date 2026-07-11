@@ -87,7 +87,7 @@
 	{:else if overview}
 		<Alert class="flex flex-wrap items-center justify-between gap-3 border-orange-200 bg-orange-50">
 			<div class="flex items-center gap-3">
-				<Avatar class="size-9 shrink-0 bg-[#d8dbe5]">
+				<Avatar class="size-9 shrink-0 bg-gray-200">
 					<AvatarFallback class="text-xs font-bold text-slate-700">{initials}</AvatarFallback>
 				</Avatar>
 				<AlertTitle class="text-orange-900">
@@ -114,14 +114,14 @@
 						<div class="flex flex-wrap gap-2">
 							{#each overview.clubs as club (club.clubId)}
 								<div
-									class="flex items-center gap-2 rounded-full border border-[#f0decc] bg-[#f8ecdf] px-3 py-1.5"
+									class="flex items-center gap-2 rounded-full border border-orange-100 bg-orange-50 px-3 py-1.5"
 								>
 									<span class="type-sm-bold text-orange-600">{club.clubName}</span>
 									{#if club.roleName}
 										<Badge
 											class={club.roleKey === 'guide'
 												? 'rounded-full bg-orange-500 px-2 py-0 text-xs text-white'
-												: 'rounded-full bg-[#e4dccf] px-2 py-0 text-xs text-[#7a5c45]'}
+												: 'rounded-full bg-orange-100 px-2 py-0 text-xs text-orange-700'}
 										>
 											{club.roleName}
 										</Badge>
@@ -133,7 +133,7 @@
 				</section>
 
 				<section class="flex flex-col gap-3">
-					<p class="text-[1.25rem] leading-6 font-bold text-[#44495f]">
+					<p class="text-[1.25rem] leading-6 font-bold text-foreground">
 						{t('parentAccounts.currentProjectsTitle')}
 					</p>
 					{#if overview.projects.current.length === 0}
@@ -157,7 +157,7 @@
 				</section>
 
 				<section class="flex flex-col gap-3">
-					<p class="text-[1.25rem] leading-6 font-bold text-[#44495f]">
+					<p class="text-[1.25rem] leading-6 font-bold text-foreground">
 						{t('parentAccounts.showcaseProjectsTitle')}
 					</p>
 					{#if overview.projects.showcase.length === 0}
@@ -181,7 +181,7 @@
 				</section>
 
 				<section class="flex flex-col gap-3">
-					<p class="text-[1.25rem] leading-6 font-bold text-[#44495f]">
+					<p class="text-[1.25rem] leading-6 font-bold text-foreground">
 						{t('parentAccounts.updatesTitle')}
 					</p>
 					{#if overview.updates.length === 0}
@@ -228,12 +228,12 @@
 								<button
 									type="button"
 									class={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
-										selectedRoomId === room.roomId ? 'bg-[#f5e2d2]' : 'hover:bg-[#f7f3ee]'
+										selectedRoomId === room.roomId ? 'bg-orange-100' : 'hover:bg-muted'
 									}`}
 									onclick={() => (selectedRoomId = room.roomId)}
 								>
 									<div class="min-w-0 flex-1">
-										<p class="truncate text-sm font-bold text-[#242424]">{room.roomName}</p>
+										<p class="truncate text-sm font-bold text-foreground">{room.roomName}</p>
 										{#if room.lastMessagePreview}
 											<p class="truncate text-xs text-muted-foreground">
 												{room.lastMessagePreview}
@@ -271,8 +271,8 @@
 							<div class="flex flex-1 flex-col gap-3 overflow-y-auto">
 								{#each messages as entry (entry._id)}
 									<div class="group flex items-start gap-2">
-										<div class="min-w-0 flex-1 rounded-2xl bg-[#e7e9f3] px-3 py-2">
-											<p class="break-words text-sm text-[#2b2b2b]">
+										<div class="min-w-0 flex-1 rounded-2xl bg-purple-100 px-3 py-2">
+											<p class="break-words text-sm text-foreground">
 												{#if entry.removedByModeration}
 													<span class="italic opacity-70">{t('chat.removedByModeration')}</span>
 												{:else}
@@ -292,7 +292,7 @@
 													{/each}
 												{/if}
 											</p>
-											<p class="mt-1 text-right text-xs text-[#6b6f80]">
+											<p class="mt-1 text-right text-xs text-muted-foreground">
 												{formatClockTime(entry._creationTime)}
 											</p>
 										</div>

@@ -6,7 +6,12 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Doc, Id } from '$convex/_generated/dataModel';
-	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import {
+		ConfirmDialog,
+		LoadingState,
+		PageHeaderBackButton,
+		PageHeaderTitle
+	} from '$lib/components/app';
 	import LocationAutocompleteField from '$lib/components/app/location-autocomplete-field.svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { MAPBOX_STYLE_URL, type MapboxCoordinates } from '$lib/maps/mapbox';
@@ -221,8 +226,17 @@
 		}
 	};
 
-	const removeSlot = async (slot: Doc<'clubScheduleSlots'>) => {
-		if (!window.confirm(t('clubSettingsPage.slotRemoveConfirm'))) return;
+	let removeSlotDialogOpen = $state(false);
+	let removeSlotTarget = $state<Doc<'clubScheduleSlots'> | null>(null);
+
+	const openRemoveSlotDialog = (slot: Doc<'clubScheduleSlots'>) => {
+		removeSlotTarget = slot;
+		removeSlotDialogOpen = true;
+	};
+
+	const removeSlot = async () => {
+		const slot = removeSlotTarget;
+		if (!slot) return;
 		errorMessage = '';
 		try {
 			await convexClient.mutation(api.clubScheduleSlots.remove, { slotId: slot._id });
@@ -369,7 +383,7 @@
 									variant="ghost"
 									size="icon"
 									aria-label={$_('clubSettingsPage.slotRemove')}
-									onclick={() => void removeSlot(slot)}
+									onclick={() => openRemoveSlotDialog(slot)}
 								>
 									<Trash2Icon class="size-4" />
 								</Button>
@@ -466,3 +480,11 @@
 		</Dialog.Content>
 	</Dialog.Root>
 {/if}
+
+<ConfirmDialog
+	bind:open={removeSlotDialogOpen}
+	title={t('clubSettingsPage.slotRemoveConfirm')}
+	confirmLabel={t('clubSettingsPage.slotRemove')}
+	variant="destructive"
+	onConfirm={removeSlot}
+/>

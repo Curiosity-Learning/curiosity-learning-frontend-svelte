@@ -6,6 +6,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		ActionMenu,
+		ConfirmDialog,
 		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
@@ -205,8 +206,17 @@
 		}
 	};
 
-	const deleteSessionPhoto = async (sessionPhotoId: Id<'sessionPhotos'>) => {
-		if (!window.confirm(t('sessionPhotos.deleteConfirm'))) return;
+	let deletePhotoDialogOpen = $state(false);
+	let deletePhotoTarget = $state<Id<'sessionPhotos'> | null>(null);
+
+	const openDeletePhotoDialog = (sessionPhotoId: Id<'sessionPhotos'>) => {
+		deletePhotoTarget = sessionPhotoId;
+		deletePhotoDialogOpen = true;
+	};
+
+	const deleteSessionPhoto = async () => {
+		const sessionPhotoId = deletePhotoTarget;
+		if (!sessionPhotoId) return;
 		if (!ensureOnlineForMutation((message) => (photoError = message))) return;
 		photoError = '';
 		try {
@@ -426,9 +436,10 @@
 		}
 	};
 
+	let cancelSessionDialogOpen = $state(false);
+
 	const cancelSession = async () => {
 		if (!session) return;
-		if (!window.confirm(t('sessionCancel.confirm'))) return;
 		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		pending = true;
 		errorMessage = '';
@@ -573,7 +584,7 @@
 			tone: 'destructive' as const,
 			separatorBefore: canUpdateSessionOnline,
 			disabled: !canCancelSessionOnline,
-			onSelect: () => void cancelSession()
+			onSelect: () => (cancelSessionDialogOpen = true)
 		}
 	]);
 </script>
@@ -920,7 +931,7 @@
 										type="button"
 										class="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
 										aria-label="Remove photo"
-										onclick={() => void deleteSessionPhoto(photo.sessionPhotoId)}
+										onclick={() => openDeletePhotoDialog(photo.sessionPhotoId)}
 									>
 										<TrashIcon class="size-3.5" />
 									</button>
@@ -1022,3 +1033,20 @@
 		</Dialog.Root>
 	{/if}
 {/if}
+
+<ConfirmDialog
+	bind:open={cancelSessionDialogOpen}
+	title={t('sessionCancel.actionLabel')}
+	description={t('sessionCancel.confirm')}
+	confirmLabel={t('sessionCancel.actionLabel')}
+	variant="destructive"
+	onConfirm={cancelSession}
+/>
+
+<ConfirmDialog
+	bind:open={deletePhotoDialogOpen}
+	title={t('sessionPhotos.deleteConfirm')}
+	confirmLabel={t('sessionPhotos.deleteAction')}
+	variant="destructive"
+	onConfirm={deleteSessionPhoto}
+/>

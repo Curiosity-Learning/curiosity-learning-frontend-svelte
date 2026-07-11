@@ -76,7 +76,7 @@
 		<DropdownMenuTrigger class={`-ml-2 inline-flex w-fit max-w-full min-w-0 overflow-hidden ${className ?? ''}`}>
 			<Button
 				variant="ghost"
-				class="max-w-full min-w-0 shrink justify-start gap-1 px-1.5 text-[#262626] hover:text-[#262626]"
+				class="max-w-full min-w-0 shrink justify-start gap-1 px-1.5 text-foreground hover:text-foreground"
 				aria-label={formatT('clubSwitcher.triggerLabel', {
 					clubName: activeClub?.clubName ?? ''
 				})}
@@ -112,7 +112,7 @@
 		</DropdownMenuContent>
 	</DropdownMenu>
 {:else}
-	<span class={`type-step-title min-w-0 flex-1 truncate text-[#262626] ${className ?? ''}`}>
+	<span class={`type-step-title min-w-0 flex-1 truncate text-foreground ${className ?? ''}`}>
 		{activeClub?.clubName ?? ''}
 	</span>
 {/if}
