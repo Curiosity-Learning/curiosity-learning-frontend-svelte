@@ -25,6 +25,7 @@ import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsMo
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
 import { addNewGuideToClubsCocGroup, assignClubToCocGroup } from './cocModel';
+import { clearPendingClubJoinsForProfile } from './pendingClubJoinsModel';
 
 // Authenticated users get a per-user window; unauthenticated code-preview lookups have no
 // reliable client identity in a Convex function, so we apply a modest global-per-code
@@ -62,15 +63,11 @@ const createInviteCodeCandidate = () => {
 const createInviteCode = async (ctx: Ctx) => {
 	for (let attempt = 0; attempt < 20; attempt += 1) {
 		const code = createInviteCodeCandidate();
-		const existingLearnerCode = await ctx.db
+		const existingCode = await ctx.db
 			.query('clubs')
 			.withIndex('by_club_code', (q) => q.eq('clubCode', code))
 			.first();
-		const existingGuideCode = await ctx.db
-			.query('clubs')
-			.withIndex('by_guide_invite_code', (q) => q.eq('guideInviteCode', code))
-			.first();
-		if (!existingLearnerCode && !existingGuideCode) {
+		if (!existingCode) {
 			return code;
 		}
 	}
@@ -81,23 +78,6 @@ const resolveClubByCode = async (ctx: Ctx, normalizedCode: string) => {
 	const club = await ctx.db
 		.query('clubs')
 		.withIndex('by_club_code', (q) => q.eq('clubCode', normalizedCode))
-		.first();
-	if (!club || club.abandonedAt) {
-		return null;
-	}
-
-	return {
-		club,
-		code: normalizedCode
-	};
-};
-
-// Guide invite codes join with the Guide role (PRD 6.1.8). Kept as a separate index/field from
-// `clubCode` so the existing learner join code and link are unaffected.
-const resolveClubByGuideInviteCode = async (ctx: Ctx, normalizedCode: string) => {
-	const club = await ctx.db
-		.query('clubs')
-		.withIndex('by_guide_invite_code', (q) => q.eq('guideInviteCode', normalizedCode))
 		.first();
 	if (!club || club.abandonedAt) {
 		return null;
@@ -158,6 +138,45 @@ const listScheduleSlotsForClub = async (ctx: Ctx, clubId: Id<'clubs'>) => {
 		.collect();
 };
 
+// PRD (CEO decision, discoverable-by-default follow-up): public/discoverable surfaces (the map,
+// the public /clubs/[clubId] page, listPublicClubs) must only ever show a coarse city/region, not
+// the club's exact free-text location (which can be a full street address or a named venue). The
+// authenticated code-join preview and in-club views keep the full `location` string untouched —
+// this helper is only ever applied on the public path.
+//
+// Heuristic: `location` is a geocoded, comma-separated string of increasing generality (e.g.
+// "Munich, Bavaria, Germany" or "Lisbon, Lisbon, Portugal"). When it has 4+ segments, the first
+// segment is usually a venue/POI name rather than a place (e.g. "Amsterdam International
+// Community School, Amsterdam, Zuid, North Holland, Netherlands") — in that case the SECOND
+// segment is the coarse city instead. This is a simple heuristic on free text, not a real
+// geocoder: it can still misfire on unusual formats (e.g. a venue name with only 2-3 segments), so
+// treat it as "coarse effort", not a hard privacy guarantee.
+export const toPublicCity = (location: string | null | undefined): string | null => {
+	if (!location) {
+		return null;
+	}
+	const segments = location
+		.split(',')
+		.map((segment) => segment.trim())
+		.filter(Boolean);
+	if (!segments.length) {
+		return null;
+	}
+	const cityIndex = segments.length >= 4 ? 1 : 0;
+	return segments[cityIndex] ?? segments[0];
+};
+
+// Strips the exact session address/room/URL (`location`) from a schedule slot for public
+// surfaces, keeping only day-of-week + start/end time. `location` is kept as an empty string
+// (rather than omitted) so the shape still matches the shared `ScheduleSlot` type used by
+// `formatScheduleSlot` on the client, which already renders nothing extra when it's falsy.
+const toPublicScheduleSlot = (slot: Doc<'clubScheduleSlots'>) => ({
+	dayOfWeek: slot.dayOfWeek,
+	startTime: slot.startTime,
+	endTime: slot.endTime,
+	location: ''
+});
+
 const resolveClubVideoUrl = async (ctx: Ctx, club: Doc<'clubs'>) => {
 	if (!club.videoMediaAssetId) {
 		return null;
@@ -195,7 +214,6 @@ const mapClubListItem = async (ctx: Ctx, club: Doc<'clubs'>, membership: Doc<'cl
 		clubVideoUrl,
 		clubScheduleSlots: scheduleSlots,
 		clubCode: isGuide ? (club.clubCode ?? null) : null,
-		clubGuideInviteCode: isGuide ? (club.guideInviteCode ?? null) : null,
 		clubDiscoverable: club.discoverable,
 		// Defaults to 'curiosity' for legacy rows predating the kind backfill; see
 		// clubs.backfillClubKind.
@@ -376,15 +394,11 @@ export const getClubPreviewByCode = query({
 			return null;
 		}
 
-		// Learner codes are checked first; a guide invite code only ever matches when it isn't
-		// also a (distinct, randomly-generated) learner code for a different club.
-		const resolvedLearner = await resolveClubByCode(ctx, normalizedCode);
-		const resolved = resolvedLearner ?? (await resolveClubByGuideInviteCode(ctx, normalizedCode));
+		const resolved = await resolveClubByCode(ctx, normalizedCode);
 		if (!resolved) {
 			return null;
 		}
 		const { club, code } = resolved;
-		const joinRole: 'guide' | 'learner' = resolvedLearner ? 'learner' : 'guide';
 
 		const members = await ctx.db
 			.query('clubMembers')
@@ -404,8 +418,7 @@ export const getClubPreviewByCode = query({
 			scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
 			memberCount: members.filter((member) => !member.leftAt).length,
 			createdAt: club.createdAt,
-			code,
-			joinRole
+			code
 		};
 	}
 });
@@ -448,16 +461,21 @@ export const getClubPreviewById = query({
 			}
 		}
 
+		// Public surface: only a coarse city and day/time schedule, never the exact free-text
+		// location or the schedule slots' exact address/room/URL (see toPublicCity/
+		// toPublicScheduleSlot). Coordinates are kept — they're needed to place this club on the
+		// map/distance search, which already only plots an approximate pin, not an address.
+		const scheduleSlots = await listScheduleSlotsForClub(ctx, club._id);
 		return {
 			id: club._id,
 			name: club.name,
 			description: club.description ?? null,
 			videoMediaAssetId: club.videoMediaAssetId ?? null,
 			videoUrl: await resolveClubVideoUrl(ctx, club),
-			location: club.location ?? null,
+			city: toPublicCity(club.location),
 			locationLatitude: club.locationLatitude ?? null,
 			locationLongitude: club.locationLongitude ?? null,
-			scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
+			scheduleSlots: scheduleSlots.map(toPublicScheduleSlot),
 			memberCount: members.filter((member) => !member.leftAt).length,
 			createdAt: club.createdAt,
 			viewerIsMember,
@@ -547,14 +565,17 @@ export const listPublicClubs = query({
 					.withIndex('by_club', (q) => q.eq('clubId', club._id))
 					.collect();
 
+				// Public surface: coarse city + day/time schedule only — see toPublicCity/
+				// toPublicScheduleSlot. Coordinates are kept for map placement/distance search.
+				const scheduleSlots = await listScheduleSlotsForClub(ctx, club._id);
 				return {
 					id: club._id,
 					name: club.name,
 					description: club.description ?? null,
-					location: club.location ?? null,
+					city: toPublicCity(club.location),
 					locationLatitude: club.locationLatitude ?? null,
 					locationLongitude: club.locationLongitude ?? null,
-					scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
+					scheduleSlots: scheduleSlots.map(toPublicScheduleSlot),
 					memberCount: members.filter((member) => !member.leftAt).length,
 					videoUrl: await resolveClubVideoUrl(ctx, club),
 					createdAt: club.createdAt
@@ -665,8 +686,9 @@ export const createClub = mutation({
 			locationLatitude: args.locationLatitude,
 			locationLongitude: args.locationLongitude,
 			videoMediaAssetId: args.videoMediaAssetId,
-			// Private by default: newly created clubs must be explicitly opted in to discovery.
-			discoverable: false,
+			// Discoverable by default (CEO decision): new clubs are opted into the public map/preview
+			// unless a Guide later opts out via updateClub.
+			discoverable: true,
 			kind: 'curiosity',
 			createdByProfileId: profile._id,
 			createdAt: now,
@@ -765,74 +787,10 @@ export const joinClubWithCode = mutation({
 		await ctx.db.patch(profile._id, {
 			activeClubId: club._id,
 			firstLoginCompleted: true,
-			pendingClubCode: undefined,
-			pendingRole: undefined,
 			updatedAt: Date.now()
 		});
+		await clearPendingClubJoinsForProfile(ctx, profile._id);
 		await notifyGuidesOfNewMember(ctx, club._id, profile);
-
-		return {
-			ok: true as const,
-			clubId: club._id
-		};
-	}
-});
-
-// Distinct from `joinClubWithCode`: this code always grants the Guide role and has no rate
-// limiting of its own beyond the shared per-user/global code-guessing damping, since guide
-// invite codes are shared privately by existing Guides (PRD 6.1.8 — "no application process").
-export const joinClubWithGuideInviteCode = mutation({
-	args: {
-		code: v.string()
-	},
-	handler: async (ctx, args) => {
-		const identity = await requireIdentity(ctx);
-		const normalizedCode = normalizeInviteCode(args.code);
-		const { key, limit } = clubCodeRateLimitScope(normalizedCode, identity.subject);
-
-		if (await isRateLimited(ctx, key, limit)) {
-			return { ok: false as const, error: 'rate_limited' as const };
-		}
-
-		const resolved = INVITE_CODE_PATTERN.test(normalizedCode)
-			? await resolveClubByGuideInviteCode(ctx, normalizedCode)
-			: null;
-		if (!resolved) {
-			await recordRateLimitAttempt(ctx, key, limit);
-			return { ok: false as const, error: 'invalid_code' as const };
-		}
-		const { club } = resolved;
-
-		const existingMembership = await getMembership(ctx, club._id, identity.subject);
-		if (existingMembership) {
-			throw new ConvexError('You are already a member of this club');
-		}
-
-		const profile = await getOrCreateProfile(ctx, identity.subject);
-		await ensureClubRoom(ctx, club._id);
-
-		const guideRole = await getRoleByKey(ctx, 'guide');
-		await ctx.db.insert('clubMembers', {
-			clubId: club._id,
-			profileId: profile._id,
-			roleId: guideRole._id,
-			firstName: profile.firstName,
-			lastName: profile.lastName,
-			username: profile.username,
-			coverPhotoUrl: profile.coverPhotoUrl,
-			createdAt: Date.now()
-		});
-		await ctx.db.patch(profile._id, {
-			activeClubId: club._id,
-			firstLoginCompleted: true,
-			pendingClubCode: undefined,
-			pendingRole: undefined,
-			updatedAt: Date.now()
-		});
-		await notifyGuidesOfNewMember(ctx, club._id, profile);
-		// CL-707: a new Guide (via guide invite code) also gets guide access to the club's
-		// Club of Clubs group, if it has one.
-		await addNewGuideToClubsCocGroup(ctx, club, profile._id);
 
 		return {
 			ok: true as const,
@@ -923,7 +881,6 @@ export const getClubById = query({
 		return {
 			...club,
 			clubCode: canSeeCodes ? (club.clubCode ?? null) : null,
-			guideInviteCode: canSeeCodes ? (club.guideInviteCode ?? null) : null,
 			videoUrl: await resolveClubVideoUrl(ctx, club)
 		};
 	}
@@ -1002,32 +959,6 @@ export const resetClubCode = mutation({
 		const newCode = await createInviteCode(ctx);
 		await ctx.db.patch(args.clubId, {
 			clubCode: newCode,
-			updatedAt: Date.now()
-		});
-
-		return { code: newCode };
-	}
-});
-
-// Guides use this to generate or rotate the separate Guide invite code (PRD 6.1.8). Gated by
-// `club_member:invite_guide` rather than `club:edit` so it follows the same permission as the
-// members-page invite action, not general club settings editing.
-export const createOrRotateGuideInviteCode = mutation({
-	args: {
-		clubId: v.id('clubs')
-	},
-	handler: async (ctx, args) => {
-		const identity = await requireIdentity(ctx);
-		await requirePermission(ctx, args.clubId, identity.subject, 'club_member:invite_guide');
-
-		const club = await ctx.db.get(args.clubId);
-		if (!club) {
-			throw new ConvexError('Club not found');
-		}
-
-		const newCode = await createInviteCode(ctx);
-		await ctx.db.patch(args.clubId, {
-			guideInviteCode: newCode,
 			updatedAt: Date.now()
 		});
 
@@ -1366,7 +1297,6 @@ export const demoteSelfToLearner = mutation({
 const invalidateClubCodes = (ctx: MutationCtx, clubId: Id<'clubs'>) =>
 	ctx.db.patch(clubId, {
 		clubCode: undefined,
-		guideInviteCode: undefined,
 		discoverable: false,
 		abandonedAt: Date.now(),
 		updatedAt: Date.now()

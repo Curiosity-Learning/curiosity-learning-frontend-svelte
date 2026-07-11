@@ -14,8 +14,7 @@ describe('roles.syncRolePermissions', () => {
 				key: 'guide',
 				name: 'Guide',
 				// Simulates a pre-CL-709 row: missing session:cancel, session_rsvp:*,
-				// session_photo:create, club_member:promote, club_member:invite_guide,
-				// club_join_request:decide.
+				// session_photo:create, club_member:promote, club_join_request:decide.
 				permissions: ['club:read', 'club:edit', 'session:read'],
 				order: 10,
 				createdAt: now
@@ -36,7 +35,6 @@ describe('roles.syncRolePermissions', () => {
 				'session_rsvp:read_all',
 				'session_photo:create',
 				'club_member:promote',
-				'club_member:invite_guide',
 				'club_join_request:decide'
 			])
 		);

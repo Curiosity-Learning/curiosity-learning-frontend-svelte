@@ -557,14 +557,7 @@
 				{#if clubId && canReadMembers && visibleLearners.length > 0}
 					<HomeActionLink href={`${clubPath}/members`} label="View all" Icon={ArrowRightIcon} />
 				{:else}
-					<InviteLearnerDialog
-						clubId={clubIdTyped}
-						clubCode={clubItem?.clubCode}
-						guideInviteCode={clubItem?.clubGuideInviteCode}
-						canInviteGuide={clubPermissions.includes('club_member:invite_guide')}
-						clubKind={clubItem?.clubKind}
-						triggerStyle="link"
-					/>
+					<InviteLearnerDialog clubCode={clubItem?.clubCode} triggerStyle="link" />
 				{/if}
 			{/snippet}
 		</HomeSectionHeader>

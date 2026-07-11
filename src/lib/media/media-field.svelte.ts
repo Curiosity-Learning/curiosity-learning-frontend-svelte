@@ -19,7 +19,7 @@ import {
 	uploadFileToDescriptor,
 	waitForMediaUploadReady
 } from './upload-core';
-import { t } from '$lib/i18n';
+import { formatT, t } from '$lib/i18n';
 
 type MediaFieldMode = 'immediate' | 'deferred';
 type MediaFieldPhase = 'idle' | 'selected' | 'uploading' | 'processing' | 'ready' | 'failed';
@@ -111,6 +111,14 @@ export type MultiMediaFieldName = keyof typeof multiMediaFieldDefinitions;
 
 const isLifecycleError = (error: unknown): error is MediaAssetLifecycleError =>
 	error instanceof Error && error.name === 'MediaAssetLifecycleError';
+
+// Client-side pre-flight size check (mirrors the videoTooLong duration check below): catches an
+// oversized file instantly, with a clear i18n'd message, instead of relying solely on the
+// server-side validate-file-size pipeline step's (English-only) rejection after a network round
+// trip. The server still enforces the real hard cap independently — this is UX, not the security
+// boundary.
+const fileTooLargeMessage = (maxBytes: number) =>
+	formatT('mediaUpload.fileTooLarge', { maxSizeMb: Math.round(maxBytes / (1000 * 1000)) });
 
 class MediaFieldController {
 	readonly definition: (typeof mediaFieldDefinitions)[MediaFieldName];
@@ -318,6 +326,15 @@ class MediaFieldController {
 		try {
 			this.phase = 'uploading';
 			this.errorMessage = '';
+
+			// Only checked pre-flight for video: images go through client-side compression below
+			// first, so an oversized original can still end up under `maxBytes` post-compression —
+			// checking the raw `selectedFile.size` here would reject those unnecessarily. Videos are
+			// never client-compressed before upload, so this check is exact for them.
+			if (this.definition.expectedMediaKind === 'video' && selectedFile.size > this.maxBytes) {
+				this.setFailure(fileTooLargeMessage(this.maxBytes));
+				return null;
+			}
 
 			if (this.definition.expectedMediaKind === 'video' && this.definition.maxDurationSeconds) {
 				const durationSeconds = await readLocalMediaDurationSeconds(selectedFile);
@@ -536,6 +553,12 @@ class MultiMediaFieldController {
 			this.setItem(key, { phase: 'uploading', errorMessage: '' });
 
 			const mediaKind = getLocalPreviewKind(file);
+
+			// See the single-field controller's identical check above for why this is video-only.
+			if (mediaKind === 'video' && file.size > this.maxBytes) {
+				this.setItem(key, { phase: 'failed', errorMessage: fileTooLargeMessage(this.maxBytes) });
+				return;
+			}
 
 			if (mediaKind === 'video' && this.definition.maxDurationSeconds) {
 				const durationSeconds = await readLocalMediaDurationSeconds(file);

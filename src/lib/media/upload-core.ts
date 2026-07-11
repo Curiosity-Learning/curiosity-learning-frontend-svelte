@@ -18,12 +18,14 @@ export const mediaUploadPresets = {
 	videos: {
 		label: 'Videos',
 		acceptedContentTypes: VIDEO_CONTENT_TYPES,
-		maxBytesMb: 250
+		// Canonical 100MB video cap (CEO decision) — must match the server's
+		// MAX_SUPPORTED_UPLOAD_BYTES (mediaPipeline.ts) and HUNDRED_MB (media-field.svelte.ts).
+		maxBytesMb: 100
 	},
 	mixed: {
 		label: 'Mixed media',
 		acceptedContentTypes: [...IMAGE_CONTENT_TYPES, ...VIDEO_CONTENT_TYPES],
-		maxBytesMb: 250
+		maxBytesMb: 100
 	}
 } as const;
 

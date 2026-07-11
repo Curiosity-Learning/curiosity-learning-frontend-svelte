@@ -149,7 +149,7 @@ describe('active club switching', () => {
 });
 
 describe('discoverability', () => {
-	it('createClub defaults new clubs to non-discoverable', async () => {
+	it('createClub defaults new clubs to discoverable', async () => {
 		const t = convexTest(schema, modules);
 		await t.run(async (ctx) => {
 			await ctx.db.insert('clubRoles', {
@@ -182,7 +182,7 @@ describe('discoverability', () => {
 			.mutation(api.clubs.createClub, { name: 'Brand New Club' });
 
 		const club = await t.run((ctx) => ctx.db.get(result.clubId));
-		expect(club?.discoverable).toBe(false);
+		expect(club?.discoverable).toBe(true);
 	});
 
 	it('listPublicClubs only returns discoverable clubs with a code', async () => {
@@ -257,6 +257,72 @@ describe('discoverability', () => {
 		const preview = await t.query(api.clubs.getClubPreviewByCode, { code: 'NDCLUB' });
 		expect(preview?.id).toBe(clubId);
 	});
+
+	it('getClubPreviewByCode still returns the full schedule slots (gated behind knowing the code)', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.patch(clubId, { clubCode: 'FULLCD', discoverable: false });
+			await ctx.db.insert('clubScheduleSlots', {
+				clubId,
+				dayOfWeek: 'monday',
+				startTime: '16:00',
+				endTime: '17:30',
+				location: '221B Baker Street, Room 4',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			});
+		});
+
+		const preview = await t.query(api.clubs.getClubPreviewByCode, { code: 'FULLCD' });
+		expect(preview?.scheduleSlots).toEqual([
+			expect.objectContaining({ location: '221B Baker Street, Room 4' })
+		]);
+	});
+
+	// CEO decision: public/discoverable surfaces only ever show a coarse city and stripped
+	// schedule times, never the exact free-text location or a schedule slot's exact address.
+	it('listPublicClubs coarsens location to a city and strips schedule-slot addresses', async () => {
+		const { t } = await seedClubPermissionFixture();
+
+		const clubId = await t.run(async (ctx) => {
+			const guideProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'guide-user-city',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			const insertedClubId = await ctx.db.insert('clubs', {
+				name: 'City Club',
+				clubCode: 'CITYCD',
+				discoverable: true,
+				location:
+					'Amsterdam International Community School, Amsterdam, Zuid, North Holland, Netherlands',
+				createdByProfileId: guideProfileId,
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			});
+			await ctx.db.insert('clubScheduleSlots', {
+				clubId: insertedClubId,
+				dayOfWeek: 'monday',
+				startTime: '16:00',
+				endTime: '17:30',
+				location: '221B Baker Street, Room 4',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			});
+			return insertedClubId;
+		});
+
+		const publicClubs = await t.query(api.clubs.listPublicClubs, {});
+		const club = publicClubs.find((entry) => entry.id === clubId);
+
+		expect(club).toBeDefined();
+		expect(club?.city).toBe('Amsterdam');
+		expect(club && 'location' in club).toBe(false);
+		expect(club?.scheduleSlots).toEqual([
+			{ dayOfWeek: 'monday', startTime: '16:00', endTime: '17:30', location: '' }
+		]);
+	});
 });
 
 describe('getClubPreviewById', () => {
@@ -311,6 +377,32 @@ describe('getClubPreviewById', () => {
 		const outsiderPreview = await outsider.query(api.clubs.getClubPreviewById, { clubId });
 		expect(outsiderPreview?.viewerIsMember).toBe(false);
 		expect(outsiderPreview?.viewerPendingJoinRequestId).not.toBeNull();
+	});
+
+	it('coarsens location to a city and strips schedule-slot addresses', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.patch(clubId, {
+				discoverable: true,
+				location: 'Munich, Bavaria, Germany'
+			});
+			await ctx.db.insert('clubScheduleSlots', {
+				clubId,
+				dayOfWeek: 'tuesday',
+				startTime: '15:00',
+				endTime: '16:00',
+				location: 'Community Center, Room 2',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			});
+		});
+
+		const preview = await t.query(api.clubs.getClubPreviewById, { clubId });
+		expect(preview?.city).toBe('Munich');
+		expect(preview && 'location' in preview).toBe(false);
+		expect(preview?.scheduleSlots).toEqual([
+			{ dayOfWeek: 'tuesday', startTime: '15:00', endTime: '16:00', location: '' }
+		]);
 	});
 });
 
@@ -403,8 +495,7 @@ const GUIDE_PERMISSIONS = [
 	'club:edit',
 	'club_member:read_active',
 	'club_member:kick',
-	'club_member:promote',
-	'club_member:invite_guide'
+	'club_member:promote'
 ];
 const LEARNER_PERMISSIONS = ['club:read', 'club_member:read_active'];
 
@@ -640,10 +731,6 @@ describe('leaveClub', () => {
 	it('allows the last guide with no learners to leave, abandoning the club', async () => {
 		const { t, clubId } = await seedGovernanceFixture({ guideCount: 1, learnerCount: 0 });
 
-		await t.run(async (ctx) => {
-			await ctx.db.patch(clubId, { guideInviteCode: 'GUIDECD' });
-		});
-
 		const result = await t
 			.withIdentity({ subject: 'guide-user-0' })
 			.mutation(api.clubs.leaveClub, { clubId });
@@ -652,7 +739,6 @@ describe('leaveClub', () => {
 		const club = await t.run((ctx) => ctx.db.get(clubId));
 		expect(club?.abandonedAt).toBeTypeOf('number');
 		expect(club?.clubCode).toBeUndefined();
-		expect(club?.guideInviteCode).toBeUndefined();
 		expect(club?.discoverable).toBe(false);
 	});
 

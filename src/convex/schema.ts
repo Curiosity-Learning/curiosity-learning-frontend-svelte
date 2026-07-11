@@ -27,8 +27,6 @@ export default defineSchema({
 		videoUrl: v.optional(v.string()),
 		signUpWith: v.optional(v.union(v.literal('email'), v.literal('google'))),
 		parentProfileId: v.optional(v.id('profiles')),
-		pendingClubCode: v.optional(v.string()),
-		pendingRole: v.optional(v.union(v.literal('Learner'), v.literal('Guide'))),
 		// PRD 5.10: platform-wide capability, orthogonal to club/project roles. Grants access to
 		// the separate /admin route group (CL-693) only — must never be branched on inside normal
 		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).
@@ -43,6 +41,22 @@ export default defineSchema({
 		.index('by_auth_user_id', ['authUserId'])
 		.index('by_username', ['username'])
 		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
+
+	// PRD 5.6: replaces the old `profiles.pendingClubCode`/`pendingRole` mechanism (which deferred
+	// a club join until an onboarding gate — pledge agreement, or under-16 parental consent —
+	// cleared). One row per deferred join intent, keyed by profileId; `source` distinguishes a
+	// code-join deferral (signed up via an /onboarding/join-club/[code] link but couldn't join yet)
+	// from an accepted map join-request deferral (joinRequests.acceptJoinRequest). v1 flows only
+	// ever create one pending intent at a time per profile, but reads always take the
+	// latest-by-createdAt and consumption clears every row for the profile (see
+	// pendingClubJoinsModel.ts), so a hypothetical second pending intent can never leave stale
+	// rows behind.
+	pendingClubJoins: defineTable({
+		profileId: v.id('profiles'),
+		clubId: v.id('clubs'),
+		source: v.union(v.literal('code'), v.literal('map_request')),
+		createdAt: v.number()
+	}).index('by_profile', ['profileId']),
 
 	clubRoles: defineTable({
 		key: clubRoleKeyValidator,
@@ -59,10 +73,6 @@ export default defineSchema({
 	clubs: defineTable({
 		name: v.string(),
 		clubCode: v.optional(v.string()),
-		// Separate code that grants the Guide role on join (PRD 6.1.8: any Guide can invite a
-		// new Guide directly). Distinct from `clubCode` (which always joins as Learner) so
-		// existing learner-invite links/flows are unaffected.
-		guideInviteCode: v.optional(v.string()),
 		location: v.optional(v.string()),
 		locationLatitude: v.optional(v.number()),
 		locationLongitude: v.optional(v.number()),
@@ -97,7 +107,6 @@ export default defineSchema({
 	})
 		.index('by_created_by_profile', ['createdByProfileId'])
 		.index('by_club_code', ['clubCode'])
-		.index('by_guide_invite_code', ['guideInviteCode'])
 		.index('by_video_media_asset', ['videoMediaAssetId'])
 		.index('by_coc_group', ['cocGroupId'])
 		.index('by_kind', ['kind']),

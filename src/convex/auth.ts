@@ -11,6 +11,7 @@ import authConfig from './auth.config';
 import { sendEmail } from './email/resend';
 import { passwordResetEmail, verificationOtpEmail } from './email/templates';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
+import { setPendingClubJoin } from './pendingClubJoinsModel';
 
 export const authComponent = createClient(components.betterAuth);
 
@@ -86,11 +87,12 @@ const normalizeUsername = (value?: string | null) => {
 	return normalized.length > 0 ? normalized : undefined;
 };
 
-const resolvePendingClubIntent = (
-	nextPath?: string | null
-): { pendingClubCode?: string; pendingRole?: 'Learner' | 'Guide' } => {
+// PRD 5.6: extracts a pending code-join intent from the post-auth `next` redirect path. Resolved
+// to a clubId and recorded in the `pendingClubJoins` table (see pendingClubJoinsModel.ts) once the
+// caller has a profileId to key off of — this only parses the code out of the URL.
+const extractPendingJoinCode = (nextPath?: string | null): string | undefined => {
 	if (!nextPath) {
-		return {};
+		return undefined;
 	}
 
 	const joinPrefix = '/onboarding/join-club/';
@@ -98,18 +100,11 @@ const resolvePendingClubIntent = (
 		const rawCode = nextPath.slice(joinPrefix.length).split(/[/?#]/)[0] ?? '';
 		const code = rawCode.trim().toUpperCase();
 		if (/^[A-Z0-9]{6}$/.test(code)) {
-			return {
-				pendingClubCode: code,
-				pendingRole: 'Learner'
-			};
+			return code;
 		}
 	}
 
-	if (nextPath.startsWith('/onboarding/start-club')) {
-		return { pendingRole: 'Guide' };
-	}
-
-	return {};
+	return undefined;
 };
 
 export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
@@ -379,7 +374,7 @@ export const completeSignupProfile = mutation({
 		const fallbackUsername = normalizeUsername(authUser.email.split('@')[0]);
 		const desiredUsername = normalizedUsername ?? fallbackUsername;
 		const { firstName, lastName } = splitNameParts(authUser.name);
-		const pending = resolvePendingClubIntent(args.nextPath);
+		const pendingJoinCode = extractPendingJoinCode(args.nextPath);
 
 		const existing = await getProfileByAuthUserId(ctx, authUser._id);
 
@@ -401,40 +396,31 @@ export const completeSignupProfile = mutation({
 			username: desiredUsername,
 			signUpWith: args.signUpWith,
 			dateOfBirth: args.dateOfBirth ?? existing?.dateOfBirth,
-			pendingClubCode: pending.pendingClubCode ?? existing?.pendingClubCode,
-			pendingRole: pending.pendingRole ?? existing?.pendingRole,
 			updatedAt: now
 		};
 
+		const profileId = existing
+			? existing._id
+			: await ctx.db.insert('profiles', {
+					authUserId: authUser._id,
+					firstLoginCompleted: false,
+					...patch
+				});
+
 		if (existing) {
 			await ctx.db.patch(existing._id, patch);
-			if (desiredUsername && desiredUsername !== authUsername) {
-				await ctx.runMutation(components.betterAuth.adapter.updateOne, {
-					input: {
-						model: 'user',
-						where: [{ field: '_id', value: authUser._id }],
-						update: {
-							username: desiredUsername,
-							displayUsername: desiredUsername,
-							updatedAt: now
-						}
-					}
-				});
-			}
-			if (args.startClubApplicationDraft) {
-				await ctx.runMutation(internal.clubApplications.saveIncompleteApplicationForUser, {
-					profileId: existing._id,
-					draft: args.startClubApplicationDraft
-				});
-			}
-			return await ctx.db.get(existing._id);
 		}
 
-		const profileId = await ctx.db.insert('profiles', {
-			authUserId: authUser._id,
-			firstLoginCompleted: false,
-			...patch
-		});
+		if (pendingJoinCode) {
+			const club = await ctx.db
+				.query('clubs')
+				.withIndex('by_club_code', (q) => q.eq('clubCode', pendingJoinCode))
+				.first();
+			if (club && !club.abandonedAt) {
+				await setPendingClubJoin(ctx, profileId, club._id, 'code');
+			}
+		}
+
 		if (desiredUsername && desiredUsername !== authUsername) {
 			await ctx.runMutation(components.betterAuth.adapter.updateOne, {
 				input: {

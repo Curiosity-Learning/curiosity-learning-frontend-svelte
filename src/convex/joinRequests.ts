@@ -11,6 +11,7 @@ import {
 	requireIdentity,
 	requireProfile
 } from './permissions';
+import { setPendingClubJoin } from './pendingClubJoinsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -281,19 +282,12 @@ export const acceptJoinRequest = mutation({
 			await notifyGuidesOfNewMember(ctx, joinRequest.clubId, requesterProfile);
 		} else if (!existingMembership && !gatesComplete) {
 			// Gates aren't complete yet (pledge not agreed, or under-16 consent still pending).
-			// Reuse the existing pendingClubCode/pendingRole mechanism: it's already consumed at
-			// the two points where gates actually clear (adult: completeOnboarding in
-			// post-signup/+page.svelte; child: childSignup.approveConsent), so the requester
-			// lands in the club automatically once they finish onboarding, with no new profile
-			// field or gate-completion wiring required. This only works because every club has
-			// a clubCode (assigned at creation) to resolve back to a clubId.
-			if (club.clubCode) {
-				await ctx.db.patch(requesterProfile._id, {
-					pendingClubCode: club.clubCode,
-					pendingRole: 'Learner',
-					updatedAt: now
-				});
-			}
+			// Records a deferred join intent (PRD 5.6, pendingClubJoins table) with source
+			// 'map_request': it's consumed at the two points where gates actually clear (adult:
+			// pendingClubJoins.consumeMine via completeOnboarding in post-signup/+page.svelte;
+			// child: childSignup.approveConsent reads the same table directly), so the requester
+			// lands in the club automatically once they finish onboarding.
+			await setPendingClubJoin(ctx, requesterProfile._id, joinRequest.clubId, 'map_request');
 		}
 
 		await ctx.db.patch(args.joinRequestId, {

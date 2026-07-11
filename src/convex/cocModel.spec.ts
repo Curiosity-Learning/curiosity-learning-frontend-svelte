@@ -12,8 +12,7 @@ const GUIDE_PERMISSIONS = [
 	'club:edit',
 	'club_member:read_active',
 	'club_member:kick',
-	'club_member:promote',
-	'club_member:invite_guide'
+	'club_member:promote'
 ];
 const LEARNER_PERMISSIONS = ['club:read', 'club_member:read_active'];
 
@@ -219,36 +218,6 @@ describe('Club of Clubs membership on later guide additions', () => {
 
 		return { t, clubId: result.clubId, cocGroupId: club!.cocGroupId! };
 	};
-
-	it('adds a Guide who joins via guide invite code to the CoC group', async () => {
-		const { t, clubId, cocGroupId } = await seedClubWithCocGroup();
-
-		const codeResult = await t
-			.withIdentity({ subject: 'founder' })
-			.mutation(api.clubs.createOrRotateGuideInviteCode, { clubId });
-
-		await seedProfile(t, 'new-guide');
-		await t
-			.withIdentity({ subject: 'new-guide' })
-			.mutation(api.clubs.joinClubWithGuideInviteCode, { code: codeResult.code });
-
-		const newGuideProfile = await t.run((ctx) =>
-			ctx.db
-				.query('profiles')
-				.withIndex('by_auth_user_id', (q) => q.eq('authUserId', 'new-guide'))
-				.unique()
-		);
-
-		const cocMembership = await t.run((ctx) =>
-			ctx.db
-				.query('clubMembers')
-				.withIndex('by_club_and_profile', (q) =>
-					q.eq('clubId', cocGroupId).eq('profileId', newGuideProfile!._id)
-				)
-				.collect()
-		);
-		expect(cocMembership.filter((m) => !m.leftAt)).toHaveLength(1);
-	});
 
 	it('adds a member who is promoted to Guide to the CoC group', async () => {
 		const { t, clubId, cocGroupId } = await seedClubWithCocGroup();

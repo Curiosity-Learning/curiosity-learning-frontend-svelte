@@ -101,8 +101,6 @@ export const updateMe = mutation({
 		identity: v.optional(v.string()),
 		locationAddress: v.optional(v.string()),
 		videoUrl: v.optional(v.string()),
-		pendingClubCode: v.optional(v.string()),
-		pendingRole: v.optional(v.union(v.literal('Learner'), v.literal('Guide'))),
 		firstLoginCompleted: v.optional(v.boolean()),
 		fcmToken: v.optional(v.string())
 	},

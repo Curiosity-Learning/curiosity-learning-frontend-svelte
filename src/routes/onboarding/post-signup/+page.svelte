@@ -32,6 +32,12 @@
 	const profileResponse = useStableQuery(api.profiles.getMe, () =>
 		auth.isAuthenticated ? {} : 'skip'
 	);
+	// PRD 5.6: deferred club-join intent (pendingClubJoins table) recorded either at signup time
+	// (a code-join link) or by joinRequests.acceptJoinRequest (an accepted map join-request while
+	// onboarding gates were still pending).
+	const pendingJoinResponse = useStableQuery(api.pendingClubJoins.getMine, () =>
+		auth.isAuthenticated ? {} : 'skip'
+	);
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
 
 	const parseStep = (value: string | null): 1 | 2 => (value === '2' ? 2 : 1);
@@ -309,9 +315,26 @@
 
 		pending = true;
 		try {
-			const pendingClubCode =
-				profileResponse.data?.pendingClubCode?.trim().toUpperCase() ??
-				extractPendingClubCodeFromPath(nextPath);
+			const pendingJoin = pendingJoinResponse.data;
+			if (pendingJoin?.clubId) {
+				const result = await convexClient.mutation(api.pendingClubJoins.consumeMine, {});
+				if (result.ok) {
+					if (browser) {
+						try {
+							localStorage.setItem('cl_last_club_id', result.clubId);
+						} catch {
+							// Ignore storage errors.
+						}
+					}
+					clearPostSignupPending();
+					await goto(`/club/${result.clubId}`, { replaceState: true });
+					return;
+				}
+				// 'no_pending' or 'club_unavailable': fall through to the URL-based fallback below,
+				// then to plain onboarding completion.
+			}
+
+			const pendingClubCode = extractPendingClubCodeFromPath(nextPath);
 			if (pendingClubCode) {
 				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
 					code: pendingClubCode
