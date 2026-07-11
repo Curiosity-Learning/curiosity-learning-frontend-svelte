@@ -24,7 +24,7 @@
 <PageHeaderTitle title={t('feedback.pageTitle')} />
 
 <div class="flex w-full flex-col gap-4 py-4">
-	<p class="text-[1.02rem] text-muted-foreground">{t('feedback.pageDescription')}</p>
+	<p class="type-lead text-muted-foreground">{t('feedback.pageDescription')}</p>
 
 	{#if outstandingFormsResponse.error}
 		<Alert variant="destructive">
@@ -47,7 +47,7 @@
 					data-sveltekit-preload-data="hover"
 				>
 					<div class="min-w-0">
-						<p class="truncate text-[1.05rem] font-bold text-foreground">
+						<p class="type-lead-bold truncate text-foreground">
 							{t('feedback.cardTitle')
 								.replace('{club}', item.clubName)
 								.replace('{audience}', audienceLabel(item.audience))}

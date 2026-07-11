@@ -7,7 +7,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardDescription, CardTitle } from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
-	import { LoadingState, PageHeaderTitle } from '$lib/components/app';
+	import { EmptyState, LoadingState, PageHeaderTitle } from '$lib/components/app';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
@@ -127,15 +127,15 @@
 							<div class="py-3 first:pt-0 last:pb-0">
 								<div class="flex items-start justify-between gap-3">
 									<div class="min-w-0">
-										<p class="type-body-bold truncate text-gray-900">{application.name}</p>
+										<p class="type-body-bold truncate text-foreground">{application.name}</p>
 										{#if application.location}
-											<p class="type-sm flex items-center gap-1 text-gray-600">
+											<p class="type-sm flex items-center gap-1 text-muted-foreground">
 												<MapPinIcon class="size-3.5 shrink-0" />
 												<span class="truncate">{application.location}</span>
 											</p>
 										{/if}
 										{#if applicationDateLabel(application.createdAt)}
-											<p class="type-sm text-gray-500">
+											<p class="type-sm text-muted-foreground">
 												Submitted {applicationDateLabel(application.createdAt)}
 											</p>
 										{/if}
@@ -144,7 +144,7 @@
 										{applicationStatusLabel(application.status)}
 									</Badge>
 								</div>
-								<p class="type-sm mt-1 text-gray-600">
+								<p class="type-sm mt-1 text-muted-foreground">
 									{applicationStatusDescription(application.status)}
 								</p>
 								{#if application.status === 'incomplete'}
@@ -161,9 +161,10 @@
 						{/each}
 					</div>
 				{:else}
-					<p class="type-body text-gray-600">
-						You have not submitted a Start Club application yet.
-					</p>
+					<EmptyState
+						bordered={false}
+						title="You have not submitted a Start Club application yet."
+					/>
 				{/if}
 			</div>
 		</Card>
