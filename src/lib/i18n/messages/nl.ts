@@ -109,7 +109,8 @@ const nl = {
 		roleLearner: 'Leerling',
 		cocBadge: 'Club van Clubs',
 		switchFailureTitle: 'Kan niet wisselen van club',
-		switchFailureDescription: 'Probeer het opnieuw.'
+		switchFailureDescription: 'Probeer het opnieuw.',
+		newClubAction: 'Nieuwe club'
 	},
 	clubSettingsPage: {
 		title: 'Club-instellingen',
