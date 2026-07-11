@@ -333,6 +333,9 @@ describe('application decision pipeline', () => {
 				.first()
 		);
 		expect(membership).not.toBeNull();
+
+		const createdClub = await t.run((ctx) => ctx.db.get(result.clubId));
+		expect(createdClub?.discoverable).toBe(true);
 	});
 
 	it('rejects confirming the onboarding call before acceptance', async () => {

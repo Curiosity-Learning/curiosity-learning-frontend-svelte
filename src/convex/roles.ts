@@ -14,21 +14,26 @@ export type ProjectRoleKey = 'creator' | 'contributor';
 // "Remove client-triggered default seeding"); clubRoles rows are managed directly in the
 // database. That means a brand-new environment (or one that predates a permission addition,
 // e.g. CL-709's session:cancel/session_rsvp:*/session_photo:create/club_member:promote/
-// club_member:invite_guide/club_join_request:decide) has clubRoles rows missing flags that
-// current code already checks for, silently breaking every gated action.
+// club_join_request:decide) has clubRoles rows missing flags that current code already checks
+// for, silently breaking every gated action.
 //
 // DEPLOY STEP (required after every deploy that adds to these lists, including the first
 // deploy of this file to a new environment such as prod):
 //   npx convex run roles:syncRolePermissions [--prod]
 // It is idempotent — adds missing canonical flags to existing rows, never removes custom/extra
 // permissions a row already has, and is a no-op if rows are already in sync. Safe to re-run.
+//
+// `club_member:invite_guide` (CL-714) was removed from this canonical set when guide invite codes
+// were ripped out (CEO decision — see clubs.ts history): guides are only ever added by promoting
+// an existing Learner (clubs.promoteMember), never by a standalone invite code. Because this sync
+// is add-only, any clubRoles row that was already synced with the old flag still has it sitting on
+// the row — harmless (nothing checks it anymore) but not worth writing a removal migration for.
 const canonicalGuidePermissions = [
 	'club:read',
 	'club:edit',
 	'club_member:read_active',
 	'club_member:kick',
 	'club_member:promote',
-	'club_member:invite_guide',
 	'club_join_request:decide',
 	'session:read',
 	'session:create',

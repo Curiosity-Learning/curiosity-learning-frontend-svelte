@@ -529,8 +529,9 @@ const createClubFromApplication = async (
 		locationLatitude: application.locationLatitude,
 		locationLongitude: application.locationLongitude,
 		videoMediaAssetId: application.videoMediaAssetId,
-		// Private by default: newly created clubs must be explicitly opted in to discovery.
-		discoverable: false,
+		// Discoverable by default (CEO decision): new clubs are opted into the public map/preview
+		// unless a Guide later opts out via clubs.updateClub.
+		discoverable: true,
 		kind: 'curiosity',
 		createdByProfileId: application.applicantProfileId,
 		createdAt: now,

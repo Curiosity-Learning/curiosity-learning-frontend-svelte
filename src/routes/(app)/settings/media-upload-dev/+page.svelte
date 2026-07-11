@@ -513,7 +513,7 @@
 
 					<div class="flex flex-col gap-2">
 						<Label for="maxBytesMb">Max size (MB)</Label>
-						<Input id="maxBytesMb" type="number" min="1" max="250" bind:value={constraintForm.maxBytesMb} />
+						<Input id="maxBytesMb" type="number" min="1" max="100" bind:value={constraintForm.maxBytesMb} />
 						<p class="text-xs text-muted-foreground">Current limit: {maxBytesLabel}</p>
 					</div>
 

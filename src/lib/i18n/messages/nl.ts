@@ -47,7 +47,8 @@ const nl = {
 		blockedBySafetyScreening:
 			'Deze afbeelding/video kon niet worden geüpload. Als je denkt dat dit een fout is, probeer dan een ander bestand.',
 		videoTooLong:
-			"Video's mogen maximaal 2 minuten duren. Knip je video bij en probeer het opnieuw."
+			"Video's mogen maximaal 2 minuten duren. Knip je video bij en probeer het opnieuw.",
+		fileTooLarge: 'Dit bestand is te groot. De maximale grootte is {maxSizeMb}MB.'
 	},
 	settings: {
 		language: {
@@ -482,7 +483,6 @@ const nl = {
 			defaultDescription:
 				'Word lid van deze Curiosity Club om te leren, samen te werken en projecten te bouwen met een lokale leergemeenschap.',
 			joinAsLearner: 'Word lid als leerling',
-			joinAsGuide: 'Word lid als Begeleider',
 			continuing: 'Bezig met doorgaan...',
 			checkingSession: 'Je sessie wordt gecontroleerd. Probeer het opnieuw.',
 			continueFailure: 'Kan nu niet doorgaan.'
@@ -637,15 +637,8 @@ const nl = {
 		triggerLabel: 'Nodig een leerling uit',
 		dialogTitle: 'Nodig een lid uit',
 		dialogDescription: 'Deel een uitnodigingscode of een join-link.',
-		roleTabLearner: 'Leerling',
-		roleTabGuide: 'Begeleider',
 		noLearnerCode: 'Deze club heeft nog geen uitnodigingscode voor leerlingen.',
-		noGuideCode:
-			'Genereer een begeleiders-uitnodigingscode om direct een nieuwe Begeleider uit te nodigen.',
-		generateGuideCodeButton: 'Begeleiders-uitnodigingscode genereren',
-		generateGuideCodeFailure: 'Kan begeleiders-uitnodigingscode niet genereren.',
 		learnerCodeLabel: 'Uitnodigingscode voor leerlingen',
-		guideCodeLabel: 'Uitnodigingscode voor begeleiders',
 		joinLinkLabel: 'Join-link',
 		copy: 'Kopiëren',
 		copied: 'Gekopieerd'

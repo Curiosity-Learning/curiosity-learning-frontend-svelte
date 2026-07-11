@@ -36,6 +36,13 @@ const VIDEO_CONTENT_TYPES = [
 
 const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.webm', '.m4v'] as const;
 
+// Canonical hard caps (CEO decision: 100MB for video). `image`'s cap here is documentation/
+// extension-lookup only — the enforced per-upload cap is whatever `maxBytes` the caller passed at
+// asset-creation time (see `normalizeUploadConstraints` below), which itself can never exceed
+// `MAX_SUPPORTED_UPLOAD_BYTES`. Keeping `MAX_SUPPORTED_UPLOAD_BYTES` at the video cap means no
+// caller — including a compromised/malicious client hitting the mutation directly — can ever
+// request a bigger allowance than the canonical video limit, closing the gap where this used to
+// be a lax 250MB ceiling regardless of media kind.
 const MEDIA_KIND_DEFINITIONS = {
 	image: {
 		label: 'Image',
@@ -47,7 +54,7 @@ const MEDIA_KIND_DEFINITIONS = {
 		label: 'Video',
 		acceptedContentTypes: VIDEO_CONTENT_TYPES,
 		acceptedFileExtensions: VIDEO_EXTENSIONS,
-		maxBytes: mb(250)
+		maxBytes: mb(100)
 	}
 } as const;
 
@@ -60,7 +67,12 @@ type MediaPipelinePluginName =
 	| 'safety-screening';
 
 const GENERIC_CONTENT_TYPES = new Set(['application/octet-stream', 'binary/octet-stream']);
-export const MAX_SUPPORTED_UPLOAD_BYTES = mb(250);
+// Canonical 100MB hard cap (CEO decision), matching HUNDRED_MB in
+// src/lib/media/media-field.svelte.ts — the actual per-field client constraints (club video,
+// mixed update attachments) already request <=100MB; this is the server-side ceiling that no
+// caller's declared `maxBytes` may exceed, previously a stale 250MB (see MEDIA_KIND_DEFINITIONS
+// comment above).
+export const MAX_SUPPORTED_UPLOAD_BYTES = mb(100);
 export const SUPPORTED_CONTENT_TYPES = [...IMAGE_CONTENT_TYPES, ...VIDEO_CONTENT_TYPES] as const;
 export type SupportedContentType = (typeof SUPPORTED_CONTENT_TYPES)[number];
 

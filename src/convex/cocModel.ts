@@ -138,7 +138,7 @@ const addClubGuidesToCocGroup = async (
 };
 
 // Adds a single profile as a guide-role member of a CoC group, if not already an active member.
-// Shared by launch-time assignment and later guide-addition paths (promote, guide-code join).
+// Shared by launch-time assignment and the later promote-to-guide path.
 export const addGuideToCocGroup = async (
 	ctx: MutationCtx,
 	cocGroupId: Id<'clubs'>,
@@ -192,8 +192,9 @@ export const assignClubToCocGroup = async (
 	return cocGroup;
 };
 
-// Called when someone becomes a Guide of an already-launched curiosity club (invite-code join,
-// promote). If the club has a CoC group assigned, adds them as a guide member of it too (no-op
+// Called when someone becomes a Guide of an already-launched curiosity club (promoteMember — the
+// only path to Guide besides club creation itself; guide invite codes were removed, see CL-714
+// follow-up). If the club has a CoC group assigned, adds them as a guide member of it too (no-op
 // if they're already a member).
 export const addNewGuideToClubsCocGroup = async (
 	ctx: MutationCtx,

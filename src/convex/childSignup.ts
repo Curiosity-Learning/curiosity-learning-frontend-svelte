@@ -21,6 +21,11 @@ import {
 	getProfileAuthUserId,
 	getProfileByAuthUserId
 } from './permissions';
+import {
+	clearPendingClubJoinsForProfile,
+	getLatestPendingClubJoin,
+	setPendingClubJoin
+} from './pendingClubJoinsModel';
 
 // PRD 6.1.6/8.5: parental consent must be obtained within 90 days of account creation, or the
 // child account and all associated data are automatically purged. See `purgeExpiredChildConsents`
@@ -208,10 +213,19 @@ export const createPendingChildAccount = internalMutation({
 			dateOfBirth: args.dateOfBirth,
 			isVerified: false,
 			firstLoginCompleted: false,
-			pendingClubCode: getPendingJoinCode(args.nextPath) ?? undefined,
-			pendingRole: getPendingJoinCode(args.nextPath) ? 'Learner' : undefined,
 			updatedAt: now
 		});
+
+		const pendingJoinCode = getPendingJoinCode(args.nextPath);
+		if (pendingJoinCode) {
+			const club = await ctx.db
+				.query('clubs')
+				.withIndex('by_club_code', (q) => q.eq('clubCode', pendingJoinCode))
+				.first();
+			if (club && !club.abandonedAt) {
+				await setPendingClubJoin(ctx, profileId, club._id, 'code');
+			}
+		}
 
 		await ctx.db.insert('parentChildConsents', {
 			childProfileId: profileId,
@@ -331,14 +345,15 @@ export const approveConsent = mutation({
 		if (!childProfile) {
 			throw new ConvexError('Child profile not found');
 		}
+		// PRD 5.6: any deferred club-join intent for this profile — recorded either at signup time
+		// (a code-join link, see createPendingChildAccount) or by joinRequests.acceptJoinRequest
+		// (an accepted map join-request while this gate was still pending) — is consumed here, the
+		// moment the consent gate clears.
 		let joinedClubId = childProfile.activeClubId;
-		const joinCode = getPendingJoinCode(consent.onboardingIntentPath);
-		if (joinCode) {
-			const club = await ctx.db
-				.query('clubs')
-				.withIndex('by_club_code', (q) => q.eq('clubCode', joinCode))
-				.first();
-			if (club) {
+		const pendingJoin = await getLatestPendingClubJoin(ctx, consent.childProfileId);
+		if (pendingJoin) {
+			const club = await ctx.db.get(pendingJoin.clubId);
+			if (club && !club.abandonedAt) {
 				const existingMembership = await getMembershipByProfileId(
 					ctx,
 					club._id,
@@ -377,10 +392,9 @@ export const approveConsent = mutation({
 			parentProfileId,
 			activeClubId: joinedClubId,
 			firstLoginCompleted: Boolean(joinedClubId) || childProfile.firstLoginCompleted,
-			pendingClubCode: undefined,
-			pendingRole: undefined,
 			updatedAt: now
 		});
+		await clearPendingClubJoinsForProfile(ctx, consent.childProfileId);
 		const childAuthUserId = getProfileAuthUserId(childProfile);
 		if (!childAuthUserId) {
 			throw new ConvexError('Child profile is not linked to an auth user');
@@ -478,6 +492,8 @@ export const purgeExpiredChildConsentData = internalMutation({
 		for (const notification of notifications) {
 			await ctx.db.delete(notification._id);
 		}
+
+		await clearPendingClubJoinsForProfile(ctx, consent.childProfileId);
 
 		await ctx.db.delete(consent._id);
 		if (profile) {

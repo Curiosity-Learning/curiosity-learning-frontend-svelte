@@ -42,7 +42,7 @@
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canKick = $derived(clubPermissions.includes('club_member:kick'));
 	let canPromote = $derived(clubPermissions.includes('club_member:promote'));
-	let canInvite = $derived(clubPermissions.includes('club_member:invite_guide') || clubItem?.roleKey === 'guide');
+	let canInvite = $derived(clubItem?.roleKey === 'guide');
 	let isGuide = $derived(clubItem?.roleKey === 'guide');
 	let clubIdTyped = $derived(clubId ? (clubId as Id<'clubs'>) : null);
 	let myProfileId = $derived(clubItem?.memberProfileId ?? null);
@@ -389,11 +389,7 @@
 			class="border-border/70 bg-muted/20"
 		>
 			<InviteLearnerDialog
-				clubId={clubIdTyped}
 				clubCode={clubItem?.clubCode}
-				guideInviteCode={clubItem?.clubGuideInviteCode}
-				canInviteGuide={clubPermissions.includes('club_member:invite_guide')}
-				clubKind={clubItem?.clubKind}
 				triggerLabel={$_('membersPage.inviteAction')}
 				triggerStyle="button"
 			/>
@@ -430,11 +426,7 @@
 					<div class="flex shrink-0 items-center gap-2">
 						{#if canInvite}
 							<InviteLearnerDialog
-								clubId={clubIdTyped}
 								clubCode={clubItem?.clubCode}
-								guideInviteCode={clubItem?.clubGuideInviteCode}
-								canInviteGuide={clubPermissions.includes('club_member:invite_guide')}
-								clubKind={clubItem?.clubKind}
 								triggerLabel={$_('membersPage.inviteAction')}
 								triggerStyle="button"
 							/>

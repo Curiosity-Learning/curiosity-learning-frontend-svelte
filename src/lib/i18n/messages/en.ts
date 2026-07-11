@@ -46,7 +46,8 @@ const en = {
 		missingStorageReference: 'Upload completed, but no storage reference was returned.',
 		blockedBySafetyScreening:
 			'This image/video could not be uploaded. If you believe this is an error, please try a different file.',
-		videoTooLong: 'Videos must be 2 minutes or shorter. Please trim your video and try again.'
+		videoTooLong: 'Videos must be 2 minutes or shorter. Please trim your video and try again.',
+		fileTooLarge: 'This file is too large. The maximum size is {maxSizeMb}MB.'
 	},
 	settings: {
 		language: {
@@ -486,7 +487,6 @@ const en = {
 			defaultDescription:
 				'Join this Curiosity Club to learn, collaborate, and build projects with a local learning community.',
 			joinAsLearner: 'Join as a learner',
-			joinAsGuide: 'Join as a Guide',
 			continuing: 'Continuing...',
 			checkingSession: 'Checking your session. Please try again.',
 			continueFailure: 'Unable to continue right now.'
@@ -641,14 +641,8 @@ const en = {
 		triggerLabel: 'Invite a learner',
 		dialogTitle: 'Invite a member',
 		dialogDescription: 'Share an invite code or a join link.',
-		roleTabLearner: 'Learner',
-		roleTabGuide: 'Guide',
 		noLearnerCode: 'This club does not have a learner invite code yet.',
-		noGuideCode: 'Generate a Guide invite code to invite a new Guide directly.',
-		generateGuideCodeButton: 'Generate Guide invite code',
-		generateGuideCodeFailure: 'Unable to generate Guide invite code.',
 		learnerCodeLabel: 'Learner invite code',
-		guideCodeLabel: 'Guide invite code',
 		joinLinkLabel: 'Join link',
 		copy: 'Copy',
 		copied: 'Copied'

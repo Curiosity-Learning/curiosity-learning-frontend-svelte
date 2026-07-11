@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
+	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import { Button } from '$lib/components/ui/button';
 	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
@@ -96,6 +97,12 @@
 			<div class="flex flex-col gap-5">
 				<div class="flex flex-col gap-2">
 					<h1 class="type-step-title text-gray-900">{club.name}</h1>
+					{#if club.city}
+						<div class="inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-gray-500">
+							<MapPinIcon class="size-4 shrink-0" />
+							<span>{club.city}</span>
+						</div>
+					{/if}
 					<p class="text-[1.125rem] leading-8 text-gray-600">
 						{club.description ?? ''}
 					</p>

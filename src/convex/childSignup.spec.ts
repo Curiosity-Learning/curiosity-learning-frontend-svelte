@@ -20,7 +20,7 @@ const CONSENT_EXPIRY_MS = 90 * DAY;
 
 const seedPendingChild = async (
 	ctx: MutationCtx,
-	options: { createdAt: number; withIncompleteApplication?: boolean }
+	options: { createdAt: number; withIncompleteApplication?: boolean; withPendingClubJoin?: boolean }
 ) => {
 	const now = Date.now();
 	const profileId = await ctx.db.insert('profiles', {
@@ -54,17 +54,40 @@ const seedPendingChild = async (
 			updatedAt: now
 		});
 	}
+	if (options.withPendingClubJoin) {
+		const guideProfileId = await ctx.db.insert('profiles', {
+			authUserId: `guide-auth-${options.createdAt}`,
+			isVerified: true,
+			firstLoginCompleted: true,
+			updatedAt: now
+		});
+		const clubId = await ctx.db.insert('clubs', {
+			name: 'Pending Join Club',
+			clubCode: `CD${options.createdAt}`.slice(0, 6),
+			discoverable: false,
+			createdByProfileId: guideProfileId,
+			createdAt: now,
+			updatedAt: now
+		});
+		await ctx.db.insert('pendingClubJoins', {
+			profileId,
+			clubId,
+			source: 'code',
+			createdAt: now
+		});
+	}
 	return { profileId, consentId };
 };
 
 describe('purgeExpiredChildConsentData', () => {
-	it('purges a consent still pending after 90+ days: consent, profile, notifications, incomplete application', async () => {
+	it('purges a consent still pending after 90+ days: consent, profile, notifications, incomplete application, pending club join', async () => {
 		const t = convexTest(schema, modules);
 		const now = Date.now();
 		const { profileId, consentId } = await t.run((ctx) =>
 			seedPendingChild(ctx, {
 				createdAt: now - 91 * DAY,
-				withIncompleteApplication: true
+				withIncompleteApplication: true,
+				withPendingClubJoin: true
 			})
 		);
 
@@ -90,6 +113,11 @@ describe('purgeExpiredChildConsentData', () => {
 				.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', profileId))
 				.collect();
 			expect(applications).toHaveLength(0);
+			const pendingJoins = await ctx.db
+				.query('pendingClubJoins')
+				.withIndex('by_profile', (q) => q.eq('profileId', profileId))
+				.collect();
+			expect(pendingJoins).toHaveLength(0);
 		});
 	});
 

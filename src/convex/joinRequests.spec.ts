@@ -238,7 +238,7 @@ describe('acceptJoinRequest', () => {
 		expect(joinRequest?.status).toBe('accepted');
 	});
 
-	it('defers membership and stores pendingClubCode when gates are incomplete (adult, pledge not agreed)', async () => {
+	it('defers membership and records a pendingClubJoins row when gates are incomplete (adult, pledge not agreed)', async () => {
 		const { requester, guide, clubId, requesterProfileId, t } = await seedClubFixture({
 			requesterGateComplete: false,
 			clubCode: 'XYZ789'
@@ -257,8 +257,13 @@ describe('acceptJoinRequest', () => {
 				.first()
 		);
 		expect(membership).toBeNull();
-		const profile = await t.run((ctx) => ctx.db.get(requesterProfileId));
-		expect(profile).toMatchObject({ pendingClubCode: 'XYZ789', pendingRole: 'Learner' });
+		const pendingJoin = await t.run((ctx) =>
+			ctx.db
+				.query('pendingClubJoins')
+				.withIndex('by_profile', (q) => q.eq('profileId', requesterProfileId))
+				.first()
+		);
+		expect(pendingJoin).toMatchObject({ clubId, source: 'map_request' });
 		const joinRequest = await t.run((ctx) => ctx.db.get(joinRequestId));
 		expect(joinRequest?.status).toBe('accepted');
 	});
@@ -273,8 +278,13 @@ describe('acceptJoinRequest', () => {
 		const result = await guide.mutation(api.joinRequests.acceptJoinRequest, { joinRequestId });
 
 		expect(result).toMatchObject({ success: true, membershipCreated: false });
-		const profile = await t.run((ctx) => ctx.db.get(requesterProfileId));
-		expect(profile?.pendingClubCode).toBe('KID123');
+		const pendingJoin = await t.run((ctx) =>
+			ctx.db
+				.query('pendingClubJoins')
+				.withIndex('by_profile', (q) => q.eq('profileId', requesterProfileId))
+				.first()
+		);
+		expect(pendingJoin).toMatchObject({ clubId, source: 'map_request' });
 	});
 
 	it('rejects deciding a request twice', async () => {
