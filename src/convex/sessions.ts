@@ -40,18 +40,15 @@ const getRsvpForSessionAndProfile = async (
 		.unique();
 };
 
-const getRsvpCounts = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
+// CEO decision 2026-07-11 (CL-712): every club member defaults to "going". A sessionRsvps row
+// is only written when someone changes their status explicitly, so the absence of a row for a
+// roster member always reads as "going" — no per-member rows are ever seeded.
+const getExplicitRsvpStatusBySession = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
 	const rows = await ctx.db
 		.query('sessionRsvps')
 		.withIndex('by_session', (q) => q.eq('sessionId', sessionId))
 		.collect();
-	let going = 0;
-	let notGoing = 0;
-	for (const row of rows) {
-		if (row.status === 'going') going += 1;
-		else notGoing += 1;
-	}
-	return { going, notGoing };
+	return new Map(rows.map((row) => [row.profileId, row.status] as const));
 };
 
 const getSession = async (ctx: Ctx, sessionId: Id<'sessions'>) => {
@@ -92,16 +89,29 @@ const getRosterAtSessionStart = async (ctx: Ctx, clubId: Id<'clubs'>, startTime:
 	);
 };
 
+type ProfilePreview = {
+	name: string;
+	imageUrl: string | null;
+	profileImageMediaAssetId: Id<'mediaAssets'> | null;
+};
+
+const toProfilePreview = (profile: NonNullable<Awaited<ReturnType<typeof getRelatedProfile>>>) => {
+	const authUserId = getProfileAuthUserId(profile);
+	const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim();
+	const name = fullName || profile.username || authUserId || 'Member';
+	return {
+		name,
+		imageUrl: null,
+		profileImageMediaAssetId: profile.profileImageMediaAssetId ?? null
+	} satisfies ProfilePreview;
+};
+
 const getSessionAttendeePreviews = async (ctx: Ctx, sessionId: Id<'sessions'>, limit = 6) => {
 	const attendanceRows = await ctx.db
 		.query('attendances')
 		.withIndex('by_session', (q) => q.eq('sessionId', sessionId))
 		.collect();
-	const attendees: Array<{
-		name: string;
-		imageUrl: string | null;
-		profileImageMediaAssetId: Id<'mediaAssets'> | null;
-	}> = [];
+	const attendees: ProfilePreview[] = [];
 
 	for (const row of attendanceRows) {
 		if (row.status !== 'present') continue;
@@ -109,17 +119,47 @@ const getSessionAttendeePreviews = async (ctx: Ctx, sessionId: Id<'sessions'>, l
 
 		const profile = await getRelatedProfile(ctx, row.profileId);
 		if (!profile) continue;
-		const authUserId = getProfileAuthUserId(profile);
-		const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-		const name = fullName || profile.username || authUserId || 'Member';
-		attendees.push({
-			name,
-			imageUrl: null,
-			profileImageMediaAssetId: profile?.profileImageMediaAssetId ?? null
-		});
+		attendees.push(toProfilePreview(profile));
 	}
 
 	return attendees;
+};
+
+// Preview avatars for a session that hasn't happened yet: the people going (CEO decision
+// 2026-07-11 — for future sessions "who attended" makes no sense, show who is going instead).
+// Going = roster member without an explicit not_going RSVP (see default-going note above).
+const getSessionGoingPreviews = async (
+	ctx: Ctx,
+	session: { _id: Id<'sessions'>; clubId: Id<'clubs'>; startTime: number },
+	limit = 6
+) => {
+	const roster = await getRosterAtSessionStart(ctx, session.clubId, session.startTime);
+	const explicitStatusByProfileId = await getExplicitRsvpStatusBySession(ctx, session._id);
+	const going: ProfilePreview[] = [];
+
+	for (const member of roster) {
+		if (explicitStatusByProfileId.get(member.profileId) === 'not_going') continue;
+		if (going.length >= limit) break;
+
+		const profile = await getRelatedProfile(ctx, member.profileId);
+		if (!profile) continue;
+		going.push(toProfilePreview(profile));
+	}
+
+	return going;
+};
+
+// Attendee-preview avatars for a session card: going members for an upcoming session,
+// recorded present members once the session has started (or when it was cancelled).
+const getSessionCardAttendeePreviews = async (
+	ctx: Ctx,
+	session: { _id: Id<'sessions'>; clubId: Id<'clubs'>; startTime: number; cancelled?: boolean },
+	limit = 6
+) => {
+	if (!session.cancelled && session.startTime > Date.now()) {
+		return await getSessionGoingPreviews(ctx, session, limit);
+	}
+	return await getSessionAttendeePreviews(ctx, session._id, limit);
 };
 
 type AttendanceRosterEntry = {
@@ -331,7 +371,8 @@ export const create = mutation({
 		startTime: v.number(),
 		endTime: v.number(),
 		description: v.optional(v.string()),
-		location: v.optional(v.string())
+		// Required (CEO decision 2026-07-11): a session without a location isn't attendable.
+		location: v.string()
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -341,6 +382,10 @@ export const create = mutation({
 		if (args.endTime <= args.startTime) {
 			throw new ConvexError('End time must be after start time');
 		}
+		const location = args.location.trim();
+		if (!location) {
+			throw new ConvexError('Location is required');
+		}
 
 		const now = Date.now();
 		const sessionId = await ctx.db.insert('sessions', {
@@ -348,7 +393,7 @@ export const create = mutation({
 			startTime: args.startTime,
 			endTime: args.endTime,
 			description: args.description,
-			location: args.location,
+			location,
 			createdByProfileId: profile._id,
 			createdAt: now,
 			updatedAt: now
@@ -367,7 +412,8 @@ export const update = mutation({
 		startTime: v.number(),
 		endTime: v.number(),
 		description: v.optional(v.string()),
-		location: v.optional(v.string())
+		// Required (CEO decision 2026-07-11): editing may not strip a session's location.
+		location: v.string()
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
@@ -383,12 +429,16 @@ export const update = mutation({
 		if (args.endTime <= args.startTime) {
 			throw new ConvexError('End time must be after start time');
 		}
+		const location = args.location.trim();
+		if (!location) {
+			throw new ConvexError('Location is required');
+		}
 
 		await ctx.db.patch(args.sessionId, {
 			startTime: args.startTime,
 			endTime: args.endTime,
 			description: args.description,
-			location: args.location,
+			location,
 			updatedAt: Date.now()
 		});
 
@@ -452,19 +502,20 @@ export const cancel = mutation({
 		);
 
 		const club = await ctx.db.get(session.clubId);
-		const rsvps = await ctx.db
-			.query('sessionRsvps')
-			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
-			.collect();
 		const sessionDateLabel = new Date(session.startTime).toLocaleDateString(undefined, {
 			weekday: 'short',
 			month: 'short',
 			day: 'numeric'
 		});
-		for (const rsvp of rsvps) {
-			if (rsvp.status !== 'going') continue;
+		// Everyone "going" gets notified. With default-going (CL-712) that is every roster member
+		// without an explicit not_going RSVP — except the guide doing the cancelling.
+		const roster = await getRosterAtSessionStart(ctx, session.clubId, session.startTime);
+		const explicitStatusByProfileId = await getExplicitRsvpStatusBySession(ctx, args.sessionId);
+		for (const member of roster) {
+			if (member.profileId === profile._id) continue;
+			if (explicitStatusByProfileId.get(member.profileId) === 'not_going') continue;
 			await dispatchNotification(ctx, {
-				recipientProfileId: rsvp.profileId,
+				recipientProfileId: member.profileId,
 				kind: 'session_cancelled',
 				clubId: session.clubId,
 				title: 'Session cancelled',
@@ -563,11 +614,7 @@ export const getSessionCardData = query({
 			.filter((name): name is string => Boolean(name))
 			.slice(0, 3);
 
-		const attendees: Array<{
-			name: string;
-			imageUrl: string | null;
-			profileImageMediaAssetId: Id<'mediaAssets'> | null;
-		}> = [];
+		const attendees: ProfilePreview[] = [];
 		if (args.includeAttendees) {
 			const canReadAttendance = await hasPermission(
 				ctx,
@@ -582,14 +629,17 @@ export const getSessionCardData = query({
 				'club_member:read_active'
 			);
 			if (canReadAttendance && canReadMembers) {
-				attendees.push(...(await getSessionAttendeePreviews(ctx, args.sessionId)));
+				attendees.push(...(await getSessionCardAttendeePreviews(ctx, session)));
 			}
 		}
 
-		const rsvpCounts = await getRsvpCounts(ctx, args.sessionId);
 		const myRsvp = await getRsvpForSessionAndProfile(ctx, args.sessionId, profile._id);
+		const isActiveMember = Boolean(
+			await getMembershipByProfileId(ctx, session.clubId, profile._id)
+		);
+		const myRsvpStatus = myRsvp?.status ?? (isActiveMember ? ('going' as const) : null);
 
-		return { tagNames, attendees, rsvpCounts, myRsvpStatus: myRsvp?.status ?? null };
+		return { tagNames, attendees, myRsvpStatus };
 	}
 });
 
@@ -598,7 +648,10 @@ export const listCardPreviewsByClub = query({
 		clubId: v.id('clubs'),
 		upcomingOnly: v.optional(v.boolean()),
 		limit: v.optional(v.number()),
-		includeAttendees: v.optional(v.boolean())
+		includeAttendees: v.optional(v.boolean()),
+		// CEO decision 2026-07-11: the sessions list shows cancelled sessions (visually
+		// distinguished). Dashboards keep the default (cancelled hidden).
+		includeCancelled: v.optional(v.boolean())
 	},
 	handler: async (ctx, args) => {
 		// Single payload for session cards so list/dashboard routes avoid nested per-card queries.
@@ -620,7 +673,9 @@ export const listCardPreviewsByClub = query({
 		// See listByClub above: collect the whole club-scoped (index-ordered) set instead of
 		// over-fetching a multiple of `limit`, so heavy cancellation can't under-return sessions.
 		const rawSessions = await queryBuilder.collect();
-		const visibleSessions = rawSessions.filter((session) => !session.cancelled);
+		const visibleSessions = args.includeCancelled
+			? rawSessions
+			: rawSessions.filter((session) => !session.cancelled);
 		const sessions = args.limit ? visibleSessions.slice(0, args.limit) : visibleSessions;
 
 		if (sessions.length === 0) return [];
@@ -646,20 +701,19 @@ export const listCardPreviewsByClub = query({
 			);
 		}
 
+		// Membership is club-scoped, so the default-going fallback for myRsvpStatus is the same
+		// for every session in this list — resolve it once.
+		const isActiveMember = Boolean(await getMembershipByProfileId(ctx, args.clubId, profile._id));
+
 		const entries: Array<{
 			session: (typeof sessions)[number];
 			tagNames: string[];
-			attendees: Array<{
-				name: string;
-				imageUrl: string | null;
-				profileImageMediaAssetId: Id<'mediaAssets'> | null;
-			}>;
+			attendees: ProfilePreview[];
 			activityItems: Array<{ id: string; title: string; description: string | null }>;
 			// PRD 6.16 (CL-731): full activity-name list (activityItems is capped at 3 for card
 			// display) so the sessions page can search by activity name client-side.
 			allActivityNames: string[];
 			hiddenActivitiesCount: number;
-			rsvpCounts: { going: number; notGoing: number };
 			myRsvpStatus: 'going' | 'not_going' | null;
 		}> = [];
 
@@ -695,16 +749,11 @@ export const listCardPreviewsByClub = query({
 				.filter((name): name is string => Boolean(name))
 				.slice(0, 3);
 
-			const attendees: Array<{
-				name: string;
-				imageUrl: string | null;
-				profileImageMediaAssetId: Id<'mediaAssets'> | null;
-			}> = [];
+			const attendees: ProfilePreview[] = [];
 			if (includeAttendees && canReadAttendance && canReadMembers) {
-				attendees.push(...(await getSessionAttendeePreviews(ctx, session._id)));
+				attendees.push(...(await getSessionCardAttendeePreviews(ctx, session)));
 			}
 
-			const rsvpCounts = await getRsvpCounts(ctx, session._id);
 			const myRsvp = await getRsvpForSessionAndProfile(ctx, session._id, profile._id);
 
 			entries.push({
@@ -714,8 +763,7 @@ export const listCardPreviewsByClub = query({
 				activityItems,
 				allActivityNames: activities.map((activity) => activity.name),
 				hiddenActivitiesCount: Math.max(activities.length - activityItems.length, 0),
-				rsvpCounts,
-				myRsvpStatus: myRsvp?.status ?? null
+				myRsvpStatus: myRsvp?.status ?? (isActiveMember ? 'going' : null)
 			});
 		}
 
@@ -1073,37 +1121,41 @@ export const setRsvp = mutation({
 	}
 });
 
-export const listRsvps = query({
+// Roster snapshot with each member's effective RSVP status. With default-going (CL-712) every
+// roster member has a status: their explicit sessionRsvps row if any, otherwise 'going'.
+// Gated on session:read (both club roles have it); non-members are rejected by requirePermission.
+export const listRsvpRoster = query({
 	args: {
 		sessionId: v.id('sessions')
 	},
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
 		const session = await getSession(ctx, args.sessionId);
-		await requirePermission(ctx, session.clubId, identity.subject, 'session_rsvp:read_all');
+		await requirePermission(ctx, session.clubId, identity.subject, 'session:read');
 
-		const rows = await ctx.db
-			.query('sessionRsvps')
-			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
-			.collect();
+		const roster = await getRosterAtSessionStart(ctx, session.clubId, session.startTime);
+		const explicitStatusByProfileId = await getExplicitRsvpStatusBySession(ctx, args.sessionId);
 
 		const output: Array<{
 			profileId: Id<'profiles'>;
 			status: 'going' | 'not_going';
+			isSelf: boolean;
 			firstName: string | null;
 			lastName: string | null;
 			username: string | null;
 		}> = [];
 
-		for (const row of rows) {
-			const profile = await getRelatedProfile(ctx, row.profileId);
-			if (!profile) continue;
+		for (const member of roster) {
+			const memberProfile = await getRelatedProfile(ctx, member.profileId);
+			if (!memberProfile) continue;
 			output.push({
-				profileId: profile._id,
-				status: row.status,
-				firstName: profile.firstName ?? null,
-				lastName: profile.lastName ?? null,
-				username: profile.username ?? null
+				profileId: memberProfile._id,
+				status: explicitStatusByProfileId.get(member.profileId) ?? 'going',
+				isSelf: memberProfile._id === profile._id,
+				firstName: member.firstName ?? memberProfile.firstName ?? null,
+				lastName: member.lastName ?? memberProfile.lastName ?? null,
+				username: member.username ?? memberProfile.username ?? null
 			});
 		}
 
@@ -1182,6 +1234,26 @@ export const listPhotos = query({
 				};
 			})
 		);
+	}
+});
+
+// Lightweight existence check so the session tab bar can hide the Photos tab when there is
+// nothing to see and nothing can be added yet (CEO decision 2026-07-11: never show an
+// affordance the user will discover they can't use).
+export const hasPhotos = query({
+	args: {
+		sessionId: v.id('sessions')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const session = await getSession(ctx, args.sessionId);
+		await requirePermission(ctx, session.clubId, identity.subject, 'session:read');
+
+		const first = await ctx.db
+			.query('sessionPhotos')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.first();
+		return first !== null;
 	}
 });
 

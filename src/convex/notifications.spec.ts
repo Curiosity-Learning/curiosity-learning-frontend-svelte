@@ -213,6 +213,7 @@ describe('notification tier routing', () => {
 
 		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
 			clubId,
+			location: 'Club HQ',
 			startTime: Date.now() + 2 * HOUR,
 			endTime: Date.now() + 3 * HOUR
 		});
@@ -236,6 +237,7 @@ describe('notification tier routing', () => {
 
 		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
 			clubId,
+			location: 'Club HQ',
 			startTime: Date.now() + 2 * HOUR,
 			endTime: Date.now() + 3 * HOUR
 		});
@@ -282,6 +284,7 @@ describe('child account email routing', () => {
 
 		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
 			clubId,
+			location: 'Club HQ',
 			startTime: Date.now() + 2 * HOUR,
 			endTime: Date.now() + 3 * HOUR
 		});
@@ -289,6 +292,11 @@ describe('child account email routing', () => {
 		await t
 			.withIdentity({ subject: 'child-user' })
 			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'going' });
+		// Default-going (CL-712) would notify the adult learner too; opt them out so this test
+		// isolates the child's email routing.
+		await t
+			.withIdentity({ subject: 'learner-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'not_going' });
 		await t
 			.withIdentity({ subject: 'guide-user' })
 			.mutation(api.sessions.cancel, { sessionId: session._id });
@@ -368,6 +376,7 @@ describe('session reminder scheduling (24h before start)', () => {
 		const startTime = Date.now() + 48 * HOUR;
 		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
 			clubId,
+			location: 'Club HQ',
 			startTime,
 			endTime: startTime + HOUR
 		});
@@ -390,6 +399,7 @@ describe('session reminder scheduling (24h before start)', () => {
 		const startTime = Date.now() + 2 * HOUR;
 		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
 			clubId,
+			location: 'Club HQ',
 			startTime,
 			endTime: startTime + HOUR
 		});
@@ -410,6 +420,7 @@ describe('session reminder scheduling (24h before start)', () => {
 		const startTime = Date.now() + 48 * HOUR;
 		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
 			clubId,
+			location: 'Club HQ',
 			startTime,
 			endTime: startTime + HOUR
 		});
@@ -418,6 +429,7 @@ describe('session reminder scheduling (24h before start)', () => {
 		const newStartTime = startTime + 24 * HOUR;
 		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.update, {
 			sessionId: session._id,
+			location: 'Club HQ',
 			startTime: newStartTime,
 			endTime: newStartTime + HOUR
 		});
@@ -434,8 +446,13 @@ describe('session reminder scheduling (24h before start)', () => {
 			.withIdentity({ subject: 'guide-user' })
 			.mutation(api.sessions.cancel, { sessionId: session._id });
 		jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect());
+		// Cancellation itself schedules notification/email jobs (default-going members are
+		// notified), so restrict the assertion to the session/attendance reminder jobs.
 		expect(
-			jobs.filter((job) => job.state.kind === 'pending').filter((job) => job.scheduledTime < newStartTime)
+			jobs
+				.filter((job) => job.state.kind === 'pending')
+				.filter((job) => job.name.includes('Reminder'))
+				.filter((job) => job.scheduledTime < newStartTime)
 		).toHaveLength(0);
 
 		// Drain the queue: the cancelled session must produce no reminder.

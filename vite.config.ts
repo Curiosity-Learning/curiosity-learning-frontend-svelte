@@ -32,7 +32,8 @@ export default defineConfig({
 						instances: [{ browser: 'chromium', headless: true }]
 					},
 					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
-					// `**/._*` skips macOS AppleDouble metadata files (repo lives on an external volume)
+					// `**/._*` skips macOS AppleDouble metadata files (repo lives on an external
+					// volume where Finder/editors create `._foo.spec.ts` companions).
 					exclude: ['src/lib/server/**', '**/._*']
 				}
 			},

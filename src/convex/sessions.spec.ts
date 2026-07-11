@@ -23,12 +23,12 @@ const seedSessionFixture = async () => {
 			name: 'Guide',
 			permissions: [
 				'club:read',
+				'club_member:read_active',
 				'session:read',
 				'session:create',
 				'session:update',
 				'session:cancel',
 				'session_rsvp:set',
-				'session_rsvp:read_all',
 				'session_activity:read',
 				'attendance:read',
 				'attendance:create'
@@ -95,6 +95,7 @@ const createFutureSession = async (
 	const endTime = overrides.endTime ?? startTime + HOUR;
 	const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
 		clubId,
+		location: 'Club HQ',
 		startTime,
 		endTime
 	});
@@ -195,6 +196,7 @@ describe('sessions.cancel', () => {
 		await expect(
 			t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.update, {
 				sessionId: session._id,
+				location: 'Club HQ',
 				startTime: Date.now() + 2 * HOUR,
 				endTime: Date.now() + 3 * HOUR
 			})
@@ -242,6 +244,42 @@ describe('sessions.cancel', () => {
 				.collect();
 		});
 		expect(notifications).toHaveLength(0);
+	});
+
+	it('notifies default-going members (no explicit RSVP) but never the cancelling guide', async () => {
+		const { t, clubId, guideProfileId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.cancel, { sessionId: session._id });
+
+		const notificationsFor = (profileId: typeof learnerProfileId) =>
+			t.run((ctx) =>
+				ctx.db
+					.query('notifications')
+					.withIndex('by_profile', (q) => q.eq('profileId', profileId))
+					.collect()
+			);
+		// Learner never touched RSVP — default going (CL-712) — so they are notified.
+		expect(await notificationsFor(learnerProfileId)).toHaveLength(1);
+		// The guide performing the cancellation is not notified about their own action.
+		expect(await notificationsFor(guideProfileId)).toHaveLength(0);
+	});
+
+	it('keeps cancelled sessions in listCardPreviewsByClub when includeCancelled is set', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.cancel, { sessionId: session._id });
+
+		const previews = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listCardPreviewsByClub, { clubId, includeCancelled: true });
+		expect(previews).toHaveLength(1);
+		expect(previews[0].session.cancelled).toBe(true);
 	});
 });
 
@@ -394,23 +432,174 @@ describe('sessions.setRsvp', () => {
 		).rejects.toThrow('Cannot RSVP to a cancelled session');
 	});
 
-	it('reports going/not-going counts and the caller’s own status via card data', async () => {
+	it('defaults an active member with no RSVP row to going via card data (CL-712)', async () => {
 		const { t, clubId } = await seedSessionFixture();
 		const session = await createFutureSession(t, clubId);
-
-		await t
-			.withIdentity({ subject: 'learner-user' })
-			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'going' });
-
-		const cardData = await t
-			.withIdentity({ subject: 'guide-user' })
-			.query(api.sessions.getSessionCardData, { sessionId: session._id });
-		expect(cardData.rsvpCounts).toEqual({ going: 1, notGoing: 0 });
 
 		const learnerCardData = await t
 			.withIdentity({ subject: 'learner-user' })
 			.query(api.sessions.getSessionCardData, { sessionId: session._id });
 		expect(learnerCardData.myRsvpStatus).toBe('going');
+	});
+
+	it('reflects an explicit not_going over the default via card data', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await t
+			.withIdentity({ subject: 'learner-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'not_going' });
+
+		const learnerCardData = await t
+			.withIdentity({ subject: 'learner-user' })
+			.query(api.sessions.getSessionCardData, { sessionId: session._id });
+		expect(learnerCardData.myRsvpStatus).toBe('not_going');
+	});
+});
+
+describe('sessions.create location requirement', () => {
+	it('rejects a whitespace-only location', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const startTime = Date.now() + HOUR;
+
+		await expect(
+			t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
+				clubId,
+				location: '   ',
+				startTime,
+				endTime: startTime + HOUR
+			})
+		).rejects.toThrow('Location is required');
+	});
+
+	it('trims and stores the provided location', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const startTime = Date.now() + HOUR;
+
+		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
+			clubId,
+			location: '  Club HQ  ',
+			startTime,
+			endTime: startTime + HOUR
+		});
+		expect(session?.location).toBe('Club HQ');
+	});
+
+	it('rejects clearing the location on update', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await expect(
+			t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.update, {
+				sessionId: session._id,
+				location: ' ',
+				startTime: Date.now() + 2 * HOUR,
+				endTime: Date.now() + 3 * HOUR
+			})
+		).rejects.toThrow('Location is required');
+	});
+});
+
+describe('sessions.listRsvpRoster (default going, CL-712)', () => {
+	it('lists every roster member as going by default and flags the caller', async () => {
+		const { t, clubId, guideProfileId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		const roster = await t
+			.withIdentity({ subject: 'learner-user' })
+			.query(api.sessions.listRsvpRoster, { sessionId: session._id });
+
+		expect(roster).toHaveLength(2);
+		expect(roster.every((entry) => entry.status === 'going')).toBe(true);
+		expect(roster.find((entry) => entry.profileId === learnerProfileId)?.isSelf).toBe(true);
+		expect(roster.find((entry) => entry.profileId === guideProfileId)?.isSelf).toBe(false);
+	});
+
+	it('overrides the default with an explicit not_going row', async () => {
+		const { t, clubId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await t
+			.withIdentity({ subject: 'learner-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'not_going' });
+
+		const roster = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listRsvpRoster, { sessionId: session._id });
+
+		expect(roster.find((entry) => entry.profileId === learnerProfileId)?.status).toBe('not_going');
+		expect(
+			roster.filter((entry) => entry.status === 'going').length
+		).toBe(roster.length - 1);
+	});
+
+	it('rejects non-members', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await expect(
+			t
+				.withIdentity({ subject: 'outsider-user' })
+				.query(api.sessions.listRsvpRoster, { sessionId: session._id })
+		).rejects.toThrow('Permission denied');
+	});
+});
+
+describe('session card attendee previews', () => {
+	it('previews going members (default going) for an upcoming session', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		const cardData = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.getSessionCardData, {
+				sessionId: session._id,
+				includeAttendees: true
+			});
+		// Both fixture members default to going; neither has attended anything.
+		expect(cardData.attendees).toHaveLength(2);
+	});
+
+	it('drops members who explicitly RSVP not_going from the upcoming preview', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await t
+			.withIdentity({ subject: 'learner-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'not_going' });
+
+		const cardData = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.getSessionCardData, {
+				sessionId: session._id,
+				includeAttendees: true
+			});
+		expect(cardData.attendees).toHaveLength(1);
+	});
+
+	it('previews recorded present members once the session has started', async () => {
+		const { t, clubId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await t.run(async (ctx) => {
+			await ctx.db.patch(session._id, {
+				startTime: Date.now() - HOUR,
+				endTime: Date.now() + HOUR
+			});
+		});
+		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.setAttendance, {
+			sessionId: session._id,
+			profileId: learnerProfileId,
+			status: 'present'
+		});
+
+		const cardData = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.getSessionCardData, {
+				sessionId: session._id,
+				includeAttendees: true
+			});
+		expect(cardData.attendees).toHaveLength(1);
 	});
 });
 
@@ -687,7 +876,7 @@ describe('sessions attendance reminder scheduling', () => {
 		const endTime = startTime + HOUR;
 		const session = await t
 			.withIdentity({ subject: 'guide-user' })
-			.mutation(api.sessions.create, { clubId, startTime, endTime });
+			.mutation(api.sessions.create, { clubId, location: 'Club HQ', startTime, endTime });
 		if (!session) throw new Error('session not created');
 
 		await vi.advanceTimersByTimeAsync(2 * HOUR);
@@ -711,7 +900,7 @@ describe('sessions attendance reminder scheduling', () => {
 		const endTime = startTime + HOUR;
 		const session = await t
 			.withIdentity({ subject: 'guide-user' })
-			.mutation(api.sessions.create, { clubId, startTime, endTime });
+			.mutation(api.sessions.create, { clubId, location: 'Club HQ', startTime, endTime });
 		if (!session) throw new Error('session not created');
 
 		// Advance just past the session's start so attendance can be marked, but still
@@ -743,7 +932,7 @@ describe('sessions attendance reminder scheduling', () => {
 		const endTime = startTime + HOUR;
 		const session = await t
 			.withIdentity({ subject: 'guide-user' })
-			.mutation(api.sessions.create, { clubId, startTime, endTime });
+			.mutation(api.sessions.create, { clubId, location: 'Club HQ', startTime, endTime });
 		if (!session) throw new Error('session not created');
 
 		await t
@@ -770,7 +959,7 @@ describe('sessions attendance reminder scheduling', () => {
 		const endTime = startTime + HOUR;
 		const session = await t
 			.withIdentity({ subject: 'guide-user' })
-			.mutation(api.sessions.create, { clubId, startTime, endTime });
+			.mutation(api.sessions.create, { clubId, location: 'Club HQ', startTime, endTime });
 		if (!session) throw new Error('session not created');
 
 		// Push the session further into the future; the original startTime+1h reminder must not fire.
@@ -778,6 +967,7 @@ describe('sessions attendance reminder scheduling', () => {
 		const newEndTime = newStartTime + HOUR;
 		await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.update, {
 			sessionId: session._id,
+			location: 'Club HQ',
 			startTime: newStartTime,
 			endTime: newEndTime
 		});
@@ -805,6 +995,18 @@ describe('sessions attendance reminder scheduling', () => {
 				.collect()
 		);
 		expect(notifications).toHaveLength(1);
+	});
+});
+
+describe('sessions.hasPhotos', () => {
+	it('is false for a session without photos', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		const result = await t
+			.withIdentity({ subject: 'learner-user' })
+			.query(api.sessions.hasPhotos, { sessionId: session._id });
+		expect(result).toBe(false);
 	});
 });
 

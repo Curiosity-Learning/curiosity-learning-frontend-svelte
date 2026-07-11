@@ -58,7 +58,14 @@
 		api.sessions.listCardPreviewsByClub,
 		() =>
 			clubIdTyped
-				? { clubId: clubIdTyped, upcomingOnly: false, includeAttendees: canReadMembers }
+				? {
+						clubId: clubIdTyped,
+						upcomingOnly: false,
+						includeAttendees: canReadMembers,
+						// CEO decision 2026-07-11: cancelled sessions stay in the list, visually
+						// distinguished on the card.
+						includeCancelled: true
+					}
 				: 'skip',
 		{ cache: 'memory' }
 	);
@@ -121,9 +128,10 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 
+	// Reverse chronological (CEO decision 2026-07-11): newest session at the top.
 	let sortedSessionCards = $derived(
 		[...(sessionCardsResponse.data ?? [])].sort(
-			(left, right) => left.session.startTime - right.session.startTime
+			(left, right) => right.session.startTime - left.session.startTime
 		)
 	);
 
@@ -178,12 +186,14 @@
 	const createSession = async () => {
 		const startTime = sessionForm.startTime;
 		const endTime = sessionForm.endTime;
+		const location = sessionForm.location.trim();
 		if (
 			!canCreate ||
 			!canMutateOnline ||
 			!clubIdTyped ||
 			startTime === null ||
-			endTime === null
+			endTime === null ||
+			!location
 		) {
 			return;
 		}
@@ -192,14 +202,13 @@
 		errorMessage = '';
 		try {
 			const desc = sessionForm.description.trim();
-			const location = sessionForm.location.trim();
 			const session = await withTimeout(
 				convexClient.mutation(api.sessions.create, {
 					clubId: clubIdTyped,
 					startTime,
 					endTime,
-					...(desc ? { description: desc } : {}),
-					...(location ? { location } : {})
+					location,
+					...(desc ? { description: desc } : {})
 				}),
 				SESSION_CREATE_TIMEOUT_MS,
 				'Request timed out. Check your connection and try again.'
@@ -341,11 +350,12 @@
 					bind:endTime={sessionForm.endTime}
 				/>
 				<div class="flex flex-col gap-2">
-					<FieldLabel for="sessionLocation">Location</FieldLabel>
+					<FieldLabel for="sessionLocation" required>{t('sessionEditor.locationLabel')}</FieldLabel>
 					<Input
 						id="sessionLocation"
 						bind:value={sessionForm.location}
-						placeholder="Address, description, or meeting URL"
+						placeholder={t('sessionEditor.locationPlaceholder')}
+						required
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
@@ -355,8 +365,9 @@
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
-				<Button disabled={pending || !canCreate || !canMutateOnline} onclick={() => void createSession()}
-					>{pending ? 'Creating...' : 'Open'}</Button
+				<Button
+					disabled={pending || !canCreate || !canMutateOnline || !sessionForm.location.trim()}
+					onclick={() => void createSession()}>{pending ? 'Creating...' : 'Open'}</Button
 				>
 			</Dialog.Footer>
 		</Dialog.Content>
