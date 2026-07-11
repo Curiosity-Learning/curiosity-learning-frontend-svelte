@@ -3,11 +3,15 @@
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import {
+		LoadingState,
+		PageHeaderBackButton,
+		PageHeaderSearch,
+		PageHeaderTitle
+	} from '$lib/components/app';
 	import BookletActivityCard from '$lib/components/app/sessions/booklet-activity-card.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { Input } from '$lib/components/ui/input';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -69,6 +73,12 @@
 
 <PageHeaderBackButton {fallbackHref} />
 <PageHeaderTitle title="Activity Booklet" />
+<PageHeaderSearch
+	bind:value={searchTerm}
+	placeholder={t('activityBooklet.searchPlaceholder')}
+	ariaLabel={t('activityBooklet.searchPlaceholder')}
+	mode="auto"
+/>
 
 <div class="flex flex-col gap-4 pb-2 lg:pb-6">
 	{#if errorMessage}
@@ -77,13 +87,6 @@
 			<AlertDescription>{errorMessage}</AlertDescription>
 		</Alert>
 	{/if}
-
-	<Input
-		type="search"
-		placeholder={t('activityBooklet.searchPlaceholder')}
-		bind:value={searchTerm}
-		aria-label={t('activityBooklet.searchPlaceholder')}
-	/>
 
 	{#if (blocksResponse.data?.length ?? 0) > 0}
 		<div class="overflow-x-auto py-2">

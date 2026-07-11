@@ -38,8 +38,8 @@
 			</Button>
 		</DropdownMenuTrigger>
 		<DropdownMenuContent {align} class={contentClass}>
-			{#each items as item (item.id)}
-				{#if item.separatorBefore}
+			{#each items as item, index (item.id)}
+				{#if item.separatorBefore && index > 0}
 					<DropdownMenuSeparator />
 				{/if}
 				<DropdownMenuItem
