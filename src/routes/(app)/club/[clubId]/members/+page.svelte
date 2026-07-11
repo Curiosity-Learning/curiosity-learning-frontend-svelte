@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
-	import { LoadingState, ActionMenu, ConfirmDialog, EmptyState } from '$lib/components/app';
+	import {
+		LoadingState,
+		ActionMenu,
+		ConfirmDialog,
+		EmptyState,
+		PageHeaderBackButton
+	} from '$lib/components/app';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -400,6 +406,8 @@
 		</p>
 	{/if}
 {/snippet}
+
+<PageHeaderBackButton fallbackHref={clubId ? routes.clubHome(clubId) : '/'} />
 
 {#if !clubIdTyped}
 	<Alert>

@@ -15,7 +15,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Input } from '$lib/components/ui/input';
-	import { canUseInternalHistoryBack } from '$lib/navigation/back';
+	import {
+		canUseInternalHistoryBack,
+		clearClubSwitchTargetIfPathChanged,
+		consumeClubSwitchTarget,
+		shouldPreferFallbackAfterClubSwitch
+	} from '$lib/navigation/back';
 	import { cn } from '$lib/utils.js';
 	import {
 		Collapsible,
@@ -107,11 +112,26 @@
 		}
 	});
 
+	// The "prefer fallback after a club switch" marker (see $lib/navigation/back.ts) is only
+	// meant to apply to the very next back action taken from the page the switch navigated to.
+	// If the user navigates anywhere else first (clicks a tab, drills into a session, etc.)
+	// the marker expires so normal history-based back resumes.
+	$effect(() => {
+		clearClubSwitchTargetIfPathChanged(activePath);
+	});
+
 	const isActivePath = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
 
 	const handleBack = async () => {
 		if (!headerBack) return;
 		if (headerBack.preferFallback && headerBack.fallbackHref) {
+			await goto(headerBack.fallbackHref);
+			return;
+		}
+		// Right after a club switch, force the current club's home instead of history.back(),
+		// which would otherwise surface a page from the club the user just switched away from.
+		if (shouldPreferFallbackAfterClubSwitch(activePath) && headerBack.fallbackHref) {
+			consumeClubSwitchTarget();
 			await goto(headerBack.fallbackHref);
 			return;
 		}

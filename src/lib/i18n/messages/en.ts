@@ -106,7 +106,8 @@ const en = {
 		roleLearner: 'Learner',
 		cocBadge: 'Club of Clubs',
 		switchFailureTitle: 'Unable to switch club',
-		switchFailureDescription: 'Please try again.'
+		switchFailureDescription: 'Please try again.',
+		newClubAction: 'New club'
 	},
 	clubSettingsPage: {
 		title: 'Club settings',
