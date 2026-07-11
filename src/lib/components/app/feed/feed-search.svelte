@@ -14,6 +14,7 @@
 	import { t } from '$lib/i18n';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import { formatShortDate } from '$lib/domain/date';
 
 	type SignedAsset = { assetId: string; signedUrl: string; mediaKind?: string | null };
 
@@ -110,12 +111,7 @@
 
 	const searchInputId = `feed-search-${initialScope}`;
 
-	const dueDateLabel = (dueDate: number) =>
-		new Date(dueDate).toLocaleDateString(undefined, {
-			day: 'numeric',
-			month: 'short',
-			year: 'numeric'
-		});
+	const dueDateLabel = (dueDate: number) => formatShortDate(dueDate);
 </script>
 
 <div class="flex flex-col gap-4">

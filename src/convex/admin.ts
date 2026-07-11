@@ -3,39 +3,19 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { QueryCtx } from './_generated/server';
 import { getClubRoleByKey, requireGlobalAdmin } from './permissions';
 
-// CL-693: minimal Overview stub for the /admin route group. The real dashboard is CL-732 — this
-// is deliberately just a few trivial counts, but it is the template every future admin
-// query/mutation should copy: requireGlobalAdmin first, no route-gating-only reliance.
-export const getOverviewCounts = query({
-	args: {},
-	handler: async (ctx) => {
-		await requireGlobalAdmin(ctx);
-
-		const [clubs, profiles, openReports] = await Promise.all([
-			ctx.db.query('clubs').collect(),
-			ctx.db.query('profiles').collect(),
-			ctx.db
-				.query('reports')
-				.withIndex('by_status_and_created', (q) => q.eq('status', 'open'))
-				.collect()
-		]);
-
-		return {
-			clubCount: clubs.length,
-			profileCount: profiles.length,
-			openReportCount: openReports.length
-		};
-	}
-});
-
 // ---------------------------------------------------------------------------
 // CL-732: Admin Operations Dashboard (PRD 6.14.1-6.14.3).
 //
 // Shared helpers + three new admin-gated queries: getDashboardOverview (6 headline cards),
 // adminClubsHealth (per-club table), adminApplicationsPipeline (pipeline counts + in-flight
 // list). Everything here is read-only and deliberately reuses `.collect()`-and-filter over small
-// admin tables, matching the existing `getOverviewCounts`/`moderation.searchClubs` precedent —
-// this is fine at current data volume; if tables grow large this should move to indexed scans.
+// admin tables, matching the existing `moderation.searchClubs` precedent — this is fine at
+// current data volume; if tables grow large this should move to indexed scans.
+//
+// (CL-693's original `getOverviewCounts` stub — the template every admin query/mutation here
+// still follows: requireGlobalAdmin first, no route-gating-only reliance — was superseded by
+// `getDashboardOverview` below once CL-732 shipped the real dashboard, and has been removed; the
+// admin UI's Overview page has called `getDashboardOverview` since.)
 // ---------------------------------------------------------------------------
 
 const isActiveCuriosityClub = (club: Doc<'clubs'>) => club.kind === 'curiosity' && !club.abandonedAt;

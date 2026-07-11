@@ -20,6 +20,7 @@
 	import { authClient } from '$lib/auth-client';
 	import { routes } from '$lib/routes';
 	import { _, t, formatT } from '$lib/i18n';
+	import { formatMonthYear } from '$lib/domain/date';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
 	import UserMinusIcon from '@lucide/svelte/icons/user-minus';
@@ -122,11 +123,7 @@
 
 	const joinedLabelFor = (member: { joinedAt?: number }) => {
 		if (!member.joinedAt) return null;
-		const date = new Date(member.joinedAt).toLocaleDateString(undefined, {
-			month: 'long',
-			year: 'numeric'
-		});
-		return formatT('membersPage.joinedOn', { date });
+		return formatT('membersPage.joinedOn', { date: formatMonthYear(member.joinedAt) });
 	};
 
 	const pluralizedCount = (count: number, singularKey: string, pluralKey: string) =>

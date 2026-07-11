@@ -9,6 +9,11 @@ type Ctx = QueryCtx | MutationCtx;
 
 const COMMENT_MAX_LENGTH = 1000;
 
+// PRD 6.14.4 (CL-730): single source of truth for "is this comment hidden by an admin takedown",
+// mirroring `updates.ts`'s `isUpdateVisible`.
+const isCommentVisible = (comment: Pick<Doc<'updateComments'>, 'takedown'>): boolean =>
+	!comment.takedown;
+
 /**
  * PRD 6.7.4: commenting requires >=1 ACTIVE club membership (any club — not necessarily one
  * attributed to the update's project). A user with zero clubs cannot comment anywhere.
@@ -55,7 +60,7 @@ export const listComments = query({
 				.withIndex('by_update_and_created', (q) => q.eq('updateId', args.updateId))
 				.order('asc')
 				.collect()
-		).filter((comment) => !comment.takedown);
+		).filter((comment) => isCommentVisible(comment));
 
 		const authorCache = new Map<Id<'profiles'>, Doc<'profiles'> | null>();
 		const withAuthor = async (comment: Doc<'updateComments'>) => {
@@ -104,7 +109,7 @@ export const countComments = query({
 			.withIndex('by_update', (q) => q.eq('updateId', args.updateId))
 			.collect();
 		// PRD 6.14.4 (CL-730): taken-down comments don't count.
-		return comments.filter((comment) => !comment.takedown).length;
+		return comments.filter((comment) => isCommentVisible(comment)).length;
 	}
 });
 

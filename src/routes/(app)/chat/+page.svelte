@@ -30,6 +30,7 @@
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { _, t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
+	import { formatClockTime } from '$lib/domain/date';
 
 	type RoomSummary = {
 		roomId: Id<'rooms'>;
@@ -284,12 +285,6 @@
 		const days = Math.floor(hours / 24);
 		return `${days}d`;
 	};
-
-	const formatClockTime = (timestamp: number) =>
-		new Date(timestamp).toLocaleTimeString(undefined, {
-			hour: 'numeric',
-			minute: '2-digit'
-		});
 
 	const roomDisplayName = (room: RoomSummary | null) => {
 		if (!room) return 'Chat';

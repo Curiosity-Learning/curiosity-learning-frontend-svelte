@@ -5,6 +5,28 @@ export const formatDateTime = (input: number | null | undefined) => {
 	return new Date(input).toLocaleString();
 };
 
+/** Short date label, e.g. "5 Jan 2026" — used for due dates, deadlines, etc. */
+export const formatShortDate = (input: number) =>
+	new Date(input).toLocaleDateString(undefined, {
+		day: 'numeric',
+		month: 'short',
+		year: 'numeric'
+	});
+
+/** Month + year label, e.g. "January 2026" — used for "joined on" style copy. */
+export const formatMonthYear = (input: number) =>
+	new Date(input).toLocaleDateString(undefined, {
+		month: 'long',
+		year: 'numeric'
+	});
+
+/** Clock time label, e.g. "2:30 PM" — used for chat/message timestamps. */
+export const formatClockTime = (input: number) =>
+	new Date(input).toLocaleTimeString(undefined, {
+		hour: 'numeric',
+		minute: '2-digit'
+	});
+
 export const toTimestamp = (value: string) => {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime()) ? null : date.getTime();

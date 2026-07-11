@@ -15,6 +15,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { LAST_CLUB_ID_STORAGE_KEY } from '$lib/auth/onboarding-state';
+	import { isNoClubAllowedPath } from '$lib/auth/no-club-allowlist';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
@@ -217,16 +218,7 @@
 		if (!isAuthReady) return;
 		if (clubsResponse.isLoading) return;
 		if (clubs.length > 0) return;
-		if (
-			activePath === routes.noClub ||
-			activePath === routes.newClub ||
-			activePath.startsWith(`${routes.newClub}/`) ||
-			activePath === routes.profile ||
-			activePath === routes.settings ||
-			activePath === routes.notifications ||
-			activePath === routes.child ||
-			activePath.startsWith(`${routes.child}/`)
-		) {
+		if (isNoClubAllowedPath(activePath)) {
 			return;
 		}
 		void goto(routes.newClub, { replaceState: true });
@@ -302,6 +294,30 @@
 
 {#snippet clubSwitcherTitleContent()}
 	<ClubSwitcher clubs={clubSwitcherItems} {activeClubId} />
+{/snippet}
+
+<!-- PRD 6.11.3 (CL-733): shared shape for the reminder/escalation feedback-enforcement banners —
+     same layout, differing only in Alert variant, copy (own i18n keys per phase so they can
+     diverge), and whether a dismiss action is offered (reminder only). -->
+{#snippet enforcementBanner(config: {
+	variant: 'default' | 'destructive';
+	title: string;
+	actionLabel: string;
+	onAction: () => void;
+	dismissLabel?: string;
+	onDismiss?: () => void;
+})}
+	<Alert variant={config.variant} class="flex items-start justify-between gap-3">
+		<div>
+			<AlertTitle>{config.title}</AlertTitle>
+		</div>
+		<div class="flex shrink-0 items-center gap-2">
+			<Button size="sm" onclick={config.onAction}>{config.actionLabel}</Button>
+			{#if config.dismissLabel && config.onDismiss}
+				<Button size="sm" variant="ghost" onclick={config.onDismiss}>{config.dismissLabel}</Button>
+			{/if}
+		</div>
+	</Alert>
 {/snippet}
 
 {#if isSuspended}
@@ -391,35 +407,24 @@
 		<!-- PRD 6.11.3 (CL-733): reminder phase (days 1-7 past deadline) — persistent banner,
 		     dismissible for the rest of this browser session (sessionStorage), not per-route. -->
 		{#if enforcementPhase === 'reminder' && !reminderBannerDismissed && !isFeedbackRoute}
-			<Alert class="flex items-start justify-between gap-3">
-				<div>
-					<AlertTitle
-						>{t('feedbackEnforcement.reminderBanner').replace('{club}', enforcementClubName)}</AlertTitle
-					>
-				</div>
-				<div class="flex shrink-0 items-center gap-2">
-					<Button size="sm" onclick={() => goto(routes.feedback)}>
-						{t('feedbackEnforcement.reminderBannerAction')}
-					</Button>
-					<Button size="sm" variant="ghost" onclick={dismissReminderBanner}>
-						{t('feedbackEnforcement.reminderBannerDismiss')}
-					</Button>
-				</div>
-			</Alert>
+			{@render enforcementBanner({
+				variant: 'default',
+				title: t('feedbackEnforcement.reminderBanner').replace('{club}', enforcementClubName),
+				actionLabel: t('feedbackEnforcement.reminderBannerAction'),
+				onAction: () => goto(routes.feedback),
+				dismissLabel: t('feedbackEnforcement.reminderBannerDismiss'),
+				onDismiss: dismissReminderBanner
+			})}
 		{/if}
-		<!-- Escalation phase (days 8-14): same persistent banner as reminder, plus a once-per-session
-		     modal (below) prompted on app open. -->
+		<!-- Escalation phase (days 8-14): same persistent banner shape as reminder (own i18n keys,
+		     no dismiss action), plus a once-per-session modal (below) prompted on app open. -->
 		{#if enforcementPhase === 'escalation' && !isFeedbackRoute}
-			<Alert variant="destructive" class="flex items-start justify-between gap-3">
-				<div>
-					<AlertTitle
-						>{t('feedbackEnforcement.reminderBanner').replace('{club}', enforcementClubName)}</AlertTitle
-					>
-				</div>
-				<Button size="sm" onclick={() => goto(routes.feedback)}>
-					{t('feedbackEnforcement.reminderBannerAction')}
-				</Button>
-			</Alert>
+			{@render enforcementBanner({
+				variant: 'destructive',
+				title: t('feedbackEnforcement.escalationBanner').replace('{club}', enforcementClubName),
+				actionLabel: t('feedbackEnforcement.escalationBannerAction'),
+				onAction: () => goto(routes.feedback)
+			})}
 		{/if}
 		{@render children()}
 	{/if}

@@ -2,25 +2,9 @@ import { redirect } from '@sveltejs/kit';
 import { api } from '$convex/_generated/api';
 import { getConvexServerClient } from '$lib/server/convex';
 import { getEstimatedIpLocation } from '$lib/server/ip-location';
+import { isNoClubAllowedPath } from '$lib/auth/no-club-allowlist';
 import { routes } from '$lib/routes';
 import type { LayoutServerLoad } from './$types';
-
-// PRD 2.4/6.1.10 (CL-703): a club-less parent must still be able to reach Settings (to see their
-// linked children) and /child (the read-only "View as Child" surface) — see CL-690's original
-// no-club allowlist that this extends.
-const noClubAllowedPaths = [
-	routes.noClub,
-	routes.newClub,
-	routes.profile,
-	routes.settings,
-	routes.notifications,
-	routes.child
-];
-
-const isNoClubAllowedPath = (pathname: string) =>
-	noClubAllowedPaths.some(
-		(allowedPath) => pathname === allowedPath || pathname.startsWith(`${allowedPath}/`)
-	);
 
 export const load: LayoutServerLoad = async ({ locals, request, url }) => {
 	if (!locals.token) {

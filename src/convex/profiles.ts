@@ -16,6 +16,7 @@ import {
 	requireProfile
 } from './permissions';
 import { canViewProject, listAttributedClubIds } from './projectsModel';
+import { isUpdateVisible } from './updates';
 import { getUsernameValidationError } from './usernameValidator';
 
 type Ctx = QueryCtx | MutationCtx;
@@ -419,7 +420,7 @@ export const getById = query({
 			if (updates.length >= UPDATES_PREVIEW_LIMIT) break;
 			// PRD 6.14.4 (CL-730): taken-down updates disappear from another viewer's profile-page
 			// listing of this profile's updates.
-			if (update.takedown) continue;
+			if (!isUpdateVisible(update)) continue;
 			if (!update.projectId) continue;
 
 			const project: Doc<'projects'> | null = await ctx.db.get(update.projectId);

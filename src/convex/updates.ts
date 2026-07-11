@@ -19,6 +19,13 @@ import {
 } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
+
+// PRD 6.14.4 (CL-730): single source of truth for "is this update hidden by an admin takedown" —
+// every feed/search/profile read path below (and `updateComments.ts`'s comment-visibility check
+// for the update its comments belong to) should go through this rather than testing
+// `update.takedown` inline.
+export const isUpdateVisible = (update: Pick<Doc<'updates'>, 'takedown'>): boolean => !update.takedown;
+
 type AuthorSummary = {
 	profileId: Id<'profiles'> | null;
 	name: string;
@@ -82,6 +89,34 @@ const canReadProject = (ctx: Ctx, projectId: Id<'projects'>, userId: string) =>
 const canManageProject = (ctx: Ctx, projectId: Id<'projects'>, userId: string) =>
 	isProjectPermissionAllowed(ctx, projectId, userId, 'project:update');
 
+// Shared "which of the viewer's clubs can they read updates in" rule (PRD 5.11/6.6.6/6.7.2): a
+// club is readable if the viewer holds an ACTIVE (non-left) membership there whose role grants
+// `project:read`. Used everywhere a query needs to scope an updates feed/search/delivery-asset
+// lookup to "my clubs" — `listForViewer`, `searchMyClubsFeed`, `listMine`,
+// `getViewerAuthorDeliveryAssets`, `getViewerUpdateMediaDeliveryAssets` — so the rule itself lives
+// in exactly one place. Batches the (small, low-cardinality) roles table by distinct roleId
+// instead of one `ctx.db.get` per membership.
+const resolveReadableClubIdSet = async (
+	ctx: Ctx,
+	profile: Doc<'profiles'>
+): Promise<Set<Id<'clubs'>>> => {
+	const memberships = await listMembershipsForProfile(ctx, profile);
+	const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+
+	const roleIds = [...new Set(activeMemberships.map((membership) => membership.roleId))];
+	const roleEntries = await Promise.all(roleIds.map((roleId) => ctx.db.get(roleId)));
+	const roleById = new Map(roleEntries.map((role, index) => [roleIds[index], role]));
+
+	const readableClubIdSet = new Set<Id<'clubs'>>();
+	for (const membership of activeMemberships) {
+		const role = roleById.get(membership.roleId);
+		if (role?.permissions.includes('project:read')) {
+			readableClubIdSet.add(membership.clubId);
+		}
+	}
+	return readableClubIdSet;
+};
+
 export const listByProject = query({
 	args: {
 		projectId: v.id('projects'),
@@ -113,11 +148,11 @@ export const listByProject = query({
 		if (args.limit) {
 			// Keep chronological ordering (oldest -> newest) while limiting.
 			const newestFirst = await queryBuilder.order('desc').take(args.limit);
-			const chronological = newestFirst.filter((update) => !update.takedown).reverse();
+			const chronological = newestFirst.filter((update) => isUpdateVisible(update)).reverse();
 			return await Promise.all(chronological.map(withAuthor));
 		}
 
-		const updates = (await queryBuilder.collect()).filter((update) => !update.takedown);
+		const updates = (await queryBuilder.collect()).filter((update) => isUpdateVisible(update));
 		return await Promise.all(updates.map(withAuthor));
 	}
 });
@@ -160,7 +195,7 @@ export const listByClub = query({
 
 			const update = await ctx.db.get(row.updateId);
 			// PRD 6.14.4 (CL-730): taken-down updates disappear from the club feed.
-			if (!update || update.takedown) continue;
+			if (!update || !isUpdateVisible(update)) continue;
 			const projectId = row.projectId ?? update.projectId ?? null;
 			const project = projectId ? await ctx.db.get(projectId) : null;
 			const author = await resolveAuthorSummary(ctx, update.createdByProfileId, authorCache);
@@ -228,21 +263,8 @@ export const listForViewer = query({
 		const authorCache = new Map<string, AuthorSummary>();
 
 		const viewerProfile = await requireProfile(ctx, identity.subject);
-		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
-		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
-		if (!activeMemberships.length) {
-			return { items: [], nextCursor: null };
-		}
-
-		const readableClubIdSet = new Set<string>();
-		for (const membership of activeMemberships) {
-			const role = await ctx.db.get(membership.roleId);
-			if (role?.permissions.includes('project:read')) {
-				readableClubIdSet.add(membership.clubId);
-			}
-		}
-
-		const readableClubIds = [...readableClubIdSet] as Array<Id<'clubs'>>;
+		const readableClubIdSet = await resolveReadableClubIdSet(ctx, viewerProfile);
+		const readableClubIds = [...readableClubIdSet];
 		if (!readableClubIds.length) {
 			return { items: [], nextCursor: null };
 		}
@@ -288,7 +310,7 @@ export const listForViewer = query({
 
 			const update = await ctx.db.get(row.updateId);
 			// PRD 6.14.4 (CL-730): taken-down updates disappear from the "My Clubs" feed.
-			if (!update || update.takedown) continue;
+			if (!update || !isUpdateVisible(update)) continue;
 
 			const club = await ctx.db.get(row.clubId);
 			const projectId = row.projectId ?? update.projectId ?? null;
@@ -398,7 +420,7 @@ export const listGlobal = query({
 					break;
 				}
 				// PRD 6.14.4 (CL-730): taken-down updates disappear from the "All" feed.
-				if (update.takedown) continue;
+				if (!isUpdateVisible(update)) continue;
 				if (!update.projectId) continue;
 				const project = await getProjectCached(update.projectId);
 				if (!project || project.visibility !== 'global' || project.takedown) continue;
@@ -576,7 +598,7 @@ export const searchGlobalFeed = query({
 		// (rather than breaking early at 25) preserves identical hit ordering/results while
 		// letting the project fetches above run as one batch instead of stopping-and-starting.
 		const eligibleHits = updateHits.filter((update) => {
-			if (update.takedown || !update.projectId) return false;
+			if (!isUpdateVisible(update) || !update.projectId) return false;
 			const project = projectById.get(update.projectId);
 			return Boolean(project) && project?.visibility === 'global' && !project.takedown;
 		});
@@ -624,22 +646,9 @@ export const searchMyClubsFeed = query({
 			return { updates: [], projects: [] };
 		}
 
-		// Same club scoping as `listForViewer`: clubs the viewer holds `project:read` in. Roles
-		// are a tiny, low-cardinality table — batch the distinct roleIds referenced instead of a
-		// sequential `get` per membership.
+		// Same club scoping as `listForViewer`: clubs the viewer holds `project:read` in.
 		const viewerProfile = await requireProfile(ctx, identity.subject);
-		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
-		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
-		const roleIds = [...new Set(activeMemberships.map((membership) => membership.roleId))];
-		const roleEntries = await Promise.all(roleIds.map((roleId) => ctx.db.get(roleId)));
-		const roleById = new Map(roleEntries.map((role, index) => [roleIds[index], role]));
-		const readableClubIdSet = new Set<Id<'clubs'>>();
-		for (const membership of activeMemberships) {
-			const role = roleById.get(membership.roleId);
-			if (role?.permissions.includes('project:read')) {
-				readableClubIdSet.add(membership.clubId);
-			}
-		}
+		const readableClubIdSet = await resolveReadableClubIdSet(ctx, viewerProfile);
 		if (!readableClubIdSet.size) {
 			return { updates: [], projects: [] };
 		}
@@ -651,7 +660,7 @@ export const searchMyClubsFeed = query({
 			.withSearchIndex('search_content', (q) => q.search('content', term))
 			.take(SEARCH_SCAN_LIMIT);
 
-		const candidateHits = updateHits.filter((update) => !update.takedown && update.projectId);
+		const candidateHits = updateHits.filter((update) => isUpdateVisible(update) && update.projectId);
 
 		// Batch the `updateClubs` attribution lookup for every candidate hit instead of a
 		// sequential collect per hit.
@@ -727,19 +736,8 @@ export const listMine = query({
 		const authorCache = new Map<string, AuthorSummary>();
 
 		const viewerProfile = await requireProfile(ctx, identity.subject);
-		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
-		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
-		if (!activeMemberships.length) {
-			return [];
-		}
-
-		const readableClubIds: Array<Id<'clubs'>> = [];
-		for (const membership of activeMemberships) {
-			const role = await ctx.db.get(membership.roleId);
-			if (role?.permissions.includes('project:read')) {
-				readableClubIds.push(membership.clubId);
-			}
-		}
+		const readableClubIdSet = await resolveReadableClubIdSet(ctx, viewerProfile);
+		const readableClubIds = [...readableClubIdSet];
 		if (!readableClubIds.length) {
 			return [];
 		}
@@ -781,7 +779,7 @@ export const listMine = query({
 
 			const update = await ctx.db.get(row.updateId);
 			// PRD 6.14.4 (CL-730): taken-down updates disappear from the profile's own updates list.
-			if (!update || update.takedown || update.createdByProfileId !== viewerProfile._id) continue;
+			if (!update || !isUpdateVisible(update) || update.createdByProfileId !== viewerProfile._id) continue;
 
 			const club = await ctx.db.get(row.clubId);
 			const projectId = row.projectId ?? update.projectId ?? null;
@@ -829,20 +827,7 @@ export const getViewerAuthorDeliveryAssets = query({
 		const limit = args.limit ?? 50;
 
 		const viewerProfile = await requireProfile(ctx, identity.subject);
-		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
-		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
-		if (!activeMemberships.length) {
-			return [];
-		}
-
-		const readableClubIdSet = new Set<Id<'clubs'>>();
-		for (const membership of activeMemberships) {
-			const role = await ctx.db.get(membership.roleId);
-			if (role?.permissions.includes('project:read')) {
-				readableClubIdSet.add(membership.clubId);
-			}
-		}
-
+		const readableClubIdSet = await resolveReadableClubIdSet(ctx, viewerProfile);
 		const readableClubIds = [...readableClubIdSet];
 		if (!readableClubIds.length) {
 			return [];
@@ -923,20 +908,7 @@ export const getViewerUpdateMediaDeliveryAssets = query({
 		const limit = args.limit ?? 50;
 
 		const viewerProfile = await requireProfile(ctx, identity.subject);
-		const memberships = await listMembershipsForProfile(ctx, viewerProfile);
-		const activeMemberships = memberships.filter((membership) => !membership.leftAt);
-		if (!activeMemberships.length) {
-			return [];
-		}
-
-		const readableClubIdSet = new Set<Id<'clubs'>>();
-		for (const membership of activeMemberships) {
-			const role = await ctx.db.get(membership.roleId);
-			if (role?.permissions.includes('project:read')) {
-				readableClubIdSet.add(membership.clubId);
-			}
-		}
-
+		const readableClubIdSet = await resolveReadableClubIdSet(ctx, viewerProfile);
 		const readableClubIds = [...readableClubIdSet];
 		if (!readableClubIds.length) {
 			return [];

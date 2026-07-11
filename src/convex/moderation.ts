@@ -210,102 +210,140 @@ const markReportsActionedForTarget = async (
 	}
 };
 
-export const takedownUpdate = mutation({
-	args: { updateId: v.id('updates'), reason: v.optional(v.string()) },
-	handler: async (ctx, args) => {
-		const admin = await requireAdminProfile(ctx);
-		const update = await ctx.db.get(args.updateId);
-		if (!update) {
-			throw new ConvexError('Update not found');
-		}
-		if (update.takedown) {
-			return { ok: true as const };
-		}
+// Shared shape for the takedown/removal stamp written to `updates.takedown`,
+// `updateComments.takedown`, `projects.takedown`, and `messages.removedByModeration` — all four
+// tables use the identical { byProfileId, at, reason } object (see schema.ts), just under two
+// different field names ('takedown' vs. the messages table's 'removedByModeration').
+type TakedownStamp = { byProfileId: Id<'profiles'>; at: number; reason?: string };
+type Takedownable = { _id: string; takedown?: TakedownStamp; removedByModeration?: TakedownStamp };
 
-		await ctx.db.patch(update._id, {
-			takedown: { byProfileId: admin._id, at: Date.now(), reason: args.reason?.trim() || undefined }
-		});
-		await recordAction(ctx, admin._id, 'takedown_update', 'update', update._id, args.reason);
-		await markReportsActionedForTarget(ctx, 'project_update', update._id, admin._id);
+// Generic backbone for the four admin "take this content down" mutations below: fetch the
+// entity, no-op if it's already taken down, stamp the takedown/removal field, record the
+// moderation action, and mark any matching open report(s) as actioned. Parameterized by table +
+// field name + targetType/action so each public mutation stays a thin wrapper around its own
+// argument validator and entity type.
+const applyTakedown = async <TableName extends 'updates' | 'updateComments' | 'projects' | 'messages'>(
+	ctx: MutationCtx,
+	config: {
+		table: TableName;
+		id: Id<TableName>;
+		field: 'takedown' | 'removedByModeration';
+		notFoundMessage: string;
+		// `moderationActions.targetType` and `reports.targetType` are two DIFFERENT string unions
+		// (see schema.ts) that happen to share some literals — e.g. an update's takedown is
+		// recorded as moderationActions targetType 'update' but resolves 'project_update' reports.
+		// Kept as separate config fields (rather than one shared `targetType`) so each is checked
+		// against its own union instead of silently widening to `string`.
+		action: Doc<'moderationActions'>['action'];
+		moderationTargetType: Doc<'moderationActions'>['targetType'];
+		// null when this content type has no corresponding `reports.targetType` of its own (e.g.
+		// projects — reports only ever target a project's *updates* as 'project_update', never
+		// the project itself), so the generic report-resolution step is skipped.
+		reportTargetType: Doc<'reports'>['targetType'] | null;
+		reason?: string;
+		// takedownProject's extra step: resolve every open report against the project's own
+		// updates too, since 'project_update' reports carry an *update* id as their targetId,
+		// never a project id (see the doc comment on the call site below).
+		afterTakedown?: (ctx: MutationCtx, admin: Doc<'profiles'>) => Promise<void>;
+	}
+) => {
+	const admin = await requireAdminProfile(ctx);
+	const entity = (await ctx.db.get(config.id)) as Takedownable | null;
+	if (!entity) {
+		throw new ConvexError(config.notFoundMessage);
+	}
+	if (entity[config.field]) {
 		return { ok: true as const };
 	}
+
+	await ctx.db.patch(config.id, {
+		[config.field]: {
+			byProfileId: admin._id,
+			at: Date.now(),
+			reason: config.reason?.trim() || undefined
+		}
+	} as Partial<Doc<TableName>>);
+	await recordAction(ctx, admin._id, config.action, config.moderationTargetType, entity._id, config.reason);
+	if (config.reportTargetType) {
+		await markReportsActionedForTarget(ctx, config.reportTargetType, entity._id, admin._id);
+	}
+	if (config.afterTakedown) {
+		await config.afterTakedown(ctx, admin);
+	}
+	return { ok: true as const };
+};
+
+export const takedownUpdate = mutation({
+	args: { updateId: v.id('updates'), reason: v.optional(v.string()) },
+	handler: (ctx, args) =>
+		applyTakedown(ctx, {
+			table: 'updates',
+			id: args.updateId,
+			field: 'takedown',
+			notFoundMessage: 'Update not found',
+			action: 'takedown_update',
+			moderationTargetType: 'update',
+			reportTargetType: 'project_update',
+			reason: args.reason
+		})
 });
 
 export const takedownComment = mutation({
 	args: { commentId: v.id('updateComments'), reason: v.optional(v.string()) },
-	handler: async (ctx, args) => {
-		const admin = await requireAdminProfile(ctx);
-		const comment = await ctx.db.get(args.commentId);
-		if (!comment) {
-			throw new ConvexError('Comment not found');
-		}
-		if (comment.takedown) {
-			return { ok: true as const };
-		}
-
-		await ctx.db.patch(comment._id, {
-			takedown: { byProfileId: admin._id, at: Date.now(), reason: args.reason?.trim() || undefined }
-		});
-		await recordAction(ctx, admin._id, 'takedown_comment', 'comment', comment._id, args.reason);
-		await markReportsActionedForTarget(ctx, 'comment', comment._id, admin._id);
-		return { ok: true as const };
-	}
+	handler: (ctx, args) =>
+		applyTakedown(ctx, {
+			table: 'updateComments',
+			id: args.commentId,
+			field: 'takedown',
+			notFoundMessage: 'Comment not found',
+			action: 'takedown_comment',
+			moderationTargetType: 'comment',
+			reportTargetType: 'comment',
+			reason: args.reason
+		})
 });
 
 export const takedownProject = mutation({
 	args: { projectId: v.id('projects'), reason: v.optional(v.string()) },
-	handler: async (ctx, args) => {
-		const admin = await requireAdminProfile(ctx);
-		const project = await ctx.db.get(args.projectId);
-		if (!project) {
-			throw new ConvexError('Project not found');
-		}
-		if (project.takedown) {
-			return { ok: true as const };
-		}
-
-		await ctx.db.patch(project._id, {
-			takedown: { byProfileId: admin._id, at: Date.now(), reason: args.reason?.trim() || undefined }
-		});
-		await recordAction(ctx, admin._id, 'takedown_project', 'project', project._id, args.reason);
-		// 'project_update' reports carry an *update* id as their targetId (see takedownUpdate
-		// above), never a project id — so taking down a project must resolve every open report
-		// against that project's updates, not one (nonexistent) report keyed by the project id
-		// itself.
-		const projectUpdates = await ctx.db
-			.query('updates')
-			.withIndex('by_project', (q) => q.eq('projectId', project._id))
-			.collect();
-		for (const update of projectUpdates) {
-			await markReportsActionedForTarget(ctx, 'project_update', update._id, admin._id);
-		}
-		return { ok: true as const };
-	}
+	handler: (ctx, args) =>
+		applyTakedown(ctx, {
+			table: 'projects',
+			id: args.projectId,
+			field: 'takedown',
+			notFoundMessage: 'Project not found',
+			action: 'takedown_project',
+			moderationTargetType: 'project',
+			reportTargetType: null,
+			reason: args.reason,
+			// 'project_update' reports carry an *update* id as their targetId (see takedownUpdate
+			// above), never a project id — so taking down a project must resolve every open report
+			// against that project's updates, not one (nonexistent) report keyed by the project id
+			// itself.
+			afterTakedown: async (ctx, admin) => {
+				const projectUpdates = await ctx.db
+					.query('updates')
+					.withIndex('by_project', (q) => q.eq('projectId', args.projectId))
+					.collect();
+				for (const update of projectUpdates) {
+					await markReportsActionedForTarget(ctx, 'project_update', update._id, admin._id);
+				}
+			}
+		})
 });
 
 export const takedownMessage = mutation({
 	args: { messageId: v.id('messages'), reason: v.optional(v.string()) },
-	handler: async (ctx, args) => {
-		const admin = await requireAdminProfile(ctx);
-		const message = await ctx.db.get(args.messageId);
-		if (!message) {
-			throw new ConvexError('Message not found');
-		}
-		if (message.removedByModeration) {
-			return { ok: true as const };
-		}
-
-		await ctx.db.patch(message._id, {
-			removedByModeration: {
-				byProfileId: admin._id,
-				at: Date.now(),
-				reason: args.reason?.trim() || undefined
-			}
-		});
-		await recordAction(ctx, admin._id, 'takedown_message', 'message', message._id, args.reason);
-		await markReportsActionedForTarget(ctx, 'chat_message', message._id, admin._id);
-		return { ok: true as const };
-	}
+	handler: (ctx, args) =>
+		applyTakedown(ctx, {
+			table: 'messages',
+			id: args.messageId,
+			field: 'removedByModeration',
+			notFoundMessage: 'Message not found',
+			action: 'takedown_message',
+			moderationTargetType: 'message',
+			reportTargetType: 'chat_message',
+			reason: args.reason
+		})
 });
 
 export const dismissFlaggedMedia = mutation({
@@ -434,7 +472,7 @@ export const searchUsers = query({
 // ---------------------------------------------------------------------------
 
 // No name index exists on `clubs` (see schema.ts) — this is a small-table scan-and-filter, which
-// is fine at current data volume and matches `admin.getOverviewCounts`'s existing precedent of
+// is fine at current data volume and matches `admin.getDashboardOverview`'s existing precedent of
 // `.collect()`-ing whole tables for admin-only reads.
 export const searchClubs = query({
 	args: { namePrefix: v.string() },
