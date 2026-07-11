@@ -102,8 +102,9 @@ const multiMediaFieldDefinitions = {
 			maxBytes: HUNDRED_MB,
 			enableCompression: true,
 			enableSafetyScreening: true
-		},
-		maxDurationSeconds: TWO_MINUTES_SECONDS
+		}
+		// CEO ruling (CL-685, 2026-07-11): general uploads are capped by file SIZE only; the
+		// 2-minute duration cap applies solely to the club application video (`clubVideo`).
 	}
 } as const satisfies Record<string, MultiMediaFieldDefinition>;
 
@@ -505,7 +506,7 @@ export type MultiMediaItem = {
  * Manages a capped list of independently-uploading media items (mixed images/videos) for
  * composers that need several attachments in one submission (e.g. the update composer), unlike
  * `MediaFieldController` which only ever tracks a single file. Each item uploads as soon as it's
- * added (compression for images, the 2-min duration check for videos — same mechanics as
+ * added (compression for images, the size cap for videos — same mechanics as
  * `MediaFieldController`), so by the time the caller submits, `readyAssetIds` is generally
  * already populated; `ensureAllUploaded` is there for the caller to await stragglers.
  */
