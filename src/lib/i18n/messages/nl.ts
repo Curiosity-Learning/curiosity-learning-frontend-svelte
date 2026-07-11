@@ -652,7 +652,13 @@ const nl = {
 		messageSearchPlaceholder: 'Zoek berichten',
 		messageSearchToggle: 'Zoeken in dit gesprek',
 		messageSearchNoMatches: 'Geen geladen berichten komen overeen met je zoekopdracht.',
-		messageSearchLoadedOnly: 'Zoekt alleen in geladen berichten — scrol omhoog om oudere te laden.'
+		messageSearchLoadedOnly: 'Zoekt alleen in geladen berichten — scrol omhoog om oudere te laden.',
+		membersDialogTitle: 'Chatleden',
+		membersDialogTrigger: 'Bekijk chatleden',
+		membersCountLabel: '{count} leden',
+		actionNeededBadge: 'Actie vereist',
+		openBadge: 'Open',
+		closedBadge: 'Gesloten'
 	},
 	suspendedScreen: {
 		title: 'Je account is geschorst',
@@ -679,6 +685,10 @@ const nl = {
 		reportIssueAction: 'Probleem melden'
 	},
 	joinRequestChat: {
+		pendingBannerTitle: 'Nieuw lidmaatschapsverzoek van {name}',
+		pendingBannerDescription: 'Bekijk dit verzoek en beslis hieronder.',
+		pendingRequesterBannerTitle: 'Je lidmaatschapsverzoek is in behandeling',
+		pendingRequesterBannerDescription: 'Een Guide beoordeelt je verzoek. Je kunt het op elk moment annuleren.',
 		acceptButton: 'Accepteren',
 		declineButton: 'Afwijzen',
 		cancelButton: 'Verzoek annuleren',
@@ -718,6 +728,24 @@ const nl = {
 		rejectedDescription: 'Deze aanvraag is deze keer niet geaccepteerd.',
 		finalizedLabel: 'Club live',
 		finalizedDescription: 'Je club is aangemaakt.'
+	},
+	joinRequestStatus: {
+		pendingLabel: 'In behandeling',
+		pendingDescription: 'Guides beoordelen je verzoek om lid te worden.',
+		acceptedLabel: 'Geaccepteerd',
+		acceptedDescription: 'Je verzoek om lid te worden is geaccepteerd.',
+		declinedLabel: 'Afgewezen',
+		declinedDescription: 'Je verzoek om lid te worden is niet geaccepteerd.',
+		cancelledLabel: 'Geannuleerd',
+		cancelledDescription: 'Je hebt dit lidmaatschapsverzoek geannuleerd.'
+	},
+	noClubApplications: {
+		cardDescription: 'Verzoeken om lid te worden van een club en aanvragen om een club te starten.',
+		emptyState: 'Je hebt nog geen lidmaatschapsverzoek of Start Club-aanvraag ingediend.',
+		openChat: 'Open chat',
+		resumeApplication: 'Aanvraag hervatten',
+		startKindLabel: 'Start Club-aanvraag',
+		joinKindLabel: 'Lidmaatschapsverzoek'
 	},
 	applicationChat: {
 		cancel: 'Annuleren',

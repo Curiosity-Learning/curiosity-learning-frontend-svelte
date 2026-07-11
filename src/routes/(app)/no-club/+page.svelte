@@ -4,6 +4,7 @@
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import RocketIcon from '@lucide/svelte/icons/rocket';
 	import UsersRoundIcon from '@lucide/svelte/icons/users-round';
+	import type { Id } from '$convex/_generated/dataModel';
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardDescription, CardTitle } from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
@@ -14,8 +15,47 @@
 	import { _ } from '$lib/i18n';
 	import myClubImage from '$lib/assets/images/my_club.png';
 
+	// CL-690 CEO review item F: "Applications" must surface BOTH requests to join an existing club
+	// and applications to start a new one — previously only Start Club applications were listed, so
+	// a user who requested to join a club had no way back to that request's chat from here.
+	type ApplicationListItem = {
+		kind: 'start' | 'join';
+		key: string;
+		title: string;
+		location: string | null;
+		status: string;
+		createdAt: number;
+		roomId: Id<'rooms'> | null;
+	};
+
 	const applicationsResponse = useStableQuery(api.clubApplications.listMyApplications, {});
-	let applications = $derived(applicationsResponse.data ?? []);
+	const joinRequestsResponse = useStableQuery(api.joinRequests.listMyJoinRequests, {});
+	let isLoading = $derived(applicationsResponse.isLoading || joinRequestsResponse.isLoading);
+	let applicationItems = $derived.by((): ApplicationListItem[] => {
+		const startApplications = (applicationsResponse.data ?? []).map(
+			(application): ApplicationListItem => ({
+				kind: 'start',
+				key: `start-${application._id}`,
+				title: application.name,
+				location: application.location ?? null,
+				status: application.status,
+				createdAt: application.createdAt,
+				roomId: application.roomId ?? null
+			})
+		);
+		const joinRequestItems = (joinRequestsResponse.data ?? []).map(
+			(joinRequest): ApplicationListItem => ({
+				kind: 'join',
+				key: `join-${joinRequest.joinRequestId}`,
+				title: joinRequest.clubName,
+				location: null,
+				status: joinRequest.status,
+				createdAt: joinRequest.createdAt,
+				roomId: joinRequest.roomId
+			})
+		);
+		return [...startApplications, ...joinRequestItems].sort((a, b) => b.createdAt - a.createdAt);
+	});
 	const applicationStatusLabel = (status: string) => {
 		switch (status) {
 			case 'incomplete':
@@ -48,6 +88,38 @@
 				return $_('applicationStatus.pendingDescription');
 		}
 	};
+	const joinRequestStatusLabel = (status: string) => {
+		switch (status) {
+			case 'accepted':
+				return $_('joinRequestStatus.acceptedLabel');
+			case 'declined':
+				return $_('joinRequestStatus.declinedLabel');
+			case 'cancelled':
+				return $_('joinRequestStatus.cancelledLabel');
+			default:
+				return $_('joinRequestStatus.pendingLabel');
+		}
+	};
+	const joinRequestStatusDescription = (status: string) => {
+		switch (status) {
+			case 'accepted':
+				return $_('joinRequestStatus.acceptedDescription');
+			case 'declined':
+				return $_('joinRequestStatus.declinedDescription');
+			case 'cancelled':
+				return $_('joinRequestStatus.cancelledDescription');
+			default:
+				return $_('joinRequestStatus.pendingDescription');
+		}
+	};
+	const itemStatusLabel = (item: ApplicationListItem) =>
+		item.kind === 'start' ? applicationStatusLabel(item.status) : joinRequestStatusLabel(item.status);
+	const itemStatusDescription = (item: ApplicationListItem) =>
+		item.kind === 'start'
+			? applicationStatusDescription(item.status)
+			: joinRequestStatusDescription(item.status);
+	const itemKindLabel = (item: ApplicationListItem) =>
+		item.kind === 'start' ? $_('noClubApplications.startKindLabel') : $_('noClubApplications.joinKindLabel');
 	const applicationDateLabel = (timestamp: number | undefined) => {
 		if (!timestamp) return null;
 		return new Date(timestamp).toLocaleDateString(undefined, {
@@ -115,56 +187,53 @@
 				</div>
 				<div class="min-w-0">
 					<CardTitle>Applications</CardTitle>
-					<CardDescription>Your Start Club requests</CardDescription>
+					<CardDescription>{$_('noClubApplications.cardDescription')}</CardDescription>
 				</div>
 			</div>
 			<div class="flex flex-col gap-3">
-				{#if applicationsResponse.isLoading}
+				{#if isLoading}
 					<LoadingState variant="inline" size="sm" label="Loading your applications" />
-				{:else if applications.length > 0}
+				{:else if applicationItems.length > 0}
 					<div class="flex flex-col divide-y divide-border/70">
-						{#each applications as application (application._id)}
+						{#each applicationItems as item (item.key)}
 							<div class="py-3 first:pt-0 last:pb-0">
 								<div class="flex items-start justify-between gap-3">
 									<div class="min-w-0">
-										<p class="type-body-bold truncate text-foreground">{application.name}</p>
-										{#if application.location}
+										<p class="type-body-bold truncate text-foreground">{item.title}</p>
+										<p class="type-sm text-muted-foreground">{itemKindLabel(item)}</p>
+										{#if item.location}
 											<p class="type-sm flex items-center gap-1 text-muted-foreground">
 												<MapPinIcon class="size-3.5 shrink-0" />
-												<span class="truncate">{application.location}</span>
+												<span class="truncate">{item.location}</span>
 											</p>
 										{/if}
-										{#if applicationDateLabel(application.createdAt)}
+										{#if applicationDateLabel(item.createdAt)}
 											<p class="type-sm text-muted-foreground">
-												Submitted {applicationDateLabel(application.createdAt)}
+												Submitted {applicationDateLabel(item.createdAt)}
 											</p>
 										{/if}
 									</div>
 									<Badge variant="outline" class="shrink-0">
-										{applicationStatusLabel(application.status)}
+										{itemStatusLabel(item)}
 									</Badge>
 								</div>
 								<p class="type-sm mt-1 text-muted-foreground">
-									{applicationStatusDescription(application.status)}
+									{itemStatusDescription(item)}
 								</p>
-								{#if application.status === 'incomplete'}
+								{#if item.kind === 'start' && item.status === 'incomplete'}
 									<Button href={routes.newClubStartVideo} variant="outline" class="mt-3 h-9 px-3">
-										Resume application
+										{$_('noClubApplications.resumeApplication')}
 									</Button>
-								{/if}
-								{#if application.status === 'interview' || application.status === 'accepted' || application.status === 'rejected'}
-									<Button href={routes.chat} variant="outline" class="mt-3 h-9 px-3">
-										Open chat
+								{:else if item.roomId}
+									<Button href={`${routes.chat}?room=${item.roomId}`} variant="outline" class="mt-3 h-9 px-3">
+										{$_('noClubApplications.openChat')}
 									</Button>
 								{/if}
 							</div>
 						{/each}
 					</div>
 				{:else}
-					<EmptyState
-						bordered={false}
-						title="You have not submitted a Start Club application yet."
-					/>
+					<EmptyState bordered={false} title={$_('noClubApplications.emptyState')} />
 				{/if}
 			</div>
 		</Card>

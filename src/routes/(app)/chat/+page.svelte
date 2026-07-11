@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import UsersIcon from '@lucide/svelte/icons/users';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { api } from '$convex/_generated/api';
 	import {
@@ -19,7 +20,8 @@
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { Avatar, AvatarFallback } from '$lib/components/ui/avatar';
+	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -28,10 +30,11 @@
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
-	import { _, t } from '$lib/i18n';
+	import { _, formatT, t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
 	import { formatClockTime } from '$lib/domain/date';
 
+	type RoomActionState = 'open' | 'action_needed' | 'closed';
 	type RoomSummary = {
 		roomId: Id<'rooms'>;
 		roomName: string;
@@ -40,6 +43,7 @@
 		lastMessageAt: number;
 		canSend: boolean;
 		sendBlockedReason: 'archived' | 'not_participant' | null;
+		actionState: RoomActionState;
 	};
 	type LocalMessage = {
 		localId: string;
@@ -60,6 +64,9 @@
 		status?: LocalMessage['status'];
 		/** CL-730: set when an admin took this message down from the moderation queue. */
 		removedByModeration?: boolean;
+		/** CL-695/725 CEO review item B: sender attribution, shown for inbound messages only. */
+		senderName?: string | null;
+		senderAvatarUrl?: string | null;
 	};
 	type ScrollAnchor = {
 		key: string;
@@ -164,6 +171,22 @@
 	let rejectNote = $state('');
 	let followUpDialogOpen = $state(false);
 	let followUpReason = $state('');
+
+	// CL-695/725 CEO review item A: chat member overview (header highlight + a "view members"
+	// dialog), backed by chat.getRoomParticipants.
+	const participantsResponse = useStableQuery(api.chat.getRoomParticipants, () =>
+		$session.data && selectedRoomId ? { roomId: selectedRoomId } : 'skip'
+	);
+	let participantsInfo = $derived(participantsResponse.data ?? null);
+	let headerParticipant = $derived(
+		participantsInfo?.primaryProfileId
+			? (participantsInfo.participants.find(
+					(participant) => participant.profileId === participantsInfo?.primaryProfileId
+				) ?? null)
+			: null
+	);
+	let membersDialogOpen = $state(false);
+
 	let serverMessages = $derived(messagesResponse.data?.messages ?? []);
 	let hasMoreMessages = $derived(Boolean(messagesResponse.data?.hasMore));
 	let visibleMessages = $derived.by(() => {
@@ -179,7 +202,9 @@
 				profileId: entry.profileId ?? null,
 				content: entry.removedByModeration ? t('chat.removedByModeration') : entry.content,
 				createdAt: entry._creationTime,
-				removedByModeration: Boolean(entry.removedByModeration)
+				removedByModeration: Boolean(entry.removedByModeration),
+				senderName: entry.senderName ?? null,
+				senderAvatarUrl: entry.senderAvatarUrl ?? null
 			})),
 			...localEntries.map((entry) => ({
 				key: entry.localId,
@@ -290,6 +315,15 @@
 		if (!room) return 'Chat';
 		return room.roomName;
 	};
+
+	// When the room has a clear "other party" (a join request's requester, or an application's
+	// applicant), surface their name/avatar directly in the header instead of the generic room
+	// avatar — this is the concrete fix for "a Guide opens a join request chat and sees zero
+	// information about the requester".
+	let headerAvatarUrl = $derived(headerParticipant?.avatarUrl ?? null);
+	let headerTitleName = $derived(headerParticipant?.name ?? roomDisplayName(activeRoom));
+	let headerSubtitle = $derived(headerParticipant ? roomDisplayName(activeRoom) : null);
+	let hasParticipantsToShow = $derived((participantsInfo?.participants.length ?? 0) > 0);
 
 	const roomPreviewText = (room: RoomSummary) => {
 		const preview = room.lastMessagePreview?.trim();
@@ -575,13 +609,31 @@
 <PageHeaderTitleContent enabled={isMobileDetailView}>
 	<div class="flex min-w-0 items-center gap-3">
 		<Avatar class="size-8 shrink-0 bg-gray-200">
+			{#if headerAvatarUrl}
+				<AvatarImage src={headerAvatarUrl} alt={headerTitleName} />
+			{/if}
 			<AvatarFallback class="type-caption-bold">
-				{initialsFromName(roomDisplayName(activeRoom))}
+				{initialsFromName(headerTitleName)}
 			</AvatarFallback>
 		</Avatar>
-		<p class="type-h5-bold truncate text-foreground">
-			{roomDisplayName(activeRoom)}
-		</p>
+		<div class="min-w-0">
+			<p class="type-h5-bold truncate text-foreground">
+				{headerTitleName}
+			</p>
+			{#if headerSubtitle}
+				<p class="type-xs truncate text-muted-foreground">{headerSubtitle}</p>
+			{/if}
+		</div>
+		{#if hasParticipantsToShow}
+			<button
+				type="button"
+				class="ml-auto grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+				aria-label={t('chat.membersDialogTrigger')}
+				onclick={() => (membersDialogOpen = true)}
+			>
+				<UsersIcon class="size-4" />
+			</button>
+		{/if}
 	</div>
 </PageHeaderTitleContent>
 <PageBottomNavVisibility hidden={isMobileDetailView} />
@@ -655,6 +707,17 @@
 										<p class="type-sm min-w-0 flex-1 truncate text-muted-foreground">
 											{roomPreviewText(room)}
 										</p>
+										<!-- CL-695/725 CEO review item E: only call out the states worth a glance —
+										nothing rendered for the unremarkable "open, nothing pending" default. -->
+										{#if room.actionState === 'action_needed'}
+											<Badge size="sm" class="shrink-0 border-transparent bg-orange-100 text-orange-700">
+												{$_('chat.actionNeededBadge')}
+											</Badge>
+										{:else if room.actionState === 'closed'}
+											<Badge size="sm" variant="outline" class="shrink-0 text-muted-foreground">
+												{$_('chat.closedBadge')}
+											</Badge>
+										{/if}
 									</div>
 								</div>
 							</button>
@@ -672,15 +735,33 @@
 					}`}
 				>
 					<div class="hidden items-center border-b border-border/60 px-4 py-3 lg:flex">
-						<div class="flex min-w-0 flex-1 items-center gap-4 pr-2">
+						<div class="flex min-w-0 flex-1 items-center gap-3 pr-2">
 							<Avatar class="size-8 shrink-0 bg-gray-200">
+								{#if headerAvatarUrl}
+									<AvatarImage src={headerAvatarUrl} alt={headerTitleName} />
+								{/if}
 								<AvatarFallback class="type-caption-bold">
-									{initialsFromName(roomDisplayName(activeRoom))}
+									{initialsFromName(headerTitleName)}
 								</AvatarFallback>
 							</Avatar>
-							<p class="type-h5-bold truncate text-foreground">
-								{roomDisplayName(activeRoom)}
-							</p>
+							<div class="min-w-0">
+								<p class="type-h5-bold truncate text-foreground">
+									{headerTitleName}
+								</p>
+								{#if headerSubtitle}
+									<p class="type-xs truncate text-muted-foreground">{headerSubtitle}</p>
+								{/if}
+							</div>
+							{#if hasParticipantsToShow}
+								<button
+									type="button"
+									class="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+									aria-label={t('chat.membersDialogTrigger')}
+									onclick={() => (membersDialogOpen = true)}
+								>
+									<UsersIcon class="size-4" />
+								</button>
+							{/if}
 						</div>
 						<div class="relative w-56 shrink-0">
 							<SearchIcon
@@ -706,61 +787,83 @@
 						<div class="flex min-h-full flex-col">
 							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
 								{#if applicationInfo.status === 'pending' && applicationInfo.canDecide}
-									<div class={`flex flex-wrap gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
-										<Button
-											type="button"
-											disabled={applicationActionPending}
-											onclick={() => void moveToInterviewAction()}
-										>
-											{applicationActionPending
-												? $_('applicationChat.movingToInterview')
-												: $_('applicationChat.moveToInterviewButton')}
-										</Button>
-									</div>
+									<!-- CL-695/725 CEO review item D: actions live INSIDE the banner as a compact,
+									low-emphasis row instead of large standalone buttons floating above it. -->
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 										<AlertTitle>{$_('applicationChat.pendingBannerTitle')}</AlertTitle>
 										<AlertDescription>{$_('applicationChat.pendingBannerDescription')}</AlertDescription>
+										<div class="col-start-2 mt-3 flex flex-wrap gap-2">
+											<Button
+												type="button"
+												size="sm"
+												variant="secondary"
+												disabled={applicationActionPending}
+												onclick={() => void moveToInterviewAction()}
+											>
+												{applicationActionPending
+													? $_('applicationChat.movingToInterview')
+													: $_('applicationChat.moveToInterviewButton')}
+											</Button>
+										</div>
 									</Alert>
 								{:else if applicationInfo.status === 'interview' && applicationInfo.canDecide}
-									<div class={`flex flex-wrap gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
-										<Button
-											type="button"
-											disabled={applicationActionPending}
-											onclick={() => void acceptApplicationAction()}
+									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<AlertTitle>{$_('applicationChat.interviewBannerTitle')}</AlertTitle>
+										<AlertDescription
+											>{$_('applicationChat.interviewBannerDescription')}</AlertDescription
 										>
-											{applicationActionPending
-												? $_('applicationChat.accepting')
-												: $_('applicationChat.acceptButton')}
-										</Button>
-										<Button
-											type="button"
-											variant="outline"
-											disabled={applicationActionPending}
-											onclick={openRejectDialog}
-										>
-											{$_('applicationChat.rejectButton')}
-										</Button>
-									</div>
+										<div class="col-start-2 mt-3 flex flex-wrap gap-2">
+											<Button
+												type="button"
+												size="sm"
+												variant="secondary"
+												disabled={applicationActionPending}
+												onclick={() => void acceptApplicationAction()}
+											>
+												{applicationActionPending
+													? $_('applicationChat.accepting')
+													: $_('applicationChat.acceptButton')}
+											</Button>
+											<Button
+												type="button"
+												size="sm"
+												variant="ghost"
+												disabled={applicationActionPending}
+												onclick={openRejectDialog}
+											>
+												{$_('applicationChat.rejectButton')}
+											</Button>
+										</div>
+									</Alert>
 								{:else if applicationInfo.status === 'accepted' && applicationInfo.canDecide}
-									<div class={`flex flex-wrap gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
-										<Button
-											type="button"
-											disabled={applicationActionPending}
-											onclick={() => void confirmOnboardingCallAction()}
+									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<AlertTitle>{$_('applicationChat.acceptedBannerTitle')}</AlertTitle>
+										<AlertDescription
+											>{$_('applicationChat.acceptedBannerDescription')}</AlertDescription
 										>
-											{applicationActionPending
-												? $_('applicationChat.confirmingOnboarding')
-												: $_('applicationChat.confirmOnboardingButton')}
-										</Button>
-										<Button
-											type="button"
-											variant="outline"
-											disabled={applicationActionPending}
-											onclick={openFollowUpDialog}
-										>
-											{$_('applicationChat.flagFollowUpButton')}
-										</Button>
-									</div>
+										<div class="col-start-2 mt-3 flex flex-wrap gap-2">
+											<Button
+												type="button"
+												size="sm"
+												variant="secondary"
+												disabled={applicationActionPending}
+												onclick={() => void confirmOnboardingCallAction()}
+											>
+												{applicationActionPending
+													? $_('applicationChat.confirmingOnboarding')
+													: $_('applicationChat.confirmOnboardingButton')}
+											</Button>
+											<Button
+												type="button"
+												size="sm"
+												variant="ghost"
+												disabled={applicationActionPending}
+												onclick={openFollowUpDialog}
+											>
+												{$_('applicationChat.flagFollowUpButton')}
+											</Button>
+										</div>
+									</Alert>
 									{#if applicationInfo.adminFollowUpFlag}
 										<Alert class={isDesktopViewport ? 'mb-4' : 'mb-4'}>
 											<AlertTitle>{$_('applicationChat.followUpFlaggedBanner')}</AlertTitle>
@@ -805,40 +908,58 @@
 							{:else if activeRoom?.contextType === 'joinRequest' && joinRequestInfo}
 								{#if joinRequestInfo.status === 'pending'}
 									{#if joinRequestInfo.canDecide}
-										<div class={`flex gap-2 ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
-											<Button
-												type="button"
-												disabled={joinRequestActionPending}
-												onclick={() => void acceptJoinRequestAction()}
-											>
-												{joinRequestActionPending
-													? $_('joinRequestChat.accepting')
-													: $_('joinRequestChat.acceptButton')}
-											</Button>
-											<Button
-												type="button"
-												variant="outline"
-												disabled={joinRequestActionPending}
-												onclick={() => void declineJoinRequestAction()}
-											>
-												{joinRequestActionPending
-													? $_('joinRequestChat.declining')
-													: $_('joinRequestChat.declineButton')}
-											</Button>
-										</div>
+										<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+											<AlertTitle>
+												{formatT('joinRequestChat.pendingBannerTitle', {
+													name: joinRequestInfo.requesterName
+												})}
+											</AlertTitle>
+											<AlertDescription>{$_('joinRequestChat.pendingBannerDescription')}</AlertDescription>
+											<div class="col-start-2 mt-3 flex flex-wrap gap-2">
+												<Button
+													type="button"
+													size="sm"
+													variant="secondary"
+													disabled={joinRequestActionPending}
+													onclick={() => void acceptJoinRequestAction()}
+												>
+													{joinRequestActionPending
+														? $_('joinRequestChat.accepting')
+														: $_('joinRequestChat.acceptButton')}
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													variant="ghost"
+													disabled={joinRequestActionPending}
+													onclick={() => void declineJoinRequestAction()}
+												>
+													{joinRequestActionPending
+														? $_('joinRequestChat.declining')
+														: $_('joinRequestChat.declineButton')}
+												</Button>
+											</div>
+										</Alert>
 									{:else if joinRequestInfo.isRequester}
-										<div class={`flex ${isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}`}>
-											<Button
-												type="button"
-												variant="outline"
-												disabled={joinRequestActionPending}
-												onclick={() => void cancelJoinRequestAction()}
+										<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+											<AlertTitle>{$_('joinRequestChat.pendingRequesterBannerTitle')}</AlertTitle>
+											<AlertDescription
+												>{$_('joinRequestChat.pendingRequesterBannerDescription')}</AlertDescription
 											>
-												{joinRequestActionPending
-													? $_('joinRequestChat.cancelling')
-													: $_('joinRequestChat.cancelButton')}
-											</Button>
-										</div>
+											<div class="col-start-2 mt-3 flex">
+												<Button
+													type="button"
+													size="sm"
+													variant="ghost"
+													disabled={joinRequestActionPending}
+													onclick={() => void cancelJoinRequestAction()}
+												>
+													{joinRequestActionPending
+														? $_('joinRequestChat.cancelling')
+														: $_('joinRequestChat.cancelButton')}
+												</Button>
+											</div>
+										</Alert>
 									{/if}
 								{:else}
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
@@ -926,10 +1047,11 @@
 												</p>
 											</div>
 										{:else}
+											{@const isOwnMessage = entry.profileId === viewer.data?._id}
 											<div
 												data-message-key={entry.key}
-												class={`group flex items-center gap-1.5 ${
-													entry.profileId === viewer.data?._id
+												class={`group flex items-end gap-1.5 ${
+													isOwnMessage
 														? isDesktopViewport
 															? 'justify-end'
 															: 'justify-end pl-11'
@@ -938,7 +1060,7 @@
 															: 'justify-start pr-11'
 												}`}
 											>
-												{#if entry.messageId && entry.profileId !== viewer.data?._id}
+												{#if entry.messageId && !isOwnMessage}
 													<span
 														class="opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
 													>
@@ -950,46 +1072,63 @@
 														/>
 													</span>
 												{/if}
-												<div
-													class={`${
-														isDesktopViewport
-															? 'max-w-[85%] rounded-2xl px-3 py-2'
-															: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
-													} ${
-														entry.profileId === viewer.data?._id
-															? 'bg-orange-100 text-foreground'
-															: 'bg-purple-100 text-foreground'
-													}`}
-												>
-													<p
-														class={`break-words ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
-													>
-														{#each linkifySegments(entry.content) as segment, index (index)}
-															{#if segment.type === 'url'}
-																<a
-																	href={segment.value}
-																	target="_blank"
-																	rel="noopener noreferrer"
-																	class="underline underline-offset-2 hover:opacity-80"
-																>
-																	{segment.value}
-																</a>
-															{:else}
-																{segment.value}
-															{/if}
-														{/each}
-													</p>
-													<p
-														class={`text-right text-muted-foreground ${isDesktopViewport ? 'type-sm mt-1' : 'type-caption mt-[2px]'}`}
-													>
-														{#if entry.status === 'sending'}
-															Sending...
-														{:else if entry.status === 'failed'}
-															Failed to send
-														{:else}
-															{formatClockTime(entry.createdAt)}
+												{#if !isOwnMessage}
+													<!-- CL-695/725 CEO review item B: sender attribution on every inbound
+													message, even in a 1:1 chat. Own outgoing messages skip this — obvious. -->
+													<Avatar class="size-6 shrink-0 self-end bg-gray-200">
+														{#if entry.senderAvatarUrl}
+															<AvatarImage src={entry.senderAvatarUrl} alt={entry.senderName ?? ''} />
 														{/if}
-													</p>
+														<AvatarFallback class="text-[0.6rem] type-caption-bold">
+															{initialsFromName(entry.senderName ?? '?')}
+														</AvatarFallback>
+													</Avatar>
+												{/if}
+												<div class="flex min-w-0 flex-col">
+													{#if !isOwnMessage && entry.senderName}
+														<p class="type-xs px-1 text-muted-foreground">{entry.senderName}</p>
+													{/if}
+													<div
+														class={`${
+															isDesktopViewport
+																? 'max-w-[85%] rounded-2xl px-3 py-2'
+																: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
+														} ${
+															isOwnMessage
+																? 'bg-orange-100 text-foreground'
+																: 'bg-purple-100 text-foreground'
+														}`}
+													>
+														<p
+															class={`break-words ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
+														>
+															{#each linkifySegments(entry.content) as segment, index (index)}
+																{#if segment.type === 'url'}
+																	<a
+																		href={segment.value}
+																		target="_blank"
+																		rel="noopener noreferrer"
+																		class="underline underline-offset-2 hover:opacity-80"
+																	>
+																		{segment.value}
+																	</a>
+																{:else}
+																	{segment.value}
+																{/if}
+															{/each}
+														</p>
+														<p
+															class={`text-right text-muted-foreground ${isDesktopViewport ? 'type-sm mt-1' : 'type-caption mt-[2px]'}`}
+														>
+															{#if entry.status === 'sending'}
+																Sending...
+															{:else if entry.status === 'failed'}
+																Failed to send
+															{:else}
+																{formatClockTime(entry.createdAt)}
+															{/if}
+														</p>
+													</div>
 												</div>
 											</div>
 										{/if}
@@ -999,42 +1138,46 @@
 						</div>
 					</div>
 
-					<div
-						class={`shrink-0 bg-white/90 ${
-							isDesktopViewport
-								? 'border-t border-border/60 px-3 pt-2 pb-3 sm:px-4'
-								: 'rounded-[1.1rem] bg-clip-padding shadow-sm ring-1 ring-black/5 [-moz-background-clip:padding]'
-						}`}
-					>
-						<Input
-							bind:ref={messageInputRef}
-							bind:value={message}
-							placeholder="Send a message..."
-							maxlength={MAX_MESSAGE_LENGTH}
-							class={`border-0 bg-clip-padding text-[1.02rem] shadow-none ring-0 [-moz-background-clip:padding] focus-visible:ring-0 ${
-								isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
-							}`}
-							disabled={!selectedRoomId || !activeRoom?.canSend}
-							onkeydown={handleMessageComposerKeydown}
-						/>
+					<!-- CL-695/725 CEO review item C: the composer is removed entirely once sending isn't
+					possible — the banners above already explain why (archived/removed/decided) — rather
+					than staying visible in a disabled state. -->
+					{#if selectedRoomId && activeRoom?.canSend}
 						<div
-							class={`flex items-center justify-end text-muted-foreground ${isDesktopViewport ? 'mt-2' : 'px-4 pt-0.5 pb-1.5'}`}
+							class={`shrink-0 bg-white/90 ${
+								isDesktopViewport
+									? 'border-t border-border/60 px-3 pt-2 pb-3 sm:px-4'
+									: 'rounded-[1.1rem] bg-clip-padding shadow-sm ring-1 ring-black/5 [-moz-background-clip:padding]'
+							}`}
 						>
-							<button
-								type="button"
-								class={`grid size-10 place-items-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-									isDesktopViewport
-										? 'text-orange-500 hover:text-orange-600'
-										: 'text-orange-400 hover:text-orange-500'
+							<Input
+								bind:ref={messageInputRef}
+								bind:value={message}
+								placeholder="Send a message..."
+								maxlength={MAX_MESSAGE_LENGTH}
+								class={`border-0 bg-clip-padding text-[1.02rem] shadow-none ring-0 [-moz-background-clip:padding] focus-visible:ring-0 ${
+									isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
 								}`}
-								disabled={!selectedRoomId || !activeRoom?.canSend || !message.trim()}
-								onclick={() => void sendMessage()}
-								aria-label="Send message"
+								onkeydown={handleMessageComposerKeydown}
+							/>
+							<div
+								class={`flex items-center justify-end text-muted-foreground ${isDesktopViewport ? 'mt-2' : 'px-4 pt-0.5 pb-1.5'}`}
 							>
-								<SendHorizontalIcon class={isDesktopViewport ? 'size-5' : 'size-[1.15rem]'} />
-							</button>
+								<button
+									type="button"
+									class={`grid size-10 place-items-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+										isDesktopViewport
+											? 'text-orange-500 hover:text-orange-600'
+											: 'text-orange-400 hover:text-orange-500'
+									}`}
+									disabled={!message.trim()}
+									onclick={() => void sendMessage()}
+									aria-label="Send message"
+								>
+									<SendHorizontalIcon class={isDesktopViewport ? 'size-5' : 'size-[1.15rem]'} />
+								</button>
+							</div>
 						</div>
-					</div>
+					{/if}
 				</section>
 			{:else}
 				<section
@@ -1103,6 +1246,33 @@
 						: $_('applicationChat.flagFollowUpButton')}
 				</Button>
 			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
+
+	<!-- CL-695/725 CEO review item A: the chat member overview affordance. -->
+	<Dialog.Root bind:open={membersDialogOpen}>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>{$_('chat.membersDialogTitle')}</Dialog.Title>
+			</Dialog.Header>
+			<div class="flex max-h-80 flex-col gap-3 overflow-y-auto">
+				{#each participantsInfo?.participants ?? [] as participant (participant.profileId)}
+					<div class="flex items-center gap-3">
+						<Avatar class="size-9 shrink-0 bg-gray-200">
+							{#if participant.avatarUrl}
+								<AvatarImage src={participant.avatarUrl} alt={participant.name} />
+							{/if}
+							<AvatarFallback class="type-caption-bold">
+								{initialsFromName(participant.name)}
+							</AvatarFallback>
+						</Avatar>
+						<div class="min-w-0">
+							<p class="type-body-bold truncate text-foreground">{participant.name}</p>
+							<p class="type-sm text-muted-foreground">{participant.roleLabel}</p>
+						</div>
+					</div>
+				{/each}
+			</div>
 		</Dialog.Content>
 	</Dialog.Root>
 {/if}

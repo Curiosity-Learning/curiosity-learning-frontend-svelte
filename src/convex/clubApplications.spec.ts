@@ -390,3 +390,91 @@ describe('getApplicationForRoom', () => {
 		).rejects.toThrow('You cannot access this chat');
 	});
 });
+
+// CL-690 CEO review item F: listMyApplications must carry the chat roomId so the no-club page can
+// link straight to the chat instead of the generic chat list.
+describe('listMyApplications', () => {
+	it('reports a null roomId before the chat room exists, then the roomId once created', async () => {
+		const { applicant, applicationId, t } = await seedApplicationFixture();
+
+		const beforeRoom = await applicant.query(api.clubApplications.listMyApplications, {});
+		expect(beforeRoom).toHaveLength(1);
+		expect(beforeRoom[0]).toMatchObject({ _id: applicationId, roomId: null });
+
+		const roomId = await t.run(async (ctx) => {
+			const { ensureClubApplicationRoom } = await import('./chatModel');
+			return await ensureClubApplicationRoom(ctx, applicationId);
+		});
+
+		const afterRoom = await applicant.query(api.clubApplications.listMyApplications, {});
+		expect(afterRoom[0]).toMatchObject({ _id: applicationId, roomId });
+	});
+});
+
+// CL-695/725 CEO review items A and E: the chat member overview and the chat-list
+// open/action-needed/closed badge for clubApplication rooms.
+describe('clubApplication chat overview and action state', () => {
+	it('lists the applicant and reviewers as participants, highlighting the applicant for a reviewer', async () => {
+		const { reviewer, applicant, applicationId, reviewerProfileId, applicantProfileId, t } =
+			await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		const roomId = await t.run(async (ctx) => {
+			const { ensureClubApplicationRoom } = await import('./chatModel');
+			return await ensureClubApplicationRoom(ctx, applicationId);
+		});
+
+		const asReviewer = await reviewer.query(api.chat.getRoomParticipants, { roomId });
+		expect(asReviewer.primaryProfileId).toBe(applicantProfileId);
+		expect(asReviewer.participants).toContainEqual(
+			expect.objectContaining({ profileId: applicantProfileId, roleLabel: 'Applicant' })
+		);
+		expect(asReviewer.participants).toContainEqual(
+			expect.objectContaining({ profileId: reviewerProfileId, roleLabel: 'Reviewer' })
+		);
+
+		const asApplicant = await applicant.query(api.chat.getRoomParticipants, { roomId });
+		expect(asApplicant.primaryProfileId).toBeNull();
+	});
+
+	it('flags actionState as action_needed for the deciding reviewer and open for the waiting applicant', async () => {
+		const { reviewer, applicant, applicationId, reviewerProfileId, t } =
+			await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		const roomId = await t.run(async (ctx) => {
+			const { ensureClubApplicationRoom } = await import('./chatModel');
+			return await ensureClubApplicationRoom(ctx, applicationId);
+		});
+		// Move the application to the interview stage so the reviewer has an active decision to make.
+		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+
+		const reviewerSummaries = await reviewer.query(api.chat.listRoomSummaries, {});
+		const applicantSummaries = await applicant.query(api.chat.listRoomSummaries, {});
+
+		expect(reviewerSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'action_needed' })
+		);
+		expect(applicantSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'open' })
+		);
+	});
+
+	it('flags actionState as closed once rejected', async () => {
+		const { reviewer, applicant, applicationId, reviewerProfileId, t } =
+			await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		const roomId = await t.run(async (ctx) => {
+			const { ensureClubApplicationRoom } = await import('./chatModel');
+			return await ensureClubApplicationRoom(ctx, applicationId);
+		});
+		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await reviewer.mutation(api.clubApplications.decideApplication, {
+			applicationId,
+			decision: 'rejected'
+		});
+
+		const applicantSummaries = await applicant.query(api.chat.listRoomSummaries, {});
+		expect(applicantSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'closed' })
+		);
+	});
+});

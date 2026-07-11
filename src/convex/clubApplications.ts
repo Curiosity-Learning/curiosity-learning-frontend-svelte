@@ -331,17 +331,30 @@ export const getMyIncompleteApplication = query({
 	}
 });
 
+// CL-690 CEO review item F: enriched with the application's chat roomId (null until submission
+// creates one — see ensureClubApplicationRoom in submitApplication) so the no-club page can link
+// straight to the chat instead of just the generic chat list.
 export const listMyApplications = query({
 	args: {},
 	returns: v.any(),
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		return await ctx.db
+		const applications = await ctx.db
 			.query('clubApplications')
 			.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', profile._id))
 			.order('desc')
 			.collect();
+
+		const result = [];
+		for (const application of applications) {
+			const room = await ctx.db
+				.query('rooms')
+				.withIndex('by_club_application_id', (q) => q.eq('clubApplicationId', application._id))
+				.first();
+			result.push({ ...application, roomId: room?._id ?? null });
+		}
+		return result;
 	}
 });
 

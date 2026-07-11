@@ -1,11 +1,64 @@
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
+import { resolveMediaAssetFileUrl } from './mediaStorage';
 import { hasPermissionForProfile } from './permissions';
 import { isProjectArchived, listAttributedClubIds } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 export type SendBlockedReason = 'archived' | 'not_participant' | null;
 export type RoomAccess = { canRead: boolean; canSend: boolean; sendBlockedReason: SendBlockedReason };
+// CL-695/725 CEO review: a chat's actionable state for the chat-list badge (item E).
+// 'action_needed' means the CURRENT viewer specifically has something to decide/do (e.g. a Guide
+// deciding a pending join request, or an applicant with an incomplete application to resume).
+// 'open' means the chat can still be sent in but there's nothing pending on the viewer. 'closed'
+// means sending is no longer possible (decided/archived/removed).
+export type RoomActionState = 'open' | 'action_needed' | 'closed';
+
+// Shared by the chat member-overview affordance (CL-695 CEO review item A) and inbound message
+// sender attribution (item B). Kept local to chat surfaces rather than reusing profiles.ts's
+// private resolveProfileImageUrl, mirroring the existing convention where each file that needs a
+// display name/avatar keeps its own small copy (see joinRequests.ts, clubApplications.ts,
+// moderation.ts, reports.ts).
+export const profileDisplayName = (profile: {
+	firstName?: string;
+	lastName?: string;
+	username?: string;
+}) => {
+	const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim();
+	return fullName || profile.username || 'Someone';
+};
+
+export const resolveProfileAvatarUrl = async (
+	ctx: Ctx,
+	profile: { profileImageMediaAssetId?: Id<'mediaAssets'> }
+): Promise<string | null> => {
+	if (!profile.profileImageMediaAssetId) {
+		return null;
+	}
+	const asset = await ctx.db.get(profile.profileImageMediaAssetId);
+	if (!asset || asset.status !== 'ready' || asset.mediaKind === 'video') {
+		return null;
+	}
+	return resolveMediaAssetFileUrl(asset) ?? null;
+};
+
+export type ChatParticipantSummary = {
+	profileId: Id<'profiles'>;
+	name: string;
+	avatarUrl: string | null;
+	roleLabel: string;
+};
+
+export const summarizeProfileForChat = async (
+	ctx: Ctx,
+	profile: Doc<'profiles'>,
+	roleLabel: string
+): Promise<ChatParticipantSummary> => ({
+	profileId: profile._id,
+	name: profileDisplayName(profile),
+	avatarUrl: await resolveProfileAvatarUrl(ctx, profile),
+	roleLabel
+});
 
 // ---------------------------------------------------------------------------------------------
 // Room access rules (PRD 6.9-6.11 chat surfaces). Shared by `chat.ts` (evaluated for whichever
@@ -164,6 +217,58 @@ export const getRoomAccess = async (
 			return await getClubApplicationAccess(ctx, room.clubApplicationId, profileId);
 		case 'joinRequest':
 			return await getJoinRequestAccess(ctx, room.joinRequestId, profileId);
+	}
+};
+
+// CL-695/725 CEO review item E: lets the chat list show whether a chat is still open, closed, or
+// specifically waiting on THIS viewer to act. Deliberately separate from `getRoomAccess` (which
+// only answers read/send) since a chat can be sendable but not "actionable" (e.g. a requester
+// waiting on a Guide's decision can still send follow-up messages, but nothing is pending on them).
+export const getRoomActionState = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>,
+	profileId: Id<'profiles'>,
+	access: RoomAccess
+): Promise<RoomActionState> => {
+	switch (room.contextType) {
+		case 'club':
+		case 'project':
+			return access.canSend ? 'open' : 'closed';
+		case 'joinRequest': {
+			const joinRequest = await ctx.db.get(room.joinRequestId);
+			if (!joinRequest || joinRequest.status !== 'pending') {
+				return 'closed';
+			}
+			if (joinRequest.requesterProfileId === profileId) {
+				return 'open';
+			}
+			const canDecide = await hasPermissionForProfile(
+				ctx,
+				joinRequest.clubId,
+				profileId,
+				'club_join_request:decide'
+			);
+			return canDecide ? 'action_needed' : 'open';
+		}
+		case 'clubApplication': {
+			const application = await ctx.db.get(room.clubApplicationId);
+			if (!application) {
+				return 'closed';
+			}
+			if (application.status === 'rejected' || application.status === 'finalized') {
+				return 'closed';
+			}
+			if (application.applicantProfileId === profileId) {
+				return application.status === 'incomplete' ? 'action_needed' : 'open';
+			}
+			const review = await ctx.db
+				.query('applicationReviews')
+				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+					q.eq('applicationId', application._id).eq('reviewerProfileId', profileId)
+				)
+				.first();
+			return review ? 'action_needed' : 'open';
+		}
 	}
 };
 

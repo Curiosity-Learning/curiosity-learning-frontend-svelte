@@ -261,6 +261,56 @@ export const getMyJoinRequestForClub = query({
 	}
 });
 
+// CL-690 CEO review item F: the no-club "Applications" area must list requests to JOIN a club
+// alongside applications to START one, each linking to its chat room. Mirrors
+// clubApplications.listMyApplications's shape (roomId alongside the record) so the frontend can
+// combine both lists into one view.
+export const listMyJoinRequests = query({
+	args: {},
+	returns: v.array(
+		v.object({
+			joinRequestId: v.id('joinRequests'),
+			roomId: v.union(v.id('rooms'), v.null()),
+			clubId: v.id('clubs'),
+			clubName: v.string(),
+			status: v.union(
+				v.literal('pending'),
+				v.literal('accepted'),
+				v.literal('declined'),
+				v.literal('cancelled')
+			),
+			createdAt: v.number()
+		})
+	),
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const requests = await ctx.db
+			.query('joinRequests')
+			.withIndex('by_requester_profile_id', (q) => q.eq('requesterProfileId', profile._id))
+			.order('desc')
+			.collect();
+
+		const result = [];
+		for (const request of requests) {
+			const club = await ctx.db.get(request.clubId);
+			const room = await ctx.db
+				.query('rooms')
+				.withIndex('by_join_request_id', (q) => q.eq('joinRequestId', request._id))
+				.first();
+			result.push({
+				joinRequestId: request._id,
+				roomId: room?._id ?? null,
+				clubId: request.clubId,
+				clubName: club?.name ?? 'Club',
+				status: request.status,
+				createdAt: request.createdAt
+			});
+		}
+		return result;
+	}
+});
+
 export const cancelJoinRequest = mutation({
 	args: {
 		joinRequestId: v.id('joinRequests')
