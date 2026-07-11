@@ -191,10 +191,10 @@
 						{displayName}
 					</p>
 					{#if handle}
-						<p class="truncate text-sm text-muted-foreground">{handle}</p>
+						<p class="truncate type-body-compact text-muted-foreground">{handle}</p>
 					{/if}
 					{#if bio}
-						<p class="mt-2 text-[1.03rem] leading-7 text-foreground">{bio}</p>
+						<p class="mt-2 type-lead text-foreground">{bio}</p>
 					{/if}
 				</div>
 				<Avatar class="mt-1 size-20 shrink-0 border border-border/70 sm:size-24">
@@ -209,31 +209,35 @@
 				<div class={statCardClasses}>
 					<div class="flex min-w-0 items-center gap-2">
 						<img src={chessIcon} alt="" class="size-4 shrink-0" aria-hidden="true" />
-						<p class="text-[1.9rem] leading-[2.1rem] font-bold text-purple-700">{updatesCount}</p>
+						<p class="text-[1.9rem] leading-[2.1rem] font-bold text-purple-700 tabular-nums">
+							{updatesCount}
+						</p>
 					</div>
-					<p class="text-sm font-medium text-muted-foreground">Updates</p>
+					<p class="type-body-medium text-muted-foreground">Updates</p>
 				</div>
 				<div class={statCardClasses}>
 					<div class="flex min-w-0 items-center gap-2">
 						<img src={ideaIcon} alt="" class="size-4 shrink-0" aria-hidden="true" />
-						<p class="text-[1.9rem] leading-[2.1rem] font-bold text-purple-700">
+						<p class="text-[1.9rem] leading-[2.1rem] font-bold text-purple-700 tabular-nums">
 							{sessionsAttendedCount}
 						</p>
 					</div>
-					<p class="text-sm font-medium text-muted-foreground">Sessions attended</p>
+					<p class="type-body-medium text-muted-foreground">Sessions attended</p>
 				</div>
 				<div class={statCardClasses}>
 					<div class="flex min-w-0 items-center gap-2">
 						<img src={nodesIcon} alt="" class="size-4 shrink-0" aria-hidden="true" />
-						<p class="text-[1.9rem] leading-[2.1rem] font-bold text-purple-700">{projectsCount}</p>
+						<p class="text-[1.9rem] leading-[2.1rem] font-bold text-purple-700 tabular-nums">
+							{projectsCount}
+						</p>
 					</div>
-					<p class="text-sm font-medium text-muted-foreground">Projects</p>
+					<p class="type-body-medium text-muted-foreground">Projects</p>
 				</div>
 			</div>
 
 			<div class="rounded-xl bg-gray-50 px-3 py-2">
-				<p class="text-xs text-muted-foreground">Curiosity learner since</p>
-				<p class="text-[1.05rem] font-bold text-purple-700">{joinedDateText}</p>
+				<p class="type-sm text-muted-foreground">Curiosity learner since</p>
+				<p class="type-lead-bold text-purple-700 tabular-nums">{joinedDateText}</p>
 			</div>
 
 			{#if reviewableCount !== null}
@@ -245,7 +249,7 @@
 				>
 					<div class="flex min-w-0 items-center gap-2">
 						<ClipboardCheckIcon class="size-5 shrink-0 text-purple-700" />
-						<p class="truncate text-[1.05rem] font-bold text-foreground">Application reviews</p>
+						<p class="truncate type-lead-bold text-foreground">Application reviews</p>
 					</div>
 					{#if reviewableCount > 0}
 						<Badge class="shrink-0 rounded-full bg-orange-500 px-2.5 py-0.5 text-sm text-white">
@@ -263,7 +267,7 @@
 			>
 				<div class="flex min-w-0 items-center gap-2">
 					<MessageSquareTextIcon class="size-5 shrink-0 text-purple-700" />
-					<p class="truncate text-[1.05rem] font-bold text-foreground">
+					<p class="truncate type-lead-bold text-foreground">
 						{t('feedback.entryPointTitle')}
 					</p>
 				</div>
@@ -281,7 +285,7 @@
 				>
 					<div class="flex min-w-0 items-center gap-2">
 						<ShieldIcon class="size-5 shrink-0 text-purple-700" />
-						<p class="truncate text-[1.05rem] font-bold text-foreground">
+						<p class="truncate type-lead-bold text-foreground">
 							{t('admin.profileLinkLabel')}
 						</p>
 					</div>
@@ -290,7 +294,7 @@
 
 			{#if clubs.length > 0}
 				<div class="flex flex-col gap-3">
-					<p class="text-[1.2rem] leading-6 font-bold text-foreground">Current clubs</p>
+					<p class="type-h5-bold text-foreground">Current clubs</p>
 					<div class="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 sm:-mx-5 sm:px-5">
 						{#each clubs as club (club.clubId)}
 							<a
@@ -304,7 +308,7 @@
 										{club.clubName}
 									</p>
 									{#if club.roleName}
-										<p class="text-sm font-medium text-orange-700">{club.roleName}</p>
+										<p class="type-body-medium text-orange-700">{club.roleName}</p>
 									{/if}
 								</div>
 								<div class="flex max-w-full flex-col gap-2">
@@ -344,11 +348,11 @@
 
 	<section class="flex flex-col gap-3">
 		<div class="flex items-center justify-between gap-3">
-			<p class="text-[1.5rem] leading-8 font-bold text-foreground">Updates</p>
+			<p class="type-h4-bold text-foreground">Updates</p>
 		</div>
 		{#if updatesResponse.isLoading && updates.length === 0}
 			<div class="rounded-[1.1rem] border border-border/80 bg-white px-4 py-6 text-center">
-				<p class="text-[1.02rem] text-muted-foreground">Loading updates...</p>
+				<p class="type-lead text-muted-foreground">Loading updates...</p>
 			</div>
 		{:else if updates.length === 0}
 			<EmptyState

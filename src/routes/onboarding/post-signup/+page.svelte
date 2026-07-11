@@ -393,7 +393,7 @@
 					/>
 
 					<div class="flex flex-col gap-3">
-						<p class="type-field-label text-base leading-6 font-bold text-gray-900">
+						<p class="type-field-label text-gray-900">
 							{$_('onboarding.postSignup.profileImageLabel')}
 						</p>
 						<FileDropZone.Root
@@ -441,7 +441,7 @@
 														{$_('onboarding.postSignup.dropOrChooseImage')}
 													{/if}
 												</p>
-												<p class="text-xs text-gray-500">
+												<p class="type-sm text-gray-500">
 													{#if profileImageField.phase === 'processing'}
 														Hang tight while we finish preparing your profile picture.
 													{:else if profileImageField.isReady}
@@ -475,18 +475,18 @@
 							</div>
 						</FileDropZone.Root>
 						{#if profileImageError}
-							<p class="text-sm text-red-700">{profileImageError}</p>
+							<p class="type-body-compact text-red-700">{profileImageError}</p>
 						{:else if profileImageField.phase === 'processing'}
-							<p class="text-sm text-gray-600">Processing your image before you can continue.</p>
+							<p class="type-body-compact text-gray-600">Processing your image before you can continue.</p>
 						{:else if profileImageField.isReady}
-							<p class="text-sm text-emerald-700">Profile picture uploaded and ready.</p>
+							<p class="type-body-compact text-emerald-700">Profile picture uploaded and ready.</p>
 						{/if}
 					</div>
 				</div>
 			{:else}
 				<div class="flex flex-col gap-5">
 					<h1 class="type-step-title text-gray-900">{$_('onboarding.postSignup.pledgesTitle')}</h1>
-					<p class="text-sm leading-6 text-gray-600">
+					<p class="type-body text-gray-600">
 						{$_('onboarding.postSignup.pledgesDescription')}
 					</p>
 
@@ -497,15 +497,15 @@
 									<summary
 										class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3"
 									>
-										<span class="text-sm leading-6 font-bold text-gray-900">{item.title}</span>
+										<span class="type-body-bold text-gray-900">{item.title}</span>
 										<ChevronDownIcon
 											class="size-4 shrink-0 text-gray-500 transition-transform group-open:rotate-180"
 										/>
 									</summary>
 									<div class="flex flex-col gap-3 px-4 pb-4">
-										<p class="text-sm leading-6 text-gray-600">{item.description}</p>
+										<p class="type-body text-gray-600">{item.description}</p>
 										{#if item.bullets.length > 0}
-											<ul class="list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
+											<ul class="type-body list-disc space-y-1 pl-5 text-gray-600">
 												{#each item.bullets as bullet, bulletIndex (bulletIndex)}
 													<li>{bullet}</li>
 												{/each}
@@ -516,13 +516,13 @@
 							{/each}
 						{:else if !pledgesResponse.data}
 							<div
-								class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600"
+								class="type-body-compact rounded-lg border border-gray-200 bg-white px-4 py-3 text-gray-600"
 							>
 								{$_('onboarding.postSignup.pledgesLoading')}
 							</div>
 						{:else}
 							<div
-								class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600"
+								class="type-body-compact rounded-lg border border-gray-200 bg-white px-4 py-3 text-gray-600"
 							>
 								{$_('onboarding.postSignup.pledgesEmpty')}
 							</div>
@@ -533,7 +533,7 @@
 						<Checkbox bind:checked={agreedAll} id="agree-all-post-signup" />
 						<label
 							for="agree-all-post-signup"
-							class="cursor-pointer text-sm leading-6 text-gray-600"
+							class="type-body cursor-pointer text-gray-600"
 						>
 							{$_('onboarding.postSignup.agreeAll')}
 						</label>

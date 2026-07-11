@@ -365,7 +365,7 @@
 					<AvatarFallback>{profileInitials}</AvatarFallback>
 				</Avatar>
 				<div class="flex flex-1 flex-col gap-2">
-					<p class="text-sm font-medium">Profile image</p>
+					<p class="type-body-medium">Profile image</p>
 					<FileDropZone.Root
 						accept={profileImageField.accept}
 						maxFiles={1}
@@ -376,7 +376,7 @@
 					>
 						<FileDropZone.Trigger>
 							<div
-								class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+								class="type-control inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 transition-colors hover:bg-accent hover:text-accent-foreground"
 							>
 								{profileImageField.isBusy ? 'Uploading...' : 'Upload image'}
 							</div>
@@ -402,11 +402,11 @@
 					}}
 				/>
 				{#if checkingUsername}
-					<p class="text-xs text-muted-foreground">Checking availability...</p>
+					<p class="type-sm text-muted-foreground">Checking availability...</p>
 				{:else if usernameAvailable === true}
-					<p class="text-xs text-emerald-600">Username is available.</p>
+					<p class="type-sm text-emerald-600">Username is available.</p>
 				{:else if usernameAvailable === false}
-					<p class="text-xs text-destructive">Username is already taken.</p>
+					<p class="type-sm text-destructive">Username is already taken.</p>
 				{/if}
 			</div>
 			<div class="flex flex-col gap-2 lg:col-span-2">
@@ -442,7 +442,7 @@
 		</CardHeader>
 		<CardContent class="flex flex-col gap-4">
 			{#if !notificationPrefs}
-				<p class="text-sm text-muted-foreground">...</p>
+				<p class="type-body-compact text-muted-foreground">...</p>
 			{:else}
 				{#each notificationToggles as section (section.group)}
 					<div class="flex flex-col gap-2">
@@ -453,7 +453,7 @@
 							>
 								<div class="flex flex-col gap-1">
 									<Label for={`notification-${item.key}`}>{item.label}</Label>
-									<p class="text-sm text-muted-foreground">{item.description}</p>
+									<p class="type-body-compact text-muted-foreground">{item.description}</p>
 								</div>
 								<Switch
 									id={`notification-${item.key}`}
@@ -472,7 +472,7 @@
 					<div
 						class="flex items-start justify-between gap-4 rounded-lg border border-border/70 bg-muted/40 p-3"
 					>
-						<p class="text-sm text-muted-foreground">
+						<p class="type-body-compact text-muted-foreground">
 							{$_('settingsPage.notificationsCriticalDescription')}
 						</p>
 						<Switch checked disabled class="mt-1 shrink-0" />
@@ -496,7 +496,7 @@
 						<div class="flex flex-col">
 							<p class="type-sm-bold text-foreground">{childDisplayName(child)}</p>
 							{#if child.username}
-								<p class="text-sm text-muted-foreground">@{child.username}</p>
+								<p class="type-body-compact text-muted-foreground">@{child.username}</p>
 							{/if}
 						</div>
 						<Button href={routes.childOverview(child.childProfileId)} variant="outline">

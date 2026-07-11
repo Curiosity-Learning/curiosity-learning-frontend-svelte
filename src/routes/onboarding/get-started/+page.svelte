@@ -240,12 +240,12 @@
 	}
 
 	.feature-icon--earth {
-		color: #204b3e;
+		color: var(--green-500);
 		fill: #d8ebe5;
 	}
 
 	.feature-icon--leaf {
-		color: #204b3e;
+		color: var(--green-500);
 		fill: #e3f1d9;
 	}
 

@@ -90,10 +90,10 @@
 						{displayName}
 					</p>
 					{#if handle}
-						<p class="truncate text-sm text-muted-foreground">{handle}</p>
+						<p class="truncate type-body-compact text-muted-foreground">{handle}</p>
 					{/if}
 					{#if bio}
-						<p class="mt-2 text-[1.03rem] leading-7 text-foreground">{bio}</p>
+						<p class="mt-2 type-lead text-foreground">{bio}</p>
 					{/if}
 				</div>
 				<Avatar class="mt-1 size-20 shrink-0 border border-border/70 sm:size-24">
@@ -106,7 +106,7 @@
 
 			{#if clubs.length > 0}
 				<div class="flex flex-col gap-3">
-					<p class="text-[1.2rem] leading-6 font-bold text-foreground">
+					<p class="type-h5-bold text-foreground">
 						{t('profileDetail.clubsTitle')}
 					</p>
 					<div class="flex flex-wrap gap-2">
@@ -137,11 +137,11 @@
 
 	{#snippet sharedClubIndicator()}
 		<span
-			class="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+			class="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
 			title={t('profileDetail.sharedClubIndicatorLabel')}
 			aria-label={t('profileDetail.sharedClubIndicatorLabel')}
 		>
-			<LockIcon class="size-3.5" />
+			<LockIcon class="size-3" />
 		</span>
 	{/snippet}
 
@@ -183,12 +183,12 @@
 	{/snippet}
 
 	<section class="flex flex-col gap-3">
-		<p class="text-[1.5rem] leading-8 font-bold text-foreground">{t('profileDetail.currentTitle')}</p>
+		<p class="type-h4-bold text-foreground">{t('profileDetail.currentTitle')}</p>
 		{@render projectList(currentProjects, t('profileDetail.currentEmpty'))}
 	</section>
 
 	<section class="flex flex-col gap-3">
-		<p class="text-[1.5rem] leading-8 font-bold text-foreground">
+		<p class="type-h4-bold text-foreground">
 			{t('profileDetail.showcaseTitle')}
 		</p>
 		{@render projectList(showcaseProjects, t('profileDetail.showcaseEmpty'))}
@@ -196,11 +196,11 @@
 
 	<section class="flex flex-col gap-3">
 		<div class="flex items-center justify-between gap-3">
-			<p class="text-[1.5rem] leading-8 font-bold text-foreground">{t('profileDetail.updatesTitle')}</p>
+			<p class="type-h4-bold text-foreground">{t('profileDetail.updatesTitle')}</p>
 		</div>
 		{#if profileResponse.isLoading && updates.length === 0}
 			<div class="rounded-[1.1rem] border border-border/80 bg-white px-4 py-6 text-center">
-				<p class="text-[1.02rem] text-muted-foreground">{t('common.loading')}</p>
+				<p class="type-lead text-muted-foreground">{t('common.loading')}</p>
 			</div>
 		{:else if updates.length === 0}
 			<EmptyState
