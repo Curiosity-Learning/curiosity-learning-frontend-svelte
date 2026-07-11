@@ -204,9 +204,11 @@ export const listByClub = query({
 			return args.upcomingOnly ? base.gte('startTime', now) : base;
 		});
 
-		const sessions = args.limit
-			? await queryBuilder.take(args.limit * 2 + 10)
-			: await queryBuilder.collect();
+		// Sessions are club-scoped and bounded in practice, so collect the whole (index-ordered)
+		// set for this club rather than over-fetching a multiple of `limit` — a heavily-cancelled
+		// club could otherwise starve results even though enough non-cancelled sessions exist
+		// further down the index.
+		const sessions = await queryBuilder.collect();
 		const visible = sessions.filter((session) => !session.cancelled);
 		return args.limit ? visible.slice(0, args.limit) : visible;
 	}
@@ -615,9 +617,9 @@ export const listCardPreviewsByClub = query({
 			const base = q.eq('clubId', args.clubId);
 			return args.upcomingOnly ? base.gte('startTime', now) : base;
 		});
-		const rawSessions = args.limit
-			? await queryBuilder.take(args.limit * 2 + 10)
-			: await queryBuilder.collect();
+		// See listByClub above: collect the whole club-scoped (index-ordered) set instead of
+		// over-fetching a multiple of `limit`, so heavy cancellation can't under-return sessions.
+		const rawSessions = await queryBuilder.collect();
 		const visibleSessions = rawSessions.filter((session) => !session.cancelled);
 		const sessions = args.limit ? visibleSessions.slice(0, args.limit) : visibleSessions;
 
@@ -952,20 +954,29 @@ export const sendAttendanceReminderIfUnmarked = internalMutation({
 			day: 'numeric'
 		});
 
-		for (const member of members) {
-			if (member.leftAt) continue;
-			const role = await ctx.db.get(member.roleId);
-			if (role?.key !== 'guide') continue;
+		const activeMembers = members.filter((member) => !member.leftAt);
+		// Roles are a tiny, low-cardinality table — batch the distinct roleIds instead of a
+		// sequential `get` per member.
+		const roleIds = [...new Set(activeMembers.map((member) => member.roleId))];
+		const roleEntries = await Promise.all(roleIds.map((roleId) => ctx.db.get(roleId)));
+		const roleById = new Map(roleEntries.map((role, index) => [roleIds[index], role]));
+		const guideMembers = activeMembers.filter(
+			(member) => roleById.get(member.roleId)?.key === 'guide'
+		);
 
-			await dispatchNotification(ctx, {
-				recipientProfileId: member.profileId,
-				kind: 'attendance_reminder',
-				clubId: session.clubId,
-				title: 'Attendance not recorded',
-				message: `Attendance for the session on ${sessionDateLabel} hasn't been recorded yet.`,
-				url: `/session/${args.sessionId}/attendees`
-			});
-		}
+		// Each notification is independent — fan out concurrently instead of one at a time.
+		await Promise.all(
+			guideMembers.map((member) =>
+				dispatchNotification(ctx, {
+					recipientProfileId: member.profileId,
+					kind: 'attendance_reminder',
+					clubId: session.clubId,
+					title: 'Attendance not recorded',
+					message: `Attendance for the session on ${sessionDateLabel} hasn't been recorded yet.`,
+					url: `/session/${args.sessionId}/attendees`
+				})
+			)
+		);
 	}
 });
 
@@ -996,17 +1007,20 @@ export const sendSessionReminder = internalMutation({
 			.query('clubMembers')
 			.withIndex('by_club', (q) => q.eq('clubId', session.clubId))
 			.collect();
-		for (const member of members) {
-			if (member.leftAt) continue;
-			await dispatchNotification(ctx, {
-				recipientProfileId: member.profileId,
-				kind: 'session_reminder',
-				clubId: session.clubId,
-				title: 'Session tomorrow',
-				message: `Session at ${club?.name ?? 'your club'} starts ${sessionDateLabel} at ${sessionTimeLabel}.`,
-				url: `/session/${args.sessionId}/activities`
-			});
-		}
+		const activeMembers = members.filter((member) => !member.leftAt);
+		// Each notification is independent — fan out concurrently instead of one at a time.
+		await Promise.all(
+			activeMembers.map((member) =>
+				dispatchNotification(ctx, {
+					recipientProfileId: member.profileId,
+					kind: 'session_reminder',
+					clubId: session.clubId,
+					title: 'Session tomorrow',
+					message: `Session at ${club?.name ?? 'your club'} starts ${sessionDateLabel} at ${sessionTimeLabel}.`,
+					url: `/session/${args.sessionId}/activities`
+				})
+			)
+		);
 	}
 });
 

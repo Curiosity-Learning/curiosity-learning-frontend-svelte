@@ -16,6 +16,16 @@ export const requireIdentity = async (ctx: AuthCtx) => {
 
 export const getProfileAuthUserId = (profile: Doc<'profiles'>) => profile.authUserId;
 
+// WARNING: this resolves a profile with NO suspension check — calling it directly bypasses PRD
+// 6.14.7's account-suspension enforcement (see `requireProfile` below, which wraps this with
+// `requireNotSuspended` and is the choke point that enforcement relies on). Mutations/queries that
+// should be blocked for a suspended user MUST go through `requireProfile`, not this function,
+// unless the bypass is deliberate. As of this writing there are exactly two intentional
+// exemptions: `reports.submitReport` (the PRD requires "Report Issue" to stay reachable from the
+// account-suspended screen) and `notifications.unreadCount` (a best-effort badge count that
+// degrades to 0 for a missing/unauthenticated profile rather than throwing, and has no reason to
+// hide the count from a suspended account). Any other direct caller of this function should be
+// treated as a candidate bug, not precedent.
 export const getProfileByAuthUserId = async (ctx: DbCtx, authUserId: string) => {
 	return await ctx.db
 		.query('profiles')

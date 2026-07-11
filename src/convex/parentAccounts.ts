@@ -3,6 +3,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
+import { getRoomAccess, getRoomName } from './chatModel';
 import { requireIdentity, requireProfile } from './permissions';
 import { canViewProject } from './projectsModel';
 
@@ -97,11 +98,15 @@ export const syncParentLinks = mutation({
 		}
 		const normalizedEmail = normalizeEmail(authEmail);
 
-		const approvedConsents = await ctx.db
-			.query('parentChildConsents')
-			.withIndex('by_parent_email', (q) => q.eq('parentEmail', normalizedEmail))
-			.filter((q) => q.eq(q.field('status'), 'approved'))
-			.collect();
+		// `status` isn't part of `by_parent_email`, so the equality check runs as an in-memory
+		// array filter (allowed) over the already-indexed rows rather than a query-level
+		// `.filter()` (a convex_rules.txt violation — it would force a non-indexed scan).
+		const approvedConsents = (
+			await ctx.db
+				.query('parentChildConsents')
+				.withIndex('by_parent_email', (q) => q.eq('parentEmail', normalizedEmail))
+				.collect()
+		).filter((consent) => consent.status === 'approved');
 
 		let linkedCount = 0;
 		for (const consent of approvedConsents) {
@@ -341,9 +346,10 @@ export const getChildOverview = query({
 		// set (same shape as profiles.getById).
 		const authoredUpdates = await ctx.db
 			.query('updates')
-			.withIndex('by_created')
+			.withIndex('by_created_by_profile_and_created', (q) =>
+				q.eq('createdByProfileId', child._id)
+			)
 			.order('desc')
-			.filter((q) => q.eq(q.field('createdByProfileId'), child._id))
 			.take(UPDATES_PREVIEW_LIMIT * 4);
 
 		const updates: Array<{
@@ -397,18 +403,19 @@ export const getChildOverview = query({
 	}
 });
 
-// Re-derives room access using the CHILD's own profile id/authUserId, reusing the same
-// club/project/application/join-request access rules `chat.ts` uses — just evaluated for the
-// child rather than for whichever profile is calling. Duplicated (rather than imported) from
-// `chat.ts` because those helpers are not exported there; kept intentionally minimal (read-only,
-// no send-access computation) since parents can never send as the child.
+// Gathers the rooms the CHILD could plausibly belong to (their club/project memberships, club
+// applications, and join requests), then re-checks each one's `canRead` via `chatModel.ts`'s
+// shared `getRoomAccess` — the SAME club/project/application/join-request access rules `chat.ts`
+// uses, just evaluated against the child's profile id instead of whichever profile is calling.
+// `canSend`/`sendBlockedReason` are irrelevant here and deliberately dropped: a parent viewing
+// through this surface can never send as their child (see the module doc comment above).
 const listChildReadableRoomIds = async (
 	ctx: Ctx,
 	child: Doc<'profiles'>
 ): Promise<Set<Id<'rooms'>>> => {
-	const roomIds = new Set<Id<'rooms'>>();
+	const candidateRooms = new Map<Id<'rooms'>, Doc<'rooms'>>();
 	const addRoom = (room: Doc<'rooms'> | null) => {
-		if (room) roomIds.add(room._id);
+		if (room) candidateRooms.set(room._id, room);
 	};
 
 	const clubMemberships = await ctx.db
@@ -488,23 +495,14 @@ const listChildReadableRoomIds = async (
 		addRoom(joinRequestRoom);
 	}
 
-	return roomIds;
-};
-
-const getRoomName = async (ctx: Ctx, room: Doc<'rooms'>) => {
-	switch (room.contextType) {
-		case 'club':
-			return (await ctx.db.get(room.clubId))?.name ?? 'Club chat';
-		case 'project':
-			return (await ctx.db.get(room.projectId))?.name ?? 'Project chat';
-		case 'clubApplication':
-			return (await ctx.db.get(room.clubApplicationId))?.name ?? 'Club application chat';
-		case 'joinRequest': {
-			const joinRequest = await ctx.db.get(room.joinRequestId);
-			const club = joinRequest ? await ctx.db.get(joinRequest.clubId) : null;
-			return club ? `${club.name} join request` : 'Join request chat';
+	const roomIds = new Set<Id<'rooms'>>();
+	for (const room of candidateRooms.values()) {
+		const access = await getRoomAccess(ctx, room, child._id);
+		if (access.canRead) {
+			roomIds.add(room._id);
 		}
 	}
+	return roomIds;
 };
 
 /** Read-only room list, as visible to the child. No `canSend`/composer affordance at all. */

@@ -245,6 +245,71 @@ describe('sessions.cancel', () => {
 	});
 });
 
+describe('sessions list pagination is resilient to heavy cancellation', () => {
+	// Regression test: listByClub/listCardPreviewsByClub used to over-fetch a fixed multiple of
+	// `limit` (limit*2+10) from the index, filter out cancelled sessions, and only then slice to
+	// `limit` — so a club with more cancelled sessions than that multiple could under-return
+	// results even though enough non-cancelled sessions existed further down the index.
+	const seedManySessions = async (
+		t: Awaited<ReturnType<typeof seedSessionFixture>>['t'],
+		clubId: Awaited<ReturnType<typeof seedSessionFixture>>['clubId'],
+		guideProfileId: Awaited<ReturnType<typeof seedSessionFixture>>['guideProfileId']
+	) => {
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			// 30 cancelled sessions, earliest in the index...
+			for (let i = 0; i < 30; i++) {
+				await ctx.db.insert('sessions', {
+					clubId,
+					startTime: now + i * HOUR,
+					endTime: now + i * HOUR + HOUR,
+					createdByProfileId: guideProfileId,
+					cancelled: true,
+					cancelledAt: now,
+					cancelledByProfileId: guideProfileId,
+					createdAt: now,
+					updatedAt: now
+				});
+			}
+			// ...then 15 non-cancelled sessions after them in the index.
+			for (let i = 30; i < 45; i++) {
+				await ctx.db.insert('sessions', {
+					clubId,
+					startTime: now + i * HOUR,
+					endTime: now + i * HOUR + HOUR,
+					createdByProfileId: guideProfileId,
+					createdAt: now,
+					updatedAt: now
+				});
+			}
+		});
+	};
+
+	it('listByClub still returns `limit` sessions when cancellations outnumber the old over-fetch multiple', async () => {
+		const { t, clubId, guideProfileId } = await seedSessionFixture();
+		await seedManySessions(t, clubId, guideProfileId);
+
+		const listed = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listByClub, { clubId, limit: 10 });
+
+		expect(listed).toHaveLength(10);
+		expect(listed.every((session) => !session.cancelled)).toBe(true);
+	});
+
+	it('listCardPreviewsByClub still returns `limit` previews when cancellations outnumber the old over-fetch multiple', async () => {
+		const { t, clubId, guideProfileId } = await seedSessionFixture();
+		await seedManySessions(t, clubId, guideProfileId);
+
+		const previews = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listCardPreviewsByClub, { clubId, limit: 10 });
+
+		expect(previews).toHaveLength(10);
+		expect(previews.every((entry) => !entry.session.cancelled)).toBe(true);
+	});
+});
+
 describe('sessions.setRsvp', () => {
 	it('allows an active member to RSVP going, then change to not going', async () => {
 		const { t, clubId } = await seedSessionFixture();

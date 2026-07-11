@@ -95,12 +95,13 @@ const getOpenReviewWindowSeason = async (ctx: MutationCtx, now: number) => {
 	);
 };
 
-// Eligible reviewer: active (non-left) Guide-role membership in a non-abandoned club, and not
-// the applicant. A Guide is only counted once even if they Guide multiple clubs.
-const listEligibleReviewerProfileIds = async (
-	ctx: MutationCtx,
-	applicantProfileId: Id<'profiles'>
-): Promise<Id<'profiles'>[]> => {
+// Eligible reviewer pool: active (non-left) Guide-role membership in a non-abandoned club. A
+// Guide is only counted once even if they Guide multiple clubs. The applicant exclusion happens
+// per-application (in-memory) in `assignReviewersForApplication` rather than here, so this whole
+// pool is computed once per assignment run instead of once per pending application — previously
+// this also did a non-indexed `.filter()` over the entire clubMembers table (convex_rules.txt);
+// it now uses the `by_role` index.
+const listEligibleGuideProfileIds = async (ctx: MutationCtx): Promise<Id<'profiles'>[]> => {
 	const guideRole = await ctx.db
 		.query('clubRoles')
 		.withIndex('by_key', (q) => q.eq('key', 'guide'))
@@ -109,19 +110,18 @@ const listEligibleReviewerProfileIds = async (
 
 	const memberships = await ctx.db
 		.query('clubMembers')
-		.filter((q) => q.eq(q.field('roleId'), guideRole._id))
+		.withIndex('by_role', (q) => q.eq('roleId', guideRole._id))
 		.collect();
+	const activeMemberships = memberships.filter((membership) => !membership.leftAt);
+
+	// Independent club lookups, deduped and batched instead of a sequential get per membership.
+	const clubIds = [...new Set(activeMemberships.map((membership) => membership.clubId))];
+	const clubEntries = await Promise.all(clubIds.map((clubId) => ctx.db.get(clubId)));
+	const clubById = new Map(clubEntries.map((club, index) => [clubIds[index], club]));
 
 	const eligible = new Set<Id<'profiles'>>();
-	const clubCache = new Map<Id<'clubs'>, Doc<'clubs'> | null>();
-	for (const membership of memberships) {
-		if (membership.leftAt) continue;
-		if (membership.profileId === applicantProfileId) continue;
-		let club = clubCache.get(membership.clubId);
-		if (club === undefined) {
-			club = await ctx.db.get(membership.clubId);
-			clubCache.set(membership.clubId, club);
-		}
+	for (const membership of activeMemberships) {
+		const club = clubById.get(membership.clubId);
 		if (!club || club.abandonedAt) continue;
 		eligible.add(membership.profileId);
 	}
@@ -152,7 +152,8 @@ const assignReviewersForApplication = async (
 	application: Doc<'clubApplications'>,
 	seasonId: Id<'seasons'>,
 	reviewersPerApplication: number,
-	maxReviewsPerGuidePerSeason: number
+	maxReviewsPerGuidePerSeason: number,
+	eligibleGuideProfileIds: Id<'profiles'>[]
 ) => {
 	const existingAssignments = await ctx.db
 		.query('applicationReviewAssignments')
@@ -162,11 +163,10 @@ const assignReviewersForApplication = async (
 	const needed = reviewersPerApplication - alreadyAssigned.size;
 	if (needed <= 0) return 0;
 
-	const eligibleProfileIds = await listEligibleReviewerProfileIds(
-		ctx,
-		application.applicantProfileId
+	const candidates = eligibleGuideProfileIds.filter(
+		(profileId) =>
+			profileId !== application.applicantProfileId && !alreadyAssigned.has(profileId)
 	);
-	const candidates = eligibleProfileIds.filter((profileId) => !alreadyAssigned.has(profileId));
 
 	const loads = await Promise.all(
 		candidates.map(async (profileId) => ({
@@ -216,6 +216,11 @@ export const assignReviewsForOpenWindow = internalMutation({
 			.withIndex('by_status_and_created_at', (q) => q.eq('status', 'pending'))
 			.collect();
 
+		// Computed once for the whole run — every pending application shares the same eligible
+		// pool (applicant exclusion happens per-application, in-memory), so this no longer
+		// recomputes the full Guide/club scan once per application.
+		const eligibleGuideProfileIds = await listEligibleGuideProfileIds(ctx);
+
 		let applicationsProcessed = 0;
 		let assignmentsCreated = 0;
 		for (const application of pendingApplications) {
@@ -224,7 +229,8 @@ export const assignReviewsForOpenWindow = internalMutation({
 				application,
 				season._id,
 				reviewersPerApplication,
-				maxReviewsPerGuidePerSeason
+				maxReviewsPerGuidePerSeason,
+				eligibleGuideProfileIds
 			);
 			if (created > 0) {
 				applicationsProcessed += 1;
@@ -251,12 +257,14 @@ export const assignReviewsForApplicationIfWindowOpen = async (
 	if (!application || application.status !== 'pending') return;
 
 	const { reviewersPerApplication, maxReviewsPerGuidePerSeason } = await getReviewSettings(ctx);
+	const eligibleGuideProfileIds = await listEligibleGuideProfileIds(ctx);
 	await assignReviewersForApplication(
 		ctx,
 		application,
 		season._id,
 		reviewersPerApplication,
-		maxReviewsPerGuidePerSeason
+		maxReviewsPerGuidePerSeason,
+		eligibleGuideProfileIds
 	);
 };
 

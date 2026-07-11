@@ -140,7 +140,10 @@ export default defineSchema({
 	})
 		.index('by_club', ['clubId'])
 		.index('by_profile', ['profileId'])
-		.index('by_club_and_profile', ['clubId', 'profileId']),
+		.index('by_club_and_profile', ['clubId', 'profileId'])
+		// Used by reviewAssignmentModel.listEligibleGuideProfileIds to find every active
+		// Guide-role membership without a non-indexed `.filter()` over the whole table.
+		.index('by_role', ['roleId']),
 
 	clubApplications: defineTable({
 		applicantProfileId: v.id('profiles'),
@@ -586,6 +589,10 @@ export default defineSchema({
 		// CL-726: the "All" (global-visibility) feed scans all updates newest-first regardless of
 		// project, which `by_project_and_created` can't serve (it requires a projectId prefix).
 		.index('by_created', ['createdAt'])
+		// Used by profiles.getById / parentAccounts (viewing a profile's own authored updates,
+		// newest first) so that query doesn't have to run a non-indexed `.filter()` over
+		// `by_created` (convex_rules.txt).
+		.index('by_created_by_profile_and_created', ['createdByProfileId', 'createdAt'])
 		// PRD 6.16 (CL-731): feed search matches update content. Visibility (project global /
 		// viewer's attributed clubs) and takedowns are re-checked per hit in the search queries.
 		.searchIndex('search_content', { searchField: 'content' }),

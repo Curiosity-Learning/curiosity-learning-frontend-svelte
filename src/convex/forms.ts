@@ -575,6 +575,41 @@ export const sendFeedbackDeadlineReminders = internalMutation({
 		const upcomingDeadlineSeasons = seasons.filter((season) => season.feedbackDeadline >= now);
 		if (upcomingDeadlineSeasons.length === 0) return { remindersSent: 0 };
 
+		// Feedback applies to Curiosity Clubs only — CoC groups have no Guide/Learner feedback
+		// relationship (see listOutstandingFormsForProfile above). Abandoned clubs are already
+		// closed out (their last active membership's leftAt is set alongside abandonedAt — see
+		// clubs.leaveClub/invalidateClubCodes), so excluding them here mirrors the previous
+		// `club.kind === 'coc'` skip's practical effect while avoiding a full clubMembers scan.
+		const curiosityClubs = await ctx.db
+			.query('clubs')
+			.withIndex('by_kind', (q) => q.eq('kind', 'curiosity'))
+			.collect();
+		const activeCuriosityClubs = curiosityClubs.filter((club) => !club.abandonedAt);
+		if (activeCuriosityClubs.length === 0) return { remindersSent: 0 };
+
+		// Per-club indexed lookups (batched) instead of a platform-wide clubMembers scan.
+		const membersByClub = await Promise.all(
+			activeCuriosityClubs.map((club) =>
+				ctx.db
+					.query('clubMembers')
+					.withIndex('by_club', (q) => q.eq('clubId', club._id))
+					.collect()
+			)
+		);
+		const activeMemberships: Array<{ club: Doc<'clubs'>; membership: Doc<'clubMembers'> }> = [];
+		activeCuriosityClubs.forEach((club, index) => {
+			for (const membership of membersByClub[index]) {
+				if (!membership.leftAt) activeMemberships.push({ club, membership });
+			}
+		});
+		if (activeMemberships.length === 0) return { remindersSent: 0 };
+
+		// Roles are a tiny, low-cardinality table (guide/learner) — batch-fetch the distinct
+		// roleIds referenced instead of a sequential `get` per membership.
+		const roleIds = [...new Set(activeMemberships.map(({ membership }) => membership.roleId))];
+		const roleEntries = await Promise.all(roleIds.map((roleId) => ctx.db.get(roleId)));
+		const roleById = new Map(roleEntries.map((role, index) => [roleIds[index], role]));
+
 		let remindersSent = 0;
 
 		for (const season of upcomingDeadlineSeasons) {
@@ -595,14 +630,8 @@ export const sendFeedbackDeadlineReminders = internalMutation({
 				formsByAudience.set(form.audience, list);
 			}
 
-			const clubMembers = await ctx.db.query('clubMembers').collect();
-			const activeClubMembers = clubMembers.filter((member) => !member.leftAt);
-
-			for (const membership of activeClubMembers) {
-				const club = await ctx.db.get(membership.clubId);
-				if (!club || club.kind === 'coc') continue;
-
-				const role = await ctx.db.get(membership.roleId);
+			for (const { club, membership } of activeMemberships) {
+				const role = roleById.get(membership.roleId);
 				if (!role) continue;
 				const audience = role.key === 'guide' ? 'guide' : 'learner';
 				const matchingForms = formsByAudience.get(audience) ?? [];

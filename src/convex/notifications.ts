@@ -1,17 +1,11 @@
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import {
-	internalAction,
-	internalMutation,
-	internalQuery,
-	mutation,
-	query
-} from './_generated/server';
+import { internalAction, internalQuery, mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { notificationEmail } from './email/templates';
-import { requireIdentity, requireProfile } from './permissions';
+import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
 
 export const list = query({
 	args: {},
@@ -70,12 +64,13 @@ export const markAllRead = mutation({
 export const unreadCount = query({
 	args: {},
 	handler: async (ctx) => {
+		// Deliberately NOT `requireProfile` (see its suspension-bypass warning in permissions.ts —
+		// this is one of the two intentional exemptions): an unread-count badge should degrade to
+		// 0 rather than throw for an unauthenticated caller or a profile that doesn't exist yet,
+		// and there's no reason to hide it from a suspended account either.
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) return 0;
-		const profile = await ctx.db
-			.query('profiles')
-			.withIndex('by_auth_user_id', (q) => q.eq('authUserId', identity.subject))
-			.unique();
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) return 0;
 		// Bounded like `list`/`markAllRead`: the UI shows at most 100 notifications.
 		const notifications = await ctx.db
@@ -157,26 +152,5 @@ export const sendNotificationEmail = internalAction({
 		} catch {
 			// Already reported inside sendEmail.
 		}
-	}
-});
-
-export const createSystemNotification = internalMutation({
-	args: {
-		profileId: v.id('profiles'),
-		title: v.string(),
-		message: v.string(),
-		url: v.optional(v.string()),
-		clubId: v.optional(v.id('clubs'))
-	},
-	handler: async (ctx, args) => {
-		return await ctx.db.insert('notifications', {
-			profileId: args.profileId,
-			title: args.title,
-			message: args.message,
-			url: args.url,
-			clubId: args.clubId,
-			isRead: false,
-			createdAt: Date.now()
-		});
 	}
 });

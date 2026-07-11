@@ -667,6 +667,10 @@ const en = {
 		reminderBanner: 'Your feedback for {club} is due.',
 		reminderBannerAction: 'Give feedback',
 		reminderBannerDismiss: 'Dismiss',
+		// Distinct keys from the reminder banner above (even though the copy matches for now) so
+		// the escalation banner's wording can diverge later without touching the reminder phase.
+		escalationBanner: 'Your feedback for {club} is due.',
+		escalationBannerAction: 'Give feedback',
 		escalationModalTitle: 'Your feedback is overdue',
 		escalationModalBody:
 			'Your feedback for {club} is now overdue. Please submit it soon to avoid losing access to the platform.',

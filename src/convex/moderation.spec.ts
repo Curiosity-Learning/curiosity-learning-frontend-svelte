@@ -329,6 +329,36 @@ describe('moderation takedown hides content from member-facing reads', () => {
 		).rejects.toThrow('Permission denied');
 	});
 
+	it('takedownProject marks open reports on the project\'s updates as actioned (not a report keyed by the project id)', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const reporterProfileId = await seedProfile(t, 'reporter');
+		const { projectId, updateId } = await seedProjectWithUpdateAndComment(t);
+
+		// The real-world shape: reports against a project's content always carry the *update* id
+		// (targetType 'project_update'), never the project id itself — there is no 'project'
+		// targetType in the schema.
+		const updateReportId = await t.run((ctx) =>
+			ctx.db.insert('reports', {
+				reporterProfileId,
+				category: 'inappropriate_content',
+				targetType: 'project_update',
+				targetId: updateId,
+				status: 'open',
+				createdAt: Date.now()
+			})
+		);
+
+		await t
+			.withIdentity({ subject: 'admin-user' })
+			.mutation(api.moderation.takedownProject, { projectId });
+
+		const updateReport = await t.run((ctx) => ctx.db.get(updateReportId));
+		expect(updateReport?.status).toBe('actioned');
+		expect(updateReport?.resolvedByProfileId).toBe(adminProfileId);
+	});
+
 	it('takedownMessage sets removedByModeration without deleting the row', async () => {
 		const t = convexTest(schema, modules);
 		const adminProfileId = await seedProfile(t, 'admin-user');

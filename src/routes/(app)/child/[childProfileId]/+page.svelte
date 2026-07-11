@@ -12,6 +12,7 @@
 	import { routes } from '$lib/routes';
 	import { t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
+	import { formatClockTime } from '$lib/domain/date';
 
 	// PRD 2.4/6.1.10 (CL-703): "View as Child" — a DEDICATED READ-ONLY SURFACE, not full app
 	// impersonation (see parentAccounts.ts module header for the full design note). Every query
@@ -60,9 +61,6 @@
 			.map((part) => part[0]?.toUpperCase() ?? '')
 			.join('') || '?'
 	);
-
-	const formatClockTime = (timestamp: number) =>
-		new Date(timestamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
 	const isNotFoundError = (error: unknown) =>
 		error instanceof Error && /access|not found|not accessible/i.test(error.message);

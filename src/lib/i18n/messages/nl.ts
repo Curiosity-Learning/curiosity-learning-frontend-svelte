@@ -664,6 +664,10 @@ const nl = {
 		reminderBanner: 'Je feedback voor {club} moet nog worden ingediend.',
 		reminderBannerAction: 'Feedback geven',
 		reminderBannerDismiss: 'Sluiten',
+		// Distinct keys from the reminder banner above (even though the copy matches for now) so
+		// the escalation banner's wording can diverge later without touching the reminder phase.
+		escalationBanner: 'Je feedback voor {club} moet nog worden ingediend.',
+		escalationBannerAction: 'Feedback geven',
 		escalationModalTitle: 'Je feedback is te laat',
 		escalationModalBody:
 			'Je feedback voor {club} is nu te laat. Dien deze zo snel mogelijk in om je toegang tot het platform te behouden.',

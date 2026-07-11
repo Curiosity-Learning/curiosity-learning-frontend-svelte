@@ -34,8 +34,6 @@ const DAY_LABELS: Record<DayOfWeek, string> = {
 	sunday: 'Sunday'
 };
 
-export const dayOfWeekLabel = (day: DayOfWeek): string => DAY_LABELS[day];
-
 export const pluralizedDayOfWeekLabel = (day: DayOfWeek): string => `${DAY_LABELS[day]}s`;
 
 /**
