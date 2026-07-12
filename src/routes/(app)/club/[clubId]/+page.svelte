@@ -28,7 +28,7 @@
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import noSessionFoundImage from '$lib/assets/images/no_session_found.png';
 	import noProjectsFoundImage from '$lib/assets/images/no_projects_found.png';
-	import noLearnersFoundImage from '$lib/assets/images/no_learners_found.png';
+	import noMembersFoundImage from '$lib/assets/images/no_learners_found.png';
 	import { routes } from '$lib/routes';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -104,10 +104,9 @@
 		() => (clubIdTyped && canReadProjects ? { clubId: clubIdTyped, limit: 6 } : 'skip'),
 		{ cache: 'memory', keepPreviousData: false }
 	);
-	const learnersResponse = useStableQuery(
+	const membersResponse = useStableQuery(
 		api.clubs.getMembers,
-		() =>
-			clubIdTyped && canReadMembers ? { clubId: clubIdTyped, roleKey: 'learner' as const } : 'skip',
+		() => (clubIdTyped && canReadMembers ? { clubId: clubIdTyped } : 'skip'),
 		{ cache: 'memory', keepPreviousData: false }
 	);
 
@@ -117,9 +116,9 @@
 	let canMutateOnline = $derived(canMutateOnlineState.current);
 
 	let visibleProjects = $derived(canReadProjects ? (projectsPreviewResponse.data ?? []) : []);
-	let visibleLearners = $derived(canReadMembers ? (learnersResponse.data ?? []).slice(0, 8) : []);
-	let hiddenLearnersCount = $derived(
-		Math.max((learnersResponse.data?.length ?? 0) - visibleLearners.length, 0)
+	let visibleMembers = $derived(canReadMembers ? (membersResponse.data ?? []).slice(0, 8) : []);
+	let hiddenMembersCount = $derived(
+		Math.max((membersResponse.data?.length ?? 0) - visibleMembers.length, 0)
 	);
 	let sessionsLoading = $derived(
 		Boolean(clubIdTyped && canReadSessions && upcomingSessionCardsResponse.data === undefined)
@@ -127,8 +126,8 @@
 	let projectsLoading = $derived(
 		Boolean(clubIdTyped && canReadProjects && projectsPreviewResponse.data === undefined)
 	);
-	let learnersLoading = $derived(
-		Boolean(clubIdTyped && canReadMembers && learnersResponse.data === undefined)
+	let membersLoading = $derived(
+		Boolean(clubIdTyped && canReadMembers && membersResponse.data === undefined)
 	);
 	let createSessionDialogOpen = $state(false);
 	let createSessionPending = $state(false);
@@ -243,14 +242,14 @@
 		return letters || cleaned.slice(0, 2).toUpperCase();
 	};
 
-	const learnerDisplayName = (learner: {
+	const memberDisplayName = (member: {
 		firstName?: string | null;
 		lastName?: string | null;
 		username?: string | null;
 	}) =>
-		[learner.firstName ?? '', learner.lastName ?? ''].join(' ').trim() ||
-		learner.username ||
-		'Learner';
+		[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+		member.username ||
+		'Member';
 
 	type SignedProfileImageAsset = {
 		assetId: Id<'mediaAssets'>;
@@ -274,7 +273,7 @@
 
 	$effect(() => {
 		mergeSignedProfileImageUrls([
-			...(data.initialLearnerImages ?? []),
+			...(data.initialMemberImages ?? []),
 			...(data.initialProjectPreviewImages ?? []),
 			...(data.initialSessionAttendeeImages ?? [])
 		]);
@@ -284,8 +283,8 @@
 		return assetId ? (signedProfileImageUrls[assetId] ?? null) : null;
 	};
 
-	const learnerImageUrl = (learner: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) =>
-		cachedProfileImageUrl(learner.profileImageMediaAssetId);
+	const clubMemberImageUrl = (member: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) =>
+		cachedProfileImageUrl(member.profileImageMediaAssetId);
 	const previewMemberImageUrl = (member: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) =>
 		cachedProfileImageUrl(member.profileImageMediaAssetId);
 	const attendeeImageUrl = (attendee: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) => {
@@ -570,9 +569,9 @@
 	</section>
 
 	<section class="flex flex-col gap-4">
-		<HomeSectionHeader title="Learners">
+		<HomeSectionHeader title="Members">
 			{#snippet action()}
-				{#if clubId && canReadMembers && visibleLearners.length > 0}
+				{#if clubId && canReadMembers && visibleMembers.length > 0}
 					<HomeActionLink href={`${clubPath}/members`} label="View all" Icon={ArrowRightIcon} />
 				{:else}
 					<InviteLearnerDialog clubCode={clubItem?.clubCode} triggerStyle="link" />
@@ -580,52 +579,49 @@
 			{/snippet}
 		</HomeSectionHeader>
 
-		{#if clubId && canReadMembers && learnersLoading}
-			<LoadingState class="min-h-32 sm:min-h-36" label="Loading learners" />
-		{:else if clubId && canReadMembers && visibleLearners.length > 0}
+		{#if clubId && canReadMembers && membersLoading}
+			<LoadingState class="min-h-32 sm:min-h-36" label="Loading members" />
+		{:else if clubId && canReadMembers && visibleMembers.length > 0}
 			<div class="flex flex-col gap-4">
 				<div class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-					{#each visibleLearners as learner (learner.userId)}
+					{#each visibleMembers as member (member.userId)}
 						<a
-							href={`${clubPath}/members`}
+							href={routes.profileDetail(member.profileId)}
 							class="flex items-center gap-3 rounded-xl px-1 py-1 transition-colors hover:bg-muted/50"
 							data-sveltekit-preload-code="hover"
 							data-sveltekit-preload-data="hover"
 						>
 							<Avatar class="size-12">
-								{#if learnerImageUrl(learner)}
+								{#if clubMemberImageUrl(member)}
 									<AvatarImage
-										src={learnerImageUrl(learner) ?? undefined}
-										alt={learnerDisplayName(learner)}
+										src={clubMemberImageUrl(member) ?? undefined}
+										alt={memberDisplayName(member)}
 									/>
 								{/if}
 								<AvatarFallback class="text-sm font-semibold">
-									{initialsFor(learnerDisplayName(learner))}
+									{initialsFor(memberDisplayName(member))}
 								</AvatarFallback>
 							</Avatar>
 							<div class="min-w-0 flex-1">
-								<p class="type-h6-bold truncate">{learnerDisplayName(learner)}</p>
-								{#if learner.username}
-									<p class="type-sm truncate text-muted-foreground">@{learner.username}</p>
+								<p class="type-h6-bold truncate">{memberDisplayName(member)}</p>
+								{#if member.username}
+									<p class="type-sm truncate text-muted-foreground">@{member.username}</p>
 								{/if}
 							</div>
 						</a>
 					{/each}
 				</div>
-				{#if hiddenLearnersCount > 0}
+				{#if hiddenMembersCount > 0}
 					<div class="self-start">
-						<HomeActionLink
-							href={`${clubPath}/members`}
-							label={`+ ${hiddenLearnersCount} others`}
-						/>
+						<HomeActionLink href={`${clubPath}/members`} label={`+ ${hiddenMembersCount} others`} />
 					</div>
 				{/if}
 			</div>
 		{:else}
 			<HomeEmptyCard
-				title="No learners to interact with"
-				illustrationSrc={noLearnersFoundImage}
-				illustrationAlt="No learners found"
+				title="No members to interact with"
+				illustrationSrc={noMembersFoundImage}
+				illustrationAlt="No members found"
 				centerContent={true}
 				variant="plain"
 				minHeightClass="min-h-44 sm:min-h-48"
