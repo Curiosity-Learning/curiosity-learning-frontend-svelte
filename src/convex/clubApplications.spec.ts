@@ -195,7 +195,9 @@ describe('application decision pipeline', () => {
 		).rejects.toThrow('Only a Guide who reviewed this application can do this');
 	});
 
-	it('accepts an application and notifies the applicant', async () => {
+	// CL-710 CEO review item 3: the interview IS the onboarding call, so accepting now creates the
+	// club inline — there is no more separate confirm-onboarding-call step.
+	it('accepts an application, creates the club immediately, and notifies the applicant', async () => {
 		const { reviewer, applicantProfileId, applicationId, t } = await setupReviewedApplication();
 		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
 
@@ -207,6 +209,23 @@ describe('application decision pipeline', () => {
 		const application = await t.run((ctx) => ctx.db.get(applicationId));
 		expect(application?.status).toBe('accepted');
 		expect(application?.decidedByProfileId).toBeDefined();
+		expect(application?.createdClubId).toBeDefined();
+
+		const applicantProfile = await t.run((ctx) => ctx.db.get(applicantProfileId));
+		expect(applicantProfile?.activeClubId).toBe(application?.createdClubId);
+
+		const membership = await t.run((ctx) =>
+			ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', application!.createdClubId!).eq('profileId', applicantProfileId)
+				)
+				.first()
+		);
+		expect(membership).not.toBeNull();
+
+		const createdClub = await t.run((ctx) => ctx.db.get(application!.createdClubId!));
+		expect(createdClub?.discoverable).toBe(true);
 
 		const notifications = await t.run((ctx) =>
 			ctx.db
@@ -215,6 +234,29 @@ describe('application decision pipeline', () => {
 				.collect()
 		);
 		expect(notifications.some((n) => n.title === 'Application accepted')).toBe(true);
+	});
+
+	it('is idempotent if decideApplication were somehow invoked twice for the same acceptance', async () => {
+		const { reviewer, applicationId, t } = await setupReviewedApplication();
+		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await reviewer.mutation(api.clubApplications.decideApplication, {
+			applicationId,
+			decision: 'accepted'
+		});
+		const clubCountAfterFirstAccept = (await t.run((ctx) => ctx.db.query('clubs').collect()))
+			.length;
+
+		// Once accepted, status is no longer 'interview', so a second decision attempt is rejected
+		// cleanly rather than creating another club (or another Club of Clubs group).
+		await expect(
+			reviewer.mutation(api.clubApplications.decideApplication, {
+				applicationId,
+				decision: 'accepted'
+			})
+		).rejects.toThrow('This application is not awaiting a decision');
+
+		const clubs = await t.run((ctx) => ctx.db.query('clubs').collect());
+		expect(clubs).toHaveLength(clubCountAfterFirstAccept);
 	});
 
 	it('rejects an application, posts the personal note and a system message, and notifies the applicant', async () => {
@@ -255,7 +297,9 @@ describe('application decision pipeline', () => {
 		expect(notifications.some((n) => n.title === 'Application update')).toBe(true);
 	});
 
-	it('makes the chat read-only for the applicant once rejected', async () => {
+	// CL-710 CEO review item 4: the chat stays open (sendable) after a decision — accepted or
+	// rejected — so the applicant can still reach out for support later.
+	it('keeps the chat open and sendable for the applicant once rejected', async () => {
 		const { reviewer, applicant, applicationId, t } = await setupReviewedApplication();
 		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
 		await reviewer.mutation(api.clubApplications.decideApplication, {
@@ -271,15 +315,40 @@ describe('application decision pipeline', () => {
 		);
 
 		const summaries = await applicant.query(api.chat.listRoomSummaries, {});
-		expect(summaries).toContainEqual(
-			expect.objectContaining({ roomId: room!._id, canSend: false })
+		expect(summaries).toContainEqual(expect.objectContaining({ roomId: room!._id, canSend: true }));
+
+		const sent = await applicant.mutation(api.chat.sendMessage, {
+			roomId: room!._id,
+			content: 'Still there?'
+		});
+		expect(sent).toMatchObject({ content: 'Still there?' });
+	});
+
+	// CL-710 CEO review item 4: same guarantee once accepted (club already created) — a new Guide
+	// should still be able to message their interviewer for support.
+	it('keeps the chat open and sendable for the applicant once accepted', async () => {
+		const { reviewer, applicant, applicationId, t } = await setupReviewedApplication();
+		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await reviewer.mutation(api.clubApplications.decideApplication, {
+			applicationId,
+			decision: 'accepted'
+		});
+
+		const room = await t.run((ctx) =>
+			ctx.db
+				.query('rooms')
+				.withIndex('by_club_application_id', (q) => q.eq('clubApplicationId', applicationId))
+				.first()
 		);
-		await expect(
-			applicant.mutation(api.chat.sendMessage, { roomId: room!._id, content: 'Still there?' })
-		).rejects.toThrow('You can no longer send messages in this chat');
-		await expect(
-			applicant.query(api.chat.listMessages, { roomId: room!._id })
-		).resolves.toBeDefined();
+
+		const summaries = await applicant.query(api.chat.listRoomSummaries, {});
+		expect(summaries).toContainEqual(expect.objectContaining({ roomId: room!._id, canSend: true }));
+
+		const sent = await applicant.mutation(api.chat.sendMessage, {
+			roomId: room!._id,
+			content: 'Thanks for the interview!'
+		});
+		expect(sent).toMatchObject({ content: 'Thanks for the interview!' });
 	});
 
 	it('sets and requires the follow-up flag only while accepted', async () => {
@@ -289,7 +358,7 @@ describe('application decision pipeline', () => {
 				applicationId,
 				reason: 'No-show'
 			})
-		).rejects.toThrow('Only accepted applications awaiting onboarding can be flagged');
+		).rejects.toThrow('Only accepted applications can be flagged for follow-up');
 
 		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
 		await reviewer.mutation(api.clubApplications.decideApplication, {
@@ -301,65 +370,6 @@ describe('application decision pipeline', () => {
 			applicationId,
 			reason: 'No-show / failed to schedule'
 		});
-	});
-
-	it('confirms the onboarding call and finalizes the club, reusing the club-creation logic', async () => {
-		const { reviewer, applicantProfileId, applicationId, t } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
-		await reviewer.mutation(api.clubApplications.decideApplication, {
-			applicationId,
-			decision: 'accepted'
-		});
-
-		const result = await reviewer.mutation(api.clubApplications.confirmOnboardingCall, {
-			applicationId
-		});
-		expect(result.clubId).toBeDefined();
-
-		const application = await t.run((ctx) => ctx.db.get(applicationId));
-		expect(application?.status).toBe('finalized');
-		expect(application?.onboardingCallCompletedAt).toBeDefined();
-		expect(application?.createdClubId).toBe(result.clubId);
-
-		const applicantProfile = await t.run((ctx) => ctx.db.get(applicantProfileId));
-		expect(applicantProfile?.activeClubId).toBe(result.clubId);
-
-		const membership = await t.run((ctx) =>
-			ctx.db
-				.query('clubMembers')
-				.withIndex('by_club_and_profile', (q) =>
-					q.eq('clubId', result.clubId).eq('profileId', applicantProfileId)
-				)
-				.first()
-		);
-		expect(membership).not.toBeNull();
-
-		const createdClub = await t.run((ctx) => ctx.db.get(result.clubId));
-		expect(createdClub?.discoverable).toBe(true);
-	});
-
-	it('rejects confirming the onboarding call before acceptance', async () => {
-		const { reviewer, applicationId } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
-		await expect(
-			reviewer.mutation(api.clubApplications.confirmOnboardingCall, { applicationId })
-		).rejects.toThrow('The onboarding call can only be confirmed for accepted applications');
-	});
-
-	it('is idempotent when confirming the onboarding call twice', async () => {
-		const { reviewer, applicationId } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
-		await reviewer.mutation(api.clubApplications.decideApplication, {
-			applicationId,
-			decision: 'accepted'
-		});
-		const first = await reviewer.mutation(api.clubApplications.confirmOnboardingCall, {
-			applicationId
-		});
-		const second = await reviewer.mutation(api.clubApplications.confirmOnboardingCall, {
-			applicationId
-		});
-		expect(second.clubId).toBe(first.clubId);
 	});
 });
 
@@ -378,7 +388,14 @@ describe('getApplicationForRoom', () => {
 		const asApplicant = await applicant.query(api.clubApplications.getApplicationForRoom, {
 			roomId
 		});
-		expect(asApplicant).toMatchObject({ isApplicant: true, canDecide: false, status: 'pending' });
+		expect(asApplicant).toMatchObject({
+			isApplicant: true,
+			canDecide: false,
+			status: 'pending',
+			// CL-710 CEO review item 2: no video uploaded in this fixture, so it resolves to null
+			// rather than throwing.
+			videoUrl: null
+		});
 
 		const asReviewer = await reviewer.query(api.clubApplications.getApplicationForRoom, {
 			roomId
@@ -458,7 +475,9 @@ describe('clubApplication chat overview and action state', () => {
 		);
 	});
 
-	it('flags actionState as closed once rejected', async () => {
+	// CL-710 CEO review item 4: a decided application (accepted or rejected) is no longer 'closed'
+	// — it reads as 'open' (sendable, nothing pending) for both the applicant and the reviewer.
+	it('flags actionState as open (not closed) for both sides once rejected', async () => {
 		const { reviewer, applicant, applicationId, reviewerProfileId, t } =
 			await seedApplicationFixture();
 		await addReview(t, applicationId, reviewerProfileId);
@@ -473,8 +492,36 @@ describe('clubApplication chat overview and action state', () => {
 		});
 
 		const applicantSummaries = await applicant.query(api.chat.listRoomSummaries, {});
+		const reviewerSummaries = await reviewer.query(api.chat.listRoomSummaries, {});
 		expect(applicantSummaries).toContainEqual(
-			expect.objectContaining({ roomId, actionState: 'closed' })
+			expect.objectContaining({ roomId, actionState: 'open' })
+		);
+		expect(reviewerSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'open' })
+		);
+	});
+
+	it('flags actionState as open (not action_needed) for the reviewer once accepted', async () => {
+		const { reviewer, applicant, applicationId, reviewerProfileId, t } =
+			await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		const roomId = await t.run(async (ctx) => {
+			const { ensureClubApplicationRoom } = await import('./chatModel');
+			return await ensureClubApplicationRoom(ctx, applicationId);
+		});
+		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await reviewer.mutation(api.clubApplications.decideApplication, {
+			applicationId,
+			decision: 'accepted'
+		});
+
+		const applicantSummaries = await applicant.query(api.chat.listRoomSummaries, {});
+		const reviewerSummaries = await reviewer.query(api.chat.listRoomSummaries, {});
+		expect(applicantSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'open' })
+		);
+		expect(reviewerSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'open' })
 		);
 	});
 });
