@@ -6,8 +6,9 @@
 	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import { routes } from '$lib/routes';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { TagChip } from '$lib/components/ui/badge';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Card, CardContent } from '$lib/components/ui/card';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { useConvexClient } from 'convex-svelte';
@@ -77,24 +78,34 @@
 			</Alert>
 		{/if}
 
-		{#if activity.content}
-			<p class="type-lead whitespace-pre-wrap text-muted-foreground">{activity.content}</p>
-		{:else}
-			<p class="text-sm text-muted-foreground">No description available.</p>
-		{/if}
+		<Card class="gap-0 py-0">
+			<CardContent class="flex flex-col gap-4 p-4 sm:p-6">
+				<div class="flex flex-col gap-1.5">
+					<p class="type-body-medium">Description</p>
+					{#if activity.content}
+						<p class="type-lead whitespace-pre-wrap text-muted-foreground">{activity.content}</p>
+					{:else}
+						<p class="type-sm text-muted-foreground">No description available.</p>
+					{/if}
+				</div>
 
-		<div class="flex flex-wrap gap-2">
-			{#if activity.minutes}
-				<TagChip label={`${activity.minutes} mins`} tone="muted">
-					{#snippet leading()}
-						<Clock3Icon class="size-3.5" />
-					{/snippet}
-				</TagChip>
-			{/if}
-			{#each activity.buildingBlockNames as blockName (blockName)}
-				<TagChip label={blockName} tone="accent" />
-			{/each}
-		</div>
+				{#if activity.minutes || activity.buildingBlockNames.length > 0}
+					<div class="flex flex-wrap gap-2">
+						{#if activity.minutes}
+							<Badge variant="secondary">
+								<Clock3Icon class="size-3.5" />
+								{activity.minutes} mins
+							</Badge>
+						{/if}
+						{#each activity.buildingBlockNames as blockName (blockName)}
+							<Badge variant="secondary">
+								{blockName}
+							</Badge>
+						{/each}
+					</div>
+				{/if}
+			</CardContent>
+		</Card>
 
 		{#if sessionId}
 			<div
