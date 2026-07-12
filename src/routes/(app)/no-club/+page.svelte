@@ -30,6 +30,14 @@
 
 	const applicationsResponse = useStableQuery(api.clubApplications.listMyApplications, {});
 	const joinRequestsResponse = useStableQuery(api.joinRequests.listMyJoinRequests, {});
+	// CL-690 CEO review (round 2): this page is reached two ways now — club-less users hitting
+	// the onboarding gate, and existing members using the club switcher's "New club" entry (see
+	// club-switcher.svelte). Reusing the same lightweight switcher-items query the app shell
+	// already subscribes to (`(app)/+layout.svelte`) tells us which case we're in without an
+	// extra round trip — convex-svelte multiplexes identical query+args subscriptions, so this
+	// piggybacks on the layout's existing data instead of firing a second query.
+	const membershipResponse = useStableQuery(api.clubs.getMyClubSwitcherItems, {});
+	let hasClubMembership = $derived((membershipResponse.data ?? []).length > 0);
 	let isLoading = $derived(applicationsResponse.isLoading || joinRequestsResponse.isLoading);
 	let applicationItems = $derived.by((): ApplicationListItem[] => {
 		const startApplications = (applicationsResponse.data ?? []).map(
@@ -133,16 +141,21 @@
 		class="grid overflow-hidden rounded-2xl border border-border/70 bg-white lg:grid-cols-[minmax(0,1fr)_18rem]"
 	>
 		<div class="flex flex-col justify-center gap-6 p-5 sm:p-6 lg:p-8">
-			<div class="flex flex-col gap-3">
-				<Badge class="w-fit rounded-full bg-orange-50 px-3 py-1 text-orange-600 hover:bg-orange-50">
-					No active club
-				</Badge>
-				<div class="flex flex-col gap-2">
+			<div class="flex flex-col gap-2">
+				<!-- CL-690 CEO review (round 2): dropped the "No active club" framing outright —
+				     existing members land here too (via the switcher's "New club" entry), so the
+				     copy is now neutral for them and onboarding-flavored only for club-less users. -->
+				{#if hasClubMembership}
+					<h1 class="type-h1 text-foreground">Join or start another club</h1>
+					<p class="type-lead max-w-2xl text-muted-foreground">
+						Browse clubs to join, or send in an application to start a new one.
+					</p>
+				{:else}
 					<h1 class="type-h1 text-foreground">Pick your next Curiosity Club</h1>
 					<p class="type-lead max-w-2xl text-muted-foreground">
 						Join an existing club or send in an application to start a new club for your community.
 					</p>
-				</div>
+				{/if}
 			</div>
 
 			<div class="grid gap-3 sm:grid-cols-2">
