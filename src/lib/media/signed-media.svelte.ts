@@ -8,6 +8,11 @@ export type MediaRefreshContext =
 	| {
 			kind: 'project';
 			projectId: string;
+	  }
+	// CL-710 CEO review round 3: the club application video (application chat + review page).
+	| {
+			kind: 'club-application';
+			applicationId: string;
 	  };
 
 export type SignedMediaAsset = {
@@ -32,11 +37,12 @@ const sameContext = (left: MediaRefreshContext | null, right: MediaRefreshContex
 		return true;
 	}
 
-	if (right.kind !== 'project') {
-		return false;
+	if (left.kind === 'project') {
+		return right.kind === 'project' && left.projectId === right.projectId;
 	}
 
-	return left.projectId === right.projectId;
+	// left.kind === 'club-application'
+	return right.kind === 'club-application' && left.applicationId === right.applicationId;
 };
 
 const normalizeError = async (response: Response) => {

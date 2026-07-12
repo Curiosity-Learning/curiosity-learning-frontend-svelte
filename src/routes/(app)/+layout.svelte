@@ -395,14 +395,15 @@
 				>
 			</Alert>
 		{/if}
-		{#if activeNav === 'club' && activePath !== routes.noClub && !clubIdForNav && !clubsResponse.isLoading}
-			<Alert>
-				<AlertTitle>No active club</AlertTitle>
-				<AlertDescription
-					>Create a new club or join one with an invite code to unlock sessions, projects, and
-					members.</AlertDescription
-				>
-			</Alert>
+		<!-- CL-711 CEO review round 3: the "No active club" alert was removed — a club-less user
+		     hitting a club-nav page is never actually left staring at it: (app)/+layout.server.ts
+		     already redirects server-side to /new-club for any non-allowlisted path (see
+		     no-club-allowlist.ts), and the client-side effect above (`clubs.length === 0` check)
+		     mirrors that for client-side navigation. This spot can only render for the brief instant
+		     between a client-side nav landing here and that effect's `goto` completing — show a
+		     loading state instead of the old banner (or a blank flash) for that instant. -->
+		{#if activeNav === 'club' && activePath !== routes.noClub && !clubIdForNav && !clubsResponse.isLoading && !isNoClubAllowedPath(activePath)}
+			<LoadingState class="min-h-48" label="Loading your club" />
 		{/if}
 		<!-- PRD 6.11.3 (CL-733): reminder phase (days 1-7 past deadline) — persistent banner,
 		     dismissible for the rest of this browser session (sessionStorage), not per-route. -->

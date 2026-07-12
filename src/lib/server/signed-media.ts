@@ -109,6 +109,21 @@ export const getSignedOwnedMediaAssets = (
 ) =>
 	getSignedAssets(convex, api.media.getOwnedDeliveryAssets, (ids) => ({ assetIds: ids }), assetIds, config);
 
+// CL-710 CEO review round 3 (Braga video bug): signs the single application video asset, the same
+// way `getSignedOwnedMediaAsset` signs a single owned asset. Authorization (applicant, assigned
+// reviewer, or reviewer who already reviewed) happens inside
+// clubApplications.getApplicationVideoDeliveryAsset — this wrapper just signs whatever it returns.
+export const getSignedApplicationVideoAsset = async (
+	convex: ConvexServerClient,
+	applicationId: Id<'clubApplications'>,
+	config?: MediaDeliveryConfig | null
+): Promise<SignedDeliveryAsset | null> => {
+	const asset = await convex.query(api.clubApplications.getApplicationVideoDeliveryAsset, {
+		applicationId
+	});
+	return signDeliveryAsset(asset as DeliveryAssetRecord | null, config);
+};
+
 export const getSignedProjectMediaAssets = (
 	convex: ConvexServerClient,
 	projectId: Id<'projects'>,

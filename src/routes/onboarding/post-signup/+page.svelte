@@ -327,7 +327,14 @@
 						}
 					}
 					clearPostSignupPending();
-					await goto(`/club/${result.clubId}`, { replaceState: true });
+					// CL-711 CEO review round 3: a visitor who requested to join from the map/discovery
+					// page, signed up, and had the join auto-complete once onboarding gates cleared
+					// should land directly back in the join-request chat they started, not a club
+					// overview screen with a "View Chat" button. Falls back to the club overview when
+					// there's no such room (e.g. a code-join deferral, or the room genuinely can't be
+					// found) so the user is never left on a blank screen.
+					const destination = result.roomId ? `/chat?room=${result.roomId}` : `/club/${result.clubId}`;
+					await goto(destination, { replaceState: true });
 					return;
 				}
 				// 'no_pending' or 'club_unavailable': fall through to the URL-based fallback below,

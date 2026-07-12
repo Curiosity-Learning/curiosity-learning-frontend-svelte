@@ -29,6 +29,7 @@
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
+	import { requestSignedMediaUrls } from '$lib/media/signed-media.svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { _, formatT, t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
@@ -173,6 +174,47 @@
 	let followUpReason = $state('');
 	// CL-710 CEO review item 2: the applicant's video, surfaced directly in the application chat.
 	let applicationVideoLoadFailed = $state(false);
+	// CL-710 CEO review round 3 (Braga bug): applicationInfo.videoUrl is a direct storage URL that
+	// 403s once secure media delivery (CloudFront) is configured, because the bucket is then
+	// private. Prefer a signed delivery URL fetched via /api/media/refresh, falling back to the
+	// direct URL (works in local dev, where the bucket is public) if signing isn't available.
+	let applicationSignedVideoUrl = $state<string | null>(null);
+	let applicationVideoRequestKey = $state<string | null>(null);
+
+	$effect(() => {
+		const info = applicationInfo;
+		const assetId = info?.videoMediaAssetId ?? null;
+		const applicationId = info?.applicationId ?? null;
+		if (!assetId || !applicationId) {
+			applicationSignedVideoUrl = null;
+			applicationVideoRequestKey = null;
+			return;
+		}
+
+		const requestKey = `${applicationId}:${assetId}`;
+		if (applicationVideoRequestKey === requestKey) {
+			return;
+		}
+		applicationVideoRequestKey = requestKey;
+
+		void (async () => {
+			try {
+				const assets = await requestSignedMediaUrls({
+					assetIds: [assetId],
+					context: { kind: 'club-application', applicationId }
+				});
+				if (applicationVideoRequestKey !== requestKey) return;
+				applicationSignedVideoUrl = assets[0]?.signedUrl ?? null;
+			} catch {
+				// Secure media delivery isn't configured (local dev) or the request failed — fall back
+				// to applicationInfo.videoUrl below rather than surfacing an error for a nice-to-have.
+				if (applicationVideoRequestKey !== requestKey) return;
+				applicationSignedVideoUrl = null;
+			}
+		})();
+	});
+
+	let applicationVideoUrl = $derived(applicationSignedVideoUrl ?? applicationInfo?.videoUrl ?? null);
 
 	// CL-695/725 CEO review item A: chat member overview (header highlight + a "view members"
 	// dialog), backed by chat.getRoomParticipants.
@@ -775,7 +817,7 @@
 							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
 								<!-- CL-710 CEO review item 2: the application video, one of the most important
 								parts of the application, surfaced directly in the review/interview chat. -->
-								{#if applicationInfo.videoUrl && !applicationVideoLoadFailed}
+								{#if applicationVideoUrl && !applicationVideoLoadFailed}
 									<div class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 										<p class="type-sm mb-1.5 text-muted-foreground">
 											{$_('applicationChat.videoLabel')}
@@ -783,7 +825,7 @@
 										<div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
 											<!-- svelte-ignore a11y_media_has_caption -->
 											<video
-												src={applicationInfo.videoUrl}
+												src={applicationVideoUrl}
 												controls
 												preload="metadata"
 												class="h-44 w-full object-cover sm:h-52"
