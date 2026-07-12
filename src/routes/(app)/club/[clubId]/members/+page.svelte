@@ -349,16 +349,18 @@
 			</div>
 		</a>
 
-		{#if member.profileId !== myProfileId}
-			<div
-				class="shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-			>
+		<div
+			class="shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+		>
+			{#if member.profileId === myProfileId}
+				<ActionMenu items={selfActionItems} ariaLabel={$_('membersPage.openActionsLabel')} />
+			{:else}
 				<ActionMenu
 					items={memberActionItems(member)}
 					ariaLabel={$_('membersPage.openActionsLabel')}
 				/>
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</div>
 {/snippet}
 
@@ -389,19 +391,14 @@
 	ariaLabel={$_('membersPage.searchLabel')}
 	mode="auto"
 />
-<PageHeaderActions none={!canInvite && !myProfileId}>
-	<div class="flex items-center gap-2">
-		{#if canInvite}
-			<InviteLearnerDialog
-				clubCode={clubItem?.clubCode}
-				triggerLabel={$_('membersPage.inviteAction')}
-				triggerStyle="button"
-			/>
-		{/if}
-		{#if myProfileId}
-			<ActionMenu items={selfActionItems} ariaLabel={$_('membersPage.openActionsLabel')} />
-		{/if}
-	</div>
+<PageHeaderActions none={!canInvite}>
+	{#if canInvite}
+		<InviteLearnerDialog
+			clubCode={clubItem?.clubCode}
+			triggerLabel={$_('membersPage.inviteAction')}
+			triggerStyle="button"
+		/>
+	{/if}
 </PageHeaderActions>
 
 {#if !clubIdTyped}
@@ -433,7 +430,9 @@
 		{:else}
 			<section class="flex flex-col gap-3">
 				<div class="flex items-center gap-2 px-1">
-					<h2 class="type-h5 text-foreground">{$_('membersPage.guidesSectionTitle')}</h2>
+					<h2 class="type-lead-bold text-foreground/80">
+						{$_('membersPage.guidesSectionTitle')}
+					</h2>
 					<Badge variant="outline" size="sm" class="type-caption-medium text-muted-foreground">
 						{guideMembers.length}
 					</Badge>
@@ -451,7 +450,9 @@
 
 			<section class="flex flex-col gap-3">
 				<div class="flex items-center gap-2 px-1">
-					<h2 class="type-h5 text-foreground">{$_('membersPage.learnersSectionTitle')}</h2>
+					<h2 class="type-lead-bold text-foreground/80">
+						{$_('membersPage.learnersSectionTitle')}
+					</h2>
 					<Badge variant="outline" size="sm" class="type-caption-medium text-muted-foreground">
 						{learnerMembers.length}
 					</Badge>

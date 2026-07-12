@@ -10,7 +10,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals, params }) => {
 	if (!locals.token) {
 		return {
-			initialLearnerImages: [],
+			initialMemberImages: [],
 			initialProjectPreviewImages: [],
 			initialSessionAttendeeImages: []
 		};
@@ -23,7 +23,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	if (!club) {
 		return {
-			initialLearnerImages: [],
+			initialMemberImages: [],
 			initialProjectPreviewImages: [],
 			initialSessionAttendeeImages: []
 		};
@@ -34,13 +34,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	const canReadAttendance = permissions.includes('attendance:read');
 	const canReadProjects = permissions.includes('project:read');
 	const canReadSessions = permissions.includes('session:read');
-	const [learners, projectPreviews, sessionCards] = await Promise.all([
-		canReadMembers
-			? convex.query(api.clubs.getMembers, {
-					clubId,
-					roleKey: 'learner'
-				})
-			: [],
+	const [members, projectPreviews, sessionCards] = await Promise.all([
+		canReadMembers ? convex.query(api.clubs.getMembers, { clubId }) : [],
 		canReadProjects ? convex.query(api.projects.listPreviewsByClub, { clubId, limit: 6 }) : [],
 		canReadSessions
 			? convex.query(api.sessions.listCardPreviewsByClub, {
@@ -51,8 +46,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				})
 			: []
 	]);
-	const learnerAssetIds = learners
-		.map((learner) => learner.profileImageMediaAssetId)
+	const memberAssetIds = members
+		.map((member) => member.profileImageMediaAssetId)
 		.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null);
 	const projectPreviewAssetIds = projectPreviews
 		.flatMap((entry) => entry.members.map((member) => member.profileImageMediaAssetId))
@@ -62,7 +57,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		.filter((assetId): assetId is Id<'mediaAssets'> => assetId !== null);
 
 	return {
-		initialLearnerImages: await getSignedClubMemberProfileAssets(convex, clubId, learnerAssetIds),
+		initialMemberImages: await getSignedClubMemberProfileAssets(convex, clubId, memberAssetIds),
 		initialProjectPreviewImages: await getSignedClubProfileAssets(
 			convex,
 			clubId,
