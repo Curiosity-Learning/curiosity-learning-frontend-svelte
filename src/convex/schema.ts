@@ -156,13 +156,16 @@ export default defineSchema({
 
 	clubApplications: defineTable({
 		applicantProfileId: v.id('profiles'),
+		// CL-710 CEO review: the interview IS the onboarding call, so acceptance is terminal —
+		// there is no longer a separate "awaiting onboarding call" state between `accepted` and
+		// club creation. `accepted` now means the club has already been created (see
+		// `decideApplication` in clubApplications.ts, which creates the club inline).
 		status: v.union(
 			v.literal('incomplete'),
 			v.literal('pending'),
 			v.literal('interview'),
 			v.literal('accepted'),
-			v.literal('rejected'),
-			v.literal('finalized')
+			v.literal('rejected')
 		),
 		name: v.string(),
 		description: v.optional(v.string()),
@@ -173,20 +176,20 @@ export default defineSchema({
 		applicantRole: v.optional(v.string()),
 		referralSource: v.optional(v.string()),
 		referralOther: v.optional(v.string()),
+		// Set as soon as decideApplication accepts the application (club creation is now inline,
+		// not a separate confirm-onboarding-call step).
 		createdClubId: v.optional(v.id('clubs')),
 		// Set when a reviewing Guide moves the application into the interview stage
 		// (moveToInterview in clubApplications.ts).
 		movedToInterviewAt: v.optional(v.number()),
 		movedToInterviewByProfileId: v.optional(v.id('profiles')),
 		// Set on Accept/Reject decisions made from the clubApplication chat (decideApplication).
+		// For accepted applications this is also the moment the club was created.
 		decidedAt: v.optional(v.number()),
 		decidedByProfileId: v.optional(v.id('profiles')),
 		rejectionNote: v.optional(v.string()),
-		// Set once the onboarding call is confirmed, just before club creation runs
-		// (confirmOnboardingCall).
-		onboardingCallCompletedAt: v.optional(v.number()),
-		// Lightweight flag for Core Team follow-up (e.g. interview no-show); does not reject the
-		// application. Surfaced later by CL-730/732 admin tooling.
+		// Lightweight flag for Core Team follow-up (e.g. the new Guide never runs a session); does
+		// not reject the application. Surfaced later by CL-730/732 admin tooling.
 		adminFollowUpFlag: v.optional(
 			v.object({
 				reason: v.string(),
@@ -194,8 +197,6 @@ export default defineSchema({
 				createdByProfileId: v.id('profiles')
 			})
 		),
-		finalizedByProfileId: v.optional(v.id('profiles')),
-		finalizedAt: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})

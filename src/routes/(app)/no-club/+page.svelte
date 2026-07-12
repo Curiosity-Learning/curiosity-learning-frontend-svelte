@@ -66,8 +66,6 @@
 				return $_('applicationStatus.acceptedLabel');
 			case 'rejected':
 				return $_('applicationStatus.rejectedLabel');
-			case 'finalized':
-				return $_('applicationStatus.finalizedLabel');
 			default:
 				return $_('applicationStatus.pendingLabel');
 		}
@@ -82,8 +80,6 @@
 				return $_('applicationStatus.acceptedDescription');
 			case 'rejected':
 				return $_('applicationStatus.rejectedDescription');
-			case 'finalized':
-				return $_('applicationStatus.finalizedDescription');
 			default:
 				return $_('applicationStatus.pendingDescription');
 		}

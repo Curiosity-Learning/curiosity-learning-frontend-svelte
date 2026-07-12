@@ -86,9 +86,11 @@ export const getDashboardOverview = query({
 			? countDistinctActiveMembersByRole(clubMembers, activeCuriosityClubIds, learnerRole._id)
 			: 0;
 
-		// "In-flight" = still somewhere in the pipeline, per PRD (pending/interview/accepted).
+		// "In-flight" = still somewhere in the pipeline, per PRD (pending/interview). CL-710 CEO
+		// review: acceptance is now terminal (the interview IS the onboarding call and the club is
+		// created immediately), so `accepted` no longer counts as pending/in-flight.
 		const pendingApplicationCount = applications.filter((application) =>
-			['pending', 'interview', 'accepted'].includes(application.status)
+			['pending', 'interview'].includes(application.status)
 		).length;
 
 		// Reuses the same "open" definition as moderation.listQueue: open reports + flagged media
@@ -319,7 +321,9 @@ export const adminClubsHealth = query({
 // 3. Applications pipeline.
 // ---------------------------------------------------------------------------
 
-const IN_FLIGHT_STATUSES: Doc<'clubApplications'>['status'][] = ['incomplete', 'pending', 'interview', 'accepted'];
+// CL-710 CEO review: `accepted` is now terminal (club created immediately, no onboarding-call
+// wait), so it's no longer "in-flight" here — only applications still awaiting a decision are.
+const IN_FLIGHT_STATUSES: Doc<'clubApplications'>['status'][] = ['incomplete', 'pending', 'interview'];
 
 export type ApplicationPipelineItem = {
 	applicationId: Id<'clubApplications'>;
@@ -361,8 +365,7 @@ export const adminApplicationsPipeline = query({
 			pending: 0,
 			interview: 0,
 			accepted: 0,
-			rejected: 0,
-			finalized: 0
+			rejected: 0
 		};
 		for (const application of applications) {
 			statusCounts[application.status] += 1;

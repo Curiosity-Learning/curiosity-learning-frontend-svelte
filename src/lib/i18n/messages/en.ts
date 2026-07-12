@@ -728,11 +728,9 @@ const en = {
 		interviewLabel: 'Interview',
 		interviewDescription: 'Check your chat to schedule your interview call.',
 		acceptedLabel: 'Accepted',
-		acceptedDescription: 'Schedule your onboarding call in your chat to activate your club.',
+		acceptedDescription: 'Congratulations! Your club has been created.',
 		rejectedLabel: 'Not accepted',
-		rejectedDescription: 'This application was not accepted this time.',
-		finalizedLabel: 'Club live',
-		finalizedDescription: 'Your club has been created.'
+		rejectedDescription: 'This application was not accepted this time.'
 	},
 	joinRequestStatus: {
 		pendingLabel: 'Pending',
@@ -766,9 +764,6 @@ const en = {
 		pendingBannerTitle: 'This application is assigned to you for review',
 		pendingBannerDescription:
 			'Once reviewers have scored this application, move it to the interview stage to open scheduling here.',
-		confirmOnboardingButton: 'Confirm onboarding call happened',
-		confirmingOnboarding: 'Confirming...',
-		confirmOnboardingFailure: 'Unable to confirm the onboarding call.',
 		flagFollowUpButton: 'Flag for follow-up',
 		flaggingFollowUp: 'Flagging...',
 		followUpFailure: 'Unable to flag this application.',
@@ -777,12 +772,12 @@ const en = {
 		interviewBannerDescription: 'Use this chat to schedule and discuss the interview call.',
 		acceptedBannerTitle: 'This application was accepted',
 		acceptedBannerDescription:
-			'Schedule your onboarding call in this chat. Your club activates once the call is confirmed.',
+			'Your club has been created. This chat stays open in case the new Guide needs support.',
 		rejectedBannerTitle: 'This application was not accepted',
 		rejectedBannerDescription:
-			'You can still read the message history, but this chat is now read-only.',
-		finalizedBannerTitle: 'Your club is live',
-		finalizedBannerDescription: 'This application is complete and the chat is now closed.',
+			'You can still send messages here if you have questions — this chat stays open.',
+		videoLabel: 'Application video',
+		videoUnavailable: 'No video available.',
 		rejectDialogTitle: 'Reject this application?',
 		rejectDialogDescription:
 			'You can add a personal note to the applicant. It will be posted in this chat along with the rejection.',

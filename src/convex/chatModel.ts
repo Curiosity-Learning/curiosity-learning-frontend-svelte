@@ -138,12 +138,10 @@ export const getProjectAccess = async (
 	return { canRead, canSend, sendBlockedReason };
 };
 
-// Once an application is decided, the chat stays readable for history but the composer closes:
-// rejected applications are read-only (the applicant may want to ask why), and finalized ones are
-// closed with a "your club is live" banner instead (see CL-710).
-const isClubApplicationChatSendable = (status: Doc<'clubApplications'>['status']) =>
-	status !== 'rejected' && status !== 'finalized';
-
+// CL-710 CEO review item 4: the chat stays open (sendable) even after the application is decided
+// — accepted or rejected — so the applicant can still reach out to the interviewer for support
+// later. Nothing about a clubApplication room ever blocks sending; only membership (applicant vs.
+// a Guide who reviewed it) gates `canRead`.
 export const getClubApplicationAccess = async (
 	ctx: Ctx,
 	clubApplicationId: Id<'clubApplications'>,
@@ -153,13 +151,8 @@ export const getClubApplicationAccess = async (
 	if (!application) {
 		return { canRead: false, canSend: false, sendBlockedReason: null };
 	}
-	const sendable = isClubApplicationChatSendable(application.status);
 	if (application.applicantProfileId === profileId) {
-		return {
-			canRead: true,
-			canSend: sendable,
-			sendBlockedReason: sendable ? null : 'not_participant'
-		};
+		return { canRead: true, canSend: true, sendBlockedReason: null };
 	}
 
 	const review = await ctx.db
@@ -169,11 +162,7 @@ export const getClubApplicationAccess = async (
 		)
 		.first();
 	const canRead = Boolean(review);
-	return {
-		canRead,
-		canSend: canRead && sendable,
-		sendBlockedReason: canRead && !sendable ? 'not_participant' : null
-	};
+	return { canRead, canSend: canRead, sendBlockedReason: null };
 };
 
 export const getJoinRequestAccess = async (
@@ -255,9 +244,8 @@ export const getRoomActionState = async (
 			if (!application) {
 				return 'closed';
 			}
-			if (application.status === 'rejected' || application.status === 'finalized') {
-				return 'closed';
-			}
+			// CL-710 CEO review item 4: a decided application (accepted or rejected) keeps its chat
+			// open — nothing is closed, and nothing is pending on either side anymore.
 			if (application.applicantProfileId === profileId) {
 				return application.status === 'incomplete' ? 'action_needed' : 'open';
 			}
@@ -267,7 +255,11 @@ export const getRoomActionState = async (
 					q.eq('applicationId', application._id).eq('reviewerProfileId', profileId)
 				)
 				.first();
-			return review ? 'action_needed' : 'open';
+			if (!review) {
+				return 'open';
+			}
+			const decided = application.status === 'accepted' || application.status === 'rejected';
+			return decided ? 'open' : 'action_needed';
 		}
 	}
 };

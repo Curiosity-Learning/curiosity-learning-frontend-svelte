@@ -447,11 +447,12 @@ describe('admin.adminApplicationsPipeline', () => {
 				updatedAt: now
 			});
 
-			// Not in-flight: excluded from the `items` list but counted in `statusCounts`.
+			// Not in-flight (CL-710: accepted is terminal — club already created): excluded from the
+			// `items` list but counted in `statusCounts`.
 			await ctx.db.insert('clubApplications', {
 				applicantProfileId,
-				status: 'finalized',
-				name: 'Finalized application',
+				status: 'accepted',
+				name: 'Accepted application',
 				createdAt: now,
 				updatedAt: now
 			});
@@ -465,7 +466,7 @@ describe('admin.adminApplicationsPipeline', () => {
 
 		expect(result.statusCounts.pending).toBe(1);
 		expect(result.statusCounts.interview).toBe(1);
-		expect(result.statusCounts.finalized).toBe(1);
+		expect(result.statusCounts.accepted).toBe(1);
 		expect(result.items).toHaveLength(2);
 
 		const discrepant = result.items.find((item) => item.applicationId === discrepantApplicationId);

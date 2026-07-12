@@ -725,11 +725,9 @@ const nl = {
 		interviewLabel: 'Interview',
 		interviewDescription: 'Bekijk je chat om je interviewgesprek te plannen.',
 		acceptedLabel: 'Geaccepteerd',
-		acceptedDescription: 'Plan je onboardinggesprek in je chat om je club te activeren.',
+		acceptedDescription: 'Gefeliciteerd! Je club is aangemaakt.',
 		rejectedLabel: 'Niet geaccepteerd',
-		rejectedDescription: 'Deze aanvraag is deze keer niet geaccepteerd.',
-		finalizedLabel: 'Club live',
-		finalizedDescription: 'Je club is aangemaakt.'
+		rejectedDescription: 'Deze aanvraag is deze keer niet geaccepteerd.'
 	},
 	joinRequestStatus: {
 		pendingLabel: 'In behandeling',
@@ -763,9 +761,6 @@ const nl = {
 		pendingBannerTitle: 'Deze aanvraag is aan jou toegewezen voor beoordeling',
 		pendingBannerDescription:
 			'Zodra beoordelaars deze aanvraag hebben gescoord, verplaats je hem naar de interviewfase om hier te kunnen plannen.',
-		confirmOnboardingButton: 'Bevestig dat het onboardinggesprek heeft plaatsgevonden',
-		confirmingOnboarding: 'Bevestigen...',
-		confirmOnboardingFailure: 'Kan het onboardinggesprek niet bevestigen.',
 		flagFollowUpButton: 'Markeren voor opvolging',
 		flaggingFollowUp: 'Markeren...',
 		followUpFailure: 'Kan deze aanvraag niet markeren.',
@@ -775,12 +770,12 @@ const nl = {
 			'Gebruik deze chat om het interviewgesprek te plannen en te bespreken.',
 		acceptedBannerTitle: 'Deze aanvraag is geaccepteerd',
 		acceptedBannerDescription:
-			'Plan je onboardinggesprek in deze chat. Je club wordt geactiveerd zodra het gesprek is bevestigd.',
+			'Je club is aangemaakt. Deze chat blijft open voor het geval de nieuwe Guide ondersteuning nodig heeft.',
 		rejectedBannerTitle: 'Deze aanvraag is niet geaccepteerd',
 		rejectedBannerDescription:
-			'Je kunt de berichtgeschiedenis nog lezen, maar deze chat is nu alleen-lezen.',
-		finalizedBannerTitle: 'Je club is live',
-		finalizedBannerDescription: 'Deze aanvraag is afgerond en de chat is nu gesloten.',
+			'Je kunt hier nog berichten sturen als je vragen hebt — deze chat blijft open.',
+		videoLabel: 'Aanvraagvideo',
+		videoUnavailable: 'Geen video beschikbaar.',
 		rejectDialogTitle: 'Deze aanvraag afwijzen?',
 		rejectDialogDescription:
 			'Je kunt een persoonlijke notitie toevoegen voor de aanvrager. Deze wordt samen met de afwijzing in deze chat geplaatst.',

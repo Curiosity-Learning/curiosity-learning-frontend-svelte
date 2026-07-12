@@ -171,6 +171,8 @@
 	let rejectNote = $state('');
 	let followUpDialogOpen = $state(false);
 	let followUpReason = $state('');
+	// CL-710 CEO review item 2: the applicant's video, surfaced directly in the application chat.
+	let applicationVideoLoadFailed = $state(false);
 
 	// CL-695/725 CEO review item A: chat member overview (header highlight + a "view members"
 	// dialog), backed by chat.getRoomParticipants.
@@ -245,6 +247,7 @@
 		shouldStickToBottom = true;
 		pendingPrependScrollHeight = null;
 		pendingPrependAnchor = null;
+		applicationVideoLoadFailed = false;
 	});
 
 	$effect(() => {
@@ -544,22 +547,6 @@
 		}
 	};
 
-	const confirmOnboardingCallAction = async () => {
-		if (!applicationInfo) return;
-		applicationActionPending = true;
-		applicationActionError = '';
-		try {
-			await convexClient.mutation(api.clubApplications.confirmOnboardingCall, {
-				applicationId: applicationInfo.applicationId
-			});
-		} catch (error) {
-			applicationActionError =
-				error instanceof Error ? error.message : t('applicationChat.confirmOnboardingFailure');
-		} finally {
-			applicationActionPending = false;
-		}
-	};
-
 	const openFollowUpDialog = () => {
 		followUpReason = '';
 		applicationActionError = '';
@@ -786,6 +773,27 @@
 					>
 						<div class="flex min-h-full flex-col">
 							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
+								<!-- CL-710 CEO review item 2: the application video, one of the most important
+								parts of the application, surfaced directly in the review/interview chat. -->
+								{#if applicationInfo.videoUrl && !applicationVideoLoadFailed}
+									<div class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
+										<p class="type-sm mb-1.5 text-muted-foreground">
+											{$_('applicationChat.videoLabel')}
+										</p>
+										<div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
+											<!-- svelte-ignore a11y_media_has_caption -->
+											<video
+												src={applicationInfo.videoUrl}
+												controls
+												preload="metadata"
+												class="h-44 w-full object-cover sm:h-52"
+												onerror={() => {
+													applicationVideoLoadFailed = true;
+												}}
+											></video>
+										</div>
+									</div>
+								{/if}
 								{#if applicationInfo.status === 'pending' && applicationInfo.canDecide}
 									<!-- CL-695/725 CEO review item D: actions live INSIDE the banner as a compact,
 									low-emphasis row instead of large standalone buttons floating above it. -->
@@ -845,17 +853,6 @@
 											<Button
 												type="button"
 												size="sm"
-												variant="secondary"
-												disabled={applicationActionPending}
-												onclick={() => void confirmOnboardingCallAction()}
-											>
-												{applicationActionPending
-													? $_('applicationChat.confirmingOnboarding')
-													: $_('applicationChat.confirmOnboardingButton')}
-											</Button>
-											<Button
-												type="button"
-												size="sm"
 												variant="ghost"
 												disabled={applicationActionPending}
 												onclick={openFollowUpDialog}
@@ -890,13 +887,6 @@
 										<AlertTitle>{$_('applicationChat.rejectedBannerTitle')}</AlertTitle>
 										<AlertDescription
 											>{$_('applicationChat.rejectedBannerDescription')}</AlertDescription
-										>
-									</Alert>
-								{:else if applicationInfo.status === 'finalized'}
-									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
-										<AlertTitle>{$_('applicationChat.finalizedBannerTitle')}</AlertTitle>
-										<AlertDescription
-											>{$_('applicationChat.finalizedBannerDescription')}</AlertDescription
 										>
 									</Alert>
 								{/if}

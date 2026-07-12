@@ -12,6 +12,7 @@
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
+	import { _ } from '$lib/i18n';
 
 	const convexClient = useConvexClient();
 	const applicationsResponse = useStableQuery(api.clubApplications.listReviewableApplications, {});
@@ -20,6 +21,9 @@
 	let safetyScores = $state<Record<string, string>>({});
 	let notes = $state<Record<string, string>>({});
 	let pendingApplicationId = $state<string | null>(null);
+	// CL-710 CEO review item 2: the video is one of the most important parts of the application —
+	// track per-card playback failures the same way clubs/[clubId]/+page.svelte does for club videos.
+	let videoLoadFailedIds = $state<Record<string, boolean>>({});
 
 	const submitReview = async (applicationId: string) => {
 		const principlesScore = Number(principlesScores[applicationId] ?? '');
@@ -75,6 +79,26 @@
 						<div class="type-sm flex flex-col gap-1 text-muted-foreground">
 							{#if application.location}<p>{application.location}</p>{/if}
 							{#if application.description}<p>{application.description}</p>{/if}
+						</div>
+
+						<div class="flex flex-col gap-2">
+							<FieldLabel>{$_('applicationChat.videoLabel')}</FieldLabel>
+							{#if application.videoUrl && !videoLoadFailedIds[application._id]}
+								<div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
+									<!-- svelte-ignore a11y_media_has_caption -->
+									<video
+										src={application.videoUrl}
+										controls
+										preload="metadata"
+										class="h-56 w-full object-cover"
+										onerror={() => {
+											videoLoadFailedIds[application._id] = true;
+										}}
+									></video>
+								</div>
+							{:else}
+								<p class="type-sm text-muted-foreground">{$_('applicationChat.videoUnavailable')}</p>
+							{/if}
 						</div>
 
 						<div class="grid gap-3 sm:grid-cols-2">

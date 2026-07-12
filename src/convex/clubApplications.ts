@@ -14,6 +14,7 @@ import {
 import { ensureClubApplicationRoom, ensureClubRoom } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
 import { assignClubToCocGroup } from './cocModel';
+import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	assignReviewsForApplicationIfWindowOpen,
 	maybeNotifyScoreDiscrepancy
@@ -73,8 +74,8 @@ const requireGuideSomewhere = async (ctx: Ctx, userId: string) => {
 // A "deciding Guide" for an application is any Guide who has reviewed it (has an
 // applicationReviews row). This mirrors the chat access rule in chat.ts's
 // getClubApplicationAccess, so the same Guides who can read/send in the application chat are the
-// ones who can move it to interview, accept/reject, confirm the onboarding call, or flag it for
-// follow-up.
+// ones who can move it to interview, accept/reject (which creates the club immediately — CL-710),
+// or flag it for follow-up.
 const getApplicationReview = async (
 	ctx: Ctx,
 	applicationId: Id<'clubApplications'>,
@@ -115,6 +116,22 @@ const assertReadyClubVideo = async (
 	if (asset.mediaKind !== 'video') {
 		throw new ConvexError('Club video must be a video');
 	}
+};
+
+// CL-710 CEO review item 2: reviewers/interviewers need to actually watch the application video —
+// mirrors clubs.ts's resolveClubVideoUrl for the same asset-readiness checks.
+const resolveApplicationVideoUrl = async (
+	ctx: Ctx,
+	application: Doc<'clubApplications'>
+): Promise<string | null> => {
+	if (!application.videoMediaAssetId) {
+		return null;
+	}
+	const asset = await ctx.db.get(application.videoMediaAssetId);
+	if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'video') {
+		return null;
+	}
+	return resolveMediaAssetFileUrl(asset);
 };
 
 const createInviteCodeCandidate = () => {
@@ -394,7 +411,13 @@ export const listReviewableApplications = query({
 			if (!application || application.status !== 'pending') continue;
 			const existingReview = await getApplicationReview(ctx, application._id, profile._id);
 			if (existingReview) continue;
-			items.push({ ...application, myReview: null });
+			items.push({
+				...application,
+				myReview: null,
+				// CL-710 CEO review item 2: the video is one of the most important parts of the
+				// application — surface it directly on the review card.
+				videoUrl: await resolveApplicationVideoUrl(ctx, application)
+			});
 		}
 		items.sort((a, b) => b.createdAt - a.createdAt);
 		return items;
@@ -513,18 +536,12 @@ export const upsertApplicationReview = mutation({
 	}
 });
 
-// Creates the club and Guide membership for an accepted application, and marks it finalized.
-// Extracted from the former `finalizeApplication` mutation so `confirmOnboardingCall` can run the
-// exact same club-creation logic once the onboarding call is confirmed.
-const createClubFromApplication = async (
-	ctx: MutationCtx,
-	application: Doc<'clubApplications'>,
-	finalizerProfileId: Id<'profiles'>
-) => {
-	if (application.status === 'finalized') {
-		if (!application.createdClubId) {
-			throw new ConvexError('Application is finalized without a club');
-		}
+// Creates the club and Guide membership for an accepted application. CL-710 CEO review item 3:
+// the interview IS the onboarding call, so this now runs inline from decideApplication's accept
+// branch — there is no separate confirm-onboarding-call step. Guarded by `createdClubId` so a
+// retried/duplicate call is a no-op rather than creating a second club.
+const createClubFromApplication = async (ctx: MutationCtx, application: Doc<'clubApplications'>) => {
+	if (application.createdClubId) {
 		return { clubId: application.createdClubId };
 	}
 
@@ -572,10 +589,7 @@ const createClubFromApplication = async (
 	}
 
 	await ctx.db.patch(application._id, {
-		status: 'finalized',
 		createdClubId: clubId,
-		finalizedByProfileId: finalizerProfileId,
-		finalizedAt: now,
 		updatedAt: now
 	});
 	await ctx.db.patch(application.applicantProfileId, {
@@ -631,6 +645,8 @@ export const moveToInterview = mutation({
 	}
 });
 
+// CL-710 CEO review item 3: the interview itself IS the onboarding call. Accepting an application
+// creates the club immediately — there is no more separate "confirm onboarding call" step.
 export const decideApplication = mutation({
 	args: {
 		applicationId: v.id('clubApplications'),
@@ -684,11 +700,21 @@ export const decideApplication = mutation({
 				message: 'Your application was not accepted this time.'
 			});
 		} else {
+			const patchedApplication = await ctx.db.get(application._id);
+			if (!patchedApplication) {
+				throw new ConvexError('Application not found');
+			}
+			await createClubFromApplication(ctx, patchedApplication);
+
+			await ctx.db.insert('messages', {
+				roomId,
+				content: 'This application was accepted — the club is live!'
+			});
 			await dispatchNotification(ctx, {
 				recipientProfileId: application.applicantProfileId,
 				kind: 'application_status',
 				title: 'Application accepted',
-				message: 'Accepted! Schedule your onboarding call in this chat before your club activates.'
+				message: 'Congratulations! Your application was accepted and your club is now live.'
 			});
 		}
 
@@ -710,7 +736,7 @@ export const setAdminFollowUpFlag = mutation({
 			throw new ConvexError('Application not found');
 		}
 		if (application.status !== 'accepted') {
-			throw new ConvexError('Only accepted applications awaiting onboarding can be flagged');
+			throw new ConvexError('Only accepted applications can be flagged for follow-up');
 		}
 
 		await requireDecidingReviewer(ctx, args.applicationId, deciderProfile._id);
@@ -733,47 +759,6 @@ export const setAdminFollowUpFlag = mutation({
 	}
 });
 
-export const confirmOnboardingCall = mutation({
-	args: {
-		applicationId: v.id('clubApplications')
-	},
-	returns: v.object({
-		clubId: v.id('clubs')
-	}),
-	handler: async (ctx, args) => {
-		const identity = await requireIdentity(ctx);
-		const finalizerProfile = await requireProfile(ctx, identity.subject);
-
-		const application = await ctx.db.get(args.applicationId);
-		if (!application) {
-			throw new ConvexError('Application not found');
-		}
-		if (application.status === 'finalized') {
-			if (!application.createdClubId) {
-				throw new ConvexError('Application is finalized without a club');
-			}
-			return { clubId: application.createdClubId };
-		}
-		if (application.status !== 'accepted') {
-			throw new ConvexError('The onboarding call can only be confirmed for accepted applications');
-		}
-
-		await requireDecidingReviewer(ctx, args.applicationId, finalizerProfile._id);
-
-		const now = Date.now();
-		await ctx.db.patch(application._id, {
-			onboardingCallCompletedAt: now,
-			updatedAt: now
-		});
-		const patchedApplication = await ctx.db.get(args.applicationId);
-		if (!patchedApplication) {
-			throw new ConvexError('Application not found');
-		}
-
-		return await createClubFromApplication(ctx, patchedApplication, finalizerProfile._id);
-	}
-});
-
 export const getApplicationForRoom = query({
 	args: {
 		roomId: v.id('rooms')
@@ -788,12 +773,14 @@ export const getApplicationForRoom = query({
 				v.literal('pending'),
 				v.literal('interview'),
 				v.literal('accepted'),
-				v.literal('rejected'),
-				v.literal('finalized')
+				v.literal('rejected')
 			),
 			isApplicant: v.boolean(),
 			canDecide: v.boolean(),
 			hasReviewed: v.boolean(),
+			// CL-710 CEO review item 2: the applicant's video, surfaced for both the applicant (to
+			// double-check what they submitted) and reviewers/interviewers deciding on it.
+			videoUrl: v.union(v.string(), v.null()),
 			adminFollowUpFlag: v.optional(
 				v.object({
 					reason: v.string(),
@@ -828,6 +815,7 @@ export const getApplicationForRoom = query({
 			isApplicant,
 			canDecide: Boolean(review),
 			hasReviewed: Boolean(review),
+			videoUrl: await resolveApplicationVideoUrl(ctx, application),
 			adminFollowUpFlag: application.adminFollowUpFlag
 				? {
 						reason: application.adminFollowUpFlag.reason,
