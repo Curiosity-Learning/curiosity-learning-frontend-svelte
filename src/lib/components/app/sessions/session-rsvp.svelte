@@ -1,58 +1,79 @@
 <script lang="ts">
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { Button } from '$lib/components/ui/button';
+	import {
+		DropdownMenu,
+		DropdownMenuContent,
+		DropdownMenuItem,
+		DropdownMenuTrigger
+	} from '$lib/components/ui/dropdown-menu';
 	import { t } from '$lib/i18n';
 
-	type RsvpStatus = 'going' | 'not_going';
+	export type RsvpStatus = 'going' | 'not_going';
 
+	// Single implementation for every Going/Not-going surface (CEO review round 3): the card
+	// preview, and both rows of the attendees roster. `interactive` renders the editable dropdown
+	// (chevron + menu) — used for the viewer's own actionable row, or a card's RSVP control.
+	// Non-interactive renders the exact same button visual for other members' status: no chevron,
+	// not focusable/clickable.
 	type Props = {
-		myStatus: RsvpStatus | null;
-		canRsvp?: boolean;
-		locked?: boolean;
+		status: RsvpStatus | null;
+		interactive?: boolean;
 		pending?: boolean;
+		disabled?: boolean;
 		onSetStatus?: (status: RsvpStatus) => void;
 		class?: string;
 	};
 
 	let {
-		myStatus,
-		canRsvp = true,
-		locked = false,
+		status,
+		interactive = false,
 		pending = false,
+		disabled = false,
 		onSetStatus,
 		class: className
 	}: Props = $props();
-
-	const select = (status: RsvpStatus) => {
-		if (!canRsvp || locked || pending) return;
-		onSetStatus?.(status);
-	};
 </script>
 
-<!-- CEO decision 2026-07-11: when the RSVP control isn't actionable (no permission, or the
-     session has started/was cancelled), it is hidden entirely — never disabled-with-explanation. -->
-{#if canRsvp && !locked}
-	<div class={`flex flex-wrap items-center gap-2 ${className ?? ''}`}>
-		<Button
-			variant={myStatus === 'going' ? 'default' : 'outline'}
-			size="sm"
-			disabled={pending}
-			aria-pressed={myStatus === 'going'}
-			onclick={() => select('going')}
-		>
-			<CheckIcon class="size-4" />
-			{t('sessionRsvp.going')}
-		</Button>
-		<Button
-			variant={myStatus === 'not_going' ? 'destructive' : 'outline'}
-			size="sm"
-			disabled={pending}
-			aria-pressed={myStatus === 'not_going'}
-			onclick={() => select('not_going')}
-		>
-			<XIcon class="size-4" />
-			{t('sessionRsvp.notGoing')}
-		</Button>
-	</div>
+{#snippet statusContent()}
+	{#if status === 'not_going'}
+		<XIcon class="size-4 text-destructive" />
+		{t('sessionRsvp.notGoing')}
+	{:else}
+		<CheckIcon class="size-4 text-green-500" />
+		{t('sessionRsvp.going')}
+	{/if}
+{/snippet}
+
+{#if interactive}
+	<DropdownMenu>
+		<DropdownMenuTrigger>
+			<Button
+				variant="outline"
+				size="sm"
+				disabled={pending || disabled}
+				aria-label={t('sessionRsvp.changeAria')}
+				class={className}
+			>
+				{@render statusContent()}
+				<ChevronDownIcon class="size-4 text-muted-foreground" />
+			</Button>
+		</DropdownMenuTrigger>
+		<DropdownMenuContent align="end" class="w-44">
+			<DropdownMenuItem onSelect={() => onSetStatus?.('going')}>
+				<CheckIcon class="size-4" />
+				<span>{t('sessionRsvp.going')}</span>
+			</DropdownMenuItem>
+			<DropdownMenuItem onSelect={() => onSetStatus?.('not_going')}>
+				<XIcon class="size-4" />
+				<span>{t('sessionRsvp.notGoing')}</span>
+			</DropdownMenuItem>
+		</DropdownMenuContent>
+	</DropdownMenu>
+{:else}
+	<Button variant="outline" size="sm" disabled class={className}>
+		{@render statusContent()}
+	</Button>
 {/if}

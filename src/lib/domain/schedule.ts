@@ -114,3 +114,49 @@ export const combineDateAndTime = (date: Date, time: string): number => {
 		0
 	).getTime();
 };
+
+export type SessionFormDefaults = {
+	startTime: number;
+	endTime: number;
+	description: string;
+	location: string;
+};
+
+/**
+ * Builds the default values for a session create form: the next occurrence of the club's
+ * configured schedule (if any slots exist), or a generic now+1h/2h placeholder otherwise. Shared
+ * by the club home quick-create dialog and the full session-create form so both prefill
+ * consistently (CEO review round 3, CL-702/CL-712).
+ */
+export const buildDefaultSessionForm = (
+	slots: ScheduleSlot[],
+	existingSessionStartTimes: number[],
+	now: number = Date.now()
+): SessionFormDefaults => {
+	if (slots.length > 0) {
+		const lastSessionStart = existingSessionStartTimes.reduce<number | null>(
+			(latest, startTime) => (latest === null || startTime > latest ? startTime : latest),
+			null
+		);
+		const next = nextScheduledSession(
+			slots,
+			new Date(now),
+			lastSessionStart !== null ? new Date(lastSessionStart) : null
+		);
+		if (next) {
+			return {
+				startTime: combineDateAndTime(next.date, next.slot.startTime),
+				endTime: combineDateAndTime(next.date, next.slot.endTime),
+				description: '',
+				location: next.slot.location
+			};
+		}
+	}
+
+	return {
+		startTime: now + 3_600_000,
+		endTime: now + 7_200_000,
+		description: '',
+		location: ''
+	};
+};

@@ -219,11 +219,11 @@
 		<Separator class="opacity-70" />
 
 		<SessionRsvp
-			myStatus={myRsvpStatus}
-			canRsvp={showRsvpControl}
+			status={myRsvpStatus}
+			interactive
 			pending={rsvpPending}
 			onSetStatus={onSetRsvp}
-			class="px-1"
+			class="mx-1 w-fit"
 		/>
 	{/if}
 </DataRecordCard>

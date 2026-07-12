@@ -20,6 +20,7 @@
 	} from '$lib/app/connectivity';
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
 	import SessionLocation from '$lib/components/app/sessions/session-location.svelte';
+	import SessionRsvp from '$lib/components/app/sessions/session-rsvp.svelte';
 	import { routes } from '$lib/routes';
 	import { ATTENDANCE_LOCK_WINDOW_MS, formatSessionHeaderLine } from '$lib/domain/session';
 	import { t } from '$lib/i18n';
@@ -28,12 +29,6 @@
 	import { Button } from '$lib/components/ui/button';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
-	import {
-		DropdownMenu,
-		DropdownMenuContent,
-		DropdownMenuItem,
-		DropdownMenuTrigger
-	} from '$lib/components/ui/dropdown-menu';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Input } from '$lib/components/ui/input';
@@ -41,13 +36,10 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
-	import CheckIcon from '@lucide/svelte/icons/check';
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import BanIcon from '@lucide/svelte/icons/ban';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import XIcon from '@lucide/svelte/icons/x';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
@@ -244,42 +236,6 @@
 		description: '',
 		location: ''
 	});
-	// Snapshot of the form as it was opened, so closing with unsaved edits can ask first.
-	let sessionFormSnapshot = $state<string | null>(null);
-	// Inline discard-confirmation shown *inside* the edit dialog (no dialog-on-top-of-dialog).
-	let sessionDiscardPromptVisible = $state(false);
-
-	const serializeSessionForm = () =>
-		JSON.stringify([
-			sessionForm.startTime,
-			sessionForm.endTime,
-			sessionForm.description,
-			sessionForm.location
-		]);
-	let sessionFormDirty = $derived(
-		sessionFormSnapshot !== null && serializeSessionForm() !== sessionFormSnapshot
-	);
-
-	// All close paths (X button, Escape, overlay click, footer Cancel) funnel through here; a
-	// dirty form swaps the dialog footer for an inline "discard changes?" confirmation instead
-	// of closing.
-	const requestSessionDialogOpenChange = (next: boolean) => {
-		if (!next && sessionFormDirty && !sessionDiscardPromptVisible) {
-			sessionDiscardPromptVisible = true;
-			return;
-		}
-		sessionDialogOpen = next;
-		if (!next) {
-			sessionDiscardPromptVisible = false;
-			sessionFormSnapshot = null;
-		}
-	};
-
-	const discardSessionEdits = () => {
-		sessionDiscardPromptVisible = false;
-		sessionFormSnapshot = null;
-		sessionDialogOpen = false;
-	};
 
 	let activityDialogOpen = $state(false);
 	let activityEditId = $state<Id<'sessionActivities'> | null>(null);
@@ -442,8 +398,6 @@
 			description: session.description ?? '',
 			location: session.location ?? ''
 		};
-		sessionDiscardPromptVisible = false;
-		sessionFormSnapshot = serializeSessionForm();
 		sessionDialogOpen = true;
 	};
 
@@ -465,8 +419,6 @@
 				...(desc ? { description: desc } : {})
 			});
 			reportMutationSuccess();
-			sessionFormSnapshot = null;
-			sessionDiscardPromptVisible = false;
 			sessionDialogOpen = false;
 		} catch (error) {
 			reportMutationFailure(error);
@@ -842,8 +794,9 @@
 			<div class="flex flex-col gap-3">
 				{#if !sessionHasStarted}
 					<!-- Before the session starts this tab is the RSVP roster: every member with their
-					     going/not-going status (default going, CL-712). Your own row carries the only
-					     RSVP control — a dropdown to switch status — and only while it's actionable. -->
+					     going/not-going status (default going, CL-712), viewer's own row sorted to the
+					     top (see sessions.listRsvpRoster). Every row uses the same SessionRsvp control;
+					     only the viewer's own row is interactive, and only while actionable. -->
 					{#if rsvpRosterResponse.isLoading}
 						<LoadingState label="Loading attendees" />
 					{:else if (rsvpRosterResponse.data?.length ?? 0) === 0}
@@ -854,45 +807,13 @@
 								class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
 							>
 								<p class="type-body-medium">{formatDisplayName(member)}</p>
-								{#if member.isSelf && canRsvpToSession}
-									<DropdownMenu>
-										<DropdownMenuTrigger>
-											<Button
-												variant="outline"
-												size="sm"
-												disabled={rsvpPending || !canMutateOnline}
-												aria-label={t('sessionRsvp.changeAria')}
-											>
-												{#if member.status === 'going'}
-													<CheckIcon class="size-4 text-green-500" />
-													{t('sessionRsvp.going')}
-												{:else}
-													<XIcon class="size-4 text-destructive" />
-													{t('sessionRsvp.notGoing')}
-												{/if}
-												<ChevronDownIcon class="size-4 text-muted-foreground" />
-											</Button>
-										</DropdownMenuTrigger>
-										<DropdownMenuContent align="end" class="w-44">
-											<DropdownMenuItem onSelect={() => void setRsvpStatus('going')}>
-												<CheckIcon class="size-4" />
-												<span>{t('sessionRsvp.going')}</span>
-											</DropdownMenuItem>
-											<DropdownMenuItem onSelect={() => void setRsvpStatus('not_going')}>
-												<XIcon class="size-4" />
-												<span>{t('sessionRsvp.notGoing')}</span>
-											</DropdownMenuItem>
-										</DropdownMenuContent>
-									</DropdownMenu>
-								{:else}
-									<p
-										class={`type-sm ${member.status === 'going' ? 'text-muted-foreground' : 'text-destructive'}`}
-									>
-										{member.status === 'going'
-											? t('sessionRsvp.going')
-											: t('sessionRsvp.notGoing')}
-									</p>
-								{/if}
+								<SessionRsvp
+									status={member.status}
+									interactive={member.isSelf && canRsvpToSession}
+									pending={rsvpPending}
+									disabled={!canMutateOnline}
+									onSetStatus={(status) => void setRsvpStatus(status)}
+								/>
 							</div>
 						{/each}
 					{/if}
@@ -1045,7 +966,7 @@
 		{/if}
 	</div>
 
-	<Dialog.Root bind:open={() => sessionDialogOpen, requestSessionDialogOpenChange}>
+	<Dialog.Root bind:open={sessionDialogOpen}>
 		<Dialog.Content>
 			<Dialog.Header>
 				<Dialog.Title>Edit session</Dialog.Title>
@@ -1070,36 +991,13 @@
 					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
 				</div>
 			</div>
-			{#if sessionDiscardPromptVisible}
-				<!-- Inline unsaved-changes confirmation: swaps in for the footer instead of stacking a
-				     second dialog on top of this one. -->
-				<div
-					class="flex flex-col gap-3 rounded-xl border border-border bg-muted/40 p-4"
-					role="alertdialog"
-					aria-label={t('sessionEditor.discardTitle')}
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
+				<Button
+					disabled={pending || !canUpdateSessionOnline || !sessionForm.location.trim()}
+					onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
 				>
-					<p class="type-body-medium">{t('sessionEditor.discardTitle')}</p>
-					<p class="type-sm text-muted-foreground">{t('sessionEditor.discardDescription')}</p>
-					<div class="flex justify-end gap-2">
-						<Button variant="outline" onclick={() => (sessionDiscardPromptVisible = false)}>
-							{t('sessionEditor.keepEditing')}
-						</Button>
-						<Button variant="destructive" onclick={discardSessionEdits}>
-							{t('sessionEditor.discard')}
-						</Button>
-					</div>
-				</div>
-			{:else}
-				<Dialog.Footer>
-					<Button variant="outline" onclick={() => requestSessionDialogOpenChange(false)}
-						>Cancel</Button
-					>
-					<Button
-						disabled={pending || !canUpdateSessionOnline || !sessionForm.location.trim()}
-						onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
-					>
-				</Dialog.Footer>
-			{/if}
+			</Dialog.Footer>
 		</Dialog.Content>
 	</Dialog.Root>
 

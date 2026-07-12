@@ -1159,6 +1159,10 @@ export const listRsvpRoster = query({
 			});
 		}
 
+		// CEO review round 3 (CL-702/CL-712): the viewer's own row always sorts to the top of the
+		// roster; everyone else keeps their existing relative order.
+		output.sort((a, b) => Number(b.isSelf) - Number(a.isSelf));
+
 		return output;
 	}
 });

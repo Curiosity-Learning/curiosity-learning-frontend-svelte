@@ -205,11 +205,7 @@ const en = {
 	},
 	sessionEditor: {
 		locationLabel: 'Location',
-		locationPlaceholder: 'Address, description, or meeting URL',
-		discardTitle: 'Discard unsaved changes?',
-		discardDescription: 'Your edits to this session have not been saved.',
-		keepEditing: 'Keep editing',
-		discard: 'Discard changes'
+		locationPlaceholder: 'Address, description, or meeting URL'
 	},
 	sessionAttendance: {
 		present: 'Present',
@@ -218,6 +214,10 @@ const en = {
 		lockedIconLabel: 'Attendance is locked',
 		updateFailure: 'Failed to update attendance.',
 		emptyState: 'No one was in the club when this session started.'
+	},
+	sessionsHome: {
+		planNextSessionDescription: 'Plan your next session to get the club back on the calendar.',
+		planNextSessionAction: 'Plan next session'
 	},
 	authLayout: {
 		description: 'Sign in to continue your club experience.'

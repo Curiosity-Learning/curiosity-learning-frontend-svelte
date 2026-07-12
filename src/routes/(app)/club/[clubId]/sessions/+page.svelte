@@ -19,7 +19,7 @@
 	} from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
-	import { combineDateAndTime, nextScheduledSession } from '$lib/domain/schedule';
+	import { buildDefaultSessionForm } from '$lib/domain/schedule';
 	import { routes } from '$lib/routes';
 	import { t } from '$lib/i18n';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -74,38 +74,11 @@
 		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
 	);
 
-	const buildDefaultSessionForm = () => {
-		const now = Date.now();
-		const slots = scheduleSlotsResponse.data ?? [];
-
-		if (slots.length > 0) {
-			const lastSessionStart = (sessionCardsResponse.data ?? []).reduce<number | null>(
-				(latest, entry) =>
-					latest === null || entry.session.startTime > latest ? entry.session.startTime : latest,
-				null
-			);
-			const next = nextScheduledSession(
-				slots,
-				new Date(now),
-				lastSessionStart !== null ? new Date(lastSessionStart) : null
-			);
-			if (next) {
-				return {
-					startTime: combineDateAndTime(next.date, next.slot.startTime),
-					endTime: combineDateAndTime(next.date, next.slot.endTime),
-					description: '',
-					location: next.slot.location
-				};
-			}
-		}
-
-		return {
-			startTime: now + 3_600_000,
-			endTime: now + 7_200_000,
-			description: '',
-			location: ''
-		};
-	};
+	const defaultSessionForm = () =>
+		buildDefaultSessionForm(
+			scheduleSlotsResponse.data ?? [],
+			(sessionCardsResponse.data ?? []).map((entry) => entry.session.startTime)
+		);
 	const SESSION_CREATE_TIMEOUT_MS = 6_000;
 
 	async function withTimeout<T>(
@@ -122,7 +95,7 @@
 	}
 
 	let createDialogOpen = $state(page.url.searchParams.get('openCreateSession') === '1');
-	let sessionForm = $state(buildDefaultSessionForm());
+	let sessionForm = $state(defaultSessionForm());
 
 	let searchText = $state('');
 	let pending = $state(false);
@@ -179,7 +152,7 @@
 	);
 
 	const openCreateSession = () => {
-		sessionForm = buildDefaultSessionForm();
+		sessionForm = defaultSessionForm();
 		createDialogOpen = true;
 	};
 
