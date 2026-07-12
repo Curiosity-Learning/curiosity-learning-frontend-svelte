@@ -1,4 +1,6 @@
 import { ConvexError } from 'convex/values';
+import type { Id } from './_generated/dataModel';
+import type { MutationCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { ensureClubRoom } from './chatModel';
 import { notifyGuidesOfNewMember } from './notificationsModel';
@@ -10,6 +12,36 @@ import {
 	requireProfile
 } from './permissions';
 import { clearPendingClubJoinsForProfile, getLatestPendingClubJoin } from './pendingClubJoinsModel';
+
+// CL-711 CEO review round 3: when the deferred join came from an accepted map join-request
+// (source 'map_request' — see acceptJoinRequest), the requester already has a chat thread with the
+// Guide from before they signed up. Once consumeMine finishes the join, the client should land
+// them directly back in that thread instead of the generic club overview — so look up its room
+// here rather than making the client re-derive it.
+const findJoinRequestRoomId = async (
+	ctx: MutationCtx,
+	clubId: Id<'clubs'>,
+	requesterProfileId: Id<'profiles'>
+): Promise<Id<'rooms'> | null> => {
+	const requests = await ctx.db
+		.query('joinRequests')
+		.withIndex('by_club_and_requester', (q) =>
+			q.eq('clubId', clubId).eq('requesterProfileId', requesterProfileId)
+		)
+		.collect();
+	const accepted = requests
+		.filter((request) => request.status === 'accepted')
+		.sort((a, b) => (b.decidedAt ?? b.createdAt) - (a.decidedAt ?? a.createdAt))[0];
+	if (!accepted) {
+		return null;
+	}
+
+	const room = await ctx.db
+		.query('rooms')
+		.withIndex('by_join_request_id', (q) => q.eq('joinRequestId', accepted._id))
+		.first();
+	return room?._id ?? null;
+};
 
 // Surfaces the current profile's deferred club-join intent (PRD 5.6), if any, so onboarding-
 // completion flows (post-signup) know whether to auto-join a club once gates clear. Returns null
@@ -61,10 +93,17 @@ export const consumeMine = mutation({
 			return { ok: false as const, error: 'club_unavailable' as const };
 		}
 
+		// CL-711 CEO review round 3: only a 'map_request' deferral has a join-request chat to return
+		// to — a 'code' deferral (join-club/[code] link) never went through a join request.
+		const roomId =
+			pending.source === 'map_request'
+				? await findJoinRequestRoomId(ctx, club._id, profile._id)
+				: null;
+
 		const existingMembership = await getMembershipByProfileId(ctx, club._id, profile._id);
 		if (existingMembership) {
 			await clearPendingClubJoinsForProfile(ctx, profile._id);
-			return { ok: true as const, clubId: club._id };
+			return { ok: true as const, clubId: club._id, roomId };
 		}
 
 		const learnerRole = await getClubRoleByKey(ctx, 'learner');
@@ -91,6 +130,6 @@ export const consumeMine = mutation({
 		await notifyGuidesOfNewMember(ctx, club._id, profile);
 		await clearPendingClubJoinsForProfile(ctx, profile._id);
 
-		return { ok: true as const, clubId: club._id };
+		return { ok: true as const, clubId: club._id, roomId };
 	}
 });

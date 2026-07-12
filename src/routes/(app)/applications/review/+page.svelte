@@ -12,6 +12,8 @@
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import { useConvexClient } from 'convex-svelte';
+	import { requestSignedMediaUrls } from '$lib/media/signed-media.svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { _ } from '$lib/i18n';
 
 	const convexClient = useConvexClient();
@@ -24,6 +26,38 @@
 	// CL-710 CEO review item 2: the video is one of the most important parts of the application —
 	// track per-card playback failures the same way clubs/[clubId]/+page.svelte does for club videos.
 	let videoLoadFailedIds = $state<Record<string, boolean>>({});
+	// CL-710 CEO review round 3 (Braga bug): application.videoUrl is a direct storage URL that
+	// 403s once secure media delivery (CloudFront) is configured, because the bucket is then
+	// private. Prefer a signed delivery URL fetched per-card via /api/media/refresh, falling back
+	// to the direct URL (works in local dev, where the bucket is public) if signing isn't
+	// available.
+	let signedVideoUrlsById = $state<Record<string, string | null>>({});
+	const requestedVideoAssetIds = new SvelteSet<string>();
+
+	$effect(() => {
+		for (const application of applications) {
+			const assetId = application.videoMediaAssetId;
+			if (!assetId || requestedVideoAssetIds.has(application._id)) continue;
+			requestedVideoAssetIds.add(application._id);
+
+			void (async () => {
+				try {
+					const assets = await requestSignedMediaUrls({
+						assetIds: [assetId],
+						context: { kind: 'club-application', applicationId: application._id }
+					});
+					signedVideoUrlsById[application._id] = assets[0]?.signedUrl ?? null;
+				} catch {
+					// Secure media delivery isn't configured (local dev) or the request failed — fall
+					// back to application.videoUrl below rather than surfacing an error.
+					signedVideoUrlsById[application._id] = null;
+				}
+			})();
+		}
+	});
+
+	const videoUrlFor = (application: (typeof applications)[number]) =>
+		signedVideoUrlsById[application._id] ?? application.videoUrl ?? null;
 
 	const submitReview = async (applicationId: string) => {
 		const principlesScore = Number(principlesScores[applicationId] ?? '');
@@ -83,11 +117,11 @@
 
 						<div class="flex flex-col gap-2">
 							<FieldLabel>{$_('applicationChat.videoLabel')}</FieldLabel>
-							{#if application.videoUrl && !videoLoadFailedIds[application._id]}
+							{#if videoUrlFor(application) && !videoLoadFailedIds[application._id]}
 								<div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
 									<!-- svelte-ignore a11y_media_has_caption -->
 									<video
-										src={application.videoUrl}
+										src={videoUrlFor(application)}
 										controls
 										preload="metadata"
 										class="h-56 w-full object-cover"

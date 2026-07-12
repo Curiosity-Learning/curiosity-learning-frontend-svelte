@@ -3,6 +3,7 @@ import type { Id } from '$convex/_generated/dataModel';
 import { getConvexServerClient } from '$lib/server/convex';
 import { loadMediaDeliveryConfigOrNull } from '$lib/server/media-delivery';
 import {
+	getSignedApplicationVideoAsset,
 	getSignedGlobalUpdateAuthorAssets,
 	getSignedGlobalUpdateMediaAssets,
 	getSignedOwnedMediaAssets,
@@ -29,6 +30,13 @@ type RefreshContext =
 	| {
 			kind: 'global-feed';
 			updateIds: string[];
+	  }
+	// CL-710 CEO review round 3: the club application video (application chat + review page).
+	// Authorization is resolved server-side from the applicationId (applicant, assigned reviewer,
+	// or reviewer who already reviewed it) — the client never needs to supply assetIds for this.
+	| {
+			kind: 'club-application';
+			applicationId: string;
 	  };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -58,6 +66,17 @@ const parseContext = (value: unknown): RefreshContext | null => {
 		return {
 			kind: 'global-feed',
 			updateIds: value.updateIds.filter((id): id is string => typeof id === 'string')
+		};
+	}
+
+	if (
+		value.kind === 'club-application' &&
+		typeof value.applicationId === 'string' &&
+		value.applicationId.trim()
+	) {
+		return {
+			kind: 'club-application',
+			applicationId: value.applicationId
 		};
 	}
 
@@ -121,6 +140,18 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			getSignedViewerUpdateMediaAssets(convex, typedAssetIds, 50, deliveryConfig)
 		]);
 		return json({ assets: [...authorAssets, ...mediaAssets] });
+	}
+
+	if (context.kind === 'club-application') {
+		// The asset is derived server-side from the applicationId (see
+		// clubApplications.getApplicationVideoDeliveryAsset) — the client-supplied assetIds are only
+		// used above to satisfy the generic "must include assetIds" request shape, not trusted here.
+		const asset = await getSignedApplicationVideoAsset(
+			convex,
+			context.applicationId as Id<'clubApplications'>,
+			deliveryConfig
+		);
+		return json({ assets: asset ? [asset] : [] });
 	}
 
 	// context.kind === 'global-feed'

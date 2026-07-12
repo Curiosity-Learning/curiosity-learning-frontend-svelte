@@ -2,7 +2,7 @@
 
 import { convexTest } from 'convex-test';
 import { describe, expect, it } from 'vitest';
-import { api } from './_generated/api';
+import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
@@ -405,6 +405,132 @@ describe('getApplicationForRoom', () => {
 		await expect(
 			otherReviewer.query(api.clubApplications.getApplicationForRoom, { roomId })
 		).rejects.toThrow('You cannot access this chat');
+	});
+});
+
+// CL-710 CEO review round 3 (Braga bug): the CEO's fresh "Braga" start-club application had a
+// video that didn't show in the review chat. The asset itself was healthy — status 'ready',
+// mediaKind 'video', moderation.status 'skipped-video' (video safety screening is intentionally
+// out of scope for v1, see mediaPipeline.ts's safety-screening plugin) — so the bug was never
+// about asset readiness or moderation gating (resolveApplicationVideoUrl/resolveClubVideoUrl never
+// checked moderation status at all). The real cause: resolveApplicationVideoUrl only ever produces
+// a *direct* storage URL, which 403s once secure media delivery (CloudFront signing) is
+// configured, because the backing bucket is then private (confirmed against curiosity-club-main-s3
+// in the dev deployment). This suite seeds a video asset in exactly that state and exercises the
+// new getApplicationVideoDeliveryAsset query, which the client now signs via
+// /api/media/refresh (src/lib/server/signed-media.ts's getSignedApplicationVideoAsset) instead of
+// relying solely on the direct URL.
+describe('getApplicationVideoDeliveryAsset', () => {
+	const insertBragaLikeVideoAsset = async (
+		t: Awaited<ReturnType<typeof seedApplicationFixture>>['t'],
+		ownerUserId: string
+	) => {
+		const now = Date.now();
+		return await t.run(async (ctx) =>
+			ctx.db.insert('mediaAssets', {
+				ownerUserId,
+				mediaKind: 'video',
+				status: 'ready',
+				acceptedContentTypes: ['video/quicktime'],
+				maxBytes: 100_000_000,
+				enableCompression: true,
+				enableSafetyScreening: true,
+				storageProvider: 's3',
+				sourceBucket: 'curiosity-club-main-s3',
+				sourceObjectKey: 'production/media-assets/owners/owner/assets/asset/raw/r1/movie.mov',
+				sourceObjectRevision: 1,
+				contentType: 'video/quicktime',
+				sizeBytes: 9_286_411,
+				durationSeconds: 7.3,
+				// Video NSFW screening is out of scope for v1 (see mediaPipeline.ts) — every real video
+				// asset ends up in this state, never 'clean'/'flagged'/'blocked'.
+				moderation: { status: 'skipped-video', labels: [] },
+				pipelineVersion: 1,
+				attemptCount: 1,
+				stepResults: [],
+				createdAt: now,
+				updatedAt: now,
+				readyAt: now
+			})
+		);
+	};
+
+	it('resolves a delivery asset for the applicant and for a reviewer who reviewed it', async () => {
+		const { reviewer, applicant, reviewerProfileId, applicantProfileId, applicationId, t } =
+			await seedApplicationFixture();
+		const videoMediaAssetId = await insertBragaLikeVideoAsset(t, 'applicant-user');
+		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
+		await addReview(t, applicationId, reviewerProfileId);
+
+		const asApplicant = await applicant.query(api.clubApplications.getApplicationVideoDeliveryAsset, {
+			applicationId
+		});
+		expect(asApplicant).toMatchObject({
+			assetId: videoMediaAssetId,
+			storageProvider: 's3',
+			deliveryBucket: 'curiosity-club-main-s3',
+			deliveryObjectKey: 'production/media-assets/owners/owner/assets/asset/raw/r1/movie.mov',
+			mediaKind: 'video'
+		});
+
+		const asReviewer = await reviewer.query(api.clubApplications.getApplicationVideoDeliveryAsset, {
+			applicationId
+		});
+		expect(asReviewer).toMatchObject({ assetId: videoMediaAssetId, mediaKind: 'video' });
+
+		// Sanity: applicantProfileId is part of the seeded fixture, unused here beyond documenting
+		// that the applicant fixture identity above really is that profile's owner.
+		expect(applicantProfileId).toBeDefined();
+	});
+
+	it('resolves a delivery asset for a Guide assigned to review it, before they have reviewed', async () => {
+		const { otherReviewer, otherReviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		const videoMediaAssetId = await insertBragaLikeVideoAsset(t, 'applicant-user');
+		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
+		const now = Date.now();
+		const seasonId = await t.mutation(internal.seasons.createSeason, {
+			name: 'Test Season',
+			startDate: now + 60 * 24 * 60 * 60 * 1000,
+			endDate: now + 120 * 24 * 60 * 60 * 1000,
+			reviewWindowOpen: now - 24 * 60 * 60 * 1000,
+			reviewWindowClose: now + 24 * 60 * 60 * 1000,
+			feedbackDeadline: now + 150 * 24 * 60 * 60 * 1000
+		});
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId: otherReviewerProfileId,
+				seasonId,
+				assignedAt: now
+			})
+		);
+
+		const asAssignedReviewer = await otherReviewer.query(
+			api.clubApplications.getApplicationVideoDeliveryAsset,
+			{ applicationId }
+		);
+		expect(asAssignedReviewer).toMatchObject({ assetId: videoMediaAssetId });
+	});
+
+	it('denies a Guide with no assignment and no review', async () => {
+		const { otherReviewer, reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		const videoMediaAssetId = await insertBragaLikeVideoAsset(t, 'applicant-user');
+		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
+		// Someone else reviewed it, but not `otherReviewer`.
+		await addReview(t, applicationId, reviewerProfileId);
+
+		await expect(
+			otherReviewer.query(api.clubApplications.getApplicationVideoDeliveryAsset, { applicationId })
+		).rejects.toThrow('Permission denied');
+	});
+
+	it('returns null (not an error) when no video was uploaded', async () => {
+		const { applicant, applicationId } = await seedApplicationFixture();
+
+		const result = await applicant.query(api.clubApplications.getApplicationVideoDeliveryAsset, {
+			applicationId
+		});
+		expect(result).toBeNull();
 	});
 });
 

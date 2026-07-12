@@ -120,6 +120,17 @@ const assertReadyClubVideo = async (
 
 // CL-710 CEO review item 2: reviewers/interviewers need to actually watch the application video —
 // mirrors clubs.ts's resolveClubVideoUrl for the same asset-readiness checks.
+//
+// CL-710 CEO review round 3 (Braga bug): this only ever produces a *direct* storage URL
+// (mediaStorage.ts's resolveMediaAssetFileUrl). That's fine in local dev, where the bucket is
+// public, but in any environment with secure media delivery configured (MEDIA_CDN_BASE_URL +
+// CloudFront signing keys — see mediaStorage config) the underlying bucket is private and this
+// URL 403s, so the <video> tag silently fails to load. It was never the asset's readiness or
+// moderation status (moderation.status: 'skipped-video' for videos is expected — safety
+// screening is intentionally out of scope for video in v1 — and is NOT checked here or in
+// clubs.ts's mirror). Kept as a same-environment (no-CDN-configured) fallback; the real fix is
+// getApplicationVideoDeliveryAsset below, which the client signs through
+// /api/media/refresh the same way club/session/project media already does.
 const resolveApplicationVideoUrl = async (
 	ctx: Ctx,
 	application: Doc<'clubApplications'>
@@ -132,6 +143,24 @@ const resolveApplicationVideoUrl = async (
 		return null;
 	}
 	return resolveMediaAssetFileUrl(asset);
+};
+
+// Whether `profileId` is allowed to view the given application's video: the applicant themselves,
+// any Guide assigned to review it (assignment exists — covers the review-list page, before a
+// review is submitted), or any Guide who has reviewed it (covers the chat page's access rule,
+// which is gated on "has an applicationReviews row" — see getApplicationForRoom above).
+const canAccessApplicationVideo = async (
+	ctx: Ctx,
+	application: Doc<'clubApplications'>,
+	profileId: Id<'profiles'>
+) => {
+	if (application.applicantProfileId === profileId) {
+		return true;
+	}
+	if (await getApplicationReview(ctx, application._id, profileId)) {
+		return true;
+	}
+	return Boolean(await getAssignment(ctx, application._id, profileId));
 };
 
 const createInviteCodeCandidate = () => {
@@ -781,6 +810,10 @@ export const getApplicationForRoom = query({
 			// CL-710 CEO review item 2: the applicant's video, surfaced for both the applicant (to
 			// double-check what they submitted) and reviewers/interviewers deciding on it.
 			videoUrl: v.union(v.string(), v.null()),
+			// CL-710 CEO review round 3: lets the client request a signed delivery URL via
+			// getApplicationVideoDeliveryAsset/api/media/refresh when secure media delivery is
+			// configured, instead of relying solely on the (possibly 403ing) direct videoUrl above.
+			videoMediaAssetId: v.optional(v.id('mediaAssets')),
 			adminFollowUpFlag: v.optional(
 				v.object({
 					reason: v.string(),
@@ -816,12 +849,50 @@ export const getApplicationForRoom = query({
 			canDecide: Boolean(review),
 			hasReviewed: Boolean(review),
 			videoUrl: await resolveApplicationVideoUrl(ctx, application),
+			videoMediaAssetId: application.videoMediaAssetId,
 			adminFollowUpFlag: application.adminFollowUpFlag
 				? {
 						reason: application.adminFollowUpFlag.reason,
 						createdAt: application.adminFollowUpFlag.createdAt
 					}
 				: undefined
+		};
+	}
+});
+
+// CL-710 CEO review round 3 (Braga bug fix): signed-delivery counterpart to the direct `videoUrl`
+// above. Mirrors clubs.ts/updates.ts's `get*DeliveryAssets` queries (used via
+// src/lib/server/signed-media.ts + /api/media/refresh) so the application video can be served
+// through CloudFront-signed URLs in any environment where the storage bucket is private, instead
+// of only ever working when the bucket happens to allow direct/unauthenticated reads.
+export const getApplicationVideoDeliveryAsset = query({
+	args: {
+		applicationId: v.id('clubApplications')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application || !application.videoMediaAssetId) {
+			return null;
+		}
+		if (!(await canAccessApplicationVideo(ctx, application, profile._id))) {
+			throw new ConvexError('Permission denied');
+		}
+
+		const asset = await ctx.db.get(application.videoMediaAssetId);
+		if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'video') {
+			return null;
+		}
+
+		return {
+			assetId: asset._id,
+			storageProvider: asset.storageProvider,
+			deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+			deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+			mediaKind: asset.mediaKind ?? null,
+			contentType: asset.contentType ?? null,
+			durationSeconds: asset.durationSeconds ?? null
 		};
 	}
 });
