@@ -237,9 +237,13 @@ const isLikelyAnimatedWebp = async (file: File) => {
 
 /**
  * Compresses an image client-side before upload: decodes it, scales it down
- * to a max dimension of ~2048px if larger, and re-encodes as WebP (falling
- * back to JPEG) at a reasonable quality. Animated GIF/WebP files pass
- * through untouched. Returns null (meaning "use the original file
+ * to a max dimension of ~2048px if larger, and re-encodes as JPEG at a
+ * reasonable quality. JPEG (not WebP) because the server-side NSFW screening
+ * uses Rekognition DetectModerationLabels, which only accepts JPEG/PNG —
+ * WebP output made every compressed upload crash the screening step
+ * (InvalidImageFormatException, found in browser testing 2026-07-11).
+ * Transparency is composited onto white before encoding. Animated GIF/WebP
+ * files pass through untouched. Returns null (meaning "use the original file
  * unmodified") when compression isn't applicable, safe, or beneficial, so
  * callers can record an accurate 'skipped' outcome rather than a fake one.
  */
@@ -279,10 +283,14 @@ export const compressImageFileIfPossible = async (file: File): Promise<File | nu
 			return null;
 		}
 
+		// JPEG has no alpha channel: composite transparent sources onto white
+		// instead of letting the encoder default them to black.
+		context.fillStyle = '#ffffff';
+		context.fillRect(0, 0, targetWidth, targetHeight);
 		context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
 		bitmap.close?.();
 
-		const preferredType = file.type === 'image/png' ? 'image/webp' : file.type;
+		const preferredType = 'image/jpeg';
 		const blob: Blob | null =
 			'convertToBlob' in canvas
 				? await canvas.convertToBlob({ type: preferredType, quality: COMPRESSED_IMAGE_QUALITY })
@@ -302,7 +310,7 @@ export const compressImageFileIfPossible = async (file: File): Promise<File | nu
 			return null;
 		}
 
-		const extension = preferredType === 'image/webp' ? 'webp' : file.name.split('.').pop();
+		const extension = 'jpg';
 		const baseName = file.name.replace(/\.[^./]+$/, '');
 		const compressedFile = new File([blob], `${baseName}.${extension}`, {
 			type: preferredType,

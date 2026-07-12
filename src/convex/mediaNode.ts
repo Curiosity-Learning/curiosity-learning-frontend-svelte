@@ -713,6 +713,25 @@ export const processUpload = internalAction({
 				operation: 'media:process-upload',
 				identifiers: { assetId: args.assetId }
 			});
+			// Scheduled actions are not retried by Convex: rethrowing here left the
+			// asset in 'processing' forever and the uploader waiting on a spinner.
+			// Record the failure so the client sees a retryable error instead.
+			try {
+				await ctx.runMutation(internal.media.markUploadFailed, {
+					assetId: args.assetId,
+					stepResults: [],
+					failure: {
+						code: 'pipeline_exception',
+						message: 'Media processing failed unexpectedly. Please try uploading again.',
+						stage: 'processing',
+						recoverable: true,
+						retryable: true
+					}
+				});
+			} catch {
+				// If the asset vanished or is in a state that rejects the patch,
+				// the original error report above is still the source of truth.
+			}
 			throw error;
 		}
 	}

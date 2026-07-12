@@ -522,10 +522,49 @@ const PLUGIN_REGISTRY: Record<MediaPipelinePluginName, MediaPipelinePlugin> = {
 				};
 			}
 
-			const labels = await moderateImage({
-				bucket: descriptor.bucket,
-				objectKey: descriptor.objectKey
-			});
+			// Rekognition DetectModerationLabels only accepts JPEG and PNG. Other
+			// image formats we accept (e.g. WebP, GIF) can't be auto-screened, so
+			// route them to human review — same policy as the oversized case.
+			// (Client compression re-encodes to JPEG, so this mostly catches
+			// files uploaded in those formats unmodified.)
+			if (
+				descriptor.contentType !== 'image/jpeg' &&
+				descriptor.contentType !== 'image/png'
+			) {
+				return {
+					status: 'passed',
+					message: `Automated screening does not support ${descriptor.contentType ?? 'this format'}; flagged for human review.`,
+					patch: {
+						moderation: {
+							status: 'flagged',
+							labels: []
+						}
+					}
+				};
+			}
+
+			let labels: MediaModerationLabel[];
+			try {
+				labels = await moderateImage({
+					bucket: descriptor.bucket,
+					objectKey: descriptor.objectKey
+				});
+			} catch (error) {
+				// A screening crash previously aborted the whole pipeline and left
+				// the asset stuck in 'processing' forever. Fail safe instead: allow
+				// the upload but flag it for human review.
+				const name = error instanceof Error ? error.name : 'UnknownError';
+				return {
+					status: 'passed',
+					message: `Automated screening errored (${name}); flagged for human review.`,
+					patch: {
+						moderation: {
+							status: 'flagged',
+							labels: []
+						}
+					}
+				};
+			}
 			const moderation = decideMediaModerationStatus(labels);
 
 			if (moderation.status === 'blocked') {
