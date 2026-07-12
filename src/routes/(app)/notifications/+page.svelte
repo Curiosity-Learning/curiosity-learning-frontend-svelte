@@ -95,14 +95,13 @@
 						<span>{formatDateTime(notification.createdAt)}</span>
 						{#if notification.url}
 							{#if notification.url.startsWith('/')}
-								<Button href={notification.url} variant="link" size="sm" class="h-auto p-0">
+								<Button href={notification.url} variant="link" class="text-sm">
 									Open link
 								</Button>
 							{:else}
 								<Button
 									variant="link"
-									size="sm"
-									class="h-auto p-0"
+									class="text-sm"
 									onclick={() => {
 										window.open(notification.url, '_blank', 'noopener,noreferrer');
 									}}

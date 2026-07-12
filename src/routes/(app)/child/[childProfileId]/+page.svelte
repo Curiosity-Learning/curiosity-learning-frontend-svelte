@@ -5,6 +5,7 @@
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Avatar, AvatarFallback } from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Button } from '$lib/components/ui/button';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
@@ -251,13 +252,13 @@
 						}`}
 					>
 						{#if selectedRoomId}
-							<button
-								type="button"
-								class="type-body-medium mb-2 inline-flex min-h-10 items-center self-start px-1 text-orange-700 lg:hidden"
+							<Button
+								variant="link"
+								class="type-body-medium mb-2 min-h-10 self-start px-1 text-orange-700 hover:text-orange-800 active:text-orange-800 lg:hidden"
 								onclick={() => (selectedRoomId = null)}
 							>
 								{t('parentAccounts.chatsTab')} &lt;
-							</button>
+							</Button>
 						{/if}
 						{#if !selectedRoomId}
 							<p class="type-sm m-auto text-muted-foreground">

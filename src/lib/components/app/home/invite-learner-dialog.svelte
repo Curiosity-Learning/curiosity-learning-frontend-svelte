@@ -51,7 +51,7 @@
 						<Button
 							{...props}
 							variant="ghost"
-							class="h-full w-full justify-center rounded-xl type-lead-medium text-foreground hover:bg-accent/60"
+							class="h-full w-full justify-center rounded-xl type-lead-medium hover:bg-accent/60"
 						>
 							{resolvedTriggerLabel}
 						</Button>
@@ -62,12 +62,7 @@
 					{resolvedTriggerLabel}
 				</Button>
 			{:else}
-				<Button
-					{...props}
-					variant="ghost"
-					size="sm"
-					class="px-0 py-0 type-sm-bold text-orange-500 hover:bg-transparent hover:text-orange-600"
-				>
+				<Button {...props} variant="link" class="type-sm-bold">
 					<PlusIcon class="size-4" />
 					<span>{resolvedTriggerLabel}</span>
 				</Button>

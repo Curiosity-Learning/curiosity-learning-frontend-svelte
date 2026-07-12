@@ -15,11 +15,10 @@
 
 <Button
 	href={href}
-	variant="ghost"
-	size="sm"
+	variant="link"
 	class={cn(
-		'type-sm-bold hover:bg-transparent',
-		tone === 'primary' ? 'text-orange-500 hover:text-orange-600' : 'text-muted-foreground',
+		'type-sm-bold',
+		tone === 'muted' && 'text-muted-foreground hover:text-foreground active:text-foreground',
 		Icon ? 'gap-2' : ''
 	)}
 	data-sveltekit-preload-code="hover"

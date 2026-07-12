@@ -100,7 +100,7 @@
 		<DropdownMenuTrigger class={`-ml-2 inline-flex w-fit max-w-full min-w-0 overflow-hidden ${className ?? ''}`}>
 			<Button
 				variant="ghost"
-				class="max-w-full min-w-0 shrink justify-start gap-1 px-1.5 text-foreground hover:text-foreground"
+				class="max-w-full min-w-0 shrink justify-start gap-1 px-1.5"
 				aria-label={formatT('clubSwitcher.triggerLabel', {
 					clubName: activeClub?.clubName ?? ''
 				})}

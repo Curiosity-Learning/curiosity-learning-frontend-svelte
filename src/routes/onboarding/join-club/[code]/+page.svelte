@@ -3,10 +3,9 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/state';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import { Button } from '$lib/components/ui/button';
-	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle, ScreenBackButton } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { authClient } from '$lib/auth-client';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -154,14 +153,7 @@
 <FlowShell step={2} total={5} showSideIllustration={true} appFrame={isAppNewClubFlow}>
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
-			<button
-				type="button"
-				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label={$_('common.goBack')}
-				onclick={() => void goBack()}
-			>
-				<ChevronLeftIcon class="size-7" />
-			</button>
+			<ScreenBackButton onclick={() => void goBack()} />
 		</div>
 	{/snippet}
 	<div class={contentClass}>

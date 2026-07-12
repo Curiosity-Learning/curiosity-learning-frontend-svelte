@@ -22,6 +22,7 @@ import RelationAvatarStack from './record-card/relation-avatar-stack.svelte';
 import RelationChipSet from './record-card/relation-chip-set.svelte';
 import RelationListCards from './record-card/relation-list-cards.svelte';
 import RelationSection from './record-card/relation-section.svelte';
+import ScreenBackButton from './screen-back-button.svelte';
 import Section from './section.svelte';
 import { showGlobalSnackbar } from './snackbar';
 
@@ -50,6 +51,7 @@ export {
 	RelationChipSet,
 	RelationListCards,
 	RelationSection,
+	ScreenBackButton,
 	Section,
 	showGlobalSnackbar
 };

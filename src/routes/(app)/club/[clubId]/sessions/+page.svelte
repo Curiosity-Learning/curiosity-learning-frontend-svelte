@@ -292,7 +292,7 @@
 			disabled={!canCreate || !canMutateOnline}
 			onclick={openCreateSession}
 		>
-			<PlusIcon class="size-5 text-muted-foreground" />
+			<PlusIcon class="size-5" />
 		</Button>
 	</div>
 </PageHeaderActions>

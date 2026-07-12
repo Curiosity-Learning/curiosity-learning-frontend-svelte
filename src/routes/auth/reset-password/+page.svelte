@@ -1,7 +1,7 @@
 <script lang="ts">
+	import { ScreenBackButton } from '$lib/components/app';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 	import { Button } from '$lib/components/ui/button';
@@ -129,14 +129,7 @@
 	accountHref={signUpHref}
 >
 	<div class="flex flex-1 flex-col">
-			<button
-				type="button"
-				onclick={() => void goBack()}
-				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label={$_('common.goBack')}
-			>
-				<ChevronLeftIcon class="size-7" />
-			</button>
+			<ScreenBackButton onclick={() => void goBack()} />
 
 			{#if isTokenFlow}
 				<div class="mt-2 flex flex-col gap-6">

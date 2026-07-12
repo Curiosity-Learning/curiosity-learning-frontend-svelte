@@ -43,6 +43,41 @@ Bottom nav on mobile; single column mobile → 2-col grids ≥lg. Hit areas ≥4
 ## Components (always use, never hand-roll)
 - Primitives: src/lib/components/ui (button, dialog, alert, badge, card, input,
   switch, tabs, dropdown-menu, toggle-group, skeleton, spinner, field...).
+
+### Button variants (CEO consistency review 2026-07-12 — component-level contract)
+Every interactive control that looks like a button or text link uses the Button
+component (or `buttonVariants` for styled links). No raw `<button>`/`<a>` with
+utility classes replicating button looks.
+
+Typography is IDENTICAL across all variants — `text-base font-bold` lives in the
+base, never per variant — so paired actions (Accept/Reject, Going/Not going) can
+never differ in weight. Color alone assigns emphasis:
+
+| Variant       | Renders                                                    | Use for |
+|---------------|------------------------------------------------------------|---------|
+| `default`     | solid orange-500, white text, darkens on hover/press       | THE primary action of a surface |
+| `outline`     | orange border + orange text, orange-50 hover wash          | secondary action with brand emphasis (e.g. unselected RSVP, dialog Cancel next to a solid confirm) |
+| `secondary`   | quiet warm-gray (`bg-secondary`) fill, foreground text     | primary action in compact/inline rows (banner action rows) where solid orange is too loud |
+| `ghost`       | no fill, foreground text, `bg-muted` hover                 | de-emphasized companion action (Reject, Decline, Dismiss, Cancel-request). NEVER orange — orange is reserved for primary emphasis |
+| `destructive` | solid `bg-destructive` red, white text                     | irreversible/dangerous confirms |
+| `link`        | inline orange text, no box (size geometry collapses), darkens on hover/press | the text-link idiom: "See all", "View all", "Change", "Read more", "enter here". Add `type-sm-bold`/`text-sm` at the call site for 14px links |
+
+Compound rules baked into the component:
+- `ghost` + `size="icon|icon-sm|icon-lg"` → `text-muted-foreground hover:text-foreground`:
+  the ONE icon-action convention (header search, ActionMenu, add/edit/delete row
+  actions, chat members). Square `rounded-md` container — never `rounded-full`.
+- `link` collapses to `h-auto p-0` at any size; it is text, not a box.
+
+Documented exceptions (deliberate, keep):
+- Composer send buttons (chat + project update) are ghost icon buttons with explicit
+  orange classes — primary emphasis inside a composer.
+- Floating overlay pills (language switcher on public pages, activity-booklet FAB)
+  are Button with `rounded-full` + shadow — a distinct floating-affordance idiom.
+- ReportIssueDialog's tiny round flag trigger (size-7) stays a raw button defined
+  once inside that component: it is an inline content affordance in dense rows,
+  not an action-bar icon button.
+- `ScreenBackButton` (app component) is the back-chevron for full-screen flows
+  outside the app shell (auth, onboarding, legal, public club page).
 - App idioms: `ConfirmDialog` (all confirmations — never window.confirm;
   destructive variant for irreversible actions), `EmptyState`
   (`bordered={false}` inside an existing Card), `LoadingState`, `ActionMenu`,
@@ -57,8 +92,8 @@ Bottom nav on mobile; single column mobile → 2-col grids ≥lg. Hit areas ≥4
   enforcement banners in (app)/+layout.svelte). Chat action banners (Accept/Decline,
   Move to interview, etc.) render the action buttons INSIDE the Alert as a compact
   `size="sm"` row (`secondary` for the primary action, `ghost` for the secondary/
-  decline one) — CEO review 2026-07-11: standalone solid buttons read as "too in
-  your face". Read-only/closed chat states show the explanatory banner and remove
+  decline one — both render bold foreground text, see Button variants) — CEO
+  review 2026-07-11: standalone solid buttons read as "too in your face". Read-only/closed chat states show the explanatory banner and remove
   the composer entirely (no disabled-input idiom) — CEO review 2026-07-11.
 - Chat member overview: a join_request/clubApplication room's header shows the
   "other party" (requester/applicant) name+avatar directly, with a `Users` icon
