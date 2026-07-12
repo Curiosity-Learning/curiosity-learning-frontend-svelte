@@ -173,12 +173,17 @@
 	let followUpDialogOpen = $state(false);
 	let followUpReason = $state('');
 	// CL-710 CEO review item 2: the applicant's video, surfaced directly in the application chat.
-	let applicationVideoLoadFailed = $state(false);
+	// Failure is tracked PER URL: the direct URL may 403 (private bucket) before the signed URL
+	// arrives, and a boolean flag would keep the player hidden after the good URL lands.
+	let applicationVideoFailedUrl = $state<string | null>(null);
 	// CL-710 CEO review round 3 (Braga bug): applicationInfo.videoUrl is a direct storage URL that
 	// 403s once secure media delivery (CloudFront) is configured, because the bucket is then
 	// private. Prefer a signed delivery URL fetched via /api/media/refresh, falling back to the
 	// direct URL (works in local dev, where the bucket is public) if signing isn't available.
+	// Nothing renders until the signing request settles, so the browser never wastes a request
+	// (and an error state) on the direct URL in CDN-enabled environments.
 	let applicationSignedVideoUrl = $state<string | null>(null);
+	let applicationVideoRequestSettled = $state(false);
 	let applicationVideoRequestKey = $state<string | null>(null);
 
 	$effect(() => {
@@ -188,6 +193,7 @@
 		if (!assetId || !applicationId) {
 			applicationSignedVideoUrl = null;
 			applicationVideoRequestKey = null;
+			applicationVideoRequestSettled = true;
 			return;
 		}
 
@@ -196,6 +202,7 @@
 			return;
 		}
 		applicationVideoRequestKey = requestKey;
+		applicationVideoRequestSettled = false;
 
 		void (async () => {
 			try {
@@ -210,11 +217,19 @@
 				// to applicationInfo.videoUrl below rather than surfacing an error for a nice-to-have.
 				if (applicationVideoRequestKey !== requestKey) return;
 				applicationSignedVideoUrl = null;
+			} finally {
+				if (applicationVideoRequestKey === requestKey) {
+					applicationVideoRequestSettled = true;
+				}
 			}
 		})();
 	});
 
-	let applicationVideoUrl = $derived(applicationSignedVideoUrl ?? applicationInfo?.videoUrl ?? null);
+	let applicationVideoUrl = $derived(
+		applicationVideoRequestSettled
+			? (applicationSignedVideoUrl ?? applicationInfo?.videoUrl ?? null)
+			: null
+	);
 
 	// CL-695/725 CEO review item A: chat member overview (header highlight + a "view members"
 	// dialog), backed by chat.getRoomParticipants.
@@ -289,7 +304,7 @@
 		shouldStickToBottom = true;
 		pendingPrependScrollHeight = null;
 		pendingPrependAnchor = null;
-		applicationVideoLoadFailed = false;
+		applicationVideoFailedUrl = null;
 	});
 
 	$effect(() => {
@@ -818,7 +833,7 @@
 							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
 								<!-- CL-710 CEO review item 2: the application video, one of the most important
 								parts of the application, surfaced directly in the review/interview chat. -->
-								{#if applicationVideoUrl && !applicationVideoLoadFailed}
+								{#if applicationVideoUrl && applicationVideoFailedUrl !== applicationVideoUrl}
 									<div class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 										<p class="type-sm mb-1.5 text-muted-foreground">
 											{$_('applicationChat.videoLabel')}
@@ -831,7 +846,7 @@
 												preload="metadata"
 												class="h-44 w-full object-cover sm:h-52"
 												onerror={() => {
-													applicationVideoLoadFailed = true;
+													applicationVideoFailedUrl = applicationVideoUrl;
 												}}
 											></video>
 										</div>

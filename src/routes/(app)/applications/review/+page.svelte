@@ -24,8 +24,9 @@
 	let notes = $state<Record<string, string>>({});
 	let pendingApplicationId = $state<string | null>(null);
 	// CL-710 CEO review item 2: the video is one of the most important parts of the application —
-	// track per-card playback failures the same way clubs/[clubId]/+page.svelte does for club videos.
-	let videoLoadFailedIds = $state<Record<string, boolean>>({});
+	// playback failure is tracked PER URL: the direct URL may 403 (private bucket) before the
+	// signed URL arrives, and a boolean flag would keep the player hidden after the good URL lands.
+	let videoFailedUrlsById = $state<Record<string, string | null>>({});
 	// CL-710 CEO review round 3 (Braga bug): application.videoUrl is a direct storage URL that
 	// 403s once secure media delivery (CloudFront) is configured, because the bucket is then
 	// private. Prefer a signed delivery URL fetched per-card via /api/media/refresh, falling back
@@ -56,8 +57,14 @@
 		}
 	});
 
-	const videoUrlFor = (application: (typeof applications)[number]) =>
-		signedVideoUrlsById[application._id] ?? application.videoUrl ?? null;
+	const videoUrlFor = (application: (typeof applications)[number]) => {
+		// Wait for the signing request to settle before rendering anything, so the browser never
+		// attempts (and errors on) the direct URL in CDN-enabled environments.
+		if (application.videoMediaAssetId && !(application._id in signedVideoUrlsById)) {
+			return null;
+		}
+		return signedVideoUrlsById[application._id] ?? application.videoUrl ?? null;
+	};
 
 	const submitReview = async (applicationId: string) => {
 		const principlesScore = Number(principlesScores[applicationId] ?? '');
@@ -117,7 +124,7 @@
 
 						<div class="flex flex-col gap-2">
 							<FieldLabel>{$_('applicationChat.videoLabel')}</FieldLabel>
-							{#if videoUrlFor(application) && !videoLoadFailedIds[application._id]}
+							{#if videoUrlFor(application) && videoFailedUrlsById[application._id] !== videoUrlFor(application)}
 								<div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
 									<!-- svelte-ignore a11y_media_has_caption -->
 									<video
@@ -126,7 +133,7 @@
 										preload="metadata"
 										class="h-56 w-full object-cover"
 										onerror={() => {
-											videoLoadFailedIds[application._id] = true;
+											videoFailedUrlsById[application._id] = videoUrlFor(application);
 										}}
 									></video>
 								</div>
