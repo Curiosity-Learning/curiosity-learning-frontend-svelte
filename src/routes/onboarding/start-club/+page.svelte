@@ -5,12 +5,11 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Button } from '$lib/components/ui/button';
 	import { Field, FieldError, FieldLabel } from '$lib/components/ui/field';
-	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle, ScreenBackButton } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
 	import LocationAutocompleteField from '$lib/components/app/location-autocomplete-field.svelte';
@@ -454,14 +453,7 @@
 >
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
-			<button
-				type="button"
-				onclick={() => void goBack()}
-				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label={$_('common.goBack')}
-			>
-				<ChevronLeftIcon class="size-7" />
-			</button>
+			<ScreenBackButton onclick={() => void goBack()} />
 		</div>
 	{/snippet}
 

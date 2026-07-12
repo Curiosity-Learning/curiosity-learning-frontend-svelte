@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import { Button } from '$lib/components/ui/button';
-	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle, ScreenBackButton } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
@@ -70,14 +69,7 @@
 <FlowShell step={1} total={1} showSideIllustration={true}>
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
-			<button
-				type="button"
-				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label={$_('common.goBack')}
-				onclick={() => void goBack()}
-			>
-				<ChevronLeftIcon class="size-7" />
-			</button>
+			<ScreenBackButton onclick={() => void goBack()} />
 		</div>
 	{/snippet}
 	<div class="mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6">

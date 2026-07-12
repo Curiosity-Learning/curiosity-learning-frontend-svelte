@@ -654,14 +654,15 @@
 			{/if}
 		</div>
 		{#if hasParticipantsToShow}
-			<button
-				type="button"
-				class="ml-auto grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="ml-auto"
 				aria-label={t('chat.membersDialogTrigger')}
 				onclick={() => (membersDialogOpen = true)}
 			>
 				<UsersIcon class="size-4" />
-			</button>
+			</Button>
 		{/if}
 	</div>
 </PageHeaderTitleContent>
@@ -782,14 +783,14 @@
 								{/if}
 							</div>
 							{#if hasParticipantsToShow}
-								<button
-									type="button"
-									class="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+								<Button
+									variant="ghost"
+									size="icon-sm"
 									aria-label={t('chat.membersDialogTrigger')}
 									onclick={() => (membersDialogOpen = true)}
 								>
 									<UsersIcon class="size-4" />
-								</button>
+								</Button>
 							{/if}
 						</div>
 						<div class="relative w-56 shrink-0">
@@ -1194,9 +1195,12 @@
 							<div
 								class={`flex items-center justify-end text-muted-foreground ${isDesktopViewport ? 'mt-2' : 'px-4 pt-0.5 pb-1.5'}`}
 							>
-								<button
-									type="button"
-									class={`grid size-10 place-items-center transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+								<!-- Composer send keeps deliberate orange emphasis (primary action of the
+								composer) via explicit classes on top of the neutral ghost icon button. -->
+								<Button
+									variant="ghost"
+									size="icon-lg"
+									class={`hover:bg-transparent active:bg-transparent ${
 										isDesktopViewport
 											? 'text-orange-500 hover:text-orange-600'
 											: 'text-orange-400 hover:text-orange-500'
@@ -1206,7 +1210,7 @@
 									aria-label="Send message"
 								>
 									<SendHorizontalIcon class={isDesktopViewport ? 'size-5' : 'size-[1.15rem]'} />
-								</button>
+								</Button>
 							</div>
 						</div>
 					{/if}

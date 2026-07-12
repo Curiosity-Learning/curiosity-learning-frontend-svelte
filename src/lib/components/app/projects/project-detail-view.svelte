@@ -866,9 +866,12 @@
 										</div>
 									</FileDropZone.Trigger>
 								</FileDropZone.Root>
+								<!-- Composer send keeps deliberate orange emphasis (primary action of the
+								composer) via explicit classes on top of the neutral ghost icon button. -->
 								<Button
 									size="icon"
 									variant="ghost"
+									class="text-orange-500 hover:bg-transparent hover:text-orange-600 active:bg-transparent"
 									disabled={updatePending ||
 										!updateContent.trim() ||
 										updateAttachmentsField.isBusy ||

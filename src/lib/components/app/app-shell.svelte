@@ -465,7 +465,7 @@
 												data-header-search-toggle="true"
 												onclick={handleSearchIconClick}
 											>
-												<SearchIcon class="size-5 text-muted-foreground" />
+												<SearchIcon class="size-5" />
 											</Button>
 										</div>
 									{:else if resolvedSearchMode === 'overlay'}
@@ -476,7 +476,7 @@
 											data-header-search-toggle="true"
 											onclick={handleSearchIconClick}
 										>
-											<SearchIcon class="size-5 text-muted-foreground" />
+											<SearchIcon class="size-5" />
 										</Button>
 									{/if}
 								{/if}

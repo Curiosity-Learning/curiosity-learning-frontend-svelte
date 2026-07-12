@@ -152,7 +152,7 @@
 		aria-label={unreadNotifications > 0
 			? `Open notifications (${unreadNotifications} unread)`
 			: 'Open notifications'}
-		class="relative text-muted-foreground hover:text-foreground"
+		class="relative"
 		href={routes.notifications}
 	>
 		<BellIcon class="size-5" />
@@ -168,7 +168,6 @@
 		variant="ghost"
 		size="icon-sm"
 		aria-label="Open settings"
-		class="text-muted-foreground hover:text-foreground"
 		href={routes.settings}
 	>
 		<SettingsIcon class="size-5" />
@@ -335,14 +334,14 @@
 				</div>
 			{/if}
 
-			<button
-				type="button"
-				class="flex w-full items-center justify-center gap-2 py-2 text-[1.35rem] leading-7 font-bold text-muted-foreground transition-colors hover:text-foreground"
+			<Button
+				variant="ghost"
+				class="h-auto w-full py-2 text-[1.35rem] leading-7 text-muted-foreground hover:bg-transparent hover:text-foreground active:bg-transparent"
 				onclick={() => void signOut()}
 			>
 				<LogOutIcon class="size-5" />
 				Logout
-			</button>
+			</Button>
 		</div>
 	</section>
 

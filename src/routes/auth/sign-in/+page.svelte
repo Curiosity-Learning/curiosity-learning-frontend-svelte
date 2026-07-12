@@ -1,7 +1,7 @@
 <script lang="ts">
+	import { ScreenBackButton } from '$lib/components/app';
 	import Icon from '@iconify/svelte';
 	import { page } from '$app/state';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -347,14 +347,7 @@
 	<div class="grid min-h-[calc(100vh-8rem)] w-full items-stretch gap-8 pt-6 sm:pt-8 lg:grid-cols-2 lg:gap-14">
 		<div class="flex w-full min-w-0 flex-col">
 			<div class="flex flex-1 flex-col pt-2 sm:pt-8">
-					<button
-						type="button"
-						onclick={() => void goBack()}
-						class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-						aria-label={$_('common.goBack')}
-					>
-						<ChevronLeftIcon class="size-7" />
-					</button>
+					<ScreenBackButton onclick={() => void goBack()} />
 
 					<div class="mt-2 flex flex-col gap-5">
 						<h1 class="type-step-title text-gray-900">{$_('auth.signIn.title')}</h1>

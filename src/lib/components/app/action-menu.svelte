@@ -34,7 +34,7 @@
 	<DropdownMenu>
 		<DropdownMenuTrigger>
 			<Button variant="ghost" size="icon-sm" aria-label={ariaLabel}>
-				<EllipsisVerticalIcon class="size-5 text-muted-foreground" />
+				<EllipsisVerticalIcon class="size-5" />
 			</Button>
 		</DropdownMenuTrigger>
 		<DropdownMenuContent {align} class={contentClass}>

@@ -515,9 +515,8 @@
 				{#if canCreateProject && !projectsLoading && visibleProjects.length === 0}
 					<Button
 						href={`${clubPath}/projects`}
-						variant="ghost"
-						size="sm"
-						class="type-sm-bold hidden text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
+						variant="link"
+						class="type-sm-bold hidden sm:inline-flex"
 					>
 						<PlusIcon class="size-4" />
 						<span>Add a project</span>

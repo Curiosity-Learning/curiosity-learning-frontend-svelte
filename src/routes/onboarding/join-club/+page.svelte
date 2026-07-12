@@ -4,11 +4,10 @@
 	import { env } from '$env/dynamic/public';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import TicketIcon from '@lucide/svelte/icons/ticket';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle, ScreenBackButton } from '$lib/components/app';
 	import LocationAutocompleteField from '$lib/components/app/location-autocomplete-field.svelte';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { _, t } from '$lib/i18n';
@@ -466,14 +465,7 @@
 <FlowShell step={1} total={5} showSideIllustration={true} appFrame={isAppNewClubFlow}>
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
-			<button
-				type="button"
-				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label={$_('common.goBack')}
-				onclick={() => void goBack()}
-			>
-				<ChevronLeftIcon class="size-7" />
-			</button>
+			<ScreenBackButton onclick={() => void goBack()} />
 		</div>
 	{/snippet}
 	<div class={contentClass}>
@@ -505,13 +497,9 @@
 					<div class="inline-flex w-fit items-center gap-2 text-sm font-semibold text-gray-500">
 						<TicketIcon class="size-4 shrink-0" />
 						<span>{$_('onboarding.joinClub.haveCode')}</span>
-						<button
-							type="button"
-							class="text-orange-500 transition-colors duration-200 hover:text-orange-600"
-							onclick={showCodeEntry}
-						>
+						<Button variant="link" class="text-sm" onclick={showCodeEntry}>
 							{$_('onboarding.joinClub.enterHere')}
-						</button>
+						</Button>
 					</div>
 				{/if}
 			</section>

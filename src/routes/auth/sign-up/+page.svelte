@@ -1,11 +1,11 @@
 <script lang="ts">
+	import { ScreenBackButton } from '$lib/components/app';
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import Icon from '@iconify/svelte';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -1482,14 +1482,7 @@
 	<FlowShell {step} total={5} showSideIllustration={true} showAccountLink={false}>
 		{#snippet headerSupplement()}
 			<div class="flex items-center justify-between gap-4">
-				<button
-					type="button"
-					onclick={() => void goBack()}
-					class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-					aria-label={$_('common.goBack')}
-				>
-					<ChevronLeftIcon class="size-7" />
-				</button>
+				<ScreenBackButton onclick={() => void goBack()} />
 			</div>
 		{/snippet}
 
@@ -1727,8 +1720,8 @@
 							{email.trim()}
 						</p>
 						<Button
-							variant="ghost"
-							class="h-auto px-0 py-0 text-sm leading-6 font-bold text-orange-500 hover:bg-transparent hover:text-orange-600 active:bg-transparent"
+							variant="link"
+							class="text-sm leading-6"
 							disabled={otpSyncInProgress}
 							onclick={goToAccountDetailsStep}
 						>
@@ -1751,8 +1744,8 @@
 					<div class="flex items-center gap-1 text-sm leading-6 text-gray-500">
 						<span>{$_('auth.signUp.didntReceiveCode')}</span>
 						<Button
-							variant="ghost"
-							class="h-auto px-0 py-0 text-sm leading-6 font-bold hover:bg-transparent active:bg-transparent"
+							variant="link"
+							class="text-sm leading-6"
 							disabled={otpSyncInProgress || resendCooldownSeconds > 0}
 							onclick={() => void resendVerificationOtp()}
 						>

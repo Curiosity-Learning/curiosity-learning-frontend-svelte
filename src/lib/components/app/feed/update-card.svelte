@@ -7,6 +7,7 @@
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Button } from '$lib/components/ui/button';
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import CommentsSection from '$lib/components/app/feed/comments-section.svelte';
 	import { cn } from '$lib/utils';
@@ -244,13 +245,9 @@
 					{trimmedContent}
 				</p>
 				{#if isLongContent}
-					<button
-						type="button"
-						class="type-sm-bold w-fit text-orange-500 hover:text-orange-600"
-						onclick={() => (expanded = !expanded)}
-					>
+					<Button variant="link" class="type-sm-bold w-fit" onclick={() => (expanded = !expanded)}>
 						{expanded ? t('feed.readLess') : t('feed.readMore')}
-					</button>
+					</Button>
 				{/if}
 			</div>
 
