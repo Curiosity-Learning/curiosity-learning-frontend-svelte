@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	buildDefaultSessionForm,
 	combineDateAndTime,
 	formatScheduleSlot,
 	nextOccurrenceOfDay,
@@ -109,5 +110,43 @@ describe('combineDateAndTime', () => {
 		expect(result.getDate()).toBe(6);
 		expect(result.getHours()).toBe(16);
 		expect(result.getMinutes()).toBe(30);
+	});
+});
+
+describe('buildDefaultSessionForm', () => {
+	const tuesdaySlot: ScheduleSlot = {
+		dayOfWeek: 'tuesday',
+		startTime: '16:00',
+		endTime: '17:30',
+		location: 'Library'
+	};
+
+	it('prefills the next occurrence of the club schedule when slots exist', () => {
+		// Monday, Jan 5, 2026 -> next Tuesday is Jan 6.
+		const now = new Date(2026, 0, 5).getTime();
+		const result = buildDefaultSessionForm([tuesdaySlot], [], now);
+
+		expect(new Date(result.startTime)).toEqual(new Date(2026, 0, 6, 16, 0));
+		expect(new Date(result.endTime)).toEqual(new Date(2026, 0, 6, 17, 30));
+		expect(result.location).toBe('Library');
+		expect(result.description).toBe('');
+	});
+
+	it('skips past the latest existing session before picking the next slot date', () => {
+		const now = new Date(2026, 0, 1).getTime();
+		const lastSessionStart = new Date(2026, 0, 6, 16, 0).getTime(); // a Tuesday session already exists
+		const result = buildDefaultSessionForm([tuesdaySlot], [lastSessionStart], now);
+
+		// Next Tuesday strictly after Jan 6 is Jan 13.
+		expect(new Date(result.startTime)).toEqual(new Date(2026, 0, 13, 16, 0));
+	});
+
+	it('falls back to now+1h/2h with no location when the club has no schedule slots', () => {
+		const now = new Date(2026, 0, 5).getTime();
+		const result = buildDefaultSessionForm([], [], now);
+
+		expect(result.startTime).toBe(now + 3_600_000);
+		expect(result.endTime).toBe(now + 7_200_000);
+		expect(result.location).toBe('');
 	});
 });

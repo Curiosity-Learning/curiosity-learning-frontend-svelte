@@ -40,6 +40,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { page } from '$app/state';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import { buildDefaultSessionForm } from '$lib/domain/schedule';
 	import { t } from '$lib/i18n';
 	import type { PageProps } from './$types';
 
@@ -109,6 +110,11 @@
 		() => (clubIdTyped && canReadMembers ? { clubId: clubIdTyped } : 'skip'),
 		{ cache: 'memory', keepPreviousData: false }
 	);
+	// Backs the quick-create dialog's date/time prefill (see buildDefaultSessionForm below) — same
+	// schedule-slot source the full session-create form on the sessions list page reads from.
+	const scheduleSlotsResponse = useStableQuery(api.clubScheduleSlots.listByClub, () =>
+		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
+	);
 
 	let visibleUpcomingSessionCards = $derived(
 		canReadSessions ? (upcomingSessionCardsResponse.data ?? []) : []
@@ -156,18 +162,16 @@
 		]);
 	}
 
-	const buildDefaultSessionForm = () => {
-		const now = Date.now();
-		return {
-			startTime: now + 3_600_000,
-			endTime: now + 7_200_000,
-			description: '',
-			location: ''
-		};
-	};
+	// Prefills the next occurrence of the club's configured schedule, matching the full
+	// session-create form on the sessions list page (CEO review round 3, CL-702/CL-712).
+	const defaultSessionForm = () =>
+		buildDefaultSessionForm(
+			scheduleSlotsResponse.data ?? [],
+			visibleUpcomingSessionCards.map((entry) => entry.session.startTime)
+		);
 
 	const openCreateSessionDialog = () => {
-		createSessionForm = buildDefaultSessionForm();
+		createSessionForm = defaultSessionForm();
 		createSessionError = '';
 		createSessionDialogOpen = true;
 	};
@@ -380,23 +384,7 @@
 	<section class="flex flex-col gap-4">
 		<HomeSectionHeader title="Sessions">
 			{#snippet action()}
-				{#if canCreateSession && !sessionsLoading && visibleUpcomingSessionCards.length === 0}
-					<Button
-						variant="ghost"
-						size="sm"
-						class="type-sm-bold hidden text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
-						disabled={!canMutateOnline}
-						onclick={openCreateSessionDialog}
-					>
-						<PlusIcon class="size-4" />
-						<span>Add a session</span>
-					</Button>
-					<div class="sm:hidden">
-						<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
-					</div>
-				{:else}
-					<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
-				{/if}
+				<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
 			{/snippet}
 		</HomeSectionHeader>
 
@@ -412,14 +400,28 @@
 		{:else if sessionsLoading}
 			<LoadingState class="min-h-40 sm:min-h-44" label="Loading sessions" />
 		{:else if visibleUpcomingSessionCardsWithSignedAttendees.length === 0}
+			<!-- Guides get a "plan next session" CTA in the body instead of a bare button (CEO review
+			     round 3); the empty state is gated on upcoming NON-cancelled sessions only — a
+			     cancelled future session must not suppress it (listCardPreviewsByClub excludes
+			     cancelled sessions unless includeCancelled is passed, which it isn't here). -->
 			<HomeEmptyCard
 				title="No sessions to attend"
+				description={canCreateSession ? t('sessionsHome.planNextSessionDescription') : undefined}
 				illustrationSrc={noSessionFoundImage}
 				illustrationAlt="No sessions found"
 				centerContent={true}
 				variant="plain"
 				minHeightClass="min-h-44 sm:min-h-48"
-			/>
+			>
+				{#snippet action()}
+					{#if canCreateSession}
+						<Button disabled={!canMutateOnline} onclick={openCreateSessionDialog}>
+							<PlusIcon class="size-4" />
+							{t('sessionsHome.planNextSessionAction')}
+						</Button>
+					{/if}
+				{/snippet}
+			</HomeEmptyCard>
 		{:else}
 			<div class="flex gap-4 overflow-x-auto pb-2">
 				{#each visibleUpcomingSessionCardsWithSignedAttendees as entry (entry.session._id)}

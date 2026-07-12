@@ -209,11 +209,7 @@ const nl = {
 	},
 	sessionEditor: {
 		locationLabel: 'Locatie',
-		locationPlaceholder: 'Adres, beschrijving of vergaderlink',
-		discardTitle: 'Niet-opgeslagen wijzigingen verwijderen?',
-		discardDescription: 'Je wijzigingen aan deze sessie zijn nog niet opgeslagen.',
-		keepEditing: 'Verder bewerken',
-		discard: 'Wijzigingen verwijderen'
+		locationPlaceholder: 'Adres, beschrijving of vergaderlink'
 	},
 	sessionAttendance: {
 		present: 'Aanwezig',
@@ -222,6 +218,10 @@ const nl = {
 		lockedIconLabel: 'Aanwezigheid is vergrendeld',
 		updateFailure: 'Kan aanwezigheid niet bijwerken.',
 		emptyState: 'Niemand was lid van de club toen deze sessie begon.'
+	},
+	sessionsHome: {
+		planNextSessionDescription: 'Plan je volgende sessie om de club weer op de kalender te zetten.',
+		planNextSessionAction: 'Volgende sessie plannen'
 	},
 	authLayout: {
 		description: 'Log in om verder te gaan met je clubervaring.'

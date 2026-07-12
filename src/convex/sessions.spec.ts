@@ -281,6 +281,29 @@ describe('sessions.cancel', () => {
 		expect(previews).toHaveLength(1);
 		expect(previews[0].session.cancelled).toBe(true);
 	});
+
+	// Regression test (CEO review round 3): the club home dashboard queries with
+	// `upcomingOnly: true` and no `includeCancelled` — a cancelled *future* session must not
+	// count as "upcoming" here, or the dashboard's empty state (and "Plan next session" CTA)
+	// would be incorrectly suppressed even though nothing is actually upcoming.
+	it('excludes a cancelled future session from the upcoming-only dashboard query', async () => {
+		const { t, clubId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.cancel, { sessionId: session._id });
+
+		const dashboardPreviews = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listCardPreviewsByClub, {
+				clubId,
+				upcomingOnly: true,
+				limit: 6,
+				includeAttendees: true
+			});
+		expect(dashboardPreviews).toHaveLength(0);
+	});
 });
 
 describe('sessions list pagination is resilient to heavy cancellation', () => {
@@ -542,6 +565,25 @@ describe('sessions.listRsvpRoster (default going, CL-712)', () => {
 				.withIdentity({ subject: 'outsider-user' })
 				.query(api.sessions.listRsvpRoster, { sessionId: session._id })
 		).rejects.toThrow('Permission denied');
+	});
+
+	// CEO review round 3 (CL-702/CL-712): the viewer's own row always sorts to the top, whoever
+	// the viewer is — this is independent of any other ordering the roster happens to have.
+	it('sorts the viewer\'s own row to the top regardless of who is viewing', async () => {
+		const { t, clubId, guideProfileId, learnerProfileId } = await seedSessionFixture();
+		const session = await createFutureSession(t, clubId);
+
+		const asLearner = await t
+			.withIdentity({ subject: 'learner-user' })
+			.query(api.sessions.listRsvpRoster, { sessionId: session._id });
+		expect(asLearner[0]?.profileId).toBe(learnerProfileId);
+		expect(asLearner[0]?.isSelf).toBe(true);
+
+		const asGuide = await t
+			.withIdentity({ subject: 'guide-user' })
+			.query(api.sessions.listRsvpRoster, { sessionId: session._id });
+		expect(asGuide[0]?.profileId).toBe(guideProfileId);
+		expect(asGuide[0]?.isSelf).toBe(true);
 	});
 });
 
