@@ -192,6 +192,10 @@ export const getJoinRequestForRoom = query({
 	returns: v.union(
 		v.null(),
 		v.object({
+			// CEO review (CL-695 round 3, item 2): echoed back so the client can detect stale
+			// keepPreviousData results left over from a just-abandoned room (see the flicker fix in
+			// chat/+page.svelte, and the matching comment on chat.listMessages).
+			roomId: v.id('rooms'),
 			joinRequestId: v.id('joinRequests'),
 			clubId: v.id('clubs'),
 			status: v.union(
@@ -231,6 +235,7 @@ export const getJoinRequestForRoom = query({
 		const requesterProfile = await ctx.db.get(joinRequest.requesterProfileId);
 
 		return {
+			roomId: args.roomId,
 			joinRequestId: joinRequest._id,
 			clubId: joinRequest.clubId,
 			status: joinRequest.status,

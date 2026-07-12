@@ -39,6 +39,9 @@
 	type RoomSummary = {
 		roomId: Id<'rooms'>;
 		roomName: string;
+		// CEO review (CL-695 round 3, item 1): fallback subtitle (the club) shown while the room has
+		// no messages yet, for rooms with a 1:1 counterpart — see roomPreviewText below.
+		roomSubtitle: string | null;
 		contextType: 'club' | 'project' | 'clubApplication' | 'joinRequest';
 		lastMessagePreview: string | null;
 		lastMessageAt: number;
@@ -156,7 +159,19 @@
 			? { roomId: selectedRoomId }
 			: 'skip'
 	);
-	let joinRequestInfo = $derived(joinRequestResponse.data ?? null);
+	// CEO review (CL-695 round 3, item 2): the flicker fix. useStableQuery's keepPreviousData
+	// deliberately keeps rendering the PREVIOUS room's result while the newly selected room's
+	// subscription is still resolving — good for in-room pagination, wrong here, since neither
+	// convex-svelte's `isLoading` nor `isStale` distinguish "args changed because we paginated"
+	// from "args changed because the room changed" (both just see different args objects). So each
+	// room-identity query now echoes back the `roomId` it answered for, and every derived read below
+	// discards the result unless it matches the currently selected room — otherwise the previous
+	// room's name/messages/banners would flash before the new room's data arrives.
+	let joinRequestInfo = $derived(
+		selectedRoomId && joinRequestResponse.data?.roomId === selectedRoomId
+			? joinRequestResponse.data
+			: null
+	);
 	let joinRequestActionPending = $state(false);
 	let joinRequestActionError = $state('');
 
@@ -165,7 +180,11 @@
 			? { roomId: selectedRoomId }
 			: 'skip'
 	);
-	let applicationInfo = $derived(applicationResponse.data ?? null);
+	let applicationInfo = $derived(
+		selectedRoomId && applicationResponse.data?.roomId === selectedRoomId
+			? applicationResponse.data
+			: null
+	);
 	let applicationActionPending = $state(false);
 	let applicationActionError = $state('');
 	let rejectDialogOpen = $state(false);
@@ -221,7 +240,13 @@
 	const participantsResponse = useStableQuery(api.chat.getRoomParticipants, () =>
 		$session.data && selectedRoomId ? { roomId: selectedRoomId } : 'skip'
 	);
-	let participantsInfo = $derived(participantsResponse.data ?? null);
+	// See the flicker-fix comment above joinRequestInfo: only trust this result once its echoed
+	// roomId matches the room currently selected.
+	let participantsInfo = $derived(
+		selectedRoomId && participantsResponse.data?.roomId === selectedRoomId
+			? participantsResponse.data
+			: null
+	);
 	let headerParticipant = $derived(
 		participantsInfo?.primaryProfileId
 			? (participantsInfo.participants.find(
@@ -231,8 +256,17 @@
 	);
 	let membersDialogOpen = $state(false);
 
-	let serverMessages = $derived(messagesResponse.data?.messages ?? []);
-	let hasMoreMessages = $derived(Boolean(messagesResponse.data?.hasMore));
+	// Same staleness guard as above: while the new room's message page is still loading, fall back
+	// to empty rather than the previous room's messages (the loading state below covers the gap).
+	let isSelectedRoomMessagesFresh = $derived(
+		!selectedRoomId || messagesResponse.data?.roomId === selectedRoomId
+	);
+	let serverMessages = $derived(
+		isSelectedRoomMessagesFresh ? (messagesResponse.data?.messages ?? []) : []
+	);
+	let hasMoreMessages = $derived(
+		isSelectedRoomMessagesFresh ? Boolean(messagesResponse.data?.hasMore) : false
+	);
 	let visibleMessages = $derived.by(() => {
 		const serverIds = new Set(serverMessages.map((entry) => entry._id));
 		const localEntries = localMessages.filter(
@@ -365,17 +399,27 @@
 	// applicant), surface their name/avatar directly in the header instead of the generic room
 	// avatar — this is the concrete fix for "a Guide opens a join request chat and sees zero
 	// information about the requester".
+	//
+	// headerTitleName/headerSubtitle deliberately read from `activeRoom` (sourced from
+	// listRoomSummaries, whose args never change on room switch, so it's always up to date for the
+	// selected room) rather than waiting on `headerParticipant`/`participantsInfo` (gated on the
+	// room-identity staleness check above): listRoomSummaries already returns the same
+	// name/club-subtitle pair as this header per the CL-695 round-3 CEO review item 1 fix, so the
+	// correct title/subtitle are available immediately on room switch — only the avatar photo
+	// depends on the participants query and briefly falls back to initials while it catches up.
 	let headerAvatarUrl = $derived(headerParticipant?.avatarUrl ?? null);
-	let headerTitleName = $derived(headerParticipant?.name ?? roomDisplayName(activeRoom));
-	let headerSubtitle = $derived(headerParticipant ? roomDisplayName(activeRoom) : null);
+	let headerTitleName = $derived(roomDisplayName(activeRoom));
+	let headerSubtitle = $derived(activeRoom?.roomSubtitle ?? null);
 	let hasParticipantsToShow = $derived((participantsInfo?.participants.length ?? 0) > 0);
 
 	const roomPreviewText = (room: RoomSummary) => {
 		const preview = room.lastMessagePreview?.trim();
-		if (!preview) {
-			return 'No messages yet';
+		if (preview) {
+			return preview;
 		}
-		return preview;
+		// CEO review (CL-695 round 3, item 1): before any messages exist, 1:1-like rooms show the
+		// club (matching the chat header's subtext) instead of the generic "No messages yet".
+		return room.roomSubtitle ?? 'No messages yet';
 	};
 
 	const openRoom = async (roomId: Id<'rooms'>) => {
@@ -1034,7 +1078,7 @@
 								</Alert>
 							{/if}
 
-							{#if messagesResponse.isLoading && visibleMessages.length === 0}
+							{#if (!isSelectedRoomMessagesFresh || messagesResponse.isLoading) && visibleMessages.length === 0}
 								<LoadingState label="Loading messages" />
 							{:else if visibleMessages.length === 0}
 								<p class="type-body px-4 text-muted-foreground lg:px-0">
