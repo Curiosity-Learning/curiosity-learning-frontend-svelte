@@ -1,7 +1,7 @@
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
-import { hasPermissionForProfile } from './permissions';
+import { getRelatedProfile, hasPermissionForProfile } from './permissions';
 import { isProjectArchived, listAttributedClubIds } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
@@ -277,6 +277,39 @@ export const getRoomName = async (ctx: Ctx, room: Doc<'rooms'>) => {
 			const club = joinRequest ? await ctx.db.get(joinRequest.clubId) : null;
 			return club ? `${club.name} join request` : 'Join request chat';
 		}
+	}
+};
+
+// CEO review (CL-695 round 3, item 1): shared "1:1 counterpart" resolution for the room types that
+// have a clear "other party" from a given viewer's perspective — a join request's requester (seen
+// from a Guide's side) or a club application's applicant (seen from a reviewer's side). Returns
+// null for club/project rooms (no single counterpart) and for the counterpart's OWN view of their
+// own join-request/application room (nothing to highlight — they ARE that party). This is the one
+// source of truth for "does this room have a counterpart to highlight, and who" — used both by the
+// chat header (`getRoomParticipants`'s primaryProfileId) and the chat list's title/subtitle
+// (`listRoomSummaries`), so the two stay in sync by construction rather than by convention.
+export const getRoomCounterpart = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>,
+	profileId: Id<'profiles'>
+): Promise<ChatParticipantSummary | null> => {
+	switch (room.contextType) {
+		case 'joinRequest': {
+			const joinRequest = await ctx.db.get(room.joinRequestId);
+			if (!joinRequest || joinRequest.requesterProfileId === profileId) return null;
+			const requesterProfile = await getRelatedProfile(ctx, joinRequest.requesterProfileId);
+			if (!requesterProfile) return null;
+			return await summarizeProfileForChat(ctx, requesterProfile, 'Requester');
+		}
+		case 'clubApplication': {
+			const application = await ctx.db.get(room.clubApplicationId);
+			if (!application || application.applicantProfileId === profileId) return null;
+			const applicantProfile = await getRelatedProfile(ctx, application.applicantProfileId);
+			if (!applicantProfile) return null;
+			return await summarizeProfileForChat(ctx, applicantProfile, 'Applicant');
+		}
+		default:
+			return null;
 	}
 };
 

@@ -728,18 +728,105 @@ describe('context room chat', () => {
 		const applicantSummaries = await applicant.query(api.chat.listRoomSummaries, {});
 		const reviewerSummaries = await reviewer.query(api.chat.listRoomSummaries, {});
 
+		// CEO review (CL-695 round 3, item 1): the applicant has no 1:1 counterpart from their own
+		// point of view (they ARE the applicant), so their list entry keeps the plain application
+		// name and no club-name fallback subtitle.
 		expect(applicantSummaries).toContainEqual(
 			expect.objectContaining({
 				contextType: 'clubApplication',
 				roomId: ids.roomId,
-				roomName: 'Application chat'
+				roomName: 'Application chat',
+				roomSubtitle: null
 			})
 		);
+		// The reviewer's counterpart IS the applicant, so the list title becomes the applicant's
+		// name (mirroring the chat header), with the application name as the fallback subtitle.
 		expect(reviewerSummaries).toContainEqual(
 			expect.objectContaining({
 				contextType: 'clubApplication',
 				roomId: ids.roomId,
-				roomName: 'Application chat'
+				roomName: 'applicant',
+				roomSubtitle: 'Application chat'
+			})
+		);
+	});
+
+	it('gives a join-request room the same title/subtitle as the chat header (CL-695 round 3)', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const guideRoleId = await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['club_join_request:decide'],
+				order: 0,
+				createdAt: now
+			});
+			const guideProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'guide-user',
+				username: 'guide',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const requesterProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'requester-user',
+				firstName: 'Req',
+				lastName: 'User',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Turtles Club',
+				discoverable: false,
+				createdByProfileId: guideProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: guideProfileId,
+				roleId: guideRoleId,
+				createdAt: now
+			});
+			const joinRequestId = await ctx.db.insert('joinRequests', {
+				clubId,
+				requesterProfileId,
+				status: 'pending',
+				createdAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', {
+				contextType: 'joinRequest',
+				joinRequestId
+			});
+
+			return { roomId };
+		});
+		const guide = base.withIdentity({ subject: 'guide-user' });
+		const requester = base.withIdentity({ subject: 'requester-user' });
+
+		const guideSummaries = await guide.query(api.chat.listRoomSummaries, {});
+		const requesterSummaries = await requester.query(api.chat.listRoomSummaries, {});
+
+		// The requester has no counterpart from their own point of view — plain generic name, no
+		// club subtitle (matches the header showing just the generic name, no subtext).
+		expect(requesterSummaries).toContainEqual(
+			expect.objectContaining({
+				contextType: 'joinRequest',
+				roomId: ids.roomId,
+				roomName: 'Turtles Club join request',
+				roomSubtitle: null
+			})
+		);
+		// A Guide's counterpart is the requester: title becomes the requester's name, with the club
+		// (generic room name) as the fallback subtitle — exactly what the chat header shows.
+		expect(guideSummaries).toContainEqual(
+			expect.objectContaining({
+				contextType: 'joinRequest',
+				roomId: ids.roomId,
+				roomName: 'Req User',
+				roomSubtitle: 'Turtles Club join request'
 			})
 		);
 	});

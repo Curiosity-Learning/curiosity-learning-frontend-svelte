@@ -5,6 +5,7 @@ import { mutation, query } from './_generated/server';
 import {
 	getRoomAccess,
 	getRoomActionState,
+	getRoomCounterpart,
 	getRoomName,
 	summarizeProfileForChat,
 	type ChatParticipantSummary,
@@ -165,6 +166,11 @@ export const listRoomSummaries = query({
 		const summaries: Array<{
 			roomId: Id<'rooms'>;
 			roomName: string;
+			// CEO review (CL-695 round 3, item 1): fallback subtitle to show while the room has no
+			// messages yet, for rooms that have a 1:1 counterpart (the club name, mirroring the
+			// header's subtext) — null for club/project rooms and for the counterpart's own view of
+			// their own room, where the preview area keeps the plain "no messages yet" copy.
+			roomSubtitle: string | null;
 			contextType: Doc<'rooms'>['contextType'];
 			lastMessagePreview: string | null;
 			lastMessageAt: number;
@@ -183,9 +189,16 @@ export const listRoomSummaries = query({
 				.withIndex('by_room', (q) => q.eq('roomId', room._id))
 				.order('desc')
 				.first();
+			// CEO review (CL-695 round 3, item 1): the chat list's title/subtitle should match the
+			// chat header's — for 1:1-like rooms (joinRequest/clubApplication) that's the counterpart's
+			// name as the title and the club as the subtext (falling back to the last message once
+			// there is one). Club/project rooms have no counterpart, so they keep their plain name.
+			const genericName = await getRoomName(ctx, room);
+			const counterpart = await getRoomCounterpart(ctx, room, profile._id);
 			summaries.push({
 				roomId: room._id,
-				roomName: await getRoomName(ctx, room),
+				roomName: counterpart?.name ?? genericName,
+				roomSubtitle: counterpart ? genericName : null,
 				contextType: room.contextType,
 				lastMessagePreview: latestMessage?.content ?? null,
 				lastMessageAt: latestMessage?._creationTime ?? room._creationTime,
@@ -244,6 +257,14 @@ export const listMessages = query({
 		const hasMore = records.length > limit;
 		const page = records.slice(0, limit).reverse();
 		return {
+			// CEO review (CL-695 round 3, item 2): echoed back so the client can tell whether this
+			// result actually belongs to the currently selected room before rendering it — see the
+			// flicker fix in chat/+page.svelte. `useStableQuery` deliberately keeps the PREVIOUS
+			// room's data visible while a new room's subscription is still resolving (desirable for
+			// in-room pagination, wrong for a room switch), and neither `isLoading` nor `isStale` from
+			// convex-svelte distinguish "args changed because of pagination" from "args changed
+			// because the room changed" — so the client compares this roomId against the selected one.
+			roomId: args.roomId,
 			messages: await attachSenderSummaries(ctx, page),
 			hasMore
 		};
@@ -329,11 +350,15 @@ export const getRoomParticipants = query({
 			case 'joinRequest': {
 				const joinRequest = await ctx.db.get(room.joinRequestId);
 				if (joinRequest) {
-					const requesterProfile = await getRelatedProfile(ctx, joinRequest.requesterProfileId);
-					if (requesterProfile) {
-						participants.push(await summarizeProfileForChat(ctx, requesterProfile, 'Requester'));
-						if (profile._id !== joinRequest.requesterProfileId) {
-							primaryProfileId = joinRequest.requesterProfileId;
+					// Shared with listRoomSummaries's chat-list title/subtitle (chatModel.getRoomCounterpart).
+					const counterpart = await getRoomCounterpart(ctx, room, profile._id);
+					if (counterpart) {
+						participants.push(counterpart);
+						primaryProfileId = counterpart.profileId;
+					} else {
+						const requesterProfile = await getRelatedProfile(ctx, joinRequest.requesterProfileId);
+						if (requesterProfile) {
+							participants.push(await summarizeProfileForChat(ctx, requesterProfile, 'Requester'));
 						}
 					}
 					const guideMembers = (
@@ -355,11 +380,15 @@ export const getRoomParticipants = query({
 			case 'clubApplication': {
 				const application = await ctx.db.get(room.clubApplicationId);
 				if (application) {
-					const applicantProfile = await getRelatedProfile(ctx, application.applicantProfileId);
-					if (applicantProfile) {
-						participants.push(await summarizeProfileForChat(ctx, applicantProfile, 'Applicant'));
-						if (profile._id !== application.applicantProfileId) {
-							primaryProfileId = application.applicantProfileId;
+					// Shared with listRoomSummaries's chat-list title/subtitle (chatModel.getRoomCounterpart).
+					const counterpart = await getRoomCounterpart(ctx, room, profile._id);
+					if (counterpart) {
+						participants.push(counterpart);
+						primaryProfileId = counterpart.profileId;
+					} else {
+						const applicantProfile = await getRelatedProfile(ctx, application.applicantProfileId);
+						if (applicantProfile) {
+							participants.push(await summarizeProfileForChat(ctx, applicantProfile, 'Applicant'));
 						}
 					}
 					const reviews = await ctx.db
@@ -376,7 +405,9 @@ export const getRoomParticipants = query({
 			}
 		}
 
-		return { contextType: room.contextType, primaryProfileId, participants };
+		// CEO review (CL-695 round 3, item 2): roomId echoed back for the same staleness check as
+		// listMessages above.
+		return { roomId: args.roomId, contextType: room.contextType, primaryProfileId, participants };
 	}
 });
 
