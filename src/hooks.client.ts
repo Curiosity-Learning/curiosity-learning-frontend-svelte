@@ -1,9 +1,7 @@
 import * as Sentry from '@sentry/sveltekit';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/public';
-import { redactSentryEvent } from '$lib/monitoring/redaction';
-
-const dsn = env.PUBLIC_SENTRY_DSN?.trim();
+import { buildSharedSentryOptions } from '$lib/monitoring/sentry-config';
 
 type SentryDevTestResult = {
 	eventId: string;
@@ -20,15 +18,16 @@ declare global {
 	}
 }
 
-Sentry.init({
-	dsn,
-	enabled: Boolean(dsn),
-	environment: env.PUBLIC_SENTRY_ENVIRONMENT?.trim() || 'development',
-	sendDefaultPii: false,
-	tracesSampleRate: 0,
-	enableLogs: false,
-	beforeSend: redactSentryEvent
-});
+Sentry.init(
+	buildSharedSentryOptions({
+		dsn: env.PUBLIC_SENTRY_DSN,
+		environment: env.PUBLIC_SENTRY_ENVIRONMENT,
+		enabledFlag: env.PUBLIC_SENTRY_ENABLED,
+		tracesSampleRate: env.PUBLIC_SENTRY_TRACES_SAMPLE_RATE,
+		profilesSampleRate: env.PUBLIC_SENTRY_PROFILES_SAMPLE_RATE,
+		logsEnabledFlag: env.PUBLIC_SENTRY_LOGS_ENABLED
+	})
+);
 
 if (dev) {
 	Object.defineProperty(window, '__curiositySentryDevTest', {

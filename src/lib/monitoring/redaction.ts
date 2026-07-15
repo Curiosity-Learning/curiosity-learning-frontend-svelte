@@ -1,4 +1,4 @@
-import type { ErrorEvent } from '@sentry/sveltekit';
+import type { Breadcrumb, ErrorEvent } from '@sentry/sveltekit';
 
 const REDACTED = '[Redacted]';
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -63,5 +63,10 @@ export const redactSentryEvent = (event: ErrorEvent): ErrorEvent => {
 		}
 	}
 
+	return redacted;
+};
+
+export const redactSentryBreadcrumb = (breadcrumb: Breadcrumb): Breadcrumb => {
+	const redacted = redactUnknown(breadcrumb) as Breadcrumb;
 	return redacted;
 };
