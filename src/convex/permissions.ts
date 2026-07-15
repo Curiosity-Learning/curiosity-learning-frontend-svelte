@@ -16,6 +16,16 @@ export const requireIdentity = async (ctx: AuthCtx) => {
 
 export const getProfileAuthUserId = (profile: Doc<'profiles'>) => profile.authUserId;
 
+// WARNING: this resolves a profile with NO suspension check — calling it directly bypasses PRD
+// 6.14.7's account-suspension enforcement (see `requireProfile` below, which wraps this with
+// `requireNotSuspended` and is the choke point that enforcement relies on). Mutations/queries that
+// should be blocked for a suspended user MUST go through `requireProfile`, not this function,
+// unless the bypass is deliberate. As of this writing there are exactly two intentional
+// exemptions: `reports.submitReport` (the PRD requires "Report Issue" to stay reachable from the
+// account-suspended screen) and `notifications.unreadCount` (a best-effort badge count that
+// degrades to 0 for a missing/unauthenticated profile rather than throwing, and has no reason to
+// hide the count from a suspended account). Any other direct caller of this function should be
+// treated as a candidate bug, not precedent.
 export const getProfileByAuthUserId = async (ctx: DbCtx, authUserId: string) => {
 	return await ctx.db
 		.query('profiles')
@@ -23,12 +33,29 @@ export const getProfileByAuthUserId = async (ctx: DbCtx, authUserId: string) => 
 		.unique();
 };
 
+// PRD 6.14.7 (CL-730): pragmatic v1 suspension enforcement choke point. `requireProfile` is the
+// single highest-traffic helper shared by virtually every authenticated mutation/query across the
+// app (clubs, projects, updates, comments, chat, notifications, etc. — see callers), so gating
+// here gives broad coverage for one small change instead of threading a check through every
+// individual mutation. Honest limitation: this only covers callers that go through
+// `requireProfile` — anything that resolves the profile via `getProfileByAuthUserId` directly
+// bypasses it (deliberately, in one case: `reports.submitReport` — the PRD requires "Report
+// Issue" to stay reachable from the account-suspended screen, so that mutation intentionally does
+// not block suspended users). Not a guarantee against future code adding new direct
+// `getProfileByAuthUserId` callers around this check.
 export const requireProfile = async (ctx: DbCtx, authUserId: string) => {
 	const profile = await getProfileByAuthUserId(ctx, authUserId);
 	if (!profile) {
 		throw new ConvexError('Profile not found');
 	}
+	requireNotSuspended(profile);
 	return profile;
+};
+
+export const requireNotSuspended = (profile: Doc<'profiles'>) => {
+	if (profile.suspendedAt) {
+		throw new ConvexError('Account suspended');
+	}
 };
 
 export const getRelatedProfile = async (ctx: DbCtx, profileId?: Id<'profiles'>) =>
@@ -61,6 +88,25 @@ export const listMembershipsForProfile = async (ctx: DbCtx, profile: Doc<'profil
 		.query('clubMembers')
 		.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
 		.collect();
+};
+
+export const hasPermissionForProfile = async (
+	ctx: DbCtx,
+	clubId: Id<'clubs'>,
+	profileId: Id<'profiles'>,
+	permission: string
+) => {
+	const membership = await getMembershipByProfileId(ctx, clubId, profileId);
+	if (!membership) {
+		return false;
+	}
+
+	const role = await ctx.db.get(membership.roleId);
+	if (!role) {
+		return false;
+	}
+
+	return role.permissions.includes(permission);
 };
 
 export const hasPermission = async (
@@ -102,13 +148,14 @@ export const isProjectPermissionAllowed = async (
 	userId: string,
 	permission: string
 ) => {
-	const links = await ctx.db
-		.query('projectClubs')
+	const attributionRows = await ctx.db
+		.query('projectAttributions')
 		.withIndex('by_project', (q) => q.eq('projectId', projectId))
 		.collect();
+	const attributedClubIds = [...new Set(attributionRows.map((row) => row.clubId))];
 
-	for (const link of links) {
-		if (await hasPermission(ctx, link.clubId, userId, permission)) {
+	for (const clubId of attributedClubIds) {
+		if (await hasPermission(ctx, clubId, userId, permission)) {
 			return true;
 		}
 	}
@@ -149,4 +196,19 @@ export const roleFromPermissions = (role: Doc<'clubRoles'> | null) => {
 		return null;
 	}
 	return role.key === 'guide' ? 'Guide' : 'Learner';
+};
+
+// PRD 5.10: platform-wide capability gate for the /admin route group (CL-693). Deliberately
+// separate from club/project permissions above — must never be consulted by normal member flows.
+export const isGlobalAdmin = async (ctx: DbCtx, authUserId: string) => {
+	const profile = await getProfileByAuthUserId(ctx, authUserId);
+	return profile?.globalRole === 'admin';
+};
+
+export const requireGlobalAdmin = async (ctx: AuthCtx & DbCtx) => {
+	const identity = await requireIdentity(ctx);
+	if (!(await isGlobalAdmin(ctx, identity.subject))) {
+		throw new ConvexError('Not authorized');
+	}
+	return identity;
 };

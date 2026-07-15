@@ -1,7 +1,7 @@
 const SIGNUP_DRAFT_STORAGE_KEY = 'cl_signup_draft_v1';
 const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
 const START_CLUB_DRAFT_STORAGE_KEY = 'cl_start_club_draft_v1';
-const LAST_CLUB_ID_STORAGE_KEY = 'cl_last_club_id';
+export const LAST_CLUB_ID_STORAGE_KEY = 'cl_last_club_id';
 
 export const clearOnboardingFlowState = () => {
 	if (typeof window === 'undefined') return;

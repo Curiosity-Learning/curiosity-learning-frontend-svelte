@@ -32,7 +32,7 @@ export const buildApiLogEntry = (outcome: ApiRequestOutcome): ApiLogEntry => ({
 /** Logs every request to an /api/** route to Sentry as a structured log. Runs inside sentryHandle's scope. */
 export const logApiRequests: Handle = async ({ event, resolve }) => {
 	const routeId = event.route.id;
-	if (!routeId || !routeId.startsWith('/api')) {
+	if (!routeId || !routeId.startsWith('/api/')) {
 		return resolve(event);
 	}
 

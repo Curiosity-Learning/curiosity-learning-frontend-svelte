@@ -18,7 +18,13 @@ export const routes = {
 	settings: '/settings',
 	settingsMediaUploadDev: '/settings/media-upload-dev',
 	notifications: '/notifications',
+	applicationsReview: '/applications/review',
+	feedback: '/feedback',
+	child: '/child',
 
+	profileDetail: (profileId: string) => `/profile/${profileId}`,
+	childOverview: (childProfileId: string) => `/child/${childProfileId}`,
+	feedbackSubmit: (formId: string, clubId: string) => `/feedback/${formId}/${clubId}`,
 	clubHome: (clubId: string) => `/club/${clubId}`,
 	clubSessions: (clubId: string) => `/club/${clubId}/sessions`,
 	clubProjects: (clubId: string) => `/club/${clubId}/projects`,

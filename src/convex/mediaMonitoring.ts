@@ -2,7 +2,8 @@ const EXPECTED_MEDIA_FAILURE_CODES = new Set([
 	'empty_file',
 	'file_too_large',
 	'unsupported_media_signature',
-	'unsupported_media_type'
+	'unsupported_media_type',
+	'blocked_by_safety_screening'
 ]);
 
 export const isOperationalMediaFailure = (failureCode: string) =>

@@ -46,9 +46,9 @@ describe('resolveSentryEnabled', () => {
 	});
 
 	it('respects an explicit disabled flag', () => {
-		expect(
-			resolveSentryEnabled({ dsn: 'https://key@sentry.io/1', enabledFlag: 'false' })
-		).toBe(false);
+		expect(resolveSentryEnabled({ dsn: 'https://key@sentry.io/1', enabledFlag: 'false' })).toBe(
+			false
+		);
 	});
 });
 
@@ -105,13 +105,22 @@ describe('buildSharedSentryOptions', () => {
 		expect(options.enableLogs).toBe(false);
 	});
 
-	it('falls back to "production" for environment only when the env value is missing', () => {
+	it('falls back to "development" for environment only when the env value is missing', () => {
 		expect(buildSharedSentryOptions({ dsn: 'https://key@sentry.io/1' }).environment).toBe(
-			'production'
+			'development'
 		);
 		expect(
 			buildSharedSentryOptions({ dsn: 'https://key@sentry.io/1', environment: 'staging' })
 				.environment
 		).toBe('staging');
+	});
+
+	it('redacts errors, transactions, logs, and breadcrumbs before sending', () => {
+		const options = buildSharedSentryOptions({ dsn: 'https://key@sentry.io/1' });
+
+		expect(typeof options.beforeSend).toBe('function');
+		expect(typeof options.beforeSendTransaction).toBe('function');
+		expect(typeof options.beforeSendLog).toBe('function');
+		expect(typeof options.beforeBreadcrumb).toBe('function');
 	});
 });

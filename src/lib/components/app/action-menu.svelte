@@ -34,12 +34,12 @@
 	<DropdownMenu>
 		<DropdownMenuTrigger>
 			<Button variant="ghost" size="icon-sm" aria-label={ariaLabel}>
-				<EllipsisVerticalIcon class="size-5 text-muted-foreground" />
+				<EllipsisVerticalIcon class="size-5" />
 			</Button>
 		</DropdownMenuTrigger>
 		<DropdownMenuContent {align} class={contentClass}>
-			{#each items as item (item.id)}
-				{#if item.separatorBefore}
+			{#each items as item, index (item.id)}
+				{#if item.separatorBefore && index > 0}
 					<DropdownMenuSeparator />
 				{/if}
 				<DropdownMenuItem

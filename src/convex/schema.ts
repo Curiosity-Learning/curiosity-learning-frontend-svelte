@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 import { mediaAssetFields } from './mediaModel';
 import { clubRoleKeyValidator, projectRoleKeyValidator } from './roles';
+import { dayOfWeekValidator } from './scheduleModel';
 
 export default defineSchema({
 	profiles: defineTable({
@@ -26,13 +27,36 @@ export default defineSchema({
 		videoUrl: v.optional(v.string()),
 		signUpWith: v.optional(v.union(v.literal('email'), v.literal('google'))),
 		parentProfileId: v.optional(v.id('profiles')),
-		pendingClubCode: v.optional(v.string()),
-		pendingRole: v.optional(v.union(v.literal('Learner'), v.literal('Guide'))),
+		// PRD 5.10: platform-wide capability, orthogonal to club/project roles. Grants access to
+		// the separate /admin route group (CL-693) only — must never be branched on inside normal
+		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).
+		globalRole: v.optional(v.literal('admin')),
+		// PRD 6.14.7 (CL-730): set by an admin suspension action (moderation.suspendUser). While
+		// set, `requireProfile` (the highest-traffic auth choke point — see permissions.ts) rejects
+		// the caller for every mutation that routes through it. Cleared by moderation.unsuspendUser.
+		suspendedAt: v.optional(v.number()),
+		suspendedReason: v.optional(v.string()),
 		updatedAt: v.number()
 	})
 		.index('by_auth_user_id', ['authUserId'])
 		.index('by_username', ['username'])
 		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
+
+	// PRD 5.6: replaces the old `profiles.pendingClubCode`/`pendingRole` mechanism (which deferred
+	// a club join until an onboarding gate — pledge agreement, or under-16 parental consent —
+	// cleared). One row per deferred join intent, keyed by profileId; `source` distinguishes a
+	// code-join deferral (signed up via an /onboarding/join-club/[code] link but couldn't join yet)
+	// from an accepted map join-request deferral (joinRequests.acceptJoinRequest). v1 flows only
+	// ever create one pending intent at a time per profile, but reads always take the
+	// latest-by-createdAt and consumption clears every row for the profile (see
+	// pendingClubJoinsModel.ts), so a hypothetical second pending intent can never leave stale
+	// rows behind.
+	pendingClubJoins: defineTable({
+		profileId: v.id('profiles'),
+		clubId: v.id('clubs'),
+		source: v.union(v.literal('code'), v.literal('map_request')),
+		createdAt: v.number()
+	}).index('by_profile', ['profileId']),
 
 	clubRoles: defineTable({
 		key: clubRoleKeyValidator,
@@ -57,15 +81,45 @@ export default defineSchema({
 		// Legacy Convex storage field kept optional for backward-compatibility with older records.
 		videoStorageId: v.optional(v.string()),
 		videoMediaAssetId: v.optional(v.id('mediaAssets')),
-		meetingDay: v.optional(v.string()),
-		meetingTime: v.optional(v.string()),
+		// Whether the club is visible on the public discovery map and has a public club page.
+		// Club-code joins work regardless of this flag.
+		discoverable: v.boolean(),
+		// Set when the club has no remaining Guides (PRD 6.2.3). Codes are invalidated and the
+		// club is excluded from discovery; history (sessions/projects/chat) stays intact.
+		abandonedAt: v.optional(v.number()),
+		// PRD 6.10/5.3: distinguishes a regular Curiosity Club from a Club of Clubs (CoC) group.
+		// CoC groups are clubs rows too, so they get chat/sessions/projects/attendance "for free".
+		// Optional only so pre-existing dev rows can be backfilled via clubs.backfillClubKind;
+		// once backfilled, every row has a kind and new rows always set it explicitly.
+		kind: v.optional(v.union(v.literal('curiosity'), v.literal('coc'))),
+		// Set on a Curiosity Club once it is auto-assigned to a CoC group at launch (CL-707).
+		// Points at the CoC group's clubs row. One assignment per club, permanent for v1 (leaving
+		// the CoC via the normal leave-club path is possible and out of scope to prevent, see
+		// clubs.ts leaveClub).
+		cocGroupId: v.optional(v.id('clubs')),
+		// Set on a CoC group club at creation time (CL-707), derived from its first member club's
+		// longitude. Used to keep matching newly-launched clubs to groups within +/-3h without
+		// recomputing from member clubs on every assignment.
+		timezoneOffset: v.optional(v.number()),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_created_by_profile', ['createdByProfileId'])
 		.index('by_club_code', ['clubCode'])
-		.index('by_video_media_asset', ['videoMediaAssetId']),
+		.index('by_video_media_asset', ['videoMediaAssetId'])
+		.index('by_coc_group', ['cocGroupId'])
+		.index('by_kind', ['kind']),
+
+	clubScheduleSlots: defineTable({
+		clubId: v.id('clubs'),
+		dayOfWeek: dayOfWeekValidator,
+		startTime: v.string(),
+		endTime: v.string(),
+		location: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	}).index('by_club', ['clubId']),
 
 	clubInterestSignups: defineTable({
 		email: v.string(),
@@ -88,15 +142,31 @@ export default defineSchema({
 		username: v.optional(v.string()),
 		coverPhotoUrl: v.optional(v.string()),
 		leftAt: v.optional(v.number()),
+		// Set together with `leftAt` when a Guide removes this member (PRD 6.2.5).
+		kickReason: v.optional(v.string()),
+		kickedByProfileId: v.optional(v.id('profiles')),
 		createdAt: v.number()
 	})
 		.index('by_club', ['clubId'])
 		.index('by_profile', ['profileId'])
-		.index('by_club_and_profile', ['clubId', 'profileId']),
+		.index('by_club_and_profile', ['clubId', 'profileId'])
+		// Used by reviewAssignmentModel.listEligibleGuideProfileIds to find every active
+		// Guide-role membership without a non-indexed `.filter()` over the whole table.
+		.index('by_role', ['roleId']),
 
 	clubApplications: defineTable({
 		applicantProfileId: v.id('profiles'),
-		status: v.union(v.literal('incomplete'), v.literal('pending'), v.literal('finalized')),
+		// CL-710 CEO review: the interview IS the onboarding call, so acceptance is terminal —
+		// there is no longer a separate "awaiting onboarding call" state between `accepted` and
+		// club creation. `accepted` now means the club has already been created (see
+		// `decideApplication` in clubApplications.ts, which creates the club inline).
+		status: v.union(
+			v.literal('incomplete'),
+			v.literal('pending'),
+			v.literal('interview'),
+			v.literal('accepted'),
+			v.literal('rejected')
+		),
 		name: v.string(),
 		description: v.optional(v.string()),
 		location: v.optional(v.string()),
@@ -106,9 +176,27 @@ export default defineSchema({
 		applicantRole: v.optional(v.string()),
 		referralSource: v.optional(v.string()),
 		referralOther: v.optional(v.string()),
+		// Set as soon as decideApplication accepts the application (club creation is now inline,
+		// not a separate confirm-onboarding-call step).
 		createdClubId: v.optional(v.id('clubs')),
-		finalizedByProfileId: v.optional(v.id('profiles')),
-		finalizedAt: v.optional(v.number()),
+		// Set when a reviewing Guide moves the application into the interview stage
+		// (moveToInterview in clubApplications.ts).
+		movedToInterviewAt: v.optional(v.number()),
+		movedToInterviewByProfileId: v.optional(v.id('profiles')),
+		// Set on Accept/Reject decisions made from the clubApplication chat (decideApplication).
+		// For accepted applications this is also the moment the club was created.
+		decidedAt: v.optional(v.number()),
+		decidedByProfileId: v.optional(v.id('profiles')),
+		rejectionNote: v.optional(v.string()),
+		// Lightweight flag for Core Team follow-up (e.g. the new Guide never runs a session); does
+		// not reject the application. Surfaced later by CL-730/732 admin tooling.
+		adminFollowUpFlag: v.optional(
+			v.object({
+				reason: v.string(),
+				createdAt: v.number(),
+				createdByProfileId: v.id('profiles')
+			})
+		),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
@@ -119,6 +207,14 @@ export default defineSchema({
 	applicationReviews: defineTable({
 		applicationId: v.id('clubApplications'),
 		reviewerProfileId: v.id('profiles'),
+		// PRD 6.9.2 (CL-709): reviewers score two dimensions — alignment with the Guiding
+		// Principles and safety. `score` is kept as the computed average of the two (rounded to 1
+		// decimal) so CL-710's decision flow and CL-732's discrepancy math, which both read
+		// `score`, stay untouched. Optional only for backward-compatibility with pre-CL-709 rows;
+		// the CL-709 backfill sets both to the pre-existing `score` on every existing row, so in
+		// practice every row has them going forward.
+		principlesScore: v.optional(v.number()),
+		safetyScore: v.optional(v.number()),
 		score: v.number(),
 		note: v.string(),
 		createdAt: v.number(),
@@ -127,6 +223,51 @@ export default defineSchema({
 		.index('by_application_id', ['applicationId'])
 		.index('by_reviewer_profile_id', ['reviewerProfileId'])
 		.index('by_application_id_and_reviewer_profile_id', ['applicationId', 'reviewerProfileId']),
+
+	// PRD 6.9.2/6.9.3 (CL-709): windowed auto-assignment replaces reviewer self-select. Each row
+	// assigns one pending application to one eligible Guide for peer review during a season's
+	// review window. Unique per (applicationId, reviewerProfileId) — the assignment mutation
+	// enforces this via `by_application_id_and_reviewer_profile_id`.
+	applicationReviewAssignments: defineTable({
+		applicationId: v.id('clubApplications'),
+		reviewerProfileId: v.id('profiles'),
+		seasonId: v.id('seasons'),
+		assignedAt: v.number()
+	})
+		.index('by_application_id', ['applicationId'])
+		.index('by_application_id_and_reviewer_profile_id', ['applicationId', 'reviewerProfileId'])
+		.index('by_reviewer_profile_id', ['reviewerProfileId'])
+		// Powers "fewest assignments this season" load balancing in assignReviewsForOpenWindow.
+		.index('by_reviewer_profile_id_and_season_id', ['reviewerProfileId', 'seasonId'])
+		.index('by_season_id', ['seasonId']),
+
+	// PRD 6.9.2/6.9.3 (CL-709): tiny admin-configurable singleton for the review-assignment
+	// algorithm. Absent = defaults (reviewersPerApplication: 3, maxReviewsPerGuidePerSeason: 10).
+	// Never more than one row; adminUpdateReviewSettings upserts it.
+	reviewSettings: defineTable({
+		reviewersPerApplication: v.number(),
+		maxReviewsPerGuidePerSeason: v.number(),
+		updatedAt: v.number()
+	}),
+
+	joinRequests: defineTable({
+		clubId: v.id('clubs'),
+		requesterProfileId: v.id('profiles'),
+		status: v.union(
+			v.literal('pending'),
+			v.literal('accepted'),
+			v.literal('declined'),
+			v.literal('cancelled')
+		),
+		createdAt: v.number(),
+		decidedAt: v.optional(v.number()),
+		decidedByProfileId: v.optional(v.id('profiles')),
+		cancelledAt: v.optional(v.number())
+	})
+		.index('by_club', ['clubId'])
+		.index('by_requester_profile_id', ['requesterProfileId'])
+		.index('by_club_and_requester', ['clubId', 'requesterProfileId'])
+		.index('by_club_and_status', ['clubId', 'status']),
 
 	parentChildConsents: defineTable({
 		childProfileId: v.id('profiles'),
@@ -146,17 +287,57 @@ export default defineSchema({
 		.index('by_token', ['token'])
 		.index('by_status_and_created_at', ['status', 'createdAt']),
 
+	// PRD 2.4/6.1.10 (CL-703): materialized parent<->child link, derived lazily from an approved
+	// `parentChildConsents` row whose `parentEmail` matches the CURRENT authenticated user's auth
+	// email (see `parentAccounts.claimParentLinks`). One row per (parentProfileId, childProfileId)
+	// pair — enforced app-side via `by_parent_and_child` before insert (no native unique
+	// constraint). A parent can have many children; v1 has no reverse case (a child has exactly
+	// one linked parent via `parentChildConsents.parentProfileId`, but the link row is still keyed
+	// both ways so child-side queries — e.g. `unlinkParent` — can look it up without scanning by
+	// parent). Severed only by the CHILD once they turn 16 (see `unlinkParent`); parent-side reads
+	// keep working until then even past the child's 16th birthday, per PRD "access doesn't
+	// auto-sever until they unlink".
+	parentLinks: defineTable({
+		parentProfileId: v.id('profiles'),
+		childProfileId: v.id('profiles'),
+		createdAt: v.number()
+	})
+		.index('by_parent', ['parentProfileId'])
+		.index('by_child', ['childProfileId'])
+		.index('by_parent_and_child', ['parentProfileId', 'childProfileId']),
+
 	sessions: defineTable({
 		clubId: v.id('clubs'),
 		description: v.optional(v.string()),
+		location: v.optional(v.string()),
 		startTime: v.number(),
 		endTime: v.number(),
 		createdByProfileId: v.id('profiles'),
+		cancelled: v.optional(v.boolean()),
+		cancelledAt: v.optional(v.number()),
+		cancelledByProfileId: v.optional(v.id('profiles')),
+		// Scheduled function id for the "attendance unmarked" reminder (fires at startTime + 1h).
+		// Tracked so it can be cancelled and rescheduled if the session's startTime changes or it's cancelled.
+		attendanceReminderJobId: v.optional(v.id('_scheduled_functions')),
+		// Scheduled function id for the member-facing session reminder (fires at startTime - 24h).
+		// Same cancel/reschedule lifecycle as attendanceReminderJobId.
+		sessionReminderJobId: v.optional(v.id('_scheduled_functions')),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_club', ['clubId'])
 		.index('by_club_and_start', ['clubId', 'startTime']),
+
+	sessionRsvps: defineTable({
+		sessionId: v.id('sessions'),
+		profileId: v.id('profiles'),
+		status: v.union(v.literal('going'), v.literal('not_going')),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_session', ['sessionId'])
+		.index('by_session_and_profile', ['sessionId', 'profileId'])
+		.index('by_profile', ['profileId']),
 
 	buildingBlocks: defineTable({
 		name: v.string(),
@@ -211,11 +392,19 @@ export default defineSchema({
 	attendances: defineTable({
 		sessionId: v.id('sessions'),
 		profileId: v.id('profiles'),
-		createdByProfileId: v.id('profiles'),
-		createdAt: v.number()
+		status: v.union(v.literal('present'), v.literal('absent')),
+		recordedByProfileId: v.id('profiles'),
+		recordedAt: v.number()
 	})
 		.index('by_session', ['sessionId'])
 		.index('by_session_and_profile', ['sessionId', 'profileId']),
+
+	sessionPhotos: defineTable({
+		sessionId: v.id('sessions'),
+		mediaAssetId: v.id('mediaAssets'),
+		uploadedByProfileId: v.id('profiles'),
+		createdAt: v.number()
+	}).index('by_session', ['sessionId']),
 
 	projectRoles: defineTable({
 		key: projectRoleKeyValidator,
@@ -230,26 +419,68 @@ export default defineSchema({
 	projects: defineTable({
 		name: v.string(),
 		dueDate: v.number(),
-		doneDate: v.optional(v.number()),
+		// Set once (PRD 6.6.5) the moment the last active member marks themselves Done and
+		// `isProjectArchived` (see `projectsModel.ts`) becomes true for this project. Cheap to
+		// query directly instead of re-deriving archival status from all member rows every time
+		// (e.g. Showcase/Current tab filtering in `listByClub`/`listPreviewsByClub`).
+		archivedAt: v.optional(v.number()),
 		description: v.optional(v.string()),
+		// PRD 6.6.2/6.6.11: 'clubs' restricts direct viewing/requesting to members of attributed
+		// clubs (plus project members themselves); 'global' allows any authenticated user. Any
+		// active member can toggle this (PRD 6.6.8). Required — every pre-existing row was
+		// backfilled to 'clubs' via the (now-removed) `projects.backfillVisibility` migration.
+		visibility: v.union(v.literal('clubs'), v.literal('global')),
+		// PRD 6.6.3: optional at creation, editable by any active member. Uploaded via the
+		// `projectCover` media-field kind (images only, compression + safety screening on).
+		coverImageMediaAssetId: v.optional(v.id('mediaAssets')),
+		// PRD 6.14.4 (CL-730): set when an admin takes down this project from the moderation
+		// queue. Taken-down projects are filtered out of every member-facing read path (see
+		// `projectsModel.ts`'s `canViewProject`/list queries) while the row itself is kept intact.
+		takedown: v.optional(
+			v.object({
+				byProfileId: v.id('profiles'),
+				at: v.number(),
+				reason: v.optional(v.string())
+			})
+		),
 		createdByProfileId: v.id('profiles'),
 		createdAt: v.number(),
 		updatedAt: v.number()
-	}),
+	})
+		// PRD 6.16 (CL-731): feed search matches projects by name and description. Convex search
+		// indexes support exactly one search field each, hence two indexes. Visibility/takedown
+		// gating is re-checked per hit in `updates.searchGlobalFeed`/`searchMyClubsFeed` rather
+		// than via filterFields (takedown is an optional object and club scoping is relational).
+		.searchIndex('search_name', { searchField: 'name' })
+		.searchIndex('search_description', { searchField: 'description' }),
 
-	projectClubs: defineTable({
+	// PRD 5.11/6.6.6: per-member, per-club attribution links (replaces the old project-level
+	// `projectClubs` table entirely — no back-compat). A project's "attributed clubs" is the
+	// distinct set of `clubId`s across all its attribution rows; a club attribution naturally
+	// disappears once the last row for that club is removed ("last person out", PRD 6.6.6).
+	// Unique per (projectId, profileId, clubId) — enforced by the app layer via
+	// `by_project_and_profile_and_club` lookups before insert, since Convex has no native unique
+	// constraint.
+	projectAttributions: defineTable({
 		projectId: v.id('projects'),
+		profileId: v.id('profiles'),
 		clubId: v.id('clubs'),
 		createdAt: v.number()
 	})
 		.index('by_project', ['projectId'])
 		.index('by_club', ['clubId'])
-		.index('by_club_and_project', ['clubId', 'projectId']),
+		.index('by_club_and_project', ['clubId', 'projectId'])
+		.index('by_project_and_profile', ['projectId', 'profileId'])
+		.index('by_project_and_profile_and_club', ['projectId', 'profileId', 'clubId']),
 
 	projectMembers: defineTable({
 		projectId: v.id('projects'),
 		profileId: v.id('profiles'),
 		leftAt: v.optional(v.number()),
+		// Set when this member presses "I'm Done" (PRD 6.8.4/6.8.5). Per-member and permanent;
+		// distinct from `leftAt` (self-removal). Once every current member has `doneDate` set,
+		// the project is considered Archived and its chat closes for everyone.
+		doneDate: v.optional(v.number()),
 		roleId: v.id('projectRoles'),
 		// Denormalized profile fields for faster member lists.
 		firstName: v.optional(v.string()),
@@ -262,6 +493,85 @@ export default defineSchema({
 		.index('by_profile', ['profileId'])
 		.index('by_project_and_profile', ['projectId', 'profileId']),
 
+	// PRD 6.6.10: platform-wide project invitations. Any ACTIVE project member can invite any
+	// user on the platform; the invitee decides via a banner on the project page (see
+	// `canViewProject`'s pending-invite carve-out, projectsModel.ts). One pending invite per
+	// (projectId, inviteeProfileId) at a time — enforced in `projects.inviteMember` via
+	// `by_project_and_invitee`. `decidedAt` is set on accept/decline; cancelling (by the
+	// inviter) reuses the 'cancelled' status rather than deleting the row, matching the
+	// club-level `joinRequests` table's shape.
+	projectInvites: defineTable({
+		projectId: v.id('projects'),
+		inviteeProfileId: v.id('profiles'),
+		invitedByProfileId: v.id('profiles'),
+		status: v.union(
+			v.literal('pending'),
+			v.literal('accepted'),
+			v.literal('declined'),
+			v.literal('cancelled')
+		),
+		createdAt: v.number(),
+		decidedAt: v.optional(v.number())
+	})
+		.index('by_project', ['projectId'])
+		.index('by_invitee', ['inviteeProfileId'])
+		.index('by_project_and_invitee', ['projectId', 'inviteeProfileId'])
+		.index('by_project_and_status', ['projectId', 'status']),
+
+	// PRD 6.6.10: requests to join a project from any user who can currently view it
+	// (`canViewProject`) and isn't already an active member. Any ACTIVE project member can
+	// accept/decline. One pending request per (projectId, requesterProfileId) — enforced in
+	// `projects.requestToJoinProject` via `by_project_and_requester`. No chat is created for
+	// this flow (CL-722 simplification vs. the PRD's `join_request` chat type, which remains
+	// club-scoped only).
+	projectJoinRequests: defineTable({
+		projectId: v.id('projects'),
+		requesterProfileId: v.id('profiles'),
+		status: v.union(
+			v.literal('pending'),
+			v.literal('accepted'),
+			v.literal('declined'),
+			v.literal('cancelled')
+		),
+		createdAt: v.number(),
+		decidedAt: v.optional(v.number())
+	})
+		.index('by_project', ['projectId'])
+		.index('by_requester', ['requesterProfileId'])
+		.index('by_project_and_requester', ['projectId', 'requesterProfileId'])
+		.index('by_project_and_status', ['projectId', 'status']),
+
+	// Immutable audit trail for project member lifecycle events (PRD 6.6.8): member
+	// joined/added, member marked Done, member left, project archived. No update/delete
+	// mutations are exposed — entries are append-only. `actorProfileId` is undefined for
+	// system-generated entries (e.g. automatic archival).
+	projectChangeLogs: defineTable({
+		projectId: v.id('projects'),
+		actorProfileId: v.optional(v.id('profiles')),
+		entryType: v.union(
+			v.literal('member_joined'),
+			v.literal('member_done'),
+			v.literal('member_left'),
+			v.literal('project_archived'),
+			// CL-718: metadata edits (PRD 6.6.8 "Active members can edit: Name, Deadline,
+			// Description, Cover Image, Visibility, Attribution").
+			v.literal('name_changed'),
+			v.literal('description_changed'),
+			v.literal('deadline_changed'),
+			v.literal('visibility_changed'),
+			v.literal('cover_changed'),
+			// CL-721: per-member attribution link/unlink (PRD 6.6.6/6.6.8 "Attribution" is one of
+			// the editable/logged fields).
+			v.literal('club_linked'),
+			v.literal('club_unlinked'),
+			// CL-722: distinct from 'member_joined' so the timeline can show "X was invited by Y"
+			// (PRD 6.6.10) rather than the generic join-request wording.
+			v.literal('member_invited')
+		),
+		text: v.string(),
+		createdAt: v.number()
+	}).index('by_project_and_created', ['projectId', 'createdAt']),
+
 	questions: defineTable({
 		content: v.string(),
 		createdAt: v.number()
@@ -272,11 +582,30 @@ export default defineSchema({
 		content: v.string(),
 		createdByProfileId: v.id('profiles'),
 		questionId: v.optional(v.id('questions')),
+		// PRD 6.14.4 (CL-730): admin takedown from the moderation queue. Filtered out of every
+		// member-facing read path (feeds, project timeline, profile updates) while kept in the DB.
+		takedown: v.optional(
+			v.object({
+				byProfileId: v.id('profiles'),
+				at: v.number(),
+				reason: v.optional(v.string())
+			})
+		),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_project', ['projectId'])
-		.index('by_project_and_created', ['projectId', 'createdAt']),
+		.index('by_project_and_created', ['projectId', 'createdAt'])
+		// CL-726: the "All" (global-visibility) feed scans all updates newest-first regardless of
+		// project, which `by_project_and_created` can't serve (it requires a projectId prefix).
+		.index('by_created', ['createdAt'])
+		// Used by profiles.getById / parentAccounts (viewing a profile's own authored updates,
+		// newest first) so that query doesn't have to run a non-indexed `.filter()` over
+		// `by_created` (convex_rules.txt).
+		.index('by_created_by_profile_and_created', ['createdByProfileId', 'createdAt'])
+		// PRD 6.16 (CL-731): feed search matches update content. Visibility (project global /
+		// viewer's attributed clubs) and takedowns are re-checked per hit in the search queries.
+		.searchIndex('search_content', { searchField: 'content' }),
 
 	updateClubs: defineTable({
 		updateId: v.id('updates'),
@@ -295,10 +624,43 @@ export default defineSchema({
 		.index('by_update', ['updateId'])
 		.index('by_media_asset', ['mediaAssetId']),
 
-	mediaAssets: defineTable(mediaAssetFields)
+	// PRD 6.7.2-6.7.4: comments on project updates. No likes. Eligibility (>=1 active club
+	// membership AND `canViewProject` for the update's project) is enforced only at comment-time
+	// in `updateComments.addComment` — rows are never deleted or re-validated afterward, so a
+	// comment persists and remains visible even if the project's visibility later flips from
+	// 'global' to 'clubs' and the commenter is no longer eligible to post a *new* comment.
+	updateComments: defineTable({
+		updateId: v.id('updates'),
+		authorProfileId: v.id('profiles'),
+		content: v.string(),
+		// PRD 6.14.4 (CL-730): admin takedown from the moderation queue. Filtered out of
+		// `updateComments.listComments`/`countComments` while kept in the DB.
+		takedown: v.optional(
+			v.object({
+				byProfileId: v.id('profiles'),
+				at: v.number(),
+				reason: v.optional(v.string())
+			})
+		),
+		createdAt: v.number()
+	})
+		.index('by_update', ['updateId'])
+		.index('by_update_and_created', ['updateId', 'createdAt']),
+
+	mediaAssets: defineTable({
+		...mediaAssetFields,
+		// PRD 6.14.4 (CL-730): set when an admin dismisses a flagged asset from the moderation
+		// queue (moderation.dismissReport / dismissFlaggedMedia clears `moderation.status` back to
+		// 'clean' and stamps these). Kept separate from the pipeline-owned `moderation` object so
+		// the admin review event doesn't get overwritten by a later automated re-scan.
+		moderationReviewedAt: v.optional(v.number()),
+		moderationReviewedByProfileId: v.optional(v.id('profiles')),
+		moderationReviewNote: v.optional(v.string())
+	})
 		.index('by_owner', ['ownerUserId'])
 		.index('by_owner_and_status', ['ownerUserId', 'status'])
-		.index('by_source_object_key', ['sourceObjectKey']),
+		.index('by_source_object_key', ['sourceObjectKey'])
+		.index('by_moderation_status', ['moderation.status']),
 
 	notifications: defineTable({
 		profileId: v.id('profiles'),
@@ -326,7 +688,11 @@ export default defineSchema({
 			sessionActivityChanges: v.boolean(),
 			updateLikes: v.boolean(),
 			updateComments: v.boolean(),
-			chatMessages: v.boolean()
+			chatMessages: v.boolean(),
+			// CL-733: optional (not required) so existing userPreferences documents stay valid
+			// without a migration; missing == on, same "no stored row" default as isKindMuted.
+			feedbackReminders: v.optional(v.boolean()),
+			qualityFlags: v.optional(v.boolean())
 		}),
 		updatedAt: v.number()
 	}).index('by_profile', ['profileId']),
@@ -388,16 +754,201 @@ export default defineSchema({
 			v.object({
 				contextType: v.literal('clubApplication'),
 				clubApplicationId: v.id('clubApplications')
+			}),
+			v.object({
+				contextType: v.literal('joinRequest'),
+				joinRequestId: v.id('joinRequests')
 			})
 		)
 	)
 		.index('by_club_id', ['clubId'])
 		.index('by_project_id', ['projectId'])
-		.index('by_club_application_id', ['clubApplicationId']),
+		.index('by_club_application_id', ['clubApplicationId'])
+		.index('by_join_request_id', ['joinRequestId']),
 
 	messages: defineTable({
 		roomId: v.id('rooms'),
+		// Optional: unset for system messages (e.g. the automated rejection notice posted by
+		// clubApplications.decideApplication).
+		profileId: v.optional(v.id('profiles')),
+		content: v.string(),
+		// PRD 6.14.4 (CL-730): admin takedown from the moderation queue. The row/content is kept
+		// (chat history stays consistent for other participants), but every read path replaces
+		// `content` with a "removed by moderators" placeholder client-side when this is set.
+		removedByModeration: v.optional(
+			v.object({
+				byProfileId: v.id('profiles'),
+				at: v.number(),
+				reason: v.optional(v.string())
+			})
+		)
+	}).index('by_room', ['roomId']),
+
+	rateLimits: defineTable({
+		key: v.string(),
+		windowStart: v.number(),
+		count: v.number()
+	}).index('by_key', ['key']),
+
+	// PRD 6.15.1/6.15.2: Safeguarding/issue reports. Any authenticated user can report a chat
+	// message, project update, user (profile), or club. v1 only stores the report and pings
+	// the Core Team via Google Chat (see googleChat.ts) — admin review/workflow is CL-730.
+	// PRD 5.7: academic "seasons" (e.g. "Autumn 2026") that future tickets (CL-701 admin UI,
+	// CL-729/709 review-window-gated flows) key off of. All boundaries are stored as absolute ms
+	// timestamps (UTC), same convention as `sessions.startTime`/`endTime` — no per-club timezone
+	// concept at this level. Foundation only here: internal CRUD + authenticated read queries, no
+	// admin UI and no overlap/validation beyond what createSeason/updateSeason enforce.
+	seasons: defineTable({
+		name: v.string(),
+		startDate: v.number(),
+		endDate: v.number(),
+		reviewWindowOpen: v.number(),
+		reviewWindowClose: v.number(),
+		feedbackDeadline: v.number(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_start_date', ['startDate'])
+		.index('by_end_date', ['endDate']),
+
+	reports: defineTable({
+		reporterProfileId: v.id('profiles'),
+		category: v.union(
+			v.literal('safeguarding'),
+			v.literal('inappropriate_content'),
+			v.literal('other')
+		),
+		description: v.optional(v.string()),
+		targetType: v.union(
+			v.literal('chat_message'),
+			v.literal('project_update'),
+			v.literal('user'),
+			v.literal('club'),
+			// CL-726: individual comments on project updates.
+			v.literal('comment')
+		),
+		// The id of the reported document, stored as a string since it can reference several
+		// different tables depending on targetType.
+		targetId: v.string(),
+		// Short snapshot of the reported content at report time (e.g. the chat message text) —
+		// useful because the underlying content could change or be deleted later. Capped length.
+		contextText: v.optional(v.string()),
+		// CL-730: admin moderation workflow. 'open' -> 'dismissed' (no action needed),
+		// 'actioned' (content taken down / target actioned), or 'escalated' (flagged for
+		// follow-up, stays in the queue conceptually but out of the default "open" filter).
+		status: v.union(
+			v.literal('open'),
+			v.literal('dismissed'),
+			v.literal('actioned'),
+			v.literal('escalated')
+		),
+		// Set by moderation.dismissReport/actionReport/escalateReport.
+		resolvedAt: v.optional(v.number()),
+		resolvedByProfileId: v.optional(v.id('profiles')),
+		resolutionNote: v.optional(v.string()),
+		createdAt: v.number()
+	}).index('by_status_and_created', ['status', 'createdAt']),
+
+	// PRD 6.14.4/6.14.7 (CL-730): lightweight, append-only admin action log. No audit-grade
+	// guarantees for v1 (full audit logging is deferred) — just enough to see "who did what" at
+	// the bottom of the moderation page.
+	moderationActions: defineTable({
+		actorProfileId: v.id('profiles'),
+		action: v.union(
+			v.literal('dismiss_report'),
+			v.literal('dismiss_flagged_media'),
+			v.literal('escalate_report'),
+			v.literal('takedown_update'),
+			v.literal('takedown_comment'),
+			v.literal('takedown_project'),
+			v.literal('takedown_message'),
+			v.literal('suspend_user'),
+			v.literal('unsuspend_user'),
+			v.literal('update_club')
+		),
+		targetType: v.union(
+			v.literal('report'),
+			v.literal('media_asset'),
+			v.literal('update'),
+			v.literal('comment'),
+			v.literal('project'),
+			v.literal('message'),
+			v.literal('profile'),
+			v.literal('club')
+		),
+		targetId: v.string(),
+		reason: v.optional(v.string()),
+		createdAt: v.number()
+	}).index('by_created', ['createdAt']),
+
+	// PRD 6.11.1/6.11.2: quarterly feedback forms. A form targets one audience ('guide' or
+	// 'learner') for a given season; questions are a fixed structured list (no branching/logic).
+	// Admin creation UI is CL-701 — for now forms are only created via an internal mutation and
+	// dev seed scripts. Curiosity Clubs only (kind 'curiosity'); CoC groups are excluded from
+	// feedback collection entirely (see forms.ts listMyOutstandingForms).
+	forms: defineTable({
+		title: v.string(),
+		audience: v.union(v.literal('guide'), v.literal('learner')),
+		seasonId: v.id('seasons'),
+		questions: v.array(
+			v.object({
+				id: v.string(),
+				label: v.string(),
+				kind: v.union(v.literal('scale_1_10'), v.literal('text'), v.literal('yes_no')),
+				required: v.boolean()
+			})
+		),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_season', ['seasonId'])
+		.index('by_season_and_audience', ['seasonId', 'audience']),
+
+	// One response per (form, profile, club) — enforced in forms.ts submitResponse via the
+	// `by_form_profile_club` index. Responses are immutable: no update/delete path exists.
+	formResponses: defineTable({
+		formId: v.id('forms'),
 		profileId: v.id('profiles'),
-		content: v.string()
-	}).index('by_room', ['roomId'])
+		clubId: v.id('clubs'),
+		answers: v.array(
+			v.object({
+				questionId: v.string(),
+				value: v.union(v.string(), v.number(), v.boolean())
+			})
+		),
+		submittedAt: v.number()
+	})
+		.index('by_form_profile_club', ['formId', 'profileId', 'clubId'])
+		.index('by_profile', ['profileId']),
+
+	// PRD 6.13.2: pre-deadline "feedback form due" reminders (HIGH tier, muteable), sent at 7
+	// days before / 3 days before / day-of the season's feedbackDeadline. One row per
+	// (profileId, formId, clubId, stage) dedupes the daily cron so each stage fires exactly once
+	// even though the cron re-scans every outstanding form every day. Post-deadline nagging is a
+	// UI concern (see forms.ts getMyEnforcementState) — no rows are written here after the
+	// deadline passes.
+	feedbackReminders: defineTable({
+		profileId: v.id('profiles'),
+		formId: v.id('forms'),
+		clubId: v.id('clubs'),
+		stage: v.union(v.literal('7d'), v.literal('3d'), v.literal('day_of')),
+		sentAt: v.number()
+	}).index('by_profile_form_club_stage', ['profileId', 'formId', 'clubId', 'stage']),
+
+	// PRD 6.11.4: quality control. One row per (clubId, seasonId) — upserted at submission time
+	// by recomputing the average of all scale_1_10 answers across that club+season's responses.
+	// `status` starts 'open' when created; the row is deleted outright once the recomputed
+	// average rises back to >= 7 (see forms.ts submitResponse) rather than kept around as
+	// 'resolved' — v1 doesn't have a workflow (warning / improvement plan) that needs history yet,
+	// just the existence of an open flag for admins + the CoC/Guides notification at creation time.
+	qualityFlags: defineTable({
+		clubId: v.id('clubs'),
+		seasonId: v.id('seasons'),
+		avgScore: v.number(),
+		formResponseId: v.id('formResponses'),
+		status: v.literal('open'),
+		createdAt: v.number()
+	})
+		.index('by_club_and_season', ['clubId', 'seasonId'])
+		.index('by_status_and_created', ['status', 'createdAt'])
 });

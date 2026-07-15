@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
-	import CheckIcon from '@lucide/svelte/icons/check';
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import FlagIcon from '@lucide/svelte/icons/flag';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { api } from '$convex/_generated/api';
@@ -22,18 +21,14 @@
 	import HomeSectionHeader from '$lib/components/app/home/home-section-header.svelte';
 	import HomeActionLink from '$lib/components/app/home/home-action-link.svelte';
 	import HomeEmptyCard from '$lib/components/app/home/home-empty-card.svelte';
-	import {
-		LoadingState,
-		PageHeaderActions,
-		PageHeaderTitleContent,
-		showGlobalSnackbar
-	} from '$lib/components/app';
+	import { ActionMenu, LoadingState, PageHeaderActions } from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import ClubProjectCard from '$lib/components/app/projects/club-project-card.svelte';
 	import InviteLearnerDialog from '$lib/components/app/home/invite-learner-dialog.svelte';
+	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import noSessionFoundImage from '$lib/assets/images/no_session_found.png';
 	import noProjectsFoundImage from '$lib/assets/images/no_projects_found.png';
-	import noLearnersFoundImage from '$lib/assets/images/no_learners_found.png';
+	import noMembersFoundImage from '$lib/assets/images/no_learners_found.png';
 	import { routes } from '$lib/routes';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -41,16 +36,12 @@
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { FieldLabel } from '$lib/components/ui/field';
+	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import {
-		DropdownMenu,
-		DropdownMenuContent,
-		DropdownMenuItem,
-		DropdownMenuLabel,
-		DropdownMenuTrigger
-	} from '$lib/components/ui/dropdown-menu';
 	import { page } from '$app/state';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import { buildDefaultSessionForm } from '$lib/domain/schedule';
+	import { t } from '$lib/i18n';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -61,9 +52,7 @@
 
 	let clubs = $derived(clubsResponse.data ?? []);
 	let routeClubId = $derived((page.params as Record<string, string | undefined>).clubId ?? null);
-	let routeClubIdTyped = $derived(routeClubId ? (routeClubId as Id<'clubs'>) : null);
-	let switchingClubId = $state<Id<'clubs'> | null>(null);
-	let clubIdTyped = $derived(switchingClubId ?? routeClubIdTyped);
+	let clubIdTyped = $derived(routeClubId ? (routeClubId as Id<'clubs'>) : null);
 	let clubId = $derived(clubIdTyped ? String(clubIdTyped) : null);
 	let clubPath = $derived(clubId ? `/club/${clubId}` : '/onboarding/get-started');
 
@@ -75,9 +64,33 @@
 	let canReadProjects = $derived(clubPermissions.includes('project:read'));
 	let canCreateSession = $derived(clubPermissions.includes('session:create'));
 	let canCreateProject = $derived(clubPermissions.includes('project:create'));
-	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
+	let canCancelSession = $derived(clubPermissions.includes('session:cancel'));
+	let canRsvp = $derived(clubPermissions.includes('session_rsvp:set'));
 	let canEditClub = $derived(clubPermissions.includes('club:edit'));
 	let canShowSessionAttendees = $derived(canReadMembers && canReadAttendance);
+
+	let reportClubDialogOpen = $state(false);
+	let headerActionItems = $derived(
+		[
+			canEditClub && clubId
+				? {
+						id: 'club-settings',
+						label: 'Club settings',
+						Icon: SettingsIcon,
+						onSelect: () => void goto(routes.clubSettings(clubId))
+					}
+				: null,
+			clubIdTyped
+				? {
+						id: 'report-club',
+						label: t('reportEntryPoints.clubAction'),
+						Icon: FlagIcon,
+						onSelect: () => (reportClubDialogOpen = true)
+					}
+				: null
+		].filter((item): item is NonNullable<typeof item> => item !== null)
+	);
+	let rsvpPendingSessionId = $state<Id<'sessions'> | null>(null);
 
 	const upcomingSessionCardsResponse = useStableQuery(
 		api.sessions.listCardPreviewsByClub,
@@ -92,11 +105,15 @@
 		() => (clubIdTyped && canReadProjects ? { clubId: clubIdTyped, limit: 6 } : 'skip'),
 		{ cache: 'memory', keepPreviousData: false }
 	);
-	const learnersResponse = useStableQuery(
+	const membersResponse = useStableQuery(
 		api.clubs.getMembers,
-		() =>
-			clubIdTyped && canReadMembers ? { clubId: clubIdTyped, roleKey: 'learner' as const } : 'skip',
+		() => (clubIdTyped && canReadMembers ? { clubId: clubIdTyped } : 'skip'),
 		{ cache: 'memory', keepPreviousData: false }
+	);
+	// Backs the quick-create dialog's date/time prefill (see buildDefaultSessionForm below) — same
+	// schedule-slot source the full session-create form on the sessions list page reads from.
+	const scheduleSlotsResponse = useStableQuery(api.clubScheduleSlots.listByClub, () =>
+		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
 	);
 
 	let visibleUpcomingSessionCards = $derived(
@@ -105,9 +122,9 @@
 	let canMutateOnline = $derived(canMutateOnlineState.current);
 
 	let visibleProjects = $derived(canReadProjects ? (projectsPreviewResponse.data ?? []) : []);
-	let visibleLearners = $derived(canReadMembers ? (learnersResponse.data ?? []).slice(0, 8) : []);
-	let hiddenLearnersCount = $derived(
-		Math.max((learnersResponse.data?.length ?? 0) - visibleLearners.length, 0)
+	let visibleMembers = $derived(canReadMembers ? (membersResponse.data ?? []).slice(0, 8) : []);
+	let hiddenMembersCount = $derived(
+		Math.max((membersResponse.data?.length ?? 0) - visibleMembers.length, 0)
 	);
 	let sessionsLoading = $derived(
 		Boolean(clubIdTyped && canReadSessions && upcomingSessionCardsResponse.data === undefined)
@@ -115,8 +132,8 @@
 	let projectsLoading = $derived(
 		Boolean(clubIdTyped && canReadProjects && projectsPreviewResponse.data === undefined)
 	);
-	let learnersLoading = $derived(
-		Boolean(clubIdTyped && canReadMembers && learnersResponse.data === undefined)
+	let membersLoading = $derived(
+		Boolean(clubIdTyped && canReadMembers && membersResponse.data === undefined)
 	);
 	let createSessionDialogOpen = $state(false);
 	let createSessionPending = $state(false);
@@ -124,7 +141,8 @@
 	let createSessionForm = $state({
 		startTime: null as number | null,
 		endTime: null as number | null,
-		description: ''
+		description: '',
+		location: ''
 	});
 	let projectRailNode = $state<HTMLDivElement | null>(null);
 
@@ -144,17 +162,16 @@
 		]);
 	}
 
-	const buildDefaultSessionForm = () => {
-		const now = Date.now();
-		return {
-			startTime: now + 3_600_000,
-			endTime: now + 7_200_000,
-			description: ''
-		};
-	};
+	// Prefills the next occurrence of the club's configured schedule, matching the full
+	// session-create form on the sessions list page (CEO review round 3, CL-702/CL-712).
+	const defaultSessionForm = () =>
+		buildDefaultSessionForm(
+			scheduleSlotsResponse.data ?? [],
+			visibleUpcomingSessionCards.map((entry) => entry.session.startTime)
+		);
 
 	const openCreateSessionDialog = () => {
-		createSessionForm = buildDefaultSessionForm();
+		createSessionForm = defaultSessionForm();
 		createSessionError = '';
 		createSessionDialogOpen = true;
 	};
@@ -162,7 +179,8 @@
 	const createSession = async () => {
 		const startTime = createSessionForm.startTime;
 		const endTime = createSessionForm.endTime;
-		if (!canCreateSession || !clubIdTyped || startTime === null || endTime === null) {
+		const location = createSessionForm.location.trim();
+		if (!canCreateSession || !clubIdTyped || startTime === null || endTime === null || !location) {
 			return;
 		}
 
@@ -175,6 +193,7 @@
 					clubId: clubIdTyped,
 					startTime,
 					endTime,
+					location,
 					...(desc ? { description: desc } : {})
 				}),
 				SESSION_CREATE_TIMEOUT_MS,
@@ -208,6 +227,17 @@
 		}
 	};
 
+	const setRsvp = async (sessionId: Id<'sessions'>, status: 'going' | 'not_going') => {
+		rsvpPendingSessionId = sessionId;
+		try {
+			await convexClient.mutation(api.sessions.setRsvp, { sessionId, status });
+		} catch (error) {
+			reportMutationFailure(error);
+		} finally {
+			rsvpPendingSessionId = null;
+		}
+	};
+
 	const initialsFor = (name: string) => {
 		const cleaned = name.trim();
 		if (!cleaned) return '?';
@@ -216,14 +246,14 @@
 		return letters || cleaned.slice(0, 2).toUpperCase();
 	};
 
-	const learnerDisplayName = (learner: {
+	const memberDisplayName = (member: {
 		firstName?: string | null;
 		lastName?: string | null;
 		username?: string | null;
 	}) =>
-		[learner.firstName ?? '', learner.lastName ?? ''].join(' ').trim() ||
-		learner.username ||
-		'Learner';
+		[member.firstName ?? '', member.lastName ?? ''].join(' ').trim() ||
+		member.username ||
+		'Member';
 
 	type SignedProfileImageAsset = {
 		assetId: Id<'mediaAssets'>;
@@ -247,7 +277,7 @@
 
 	$effect(() => {
 		mergeSignedProfileImageUrls([
-			...(data.initialLearnerImages ?? []),
+			...(data.initialMemberImages ?? []),
 			...(data.initialProjectPreviewImages ?? []),
 			...(data.initialSessionAttendeeImages ?? [])
 		]);
@@ -257,8 +287,8 @@
 		return assetId ? (signedProfileImageUrls[assetId] ?? null) : null;
 	};
 
-	const learnerImageUrl = (learner: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) =>
-		cachedProfileImageUrl(learner.profileImageMediaAssetId);
+	const clubMemberImageUrl = (member: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) =>
+		cachedProfileImageUrl(member.profileImageMediaAssetId);
 	const previewMemberImageUrl = (member: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) =>
 		cachedProfileImageUrl(member.profileImageMediaAssetId);
 	const attendeeImageUrl = (attendee: { profileImageMediaAssetId?: Id<'mediaAssets'> | null }) => {
@@ -285,27 +315,6 @@
 
 	const getProjectRailScrollKey = () =>
 		clubId ? `${PROJECT_RAIL_SCROLL_KEY_PREFIX}:${clubId}` : null;
-
-	const switchClub = async (nextClubId: Id<'clubs'>) => {
-		if (nextClubId === clubIdTyped || switchingClubId) return;
-		switchingClubId = nextClubId;
-		try {
-			await convexClient.mutation(api.clubs.switchActiveClub, { clubId: nextClubId });
-			await goto(routes.clubHome(nextClubId));
-		} catch (error) {
-			switchingClubId = null;
-			showGlobalSnackbar({
-				title: 'Unable to switch club',
-				description: error instanceof Error ? error.message : 'Please try again.'
-			});
-		}
-	};
-
-	$effect(() => {
-		if (!switchingClubId) return;
-		if (switchingClubId !== routeClubIdTyped) return;
-		switchingClubId = null;
-	});
 
 	const restoreProjectRailScroll = (node: HTMLDivElement) => {
 		if (!browser) return;
@@ -357,50 +366,17 @@
 	};
 </script>
 
-<PageHeaderTitleContent enabled={Boolean(clubItem)}>
-	<div class="max-w-full min-w-0">
-		<DropdownMenu>
-			<DropdownMenuTrigger class="-ml-2 inline-flex w-fit max-w-full min-w-0 overflow-hidden">
-				<Button
-					variant="ghost"
-					class="max-w-full min-w-0 shrink justify-start gap-1 px-1.5 text-[#262626] hover:text-[#262626]"
-					aria-label={`Switch club from ${clubItem?.clubName ?? 'current club'}`}
-				>
-					<span class="type-step-title min-w-0 flex-1 truncate">{clubItem?.clubName ?? 'Club'}</span
-					>
-					<ChevronDownIcon class="size-4 shrink-0 text-muted-foreground" />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align="start" class="w-64">
-				<DropdownMenuLabel>Switch club</DropdownMenuLabel>
-				{#each clubs as club (club.clubId)}
-					<DropdownMenuItem
-						class="justify-between gap-3 py-2"
-						disabled={switchingClubId !== null}
-						onSelect={() => void switchClub(club.clubId)}
-					>
-						<span class="truncate">{club.clubName}</span>
-						{#if club.clubId === clubIdTyped}
-							<CheckIcon class="size-4 text-orange-500" />
-						{/if}
-					</DropdownMenuItem>
-				{/each}
-			</DropdownMenuContent>
-		</DropdownMenu>
-	</div>
-</PageHeaderTitleContent>
-
-<PageHeaderActions none={!canEditClub}>
-	<Button
-		variant="ghost"
-		size="icon-sm"
-		aria-label="Open club settings"
-		class="text-[#767b92] hover:text-[#565b72]"
-		href={clubId ? routes.clubSettings(clubId) : undefined}
-	>
-		<SettingsIcon class="size-5" />
-	</Button>
+<PageHeaderActions none={headerActionItems.length === 0}>
+	<ActionMenu items={headerActionItems} ariaLabel="Open club actions" />
 </PageHeaderActions>
+
+<ReportIssueDialog
+	bind:open={reportClubDialogOpen}
+	showTrigger={false}
+	targetType="club"
+	targetId={clubId ?? ''}
+	contextText={clubItem?.clubName ?? undefined}
+/>
 
 <div
 	class="-mx-4 flex min-h-full flex-col gap-8 px-4 py-4 sm:-mx-6 sm:px-6 sm:py-5 lg:-mx-8 lg:px-8 lg:py-6"
@@ -408,23 +384,7 @@
 	<section class="flex flex-col gap-4">
 		<HomeSectionHeader title="Sessions">
 			{#snippet action()}
-				{#if canCreateSession && !sessionsLoading && visibleUpcomingSessionCards.length === 0}
-					<Button
-						variant="ghost"
-						size="sm"
-						class="type-sm-bold hidden text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
-						disabled={!canMutateOnline}
-						onclick={openCreateSessionDialog}
-					>
-						<PlusIcon class="size-4" />
-						<span>Add a session</span>
-					</Button>
-					<div class="sm:hidden">
-						<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
-					</div>
-				{:else}
-					<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
-				{/if}
+				<HomeActionLink href={`${clubPath}/sessions`} label="View all" Icon={ArrowRightIcon} />
 			{/snippet}
 		</HomeSectionHeader>
 
@@ -440,14 +400,28 @@
 		{:else if sessionsLoading}
 			<LoadingState class="min-h-40 sm:min-h-44" label="Loading sessions" />
 		{:else if visibleUpcomingSessionCardsWithSignedAttendees.length === 0}
+			<!-- Guides get a "plan next session" CTA in the body instead of a bare button (CEO review
+			     round 3); the empty state is gated on upcoming NON-cancelled sessions only — a
+			     cancelled future session must not suppress it (listCardPreviewsByClub excludes
+			     cancelled sessions unless includeCancelled is passed, which it isn't here). -->
 			<HomeEmptyCard
 				title="No sessions to attend"
+				description={canCreateSession ? t('sessionsHome.planNextSessionDescription') : undefined}
 				illustrationSrc={noSessionFoundImage}
 				illustrationAlt="No sessions found"
 				centerContent={true}
 				variant="plain"
 				minHeightClass="min-h-44 sm:min-h-48"
-			/>
+			>
+				{#snippet action()}
+					{#if canCreateSession}
+						<Button disabled={!canMutateOnline} onclick={openCreateSessionDialog}>
+							<PlusIcon class="size-4" />
+							{t('sessionsHome.planNextSessionAction')}
+						</Button>
+					{/if}
+				{/snippet}
+			</HomeEmptyCard>
 		{:else}
 			<div class="flex gap-4 overflow-x-auto pb-2">
 				{#each visibleUpcomingSessionCardsWithSignedAttendees as entry (entry.session._id)}
@@ -458,14 +432,18 @@
 							tagNames: entry.tagNames,
 							attendees: entry.attendees,
 							activityItems: entry.activityItems,
-							hiddenActivitiesCount: entry.hiddenActivitiesCount
+							hiddenActivitiesCount: entry.hiddenActivitiesCount,
+							myRsvpStatus: entry.myRsvpStatus
 						}}
 						canReadMembers={canShowSessionAttendees}
-						canDelete={canDeleteSession}
+						canDelete={canCancelSession}
+						{canRsvp}
+						rsvpPending={rsvpPendingSessionId === entry.session._id}
 						showActivitiesSection={false}
 						showAttendeesSection={canShowSessionAttendees}
 						attendeesAvatarSizeClass="size-9"
 						showActions={false}
+						onSetRsvp={(status) => void setRsvp(entry.session._id, status)}
 						class="w-[20.25rem] shrink-0 sm:w-[21.5rem]"
 					/>
 				{/each}
@@ -493,6 +471,17 @@
 							bind:endTime={createSessionForm.endTime}
 						/>
 						<div class="flex flex-col gap-2">
+							<FieldLabel for="sessionLocation" required
+								>{t('sessionEditor.locationLabel')}</FieldLabel
+							>
+							<Input
+								id="sessionLocation"
+								bind:value={createSessionForm.location}
+								placeholder={t('sessionEditor.locationPlaceholder')}
+								required
+							/>
+						</div>
+						<div class="flex flex-col gap-2">
 							<FieldLabel for="sessionDescription">Description</FieldLabel>
 							<Textarea
 								id="sessionDescription"
@@ -506,7 +495,10 @@
 							>Cancel</Button
 						>
 						<Button
-							disabled={createSessionPending || !canCreateSession || !canMutateOnline}
+							disabled={createSessionPending ||
+								!canCreateSession ||
+								!canMutateOnline ||
+								!createSessionForm.location.trim()}
 							onclick={() => void createSession()}
 						>
 							{createSessionPending ? 'Creating...' : 'Open'}
@@ -523,9 +515,8 @@
 				{#if canCreateProject && !projectsLoading && visibleProjects.length === 0}
 					<Button
 						href={`${clubPath}/projects`}
-						variant="ghost"
-						size="sm"
-						class="type-sm-bold hidden text-orange-500 hover:bg-transparent hover:text-orange-600 sm:inline-flex"
+						variant="link"
+						class="type-sm-bold hidden sm:inline-flex"
 					>
 						<PlusIcon class="size-4" />
 						<span>Add a project</span>
@@ -579,66 +570,59 @@
 	</section>
 
 	<section class="flex flex-col gap-4">
-		<HomeSectionHeader title="Learners">
+		<HomeSectionHeader title="Members">
 			{#snippet action()}
-				{#if clubId && canReadMembers && visibleLearners.length > 0}
+				{#if clubId && canReadMembers && visibleMembers.length > 0}
 					<HomeActionLink href={`${clubPath}/members`} label="View all" Icon={ArrowRightIcon} />
 				{:else}
-					<InviteLearnerDialog
-						clubCode={clubItem?.clubCode}
-						triggerStyle="link"
-						triggerLabel="Invite a learner"
-					/>
+					<InviteLearnerDialog clubCode={clubItem?.clubCode} triggerStyle="link" />
 				{/if}
 			{/snippet}
 		</HomeSectionHeader>
 
-		{#if clubId && canReadMembers && learnersLoading}
-			<LoadingState class="min-h-32 sm:min-h-36" label="Loading learners" />
-		{:else if clubId && canReadMembers && visibleLearners.length > 0}
+		{#if clubId && canReadMembers && membersLoading}
+			<LoadingState class="min-h-32 sm:min-h-36" label="Loading members" />
+		{:else if clubId && canReadMembers && visibleMembers.length > 0}
 			<div class="flex flex-col gap-4">
 				<div class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-					{#each visibleLearners as learner (learner.userId)}
+					{#each visibleMembers as member (member.userId)}
 						<a
-							href={`${clubPath}/members`}
+							href={routes.profileDetail(member.profileId)}
 							class="flex items-center gap-3 rounded-xl px-1 py-1 transition-colors hover:bg-muted/50"
 							data-sveltekit-preload-code="hover"
 							data-sveltekit-preload-data="hover"
 						>
 							<Avatar class="size-12">
-								{#if learnerImageUrl(learner)}
+								{#if clubMemberImageUrl(member)}
 									<AvatarImage
-										src={learnerImageUrl(learner) ?? undefined}
-										alt={learnerDisplayName(learner)}
+										src={clubMemberImageUrl(member) ?? undefined}
+										alt={memberDisplayName(member)}
 									/>
 								{/if}
 								<AvatarFallback class="text-sm font-semibold">
-									{initialsFor(learnerDisplayName(learner))}
+									{initialsFor(memberDisplayName(member))}
 								</AvatarFallback>
 							</Avatar>
 							<div class="min-w-0 flex-1">
-								<p class="type-h6-bold truncate">{learnerDisplayName(learner)}</p>
-								{#if learner.username}
-									<p class="type-sm truncate text-muted-foreground">@{learner.username}</p>
+								<p class="type-h6-bold truncate">{memberDisplayName(member)}</p>
+								{#if member.username}
+									<p class="type-sm truncate text-muted-foreground">@{member.username}</p>
 								{/if}
 							</div>
 						</a>
 					{/each}
 				</div>
-				{#if hiddenLearnersCount > 0}
+				{#if hiddenMembersCount > 0}
 					<div class="self-start">
-						<HomeActionLink
-							href={`${clubPath}/members`}
-							label={`+ ${hiddenLearnersCount} others`}
-						/>
+						<HomeActionLink href={`${clubPath}/members`} label={`+ ${hiddenMembersCount} others`} />
 					</div>
 				{/if}
 			</div>
 		{:else}
 			<HomeEmptyCard
-				title="No learners to interact with"
-				illustrationSrc={noLearnersFoundImage}
-				illustrationAlt="No learners found"
+				title="No members to interact with"
+				illustrationSrc={noMembersFoundImage}
+				illustrationAlt="No members found"
 				centerContent={true}
 				variant="plain"
 				minHeightClass="min-h-44 sm:min-h-48"

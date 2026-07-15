@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		ActionMenu,
+		ConfirmDialog,
 		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
@@ -17,14 +19,18 @@
 		reportMutationSuccess
 	} from '$lib/app/connectivity';
 	import SessionActivityCard from '$lib/components/app/sessions/session-activity-card.svelte';
+	import SessionLocation from '$lib/components/app/sessions/session-location.svelte';
+	import SessionRsvp from '$lib/components/app/sessions/session-rsvp.svelte';
 	import { routes } from '$lib/routes';
-	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import { ATTENDANCE_LOCK_WINDOW_MS, formatSessionHeaderLine } from '$lib/domain/session';
+	import { t } from '$lib/i18n';
+	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
-	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
+	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Input } from '$lib/components/ui/input';
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Label } from '$lib/components/ui/label';
@@ -32,14 +38,15 @@
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
-	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import BanIcon from '@lucide/svelte/icons/ban';
+	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
 	import { fromStore } from 'svelte/store';
 
 	type Props = {
-		view: 'activities' | 'attendees';
+		view: 'activities' | 'attendees' | 'photos';
 	};
 
 	let { view }: Props = $props();
@@ -63,14 +70,25 @@
 			: null
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
-	let canUpdateSession = $derived(clubPermissions.includes('session:update'));
-	let canDeleteSession = $derived(clubPermissions.includes('session:delete'));
+	let isCancelled = $derived(Boolean(session?.cancelled));
+	let canUpdateSession = $derived(clubPermissions.includes('session:update') && !isCancelled);
+	let canCancelSession = $derived(
+		clubPermissions.includes('session:cancel') &&
+			!isCancelled &&
+			Boolean(session && session.startTime > Date.now())
+	);
 	let canCreateActivity = $derived(clubPermissions.includes('session_activity:create'));
 	let canUpdateActivity = $derived(clubPermissions.includes('session_activity:update'));
 	let canDeleteActivity = $derived(clubPermissions.includes('session_activity:delete'));
-	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
 	let canReadAttendance = $derived(clubPermissions.includes('attendance:read'));
 	let canManageAttendance = $derived(clubPermissions.includes('attendance:create'));
+	let sessionHasStarted = $derived(Boolean(session && session.startTime <= Date.now()));
+	let hasSessionPhotoPermission = $derived(clubPermissions.includes('session_photo:create'));
+	let attendanceWindowOpen = $derived.by(() => {
+		if (!session || session.cancelled) return false;
+		const now = Date.now();
+		return now >= session.startTime && now <= session.endTime + ATTENDANCE_LOCK_WINDOW_MS;
+	});
 
 	const canMutateOnlineState = fromStore(canMutateOnlineStore);
 	const connectivityMessageState = fromStore(connectivityMessageStore);
@@ -78,11 +96,19 @@
 	let connectivityMessage = $derived(connectivityMessageState.current);
 
 	let canUpdateSessionOnline = $derived(canUpdateSession && canMutateOnline);
-	let canDeleteSessionOnline = $derived(canDeleteSession && canMutateOnline);
+	let canCancelSessionOnline = $derived(canCancelSession && canMutateOnline);
 	let canCreateActivityOnline = $derived(canCreateActivity && canMutateOnline);
 	let canUpdateActivityOnline = $derived(canUpdateActivity && canMutateOnline);
 	let canDeleteActivityOnline = $derived(canDeleteActivity && canMutateOnline);
-	let canManageAttendanceOnline = $derived(canManageAttendance && canMutateOnline);
+	let canManageAttendanceOnline = $derived(
+		canManageAttendance && canMutateOnline && attendanceWindowOpen
+	);
+	// RSVP is only actionable before the session starts and while it isn't cancelled; anywhere
+	// this is false the control is hidden entirely (CEO decision 2026-07-11). Transient offline
+	// keeps the control visible but disabled, matching the rest of the app.
+	let canRsvpToSession = $derived(
+		clubPermissions.includes('session_rsvp:set') && !isCancelled && !sessionHasStarted
+	);
 
 	const activitiesResponse = useStableQuery(api.sessions.listActivities, () =>
 		sessionIdTyped && view === 'activities' ? { sessionId: sessionIdTyped } : 'skip'
@@ -90,19 +116,108 @@
 	const blocksResponse = useStableQuery(api.sessions.listBuildingBlocks, () =>
 		view === 'activities' ? {} : 'skip'
 	);
-	const attendanceResponse = useStableQuery(api.sessions.listAttendance, () =>
-		sessionIdTyped && canReadAttendance && view === 'attendees'
+	// The attendance roster is only meaningful once the session has started; before that the
+	// attendees tab shows the RSVP roster instead.
+	const attendanceRosterResponse = useStableQuery(api.sessions.listAttendanceRoster, () =>
+		sessionIdTyped && canReadAttendance && view === 'attendees' && sessionHasStarted
 			? { sessionId: sessionIdTyped }
 			: 'skip'
 	);
-	const attendanceAttendeesResponse = useStableQuery(api.sessions.listAttendanceAttendees, () =>
-		sessionIdTyped && canReadAttendance && view === 'attendees'
+	const rsvpRosterResponse = useStableQuery(api.sessions.listRsvpRoster, () =>
+		sessionIdTyped && view === 'attendees' ? { sessionId: sessionIdTyped } : 'skip'
+	);
+	let rsvpPending = $state(false);
+
+	const photosResponse = useStableQuery(api.sessions.listPhotos, () =>
+		sessionIdTyped && view === 'photos' ? { sessionId: sessionIdTyped } : 'skip'
+	);
+	const canUploadPhotoResponse = useStableQuery(api.sessions.canUploadSessionPhoto, () =>
+		sessionIdTyped && hasSessionPhotoPermission && view === 'photos'
 			? { sessionId: sessionIdTyped }
 			: 'skip'
 	);
-	const membersResponse = useStableQuery(api.clubs.getMembers, () =>
-		session && canReadMembers && view === 'attendees' ? { clubId: session.clubId } : 'skip'
+	let photos = $derived(photosResponse.data ?? []);
+	let canUploadPhotoNow = $derived(Boolean(canUploadPhotoResponse.data));
+	let canUploadPhotoOnline = $derived(canUploadPhotoNow && canMutateOnline);
+	let sessionPhotoLimitReached = $derived(photos.length >= 4);
+	let sessionPhotoField = createMediaField(convexClient, 'sessionPhoto', { mode: 'immediate' });
+	let photoUploadPending = $state(false);
+	let photoError = $state('');
+	let initialSessionPhotos = $derived(
+		(page.data.initialSessionPhotos as
+			| Array<{ assetId: Id<'mediaAssets'>; signedUrl: string }>
+			| undefined) ?? []
 	);
+	let initialSessionPhotosByAssetId = $derived(
+		new Map(initialSessionPhotos.map((asset) => [asset.assetId, asset.signedUrl] as const))
+	);
+	const photoUrlFor = (mediaAssetId: Id<'mediaAssets'>) =>
+		initialSessionPhotosByAssetId.get(mediaAssetId) ?? null;
+
+	onDestroy(() => {
+		sessionPhotoField.destroy();
+	});
+
+	const uploadSessionPhoto = async (files: File[]) => {
+		if (!sessionIdTyped) return;
+		if (!canUploadPhotoOnline) {
+			photoError = canMutateOnline ? '' : connectivityMessage;
+			return;
+		}
+		if (sessionPhotoLimitReached) {
+			photoError = t('sessionPhotos.limitReached');
+			return;
+		}
+
+		photoUploadPending = true;
+		photoError = '';
+		try {
+			await sessionPhotoField.selectFiles(files);
+			if (!sessionPhotoField.isReady || !sessionPhotoField.assetId) {
+				throw new Error(sessionPhotoField.errorMessage || t('sessionPhotos.uploadFailure'));
+			}
+			await sessionPhotoField.persistAttached(async (assetId) => {
+				if (!assetId) return;
+				await convexClient.mutation(api.sessions.addPhoto, {
+					sessionId: sessionIdTyped,
+					mediaAssetId: assetId
+				});
+			});
+			reportMutationSuccess();
+		} catch (error) {
+			reportMutationFailure(error);
+			let message = t('sessionPhotos.uploadFailure');
+			if (error instanceof Error) {
+				const match = error.message.match(/ConvexError:\s*(.+?)(?:\s+at\s+|$)/);
+				message = match ? match[1] : error.message;
+			}
+			photoError = message;
+		} finally {
+			photoUploadPending = false;
+		}
+	};
+
+	let deletePhotoDialogOpen = $state(false);
+	let deletePhotoTarget = $state<Id<'sessionPhotos'> | null>(null);
+
+	const openDeletePhotoDialog = (sessionPhotoId: Id<'sessionPhotos'>) => {
+		deletePhotoTarget = sessionPhotoId;
+		deletePhotoDialogOpen = true;
+	};
+
+	const deleteSessionPhoto = async () => {
+		const sessionPhotoId = deletePhotoTarget;
+		if (!sessionPhotoId) return;
+		if (!ensureOnlineForMutation((message) => (photoError = message))) return;
+		photoError = '';
+		try {
+			await convexClient.mutation(api.sessions.deletePhoto, { sessionPhotoId });
+			reportMutationSuccess();
+		} catch (error) {
+			reportMutationFailure(error);
+			photoError = error instanceof Error ? error.message : t('sessionPhotos.deleteFailure');
+		}
+	};
 
 	let pending = $state(false);
 	let errorMessage = $state('');
@@ -118,7 +233,8 @@
 	let sessionForm = $state({
 		startTime: null as number | null,
 		endTime: null as number | null,
-		description: ''
+		description: '',
+		location: ''
 	});
 
 	let activityDialogOpen = $state(false);
@@ -169,22 +285,13 @@
 		}
 	};
 
-	let serverAttendanceSet = $derived(
-		new Set((attendanceResponse.data ?? []).map((entry) => entry.userId))
-	);
-	let activeMemberUserIds = $derived(
-		new Set((membersResponse.data ?? []).map((member) => member.userId))
-	);
-	let historicalAttendees = $derived(
-		(attendanceAttendeesResponse.data ?? []).filter(
-			(attendee) => !activeMemberUserIds.has(attendee.userId)
-		)
-	);
 	let buildingBlockOptions = $derived(
 		(blocksResponse.data ?? []).map((block) => ({ id: String(block._id), name: block.name }))
 	);
+	let rsvpStatusByProfileId = $derived(
+		new Map((rsvpRosterResponse.data ?? []).map((row) => [row.profileId, row.status] as const))
+	);
 
-	const isUserAttending = (userId: string) => serverAttendanceSet.has(userId);
 	const formatDisplayName = (person: {
 		firstName?: string | null;
 		lastName?: string | null;
@@ -288,13 +395,16 @@
 		sessionForm = {
 			startTime: session.startTime,
 			endTime: session.endTime,
-			description: session.description ?? ''
+			description: session.description ?? '',
+			location: session.location ?? ''
 		};
 		sessionDialogOpen = true;
 	};
 
 	const saveSession = async () => {
 		if (!session || sessionForm.startTime === null || sessionForm.endTime === null) return;
+		const location = sessionForm.location.trim();
+		if (!location) return;
 		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 
 		pending = true;
@@ -305,6 +415,7 @@
 				sessionId: session._id,
 				startTime: sessionForm.startTime,
 				endTime: sessionForm.endTime,
+				location,
 				...(desc ? { description: desc } : {})
 			});
 			reportMutationSuccess();
@@ -317,19 +428,20 @@
 		}
 	};
 
-	const removeSession = async () => {
+	let cancelSessionDialogOpen = $state(false);
+
+	const cancelSession = async () => {
 		if (!session) return;
-		if (!window.confirm('Delete this session and all related activities?')) return;
 		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		pending = true;
 		errorMessage = '';
 		try {
-			await convexClient.mutation(api.sessions.remove, { sessionId: session._id });
+			await convexClient.mutation(api.sessions.cancel, { sessionId: session._id });
 			reportMutationSuccess();
-			await goto(routes.clubSessions(session.clubId));
+			// Stay on the session (CEO decision 2026-07-11) — the cancelled banner takes over.
 		} catch (error) {
 			reportMutationFailure(error);
-			errorMessage = error instanceof Error ? error.message : 'Failed to delete session.';
+			errorMessage = error instanceof Error ? error.message : t('sessionCancel.failure');
 		} finally {
 			pending = false;
 		}
@@ -406,80 +518,93 @@
 		}
 	};
 
-	const setAttendance = async (profileId: Id<'profiles'>, userId: string, attending: boolean) => {
+	const setAttendance = async (profileId: Id<'profiles'>, status: 'present' | 'absent') => {
 		if (!sessionIdTyped) return;
 		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
 		errorMessage = '';
-		const mutationArgs = { sessionId: sessionIdTyped, profileId, attending };
+		const mutationArgs = { sessionId: sessionIdTyped, profileId, status };
 		try {
 			await convexClient.mutation(api.sessions.setAttendance, mutationArgs, {
 				optimisticUpdate: (localStore) => {
 					const queryArgs = { sessionId: mutationArgs.sessionId };
-					const currentAttendance = localStore.getQuery(api.sessions.listAttendance, queryArgs);
-					if (!currentAttendance) return;
+					const currentRoster = localStore.getQuery(api.sessions.listAttendanceRoster, queryArgs);
+					if (!currentRoster) return;
 
-					const existing = currentAttendance.find((entry) => entry.userId === userId);
-					if (mutationArgs.attending) {
-						if (existing) return;
-						const now = Date.now();
-						const optimisticId =
-							`optimistic-attendance-${mutationArgs.sessionId}-${userId}` as Id<'attendances'>;
-						localStore.setQuery(api.sessions.listAttendance, queryArgs, [
-							...currentAttendance,
-							{
-								_id: optimisticId,
-								_creationTime: now,
-								sessionId: mutationArgs.sessionId,
-								profileId: mutationArgs.profileId,
-								userId,
-								createdByProfileId: mutationArgs.profileId,
-								createdAt: now
-							}
-						]);
-						return;
-					}
-					if (!existing) return;
 					localStore.setQuery(
-						api.sessions.listAttendance,
+						api.sessions.listAttendanceRoster,
 						queryArgs,
-						currentAttendance.filter((entry) => entry.userId !== userId)
+						currentRoster.map((entry) =>
+							entry.profileId === profileId ? { ...entry, status: mutationArgs.status } : entry
+						)
 					);
 				}
 			});
 			reportMutationSuccess();
 		} catch (error) {
 			reportMutationFailure(error);
-			errorMessage = error instanceof Error ? error.message : 'Failed to update attendance.';
+			errorMessage = error instanceof Error ? error.message : t('sessionAttendance.updateFailure');
 		}
 	};
 
-	let sessionActionItems = $derived([
-		{
-			id: 'edit-session',
-			label: 'Edit details',
-			Icon: PencilIcon,
-			disabled: !canUpdateSessionOnline,
-			onSelect: openSessionEditor
-		},
-		{
-			id: 'delete-session',
-			label: 'Delete session',
-			Icon: Trash2Icon,
-			tone: 'destructive' as const,
-			separatorBefore: canUpdateSessionOnline,
-			disabled: !canDeleteSessionOnline,
-			onSelect: () => void removeSession()
+	const setRsvpStatus = async (status: 'going' | 'not_going') => {
+		if (!sessionIdTyped || !canRsvpToSession) return;
+		if (!ensureOnlineForMutation((message) => (errorMessage = message))) return;
+		rsvpPending = true;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.sessions.setRsvp, { sessionId: sessionIdTyped, status });
+			reportMutationSuccess();
+		} catch (error) {
+			reportMutationFailure(error);
+			errorMessage = error instanceof Error ? error.message : t('sessionRsvp.updateFailure');
+		} finally {
+			rsvpPending = false;
 		}
-	]);
+	};
+
+	// Only actions that can ever apply to this session appear; permanently impossible ones
+	// (cancelled/past session) are dropped rather than disabled (CEO decision 2026-07-11).
+	// `disabled` is reserved for the transient offline state.
+	let sessionActionItems = $derived(
+		[
+			canUpdateSession
+				? {
+						id: 'edit-session',
+						label: 'Edit details',
+						Icon: PencilIcon,
+						disabled: !canUpdateSessionOnline,
+						onSelect: openSessionEditor
+					}
+				: null,
+			canCancelSession
+				? {
+						id: 'cancel-session',
+						label: t('sessionCancel.actionLabel'),
+						Icon: BanIcon,
+						tone: 'destructive' as const,
+						separatorBefore: canUpdateSession,
+						disabled: !canCancelSessionOnline,
+						onSelect: () => (cancelSessionDialogOpen = true)
+					}
+				: null
+		].filter((item): item is NonNullable<typeof item> => item !== null)
+	);
 </script>
 
 <PageHeaderBackButton {fallbackHref} />
 {#if headerTitle}
 	<PageHeaderTitle title={headerTitle} />
 {/if}
-<PageHeaderActions>
+<PageHeaderActions none={sessionActionItems.length === 0}>
 	<ActionMenu items={sessionActionItems} ariaLabel="Open session actions" />
 </PageHeaderActions>
+
+{#if session?.cancelled}
+	<Alert variant="destructive">
+		<AlertTitle>{t('sessionCancel.cancelledTitle')}</AlertTitle>
+		<AlertDescription>{t('sessionCancel.cancelledDescription')}</AlertDescription>
+	</Alert>
+{/if}
 
 {#if !sessionIdTyped}
 	<Alert variant="destructive">
@@ -509,8 +634,16 @@
 		{/if}
 
 		{#if view === 'activities'}
-			{#if session.description}
-				<p class="type-lead text-muted-foreground">{session.description}</p>
+			<!-- Overview: location + description live here (only), not repeated on every tab. -->
+			{#if session.location || session.description}
+				<div class="flex flex-col gap-2">
+					{#if session.location}
+						<SessionLocation location={session.location} />
+					{/if}
+					{#if session.description}
+						<p class="type-lead text-muted-foreground">{session.description}</p>
+					{/if}
+				</div>
 			{/if}
 			{#if (activitiesResponse.data?.length ?? 0) === 0}
 				<div
@@ -657,72 +790,177 @@
 					</div>
 				</div>
 			{/if}
-		{:else}
+		{:else if view === 'attendees'}
 			<div class="flex flex-col gap-3">
-				{#if !canReadMembers && !canReadAttendance}
-					<p class="type-sm text-muted-foreground">You do not have access to attendees.</p>
-				{:else if membersResponse.isLoading || attendanceAttendeesResponse.isLoading}
-					<LoadingState label="Loading attendees" />
-				{:else if (membersResponse.data?.length ?? 0) === 0 && historicalAttendees.length === 0}
-					<p class="type-sm text-muted-foreground">No attendees found.</p>
-				{:else}
-					{#each membersResponse.data ?? [] as member (member.clubMemberId)}
-						<div
-							class={`relative flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 ${
-								canManageAttendanceOnline
-									? 'cursor-pointer transition-colors hover:bg-accent/40'
-									: 'cursor-not-allowed'
-							}`}
-						>
-							<label
-								class={`absolute inset-0 rounded-xl ${
-									canManageAttendanceOnline ? 'cursor-pointer' : 'cursor-not-allowed'
-								}`}
-								for={`attendance-${member.clubMemberId}`}
+				{#if !sessionHasStarted}
+					<!-- Before the session starts this tab is the RSVP roster: every member with their
+					     going/not-going status (default going, CL-712), viewer's own row sorted to the
+					     top (see sessions.listRsvpRoster). Every row uses the same SessionRsvp control;
+					     only the viewer's own row is interactive, and only while actionable. -->
+					{#if rsvpRosterResponse.isLoading}
+						<LoadingState label="Loading attendees" />
+					{:else if (rsvpRosterResponse.data?.length ?? 0) === 0}
+						<p class="type-sm text-muted-foreground">{t('sessionAttendance.emptyState')}</p>
+					{:else}
+						{#each rsvpRosterResponse.data ?? [] as member (member.profileId)}
+							<div
+								class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
 							>
-								<span class="sr-only">
-									Toggle attendance for {formatDisplayName(member)}
-								</span>
-							</label>
-							<div class="flex flex-col gap-1">
-								<p class="type-body-medium">
-									{formatDisplayName(member)}
-								</p>
-							</div>
-							<div class="relative z-10 flex items-center">
-								<Checkbox
-									id={`attendance-${member.clubMemberId}`}
-									class="size-6 rounded-md [&>[data-slot=checkbox-indicator]>svg]:size-4"
-									checked={isUserAttending(member.userId)}
-									aria-label={`Mark ${formatDisplayName(member)} as attending`}
-									disabled={!canManageAttendanceOnline}
-									onCheckedChange={(checked) => {
-										if (!canManageAttendanceOnline) return;
-										void setAttendance(member.profileId, member.userId, checked === true);
-									}}
+								<p class="type-body-medium">{formatDisplayName(member)}</p>
+								<SessionRsvp
+									status={member.status}
+									interactive={member.isSelf && canRsvpToSession}
+									pending={rsvpPending}
+									disabled={!canMutateOnline}
+									onSetStatus={(status) => void setRsvpStatus(status)}
 								/>
 							</div>
-						</div>
-					{/each}
-					{#each historicalAttendees as attendee (attendee.userId)}
+						{/each}
+					{/if}
+				{:else if !canReadAttendance}
+					<p class="type-sm text-muted-foreground">You do not have access to attendees.</p>
+				{:else if attendanceRosterResponse.isLoading}
+					<LoadingState label="Loading attendees" />
+				{:else if (attendanceRosterResponse.data?.length ?? 0) === 0}
+					<p class="type-sm text-muted-foreground">{t('sessionAttendance.emptyState')}</p>
+				{:else}
+					{#each attendanceRosterResponse.data ?? [] as member (member.profileId)}
 						<div
-							class="relative flex cursor-not-allowed items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
+							class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
 						>
 							<div class="flex flex-col gap-1">
 								<p class="type-body-medium">
-									{attendee.isPastMember ? 'Past member' : formatDisplayName(attendee)}
+									{member.isPastMember ? 'Past member' : formatDisplayName(member)}
 								</p>
+								{#if rsvpStatusByProfileId.has(member.profileId)}
+									<p class="type-sm text-muted-foreground">
+										{rsvpStatusByProfileId.get(member.profileId) === 'going'
+											? t('sessionRsvp.indicatorGoing')
+											: t('sessionRsvp.indicatorNotGoing')}
+									</p>
+								{/if}
+								{#if member.status === null}
+									<p class="type-sm text-muted-foreground">
+										{t('sessionAttendance.notRecorded')}
+									</p>
+								{/if}
 							</div>
 							<div class="relative z-10 flex items-center">
-								<Checkbox
-									class="size-6 rounded-md [&>[data-slot=checkbox-indicator]>svg]:size-4"
-									checked={true}
-									aria-label={`${attendee.isPastMember ? 'Past member' : formatDisplayName(attendee)} attended`}
-									disabled={true}
-								/>
+								<!-- Controls render only while attendance can still change (permission + open
+								     window); permanently-locked states show plain status instead of dead
+								     buttons. Transient offline keeps the convention of disabling. -->
+								{#if canManageAttendance && attendanceWindowOpen && !member.isPastMember}
+									<ToggleGroup.Root
+										type="single"
+										variant="outline"
+										size="sm"
+										value={member.status ?? undefined}
+										disabled={!canMutateOnline}
+										onValueChange={(value) => {
+											if (!canManageAttendanceOnline) return;
+											if (value !== 'present' && value !== 'absent') return;
+											void setAttendance(member.profileId, value);
+										}}
+									>
+										<ToggleGroup.Item value="present" aria-label={`Mark ${formatDisplayName(member)} present`}>
+											{t('sessionAttendance.present')}
+										</ToggleGroup.Item>
+										<ToggleGroup.Item value="absent" aria-label={`Mark ${formatDisplayName(member)} absent`}>
+											{t('sessionAttendance.absent')}
+										</ToggleGroup.Item>
+									</ToggleGroup.Root>
+								{:else if member.status !== null}
+									<!-- Read-only (locked window / no permission): plain status, no dead controls.
+									     The lock itself is conveyed by the icon on this tab. -->
+									<p class="type-sm-bold text-muted-foreground">
+										{member.status === 'present'
+											? t('sessionAttendance.present')
+											: t('sessionAttendance.absent')}
+									</p>
+								{/if}
 							</div>
 						</div>
 					{/each}
+				{/if}
+			</div>
+		{:else}
+			<div class="flex flex-col gap-4">
+				{#if isCancelled}
+					<p class="type-sm text-muted-foreground">{t('sessionPhotos.cancelledNotice')}</p>
+				{/if}
+				{#if photoError}
+					<Alert variant="destructive">
+						<AlertTitle>Photo error</AlertTitle>
+						<AlertDescription>{photoError}</AlertDescription>
+					</Alert>
+				{/if}
+
+				{#if hasSessionPhotoPermission && !isCancelled}
+					{#if canUploadPhotoOnline && !sessionPhotoLimitReached}
+						<FileDropZone.Root
+							accept={sessionPhotoField.accept}
+							maxFiles={1}
+							fileCount={0}
+							maxFileSize={sessionPhotoField.maxBytes}
+							disabled={photoUploadPending || sessionPhotoField.isBusy}
+							onUpload={uploadSessionPhoto}
+						>
+							<FileDropZone.Trigger>
+								<div
+									class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+								>
+									{photoUploadPending || sessionPhotoField.isBusy
+										? t('sessionPhotos.uploading')
+										: t('sessionPhotos.uploadLabel')}
+								</div>
+							</FileDropZone.Trigger>
+						</FileDropZone.Root>
+					{:else if sessionPhotoLimitReached}
+						<p class="type-sm text-muted-foreground">{t('sessionPhotos.limitReached')}</p>
+					{:else if !sessionHasStarted}
+						<p class="type-sm text-muted-foreground">
+							{t('sessionPhotos.windowClosedBeforeStart')}
+						</p>
+					{:else if !canUploadPhotoNow}
+						<p class="type-sm text-muted-foreground">{t('sessionPhotos.windowClosedAfterLock')}</p>
+					{/if}
+				{/if}
+
+				{#if photosResponse.isLoading}
+					<LoadingState label="Loading photos" />
+				{:else if photos.length === 0}
+					<p class="type-sm text-muted-foreground">{t('sessionPhotos.emptyState')}</p>
+				{:else}
+					<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+						{#each photos as photo (photo.sessionPhotoId)}
+							{@const photoUrl = photoUrlFor(photo.mediaAssetId)}
+							<div
+								class="group relative aspect-square overflow-hidden rounded-xl border border-border bg-muted/20"
+							>
+								{#if photoUrl}
+									<img
+										src={photoUrl}
+										alt="Session"
+										class="h-full w-full object-cover"
+									/>
+								{:else}
+									<div class="flex h-full w-full items-center justify-center p-4">
+										<p class="text-xs text-muted-foreground">Preparing photo...</p>
+									</div>
+								{/if}
+								{#if photo.canDelete && canMutateOnline}
+									<button
+										type="button"
+										class="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+										aria-label="Remove photo"
+										onclick={() => openDeletePhotoDialog(photo.sessionPhotoId)}
+									>
+										<TrashIcon class="size-3.5" />
+									</button>
+								{/if}
+							</div>
+						{/each}
+					</div>
 				{/if}
 			</div>
 		{/if}
@@ -740,14 +978,24 @@
 					bind:endTime={sessionForm.endTime}
 				/>
 				<div class="flex flex-col gap-2">
+					<FieldLabel for="sessionLocation" required>{t('sessionEditor.locationLabel')}</FieldLabel>
+					<Input
+						id="sessionLocation"
+						bind:value={sessionForm.location}
+						placeholder={t('sessionEditor.locationPlaceholder')}
+						required
+					/>
+				</div>
+				<div class="flex flex-col gap-2">
 					<FieldLabel for="sessionDescription">Description</FieldLabel>
 					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
 				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (sessionDialogOpen = false)}>Cancel</Button>
-				<Button disabled={pending || !canUpdateSessionOnline} onclick={() => void saveSession()}
-					>{pending ? 'Saving...' : 'Save session'}</Button
+				<Button
+					disabled={pending || !canUpdateSessionOnline || !sessionForm.location.trim()}
+					onclick={() => void saveSession()}>{pending ? 'Saving...' : 'Save session'}</Button
 				>
 			</Dialog.Footer>
 		</Dialog.Content>
@@ -809,3 +1057,20 @@
 		</Dialog.Root>
 	{/if}
 {/if}
+
+<ConfirmDialog
+	bind:open={cancelSessionDialogOpen}
+	title={t('sessionCancel.actionLabel')}
+	description={t('sessionCancel.confirm')}
+	confirmLabel={t('sessionCancel.actionLabel')}
+	variant="destructive"
+	onConfirm={cancelSession}
+/>
+
+<ConfirmDialog
+	bind:open={deletePhotoDialogOpen}
+	title={t('sessionPhotos.deleteConfirm')}
+	confirmLabel={t('sessionPhotos.deleteAction')}
+	variant="destructive"
+	onConfirm={deleteSessionPhoto}
+/>

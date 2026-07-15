@@ -26,12 +26,14 @@ const seedSessionFixture = async () => {
 		});
 		const firstClubId = await ctx.db.insert('clubs', {
 			name: 'First club',
+			discoverable: false,
 			createdByProfileId: profileId,
 			createdAt: now,
 			updatedAt: now
 		});
 		const secondClubId = await ctx.db.insert('clubs', {
 			name: 'Second club',
+			discoverable: false,
 			createdByProfileId: profileId,
 			createdAt: now,
 			updatedAt: now
@@ -117,9 +119,9 @@ describe('relational integrity', () => {
 			t.mutation(api.sessions.setAttendance, {
 				sessionId: firstSessionId,
 				profileId: outsiderProfileId,
-				attending: true
+				status: 'present'
 			})
-		).rejects.toThrow('Attendee must be an active club member');
+		).rejects.toThrow('Attendee was not a club member when the session started');
 	});
 
 	it('stores attendance as a profile relationship', async () => {
@@ -131,11 +133,13 @@ describe('relational integrity', () => {
 				firstLoginCompleted: true,
 				updatedAt: Date.now()
 			});
+			// Join well before the fixture session's startTime (which is a `now` captured earlier)
+			// so the attendance roster snapshot includes this member.
 			await ctx.db.insert('clubMembers', {
 				clubId: firstClubId,
 				profileId,
 				roleId,
-				createdAt: Date.now()
+				createdAt: 0
 			});
 			return profileId;
 		});
@@ -143,7 +147,7 @@ describe('relational integrity', () => {
 		await t.mutation(api.sessions.setAttendance, {
 			sessionId: firstSessionId,
 			profileId: learnerProfileId,
-			attending: true
+			status: 'present'
 		});
 
 		const attendance = await t.run((ctx) =>
@@ -182,6 +186,7 @@ describe('relational integrity', () => {
 			});
 			const clubId = await ctx.db.insert('clubs', {
 				name: 'Review club',
+				discoverable: false,
 				createdByProfileId: guideProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -199,6 +204,22 @@ describe('relational integrity', () => {
 				createdAt: now,
 				updatedAt: now
 			});
+			const seasonId = await ctx.db.insert('seasons', {
+				name: 'Test season',
+				startDate: now,
+				endDate: now + 1,
+				reviewWindowOpen: now - 1,
+				reviewWindowClose: now + 1,
+				feedbackDeadline: now + 2,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId: guideProfileId,
+				seasonId,
+				assignedAt: now
+			});
 			return { guideProfileId, applicationId };
 		});
 		const guide = t.withIdentity({ subject: 'guide-user' });
@@ -208,7 +229,8 @@ describe('relational integrity', () => {
 
 		const result = await guide.mutation(api.clubApplications.upsertApplicationReview, {
 			applicationId: ids.applicationId,
-			score: 8,
+			principlesScore: 8,
+			safetyScore: 8,
 			note: 'Strong application'
 		});
 		const review = await t.run((ctx) => ctx.db.get(result.reviewId));
@@ -235,12 +257,14 @@ describe('relational integrity', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Relational project',
 				dueDate: now + 60_000,
+			visibility: 'clubs',
 				createdByProfileId: profileId,
 				createdAt: now,
 				updatedAt: now
 			});
-			await ctx.db.insert('projectClubs', {
+			await ctx.db.insert('projectAttributions', {
 				projectId,
+				profileId,
 				clubId: firstClubId,
 				createdAt: now
 			});
@@ -276,12 +300,14 @@ describe('relational integrity', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Historical membership project',
 				dueDate: now + 60_000,
+			visibility: 'clubs',
 				createdByProfileId: profileId,
 				createdAt: now,
 				updatedAt: now
 			});
-			await ctx.db.insert('projectClubs', {
+			await ctx.db.insert('projectAttributions', {
 				projectId,
+				profileId,
 				clubId: firstClubId,
 				createdAt: now
 			});

@@ -205,3 +205,27 @@ export const parentConsentEmail = (args: {
 		})
 	};
 };
+
+// Generic template for tiered notification emails (CL-715). Renders the same title/message
+// pair that is stored on the in-app `notifications` row, plus an optional CTA link into the app.
+export const notificationEmail = (args: {
+	title: string;
+	message: string;
+	ctaUrl?: string;
+}): EmailContent => {
+	const message = escapeHtml(args.message);
+	return {
+		subject: args.title,
+		text: args.ctaUrl ? `${args.message}\n\n${args.ctaUrl}` : args.message,
+		html: layout({
+			preheader: args.message,
+			title: args.title,
+			children: `
+				${paragraph(message)}
+				${args.ctaUrl ? `${button(args.ctaUrl, 'Open Curiosity Learning')}${rawLink(args.ctaUrl)}` : ''}
+			`,
+			footer:
+				'You received this email because of activity on your Curiosity Learning account. You can adjust which notifications you receive in Settings.'
+		})
+	};
+};

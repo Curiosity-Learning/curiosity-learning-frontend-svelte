@@ -1,6 +1,11 @@
 import { v } from 'convex/values';
-import { internalMutation, mutation, query } from './_generated/server';
-import { requireIdentity, requireProfile } from './permissions';
+import { internal } from './_generated/api';
+import { internalAction, internalQuery, mutation, query } from './_generated/server';
+import { getAuthUserEmail } from './authEmail';
+import { CHILD_EMAIL_DOMAIN } from './childAccounts';
+import { sendEmail } from './email/resend';
+import { notificationEmail } from './email/templates';
+import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
 
 export const list = query({
 	args: {},
@@ -56,23 +61,96 @@ export const markAllRead = mutation({
 	}
 });
 
-export const createSystemNotification = internalMutation({
+export const unreadCount = query({
+	args: {},
+	handler: async (ctx) => {
+		// Deliberately NOT `requireProfile` (see its suspension-bypass warning in permissions.ts —
+		// this is one of the two intentional exemptions): an unread-count badge should degrade to
+		// 0 rather than throw for an unauthenticated caller or a profile that doesn't exist yet,
+		// and there's no reason to hide it from a suspended account either.
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return 0;
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
+		if (!profile) return 0;
+		// Bounded like `list`/`markAllRead`: the UI shows at most 100 notifications.
+		const notifications = await ctx.db
+			.query('notifications')
+			.withIndex('by_profile_and_created', (q) => q.eq('profileId', profile._id))
+			.order('desc')
+			.take(100);
+		return notifications.filter((notification) => !notification.isRead).length;
+	}
+});
+
+// Resolves the deliverable email address for a notification recipient.
+// - Adult accounts: their Better Auth email.
+// - Child accounts (synthetic @children.curiosity.local auth email): the approved parent
+//   email from parentChildConsents for CRITICAL notices, otherwise null (no email).
+export const resolveNotificationEmailRecipient = internalQuery({
 	args: {
-		profileId: v.id('profiles'),
+		recipientProfileId: v.id('profiles'),
+		critical: v.boolean()
+	},
+	returns: v.union(v.string(), v.null()),
+	handler: async (ctx, args) => {
+		const profile = await ctx.db.get(args.recipientProfileId);
+		if (!profile) return null;
+
+		const email = await getAuthUserEmail(ctx, profile.authUserId);
+		if (!email) return null;
+
+		if (!email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
+			return email;
+		}
+
+		// Child account: never email the synthetic address.
+		if (!args.critical) return null;
+		const consent = await ctx.db
+			.query('parentChildConsents')
+			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.recipientProfileId))
+			.order('desc')
+			.collect();
+		const approved = consent.find((row) => row.status === 'approved');
+		return approved?.parentEmail ?? null;
+	}
+});
+
+// Sends the email channel of a dispatched notification (scheduled by dispatchNotification
+// in notificationsModel.ts for critical/high tiers). Failures are already reported to
+// monitoring inside sendEmail; they are swallowed here so a delivery hiccup never surfaces
+// as a scheduler error loop.
+export const sendNotificationEmail = internalAction({
+	args: {
+		recipientProfileId: v.id('profiles'),
+		critical: v.boolean(),
 		title: v.string(),
 		message: v.string(),
-		url: v.optional(v.string()),
-		clubId: v.optional(v.id('clubs'))
+		url: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
-		return await ctx.db.insert('notifications', {
-			profileId: args.profileId,
-			title: args.title,
-			message: args.message,
-			url: args.url,
-			clubId: args.clubId,
-			isRead: false,
-			createdAt: Date.now()
+		const to = await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
+			recipientProfileId: args.recipientProfileId,
+			critical: args.critical
 		});
+		if (!to) return;
+
+		const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
+		const ctaUrl = args.url
+			? args.url.startsWith('/')
+				? baseUrl
+					? `${baseUrl.replace(/\/+$/, '')}${args.url}`
+					: undefined
+				: args.url
+			: baseUrl;
+
+		try {
+			await sendEmail({
+				to,
+				type: 'notification',
+				...notificationEmail({ title: args.title, message: args.message, ctaUrl })
+			});
+		} catch {
+			// Already reported inside sendEmail.
+		}
 	}
 });

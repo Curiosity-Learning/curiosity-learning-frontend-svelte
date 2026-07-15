@@ -18,12 +18,14 @@ export const mediaUploadPresets = {
 	videos: {
 		label: 'Videos',
 		acceptedContentTypes: VIDEO_CONTENT_TYPES,
-		maxBytesMb: 250
+		// Canonical 100MB video cap (CEO decision) — must match the server's
+		// MAX_SUPPORTED_UPLOAD_BYTES (mediaPipeline.ts) and HUNDRED_MB (media-field.svelte.ts).
+		maxBytesMb: 100
 	},
 	mixed: {
 		label: 'Mixed media',
 		acceptedContentTypes: [...IMAGE_CONTENT_TYPES, ...VIDEO_CONTENT_TYPES],
-		maxBytesMb: 250
+		maxBytesMb: 100
 	}
 } as const;
 
@@ -202,6 +204,125 @@ export const readLocalMediaDurationSeconds = async (file: File) => {
 	}
 };
 
+const MAX_IMAGE_DIMENSION_PX = 2048;
+const COMPRESSED_IMAGE_QUALITY = 0.82;
+const COMPRESSIBLE_IMAGE_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+/**
+ * Detects whether a GIF is animated by scanning for multiple image blocks
+ * (a cheap heuristic: count Graphic Control Extension blocks, which precede
+ * each frame). Used to make sure we never try to re-encode an animated GIF
+ * as a single-frame image.
+ */
+const isLikelyAnimatedGif = async (file: File) => {
+	const buffer = await file.slice(0, 2 * 1024 * 1024).arrayBuffer();
+	const bytes = new Uint8Array(buffer);
+	let graphicControlExtensionCount = 0;
+	for (let i = 0; i < bytes.length - 1; i += 1) {
+		if (bytes[i] === 0x21 && bytes[i + 1] === 0xf9) {
+			graphicControlExtensionCount += 1;
+			if (graphicControlExtensionCount > 1) {
+				return true;
+			}
+		}
+	}
+	return false;
+};
+
+const isLikelyAnimatedWebp = async (file: File) => {
+	const buffer = await file.slice(0, 64 * 1024).arrayBuffer();
+	const text = new TextDecoder('latin1').decode(buffer);
+	return text.includes('ANIM');
+};
+
+/**
+ * Compresses an image client-side before upload: decodes it, scales it down
+ * to a max dimension of ~2048px if larger, and re-encodes as JPEG at a
+ * reasonable quality. JPEG (not WebP) because the server-side NSFW screening
+ * uses Rekognition DetectModerationLabels, which only accepts JPEG/PNG —
+ * WebP output made every compressed upload crash the screening step
+ * (InvalidImageFormatException, found in browser testing 2026-07-11).
+ * Transparency is composited onto white before encoding. Animated GIF/WebP
+ * files pass through untouched. Returns null (meaning "use the original file
+ * unmodified") when compression isn't applicable, safe, or beneficial, so
+ * callers can record an accurate 'skipped' outcome rather than a fake one.
+ */
+export const compressImageFileIfPossible = async (file: File): Promise<File | null> => {
+	if (!browser) return null;
+	if (!COMPRESSIBLE_IMAGE_CONTENT_TYPES.has(file.type)) return null;
+
+	if (file.type === 'image/gif') return null;
+	if (file.type === 'image/webp' && (await isLikelyAnimatedWebp(file))) return null;
+	if (file.type === 'image/gif' || (await isLikelyAnimatedGif(file))) return null;
+
+	try {
+		const bitmap = await createImageBitmap(file);
+		const scale = Math.min(
+			1,
+			MAX_IMAGE_DIMENSION_PX / Math.max(bitmap.width, bitmap.height)
+		);
+		const targetWidth = Math.max(1, Math.round(bitmap.width * scale));
+		const targetHeight = Math.max(1, Math.round(bitmap.height * scale));
+
+		const canvas: OffscreenCanvas | HTMLCanvasElement =
+			typeof OffscreenCanvas !== 'undefined'
+				? new OffscreenCanvas(targetWidth, targetHeight)
+				: Object.assign(document.createElement('canvas'), {
+						width: targetWidth,
+						height: targetHeight
+					});
+		canvas.width = targetWidth;
+		canvas.height = targetHeight;
+
+		const context = canvas.getContext('2d') as
+			| OffscreenCanvasRenderingContext2D
+			| CanvasRenderingContext2D
+			| null;
+		if (!context) {
+			bitmap.close?.();
+			return null;
+		}
+
+		// JPEG has no alpha channel: composite transparent sources onto white
+		// instead of letting the encoder default them to black.
+		context.fillStyle = '#ffffff';
+		context.fillRect(0, 0, targetWidth, targetHeight);
+		context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+		bitmap.close?.();
+
+		const preferredType = 'image/jpeg';
+		const blob: Blob | null =
+			'convertToBlob' in canvas
+				? await canvas.convertToBlob({ type: preferredType, quality: COMPRESSED_IMAGE_QUALITY })
+				: await new Promise((resolve) =>
+						(canvas as HTMLCanvasElement).toBlob(
+							resolve,
+							preferredType,
+							COMPRESSED_IMAGE_QUALITY
+						)
+					);
+
+		if (!blob) return null;
+
+		// Only use the compressed result if it's actually smaller (or the
+		// dimensions were reduced); otherwise keep the original.
+		if (blob.size >= file.size && scale === 1) {
+			return null;
+		}
+
+		const extension = 'jpg';
+		const baseName = file.name.replace(/\.[^./]+$/, '');
+		const compressedFile = new File([blob], `${baseName}.${extension}`, {
+			type: preferredType,
+			lastModified: Date.now()
+		});
+
+		return compressedFile;
+	} catch {
+		return null;
+	}
+};
+
 export const uploadFileToDescriptor = async (file: File, upload: MediaUploadDescriptor) => {
 	if (upload.method === 'POST') {
 		const formData = new FormData();
@@ -239,7 +360,10 @@ export const uploadFileToDescriptor = async (file: File, upload: MediaUploadDesc
 export const beginMediaUpload = async (
 	convexClient: ConvexClient,
 	file: File,
-	constraints: MediaUploadConstraintsInput
+	constraints: MediaUploadConstraintsInput,
+	options?: {
+		clientReportedImageCompression?: boolean;
+	}
 ) => {
 	const normalizedConstraints = describeMediaUploadConstraints(constraints);
 	const clientDurationSeconds = await readLocalMediaDurationSeconds(file);
@@ -248,7 +372,8 @@ export const beginMediaUpload = async (
 		originalFilename: file.name,
 		clientContentType: file.type || undefined,
 		clientSizeBytes: file.size,
-		clientDurationSeconds
+		clientDurationSeconds,
+		clientReportedImageCompression: options?.clientReportedImageCompression
 	})) as MediaBeginUploadResult;
 };
 

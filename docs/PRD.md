@@ -668,17 +668,17 @@ Sessions are owned by the club. Any Guide can edit or **cancel future sessions.*
 #### 6.4.3 Session Cancellation
 
 - Any Guide can **cancel** a future session. Cancellation sets a `cancelled` flag — the session record is preserved in the database, not deleted.  
-- Cancelled sessions are **hidden from the session list** in v1. (Future: show as greyed out / struck through.)  
+- Cancelled sessions **stay in the session list**, visually distinguished (e.g., a "Cancelled" badge, muted styling) — they are not hidden. They **are hidden from dashboards** (e.g., the club home "Sessions" section and its upcoming-session count), which only ever surface upcoming, non-cancelled sessions.  
 - **Notification:** All members who RSVP'd "Going" receive a notification that the session has been cancelled.  
 - Past sessions cannot be cancelled.
 
 #### 6.4.4 RSVP System
 
-RSVP is **optional and opt-in.** When a session is created:
+RSVP defaults every roster member to **"Going."** When a session is created:
 
-- No one has any RSVP status by default.  
-- Members can mark themselves as **"Going"** or **"Not Going"** at their discretion.  
-- Not marking any RSVP \= unknown / no response.  
+- Every current club member is **"Going" by default** — no action required.  
+- A member can explicitly opt out via a **Going / Not Going dropdown control** (on the session card and in the attendees roster), switching their status to **"Not Going."**  
+- The dropdown always shows the viewer's actual status; other members' rows show the same control rendered read-only (no chevron, not interactive).  
 - **RSVP locks when the session start time passes.** Members cannot change their RSVP after the session has started.
 
 #### 6.4.5 Attendance Tracking
@@ -689,7 +689,7 @@ Attendance is a separate step from RSVP, recorded by a Guide.
 
 1. Guide opens the attendance view for a session.  
 2. They see a list of members **who were in the club at the time of that session** (not current members — someone who joined today doesn't appear on last week's sheet).  
-3. Each member shows their RSVP status as a **visual indicator** (Going / Not Going / No response), but **attendance is NOT pre-filled from RSVP.** Guide marks from scratch.  
+3. Each member shows their RSVP status as a **visual indicator** (Going / Not Going — every roster member defaults to Going, so there is no "no response" state), but **attendance is NOT pre-filled from RSVP.** Guide marks from scratch.  
 4. Guide marks attendance for everyone in the session roster snapshot: each person is either `present` or `absent`.
 
 **Timing rule:**
@@ -933,7 +933,7 @@ Chat uses a `chat_types` reference table and a `resource_id`.
 | `club` | All club members | Club is created | Never |
 | `project` | All project members \+ all Guides from all attributed clubs | Project is created | Project is Archived |
 | `join_request` | Requester \+ club Guides | Join request from map | Optionally archived after decision |
-| `club_application` | Applicant \+ assigned interviewers | Application reaches interview stage | After decision |
+| `club_application` | Applicant \+ assigned interviewers | Application reaches interview stage | Never — stays open after the decision (accepted or rejected) so the applicant can still reach the interviewer |
 
 **Project chat includes Guides from attributed clubs:** All Guides from every club the project is attributed to are added to the project chat as `guide_observer` participants (see [Section 6.6.9](#669-project-participants-data-model)). They appear in the chat but NOT in the project team list. If attribution to a new club is added, Guides from that club are added to the chat. If un-attributed, they are removed (unless they are also a project member).
 
@@ -1010,6 +1010,7 @@ Authorization for these buttons is role-permission based (`chat_roles` \+ permis
 
 - If approved in review: assigned to Guides for interview (\~3 per Guide per season).  
 - `club_application` chat created for scheduling. Interview via external video call.  
+- **The interview is the onboarding call** — there is no separate mandatory call after acceptance. It's where the new Guide has personal contact with an existing Guide before launching.  
 - Final acceptance happens after interview completion.  
 - Rejection can happen for no-shows, failure to schedule, or failed interview outcome.
 
@@ -1017,16 +1018,10 @@ Authorization for these buttons is role-permission based (`chat_roles` \+ permis
 
 - The applicant receives a **chat message** in their `club_application` chat informing them of the rejection.  
 - The reviewing Guide can optionally include a **personal message** with the rejection.  
-- No reapply cooldown in v1 — rejected applicants can apply again in the next review cycle.
+- No reapply cooldown in v1 — rejected applicants can apply again in the next review cycle.  
+- The `club_application` chat **stays open** after the decision (accepted or rejected) — it is never closed, so the applicant can still reach the interviewer.
 
-**Acceptance (final):** Club creation, pledge prompt, CoC assignment, enrollment in Guide Training Experience.
-
-**Mandatory onboarding call (post-acceptance):**
-
-- After acceptance, the new Guide must schedule and attend an **onboarding call** with an existing Guide before their club is activated.  
-- Scheduling happens via the `club_application` chat. The call itself takes place on an **external platform** (video call link shared in chat).  
-- **No-show or failure to schedule** \= Admin follow-up flag and potential suspension decision by Core Team (case-by-case).  
-- This ensures new Guides are genuinely committed and have personal contact with the community before launching.
+**Acceptance (final):** The club is created **immediately** upon acceptance — pledge prompt, CoC assignment, enrollment in Guide Training Experience. There is no additional activation step or waiting period.
 
 #### 6.9.3 Capacity Management
 
@@ -1406,9 +1401,9 @@ Safety rules follow the **user**, not the club.
 
 | Scenario | Behavior |
 | :---- | :---- |
-| Session cancelled | Guide cancels the future session. Flagged as cancelled, hidden from UI. Members who RSVP'd "Going" notified. |
+| Session cancelled | Guide cancels the future session. Flagged as cancelled; stays visible (distinguished) in the session list but hidden from dashboards. Members who RSVP'd "Going" notified. |
 | Session created, Guide leaves | Session remains. Other Guides can edit/cancel. |
-| New member joins after session created | No RSVP status (opt-in model). |
+| New member joins after session created | Defaults to "Going" like any other roster member — no separate opt-in step. |
 | Guide tries to mark attendance before session starts | Blocked. Attendance marking opens at session start time. |
 | Session ends, attendance not marked | Reminder sent. Locks 12hrs after end. Stays blank. |
 | Viewing past attendance | Shows members who were in the club at the time. |
@@ -1440,9 +1435,7 @@ Safety rules follow the **user**, not the club.
 | Cap reached | Cannot apply. Leave email for notification. |
 | Application after review window | Rolls to next season's review cycle. |
 | Application rejected | Chat message sent to applicant. Optional personal message from reviewer. Can reapply in next review cycle. |
-| Accepted, doesn't schedule onboarding call | Admin follow-up flag. Core Team decides whether to suspend. |
-| Accepted, no-shows onboarding call | Admin follow-up flag. Core Team decides whether to suspend. |
-| Accepted, completes onboarding call, doesn't run a session | Flagged in Admin. |
+| Accepted, club created, doesn't run a session | Flagged in Admin ("new clubs with no sessions"). |
 | User cancels join request | Chat closed. User returns to no-club state (or existing clubs). |
 | User cancels club application | Chat closed. Application withdrawn. |
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
+	import { Button } from '$lib/components/ui/button';
 	import { _ } from '$lib/i18n';
 	import onboardingIllustration from '$lib/assets/images/get_started.svg';
 
@@ -59,13 +60,10 @@
 					</a>
 
 					{#if effectiveShowAccountLink}
-						<a
-							href={accountHref}
-							class="inline-flex items-center gap-2 text-sm font-bold text-orange-500 transition-colors duration-200 hover:text-orange-600 sm:text-base"
-						>
+						<Button href={accountHref} variant="link" class="text-sm sm:text-base">
 							<span>{accountLabel ?? $_('onboarding.getStarted.iHaveAccount')}</span>
 							<ArrowRightIcon class="size-4 sm:size-5" />
-						</a>
+						</Button>
 					{/if}
 				</div>
 

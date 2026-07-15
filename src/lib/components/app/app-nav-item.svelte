@@ -32,10 +32,10 @@
 			: nav === 'side'
 				? active
 					? 'bg-[#f8ecdf] text-orange-500'
-					: 'text-[#5e637a] hover:bg-[#eef0f5] hover:text-[#44495f]'
+					: 'text-[#5e637a] hover:bg-gray-100 hover:text-[#44495f]'
 				: active
 					? 'bg-[#f8ecdf] text-orange-500'
-					: 'text-[#6d7286] hover:bg-[#eef0f5] hover:text-[#4f556a]'
+					: 'text-[#6d7286] hover:bg-gray-100 hover:text-gray-700'
 	);
 </script>
 

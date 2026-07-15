@@ -11,6 +11,7 @@
 		reportMutationSuccess
 	} from '$lib/app/connectivity';
 	import {
+		ConfirmDialog,
 		LoadingState,
 		PageHeaderActions,
 		PageHeaderBackButton,
@@ -18,12 +19,15 @@
 	} from '$lib/components/app';
 	import ClubSessionCard from '$lib/components/app/sessions/club-session-card.svelte';
 	import { formatSessionHeaderLine } from '$lib/domain/session';
+	import { buildDefaultSessionForm } from '$lib/domain/schedule';
 	import { routes } from '$lib/routes';
+	import { t } from '$lib/i18n';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { SessionDateTimeForm } from '$lib/components/ui/date-picker';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { FieldLabel } from '$lib/components/ui/field';
+	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -44,27 +48,37 @@
 	);
 	let clubPermissions = $derived(clubItem?.rolePermissions ?? []);
 	let canCreate = $derived(clubPermissions.includes('session:create'));
-	let canDelete = $derived(clubPermissions.includes('session:delete'));
+	let canCancel = $derived(clubPermissions.includes('session:cancel'));
 	let canReadMembers = $derived(clubPermissions.includes('club_member:read_active'));
+	let canRsvp = $derived(clubPermissions.includes('session_rsvp:set'));
 	let canMutateOnline = $derived(canMutateOnlineState.current);
+	let rsvpPendingSessionId = $state<Id<'sessions'> | null>(null);
 
 	const sessionCardsResponse = useStableQuery(
 		api.sessions.listCardPreviewsByClub,
 		() =>
 			clubIdTyped
-				? { clubId: clubIdTyped, upcomingOnly: false, includeAttendees: canReadMembers }
+				? {
+						clubId: clubIdTyped,
+						upcomingOnly: false,
+						includeAttendees: canReadMembers,
+						// CEO decision 2026-07-11: cancelled sessions stay in the list, visually
+						// distinguished on the card.
+						includeCancelled: true
+					}
 				: 'skip',
 		{ cache: 'memory' }
 	);
 
-	const buildDefaultSessionForm = () => {
-		const now = Date.now();
-		return {
-			startTime: now + 3_600_000,
-			endTime: now + 7_200_000,
-			description: ''
-		};
-	};
+	const scheduleSlotsResponse = useStableQuery(api.clubScheduleSlots.listByClub, () =>
+		clubIdTyped ? { clubId: clubIdTyped } : 'skip'
+	);
+
+	const defaultSessionForm = () =>
+		buildDefaultSessionForm(
+			scheduleSlotsResponse.data ?? [],
+			(sessionCardsResponse.data ?? []).map((entry) => entry.session.startTime)
+		);
 	const SESSION_CREATE_TIMEOUT_MS = 6_000;
 
 	async function withTimeout<T>(
@@ -81,18 +95,22 @@
 	}
 
 	let createDialogOpen = $state(page.url.searchParams.get('openCreateSession') === '1');
-	let sessionForm = $state(buildDefaultSessionForm());
+	let sessionForm = $state(defaultSessionForm());
 
 	let searchText = $state('');
 	let pending = $state(false);
 	let errorMessage = $state('');
 
+	// Reverse chronological (CEO decision 2026-07-11): newest session at the top.
 	let sortedSessionCards = $derived(
 		[...(sessionCardsResponse.data ?? [])].sort(
-			(left, right) => left.session.startTime - right.session.startTime
+			(left, right) => right.session.startTime - left.session.startTime
 		)
 	);
 
+	// PRD 6.16: sessions are searchable by date, description, and activity name. The card
+	// preview payload carries every activity title (plus building-block tag names), so the
+	// filter can stay client-side over the already-authorized, fully loaded list.
 	let visibleSessionCards = $derived(
 		sortedSessionCards.filter((entry) => {
 			const session = entry.session;
@@ -103,7 +121,15 @@
 				month: 'short',
 				day: 'numeric'
 			});
-			return [session.description, dateLabel].join(' ').toLowerCase().includes(query);
+			return [
+				session.description,
+				dateLabel,
+				...entry.allActivityNames,
+				...entry.tagNames
+			]
+				.join(' ')
+				.toLowerCase()
+				.includes(query);
 		})
 	);
 
@@ -126,19 +152,21 @@
 	);
 
 	const openCreateSession = () => {
-		sessionForm = buildDefaultSessionForm();
+		sessionForm = defaultSessionForm();
 		createDialogOpen = true;
 	};
 
 	const createSession = async () => {
 		const startTime = sessionForm.startTime;
 		const endTime = sessionForm.endTime;
+		const location = sessionForm.location.trim();
 		if (
 			!canCreate ||
 			!canMutateOnline ||
 			!clubIdTyped ||
 			startTime === null ||
-			endTime === null
+			endTime === null ||
+			!location
 		) {
 			return;
 		}
@@ -152,6 +180,7 @@
 					clubId: clubIdTyped,
 					startTime,
 					endTime,
+					location,
 					...(desc ? { description: desc } : {})
 				}),
 				SESSION_CREATE_TIMEOUT_MS,
@@ -185,16 +214,37 @@
 		}
 	};
 
-	const removeSession = async (sessionId: Id<'sessions'>) => {
-		if (!window.confirm('Delete this session and all related activities?')) return;
+	let cancelSessionDialogOpen = $state(false);
+	let cancelSessionTarget = $state<Id<'sessions'> | null>(null);
+
+	const openCancelSessionDialog = (sessionId: Id<'sessions'>) => {
+		cancelSessionTarget = sessionId;
+		cancelSessionDialogOpen = true;
+	};
+
+	const cancelSession = async () => {
+		const sessionId = cancelSessionTarget;
+		if (!sessionId) return;
 		pending = true;
 		errorMessage = '';
 		try {
-			await convexClient.mutation(api.sessions.remove, { sessionId });
+			await convexClient.mutation(api.sessions.cancel, { sessionId });
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to delete session.';
+			errorMessage = error instanceof Error ? error.message : t('sessionCancel.failure');
 		} finally {
 			pending = false;
+		}
+	};
+
+	const setRsvp = async (sessionId: Id<'sessions'>, status: 'going' | 'not_going') => {
+		rsvpPendingSessionId = sessionId;
+		errorMessage = '';
+		try {
+			await convexClient.mutation(api.sessions.setRsvp, { sessionId, status });
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : t('sessionRsvp.updateFailure');
+		} finally {
+			rsvpPendingSessionId = null;
 		}
 	};
 </script>
@@ -202,7 +252,7 @@
 <PageHeaderBackButton fallbackHref={clubId ? `/club/${clubId}` : '/onboarding/get-started'} />
 <PageHeaderSearch
 	bind:value={searchText}
-	placeholder="Search sessions by description or date"
+	placeholder="Search sessions by date, description, or activity"
 	ariaLabel="Search sessions"
 	mode="auto"
 />
@@ -215,7 +265,7 @@
 			disabled={!canCreate || !canMutateOnline}
 			onclick={openCreateSession}
 		>
-			<PlusIcon class="size-5 text-muted-foreground" />
+			<PlusIcon class="size-5" />
 		</Button>
 	</div>
 </PageHeaderActions>
@@ -248,8 +298,11 @@
 						sessionHref={routes.sessionDetail(entry.session._id)}
 						prefetchedCardData={entry}
 						{canReadMembers}
-						{canDelete}
-						onDelete={() => void removeSession(entry.session._id)}
+						canDelete={canCancel}
+						{canRsvp}
+						rsvpPending={rsvpPendingSessionId === entry.session._id}
+						onDelete={() => openCancelSessionDialog(entry.session._id)}
+						onSetRsvp={(status) => void setRsvp(entry.session._id, status)}
 					/>
 				{/each}
 			</div>
@@ -270,16 +323,35 @@
 					bind:endTime={sessionForm.endTime}
 				/>
 				<div class="flex flex-col gap-2">
+					<FieldLabel for="sessionLocation" required>{t('sessionEditor.locationLabel')}</FieldLabel>
+					<Input
+						id="sessionLocation"
+						bind:value={sessionForm.location}
+						placeholder={t('sessionEditor.locationPlaceholder')}
+						required
+					/>
+				</div>
+				<div class="flex flex-col gap-2">
 					<FieldLabel for="sessionDescription">Description</FieldLabel>
 					<Textarea id="sessionDescription" bind:value={sessionForm.description} rows={3} />
 				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (createDialogOpen = false)}>Cancel</Button>
-				<Button disabled={pending || !canCreate || !canMutateOnline} onclick={() => void createSession()}
-					>{pending ? 'Creating...' : 'Open'}</Button
+				<Button
+					disabled={pending || !canCreate || !canMutateOnline || !sessionForm.location.trim()}
+					onclick={() => void createSession()}>{pending ? 'Creating...' : 'Open'}</Button
 				>
 			</Dialog.Footer>
 		</Dialog.Content>
 	</Dialog.Root>
 {/if}
+
+<ConfirmDialog
+	bind:open={cancelSessionDialogOpen}
+	title={t('sessionCancel.actionLabel')}
+	description={t('sessionCancel.confirm')}
+	confirmLabel={t('sessionCancel.actionLabel')}
+	variant="destructive"
+	onConfirm={cancelSession}
+/>

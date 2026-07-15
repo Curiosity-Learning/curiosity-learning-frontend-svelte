@@ -15,7 +15,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Input } from '$lib/components/ui/input';
-	import { canUseInternalHistoryBack } from '$lib/navigation/back';
+	import {
+		canUseInternalHistoryBack,
+		clearClubSwitchTargetIfPathChanged,
+		consumeClubSwitchTarget,
+		shouldPreferFallbackAfterClubSwitch
+	} from '$lib/navigation/back';
 	import { cn } from '$lib/utils.js';
 	import {
 		Collapsible,
@@ -107,11 +112,26 @@
 		}
 	});
 
+	// The "prefer fallback after a club switch" marker (see $lib/navigation/back.ts) is only
+	// meant to apply to the very next back action taken from the page the switch navigated to.
+	// If the user navigates anywhere else first (clicks a tab, drills into a session, etc.)
+	// the marker expires so normal history-based back resumes.
+	$effect(() => {
+		clearClubSwitchTargetIfPathChanged(activePath);
+	});
+
 	const isActivePath = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
 
 	const handleBack = async () => {
 		if (!headerBack) return;
 		if (headerBack.preferFallback && headerBack.fallbackHref) {
+			await goto(headerBack.fallbackHref);
+			return;
+		}
+		// Right after a club switch, force the current club's home instead of history.back(),
+		// which would otherwise surface a page from the club the user just switched away from.
+		if (shouldPreferFallbackAfterClubSwitch(activePath) && headerBack.fallbackHref) {
+			consumeClubSwitchTarget();
 			await goto(headerBack.fallbackHref);
 			return;
 		}
@@ -201,7 +221,7 @@
 		)}
 	>
 		<aside
-			class="hidden w-60 flex-col border-r border-border bg-[#f6f7f9] lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
+			class="hidden w-60 flex-col border-r border-border bg-gray-50 lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
 		>
 			<div class="border-b border-border px-5 py-6">
 				<div class="flex items-center gap-3">
@@ -223,7 +243,7 @@
 										'relative flex w-full items-center gap-1 overflow-hidden rounded-none',
 										activeNav === nav.key
 											? 'bg-[#f8ecdf] text-orange-500'
-											: 'text-[#5e637a] hover:bg-[#eef0f5] hover:text-[#44495f]'
+											: 'text-[#5e637a] hover:bg-gray-100 hover:text-[#44495f]'
 									)}
 								>
 									{#if activeNav === nav.key}
@@ -242,7 +262,7 @@
 										<span>{nav.label}</span>
 									</a>
 									<CollapsibleTrigger
-										class="flex size-9 items-center justify-center rounded-md hover:bg-[#e8ebf2]"
+										class="flex size-9 items-center justify-center rounded-md hover:bg-gray-100"
 										aria-label={clubNavOpen ? `Collapse ${nav.label}` : `Expand ${nav.label}`}
 									>
 										<ChevronDownIcon
@@ -287,7 +307,7 @@
 								<div
 									class={cn(
 										'flex items-center justify-between rounded-lg px-2 py-2',
-										activeNav === nav.key ? 'bg-[#f8ecdf]' : 'hover:bg-[#eef0f5]'
+										activeNav === nav.key ? 'bg-[#f8ecdf]' : 'hover:bg-gray-100'
 									)}
 								>
 									<a
@@ -296,7 +316,7 @@
 										data-sveltekit-preload-code="hover"
 										data-sveltekit-preload-data="hover"
 									>
-										<Avatar class="size-9 shrink-0 border border-border/80 bg-[#d8dbe5]">
+										<Avatar class="size-9 shrink-0 border border-border/80 bg-gray-200">
 											{#if sidebarProfileImageUrl}
 												<AvatarImage
 													src={sidebarProfileImageUrl}
@@ -307,7 +327,7 @@
 												{sidebarProfileInitials ?? 'PR'}
 											</AvatarFallback>
 										</Avatar>
-										<p class="truncate text-[1.03rem] leading-6 font-medium text-[#3e414c]">
+										<p class="truncate text-[1.03rem] leading-6 font-medium text-gray-800">
 											{sidebarProfileName ?? nav.label}
 										</p>
 									</a>
@@ -445,7 +465,7 @@
 												data-header-search-toggle="true"
 												onclick={handleSearchIconClick}
 											>
-												<SearchIcon class="size-5 text-muted-foreground" />
+												<SearchIcon class="size-5" />
 											</Button>
 										</div>
 									{:else if resolvedSearchMode === 'overlay'}
@@ -456,7 +476,7 @@
 											data-header-search-toggle="true"
 											onclick={handleSearchIconClick}
 										>
-											<SearchIcon class="size-5 text-muted-foreground" />
+											<SearchIcon class="size-5" />
 										</Button>
 									{/if}
 								{/if}

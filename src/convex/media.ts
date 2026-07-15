@@ -22,6 +22,7 @@ import {
 	inferSingleAcceptedMediaKind,
 	normalizeUploadConstraints
 } from './mediaPipeline';
+import { mediaModerationResultValidator } from './mediaModeration';
 import { toResolvedAsset } from './mediaShared';
 import { requireIdentity } from './permissions';
 
@@ -93,7 +94,8 @@ export const createUploadDraft = internalMutation({
 		constraints: mediaUploadConstraintsValidator,
 		originalFilename: v.optional(v.string()),
 		clientContentType: v.optional(v.string()),
-		clientSizeBytes: v.optional(v.number())
+		clientSizeBytes: v.optional(v.number()),
+		clientReportedImageCompression: v.optional(v.boolean())
 	},
 	handler: async (ctx, args) => {
 		const now = Date.now();
@@ -105,6 +107,7 @@ export const createUploadDraft = internalMutation({
 			originalFilename: args.originalFilename,
 			clientContentType: args.clientContentType,
 			clientSizeBytes: args.clientSizeBytes,
+			clientReportedImageCompression: args.clientReportedImageCompression,
 			acceptedContentTypes: constraints.acceptedContentTypes,
 			maxBytes: constraints.maxBytes,
 			enableCompression: constraints.enableCompression,
@@ -236,6 +239,7 @@ export const markUploadReady = internalMutation({
 		sizeBytes: v.number(),
 		durationSeconds: v.optional(v.number()),
 		sha256: v.optional(v.string()),
+		moderation: v.optional(mediaModerationResultValidator),
 		stepResults: v.array(mediaPipelineStepResultValidator)
 	},
 	handler: async (ctx, args) => {
@@ -254,6 +258,7 @@ export const markUploadReady = internalMutation({
 			sizeBytes: args.sizeBytes,
 			durationSeconds: args.durationSeconds ?? asset.durationSeconds,
 			sha256: args.sha256 ?? undefined,
+			moderation: args.moderation ?? asset.moderation,
 			status: 'ready',
 			stepResults: args.stepResults,
 			lastFailure: undefined,
@@ -275,6 +280,7 @@ export const markUploadFailed = internalMutation({
 		sizeBytes: v.optional(v.number()),
 		durationSeconds: v.optional(v.number()),
 		sha256: v.optional(v.string()),
+		moderation: v.optional(mediaModerationResultValidator),
 		stepResults: v.array(mediaPipelineStepResultValidator),
 		failure: mediaFailureValidator
 	},
@@ -294,6 +300,7 @@ export const markUploadFailed = internalMutation({
 			sizeBytes: args.sizeBytes ?? asset.sizeBytes,
 			durationSeconds: args.durationSeconds ?? asset.durationSeconds,
 			sha256: args.sha256 ?? asset.sha256,
+			moderation: args.moderation ?? asset.moderation,
 			status: 'failed',
 			lastFailure: args.failure,
 			stepResults: args.stepResults,
@@ -311,7 +318,8 @@ export const beginUpload: ReturnType<typeof action> = action({
 		originalFilename: v.optional(v.string()),
 		clientContentType: v.optional(v.string()),
 		clientSizeBytes: v.optional(v.number()),
-		clientDurationSeconds: v.optional(v.number())
+		clientDurationSeconds: v.optional(v.number()),
+		clientReportedImageCompression: v.optional(v.boolean())
 	},
 	handler: async (ctx, args): Promise<unknown> => {
 		const identity = await requireIdentity(ctx);
@@ -321,7 +329,8 @@ export const beginUpload: ReturnType<typeof action> = action({
 			originalFilename: args.originalFilename,
 			clientContentType: args.clientContentType,
 			clientSizeBytes: args.clientSizeBytes,
-			clientDurationSeconds: args.clientDurationSeconds
+			clientDurationSeconds: args.clientDurationSeconds,
+			clientReportedImageCompression: args.clientReportedImageCompression
 		});
 	}
 });

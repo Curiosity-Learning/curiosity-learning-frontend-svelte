@@ -2,8 +2,11 @@ import HeaderTabs from './header-tabs.svelte';
 import ActionMenu from './action-menu.svelte';
 import AutoFitCardGrid from './auto-fit-card-grid.svelte';
 import AppShell from './app-shell.svelte';
+import ConfirmDialog from './confirm-dialog.svelte';
+import EmptyState from './empty-state.svelte';
 import LoadingState from './loading-state.svelte';
 import UpdateCard from './feed/update-card.svelte';
+import FeedSearch from './feed/feed-search.svelte';
 import DataRecordCard from './record-card/data-record-card.svelte';
 import DataRecordHeader from './record-card/data-record-header.svelte';
 import PageHeaderActions from './page-header-actions.svelte';
@@ -14,10 +17,12 @@ import PageContentMode from './page-content-mode.svelte';
 import PageHeaderSearch from './page-header-search.svelte';
 import PageHeaderTitleContent from './page-header-title-content.svelte';
 import PageHeaderTitle from './page-header-title.svelte';
+import ReportIssueDialog from './report-issue-dialog.svelte';
 import RelationAvatarStack from './record-card/relation-avatar-stack.svelte';
 import RelationChipSet from './record-card/relation-chip-set.svelte';
 import RelationListCards from './record-card/relation-list-cards.svelte';
 import RelationSection from './record-card/relation-section.svelte';
+import ScreenBackButton from './screen-back-button.svelte';
 import Section from './section.svelte';
 import { showGlobalSnackbar } from './snackbar';
 
@@ -26,8 +31,11 @@ export {
 	ActionMenu,
 	AutoFitCardGrid,
 	AppShell,
+	ConfirmDialog,
+	EmptyState,
 	LoadingState,
 	UpdateCard,
+	FeedSearch,
 	DataRecordCard,
 	DataRecordHeader,
 	PageHeaderActions,
@@ -38,10 +46,12 @@ export {
 	PageHeaderSearch,
 	PageHeaderTitleContent,
 	PageHeaderTitle,
+	ReportIssueDialog,
 	RelationAvatarStack,
 	RelationChipSet,
 	RelationListCards,
 	RelationSection,
+	ScreenBackButton,
 	Section,
 	showGlobalSnackbar
 };

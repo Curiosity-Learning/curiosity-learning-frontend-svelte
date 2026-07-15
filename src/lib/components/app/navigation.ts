@@ -62,12 +62,19 @@ export const buildAppNavigation = (
 			}
 		);
 	} else {
-		items.push({
-			key: 'noClub',
-			label: 'New club',
-			href: routes.newClub,
-			icon: UsersIcon
-		});
+		items.push(
+			{
+				key: 'noClub',
+				label: 'New club',
+				href: routes.newClub,
+				icon: UsersIcon
+			},
+			// CL-690 CEO review (round 2): club-less users can already reach /chat (see the
+			// no-club allowlist), but with no nav entry it was undiscoverable — their
+			// join-request/start-club application chats were only reachable via a link buried
+			// on the no-club page itself. Surface Chat directly in the nav for this state too.
+			{ key: 'chat', label: 'Chat', href: routes.chat, icon: MessageCircleIcon }
+		);
 	}
 
 	items.push({

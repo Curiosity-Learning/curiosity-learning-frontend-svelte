@@ -2,21 +2,9 @@ import { redirect } from '@sveltejs/kit';
 import { api } from '$convex/_generated/api';
 import { getConvexServerClient } from '$lib/server/convex';
 import { getEstimatedIpLocation } from '$lib/server/ip-location';
+import { isNoClubAllowedPath } from '$lib/auth/no-club-allowlist';
 import { routes } from '$lib/routes';
 import type { LayoutServerLoad } from './$types';
-
-const noClubAllowedPaths = [
-	routes.noClub,
-	routes.newClub,
-	routes.profile,
-	routes.settings,
-	routes.notifications
-];
-
-const isNoClubAllowedPath = (pathname: string) =>
-	noClubAllowedPaths.some(
-		(allowedPath) => pathname === allowedPath || pathname.startsWith(`${allowedPath}/`)
-	);
 
 export const load: LayoutServerLoad = async ({ locals, request, url }) => {
 	if (!locals.token) {
@@ -26,7 +14,9 @@ export const load: LayoutServerLoad = async ({ locals, request, url }) => {
 
 	if (!isNoClubAllowedPath(url.pathname)) {
 		const convex = getConvexServerClient(locals.token);
-		const clubs = await convex.query(api.clubs.getMyClubs, {});
+		// Runs on every SSR load in this layout group — only the count matters here, so the
+		// lightweight switcher query (no schedule slots/video URL/profile per club) is enough.
+		const clubs = await convex.query(api.clubs.getMyClubSwitcherItems, {});
 		if (clubs.length === 0) {
 			throw redirect(307, routes.newClub);
 		}

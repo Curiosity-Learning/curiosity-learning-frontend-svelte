@@ -2,7 +2,15 @@ import { hashPassword } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import { components } from './_generated/api';
-import { action, internalMutation, mutation, query } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import {
+	action,
+	internalAction,
+	internalMutation,
+	internalQuery,
+	mutation,
+	query
+} from './_generated/server';
 import { syntheticEmailForUsername } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { parentConsentEmail } from './email/templates';
@@ -13,6 +21,17 @@ import {
 	getProfileAuthUserId,
 	getProfileByAuthUserId
 } from './permissions';
+import {
+	clearPendingClubJoinsForProfile,
+	getLatestPendingClubJoin,
+	setPendingClubJoin
+} from './pendingClubJoinsModel';
+import { autoCreateJoinRequestFromNextPath } from './joinRequests';
+
+// PRD 6.1.6/8.5: parental consent must be obtained within 90 days of account creation, or the
+// child account and all associated data are automatically purged. See `purgeExpiredChildConsents`
+// (invoked daily by the cron in `crons.ts`).
+const CONSENT_EXPIRY_MS = 90 * 24 * 60 * 60 * 1000;
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 
@@ -195,10 +214,19 @@ export const createPendingChildAccount = internalMutation({
 			dateOfBirth: args.dateOfBirth,
 			isVerified: false,
 			firstLoginCompleted: false,
-			pendingClubCode: getPendingJoinCode(args.nextPath) ?? undefined,
-			pendingRole: getPendingJoinCode(args.nextPath) ? 'Learner' : undefined,
 			updatedAt: now
 		});
+
+		const pendingJoinCode = getPendingJoinCode(args.nextPath);
+		if (pendingJoinCode) {
+			const club = await ctx.db
+				.query('clubs')
+				.withIndex('by_club_code', (q) => q.eq('clubCode', pendingJoinCode))
+				.first();
+			if (club && !club.abandonedAt) {
+				await setPendingClubJoin(ctx, profileId, club._id, 'code');
+			}
+		}
 
 		await ctx.db.insert('parentChildConsents', {
 			childProfileId: profileId,
@@ -318,14 +346,15 @@ export const approveConsent = mutation({
 		if (!childProfile) {
 			throw new ConvexError('Child profile not found');
 		}
+		// PRD 5.6: any deferred club-join intent for this profile — recorded either at signup time
+		// (a code-join link, see createPendingChildAccount) or by joinRequests.acceptJoinRequest
+		// (an accepted map join-request while this gate was still pending) — is consumed here, the
+		// moment the consent gate clears.
 		let joinedClubId = childProfile.activeClubId;
-		const joinCode = getPendingJoinCode(consent.onboardingIntentPath);
-		if (joinCode) {
-			const club = await ctx.db
-				.query('clubs')
-				.withIndex('by_club_code', (q) => q.eq('clubCode', joinCode))
-				.first();
-			if (club) {
+		const pendingJoin = await getLatestPendingClubJoin(ctx, consent.childProfileId);
+		if (pendingJoin) {
+			const club = await ctx.db.get(pendingJoin.clubId);
+			if (club && !club.abandonedAt) {
 				const existingMembership = await getMembershipByProfileId(
 					ctx,
 					club._id,
@@ -351,6 +380,17 @@ export const approveConsent = mutation({
 			}
 		}
 
+		// CL-711 CEO feedback item 6: if the child's original sign-up flow was started from a
+		// public club preview (/clubs/{clubId} — "Request to Join"), the request couldn't be
+		// created until now: minors only get a join request once parental consent clears (PRD
+		// 6.1.4). `onboardingIntentPath` is the `nextPath` recorded at registration time (see
+		// createPendingChildAccount above).
+		await autoCreateJoinRequestFromNextPath(
+			ctx,
+			consent.onboardingIntentPath,
+			consent.childProfileId
+		);
+
 		await ctx.db.patch(consent._id, {
 			status: 'approved',
 			parentProfileId,
@@ -364,10 +404,9 @@ export const approveConsent = mutation({
 			parentProfileId,
 			activeClubId: joinedClubId,
 			firstLoginCompleted: Boolean(joinedClubId) || childProfile.firstLoginCompleted,
-			pendingClubCode: undefined,
-			pendingRole: undefined,
 			updatedAt: now
 		});
+		await clearPendingClubJoinsForProfile(ctx, consent.childProfileId);
 		const childAuthUserId = getProfileAuthUserId(childProfile);
 		if (!childAuthUserId) {
 			throw new ConvexError('Child profile is not linked to an auth user');
@@ -383,5 +422,181 @@ export const approveConsent = mutation({
 			}
 		});
 		return { success: true };
+	}
+});
+
+// ---------------------------------------------------------------------------------------------
+// 90-day parental consent purge (PRD 6.1.6/8.5)
+//
+// If a child account's parental consent is still `pending` more than 90 days after the consent
+// row (== account) was created, the account and everything tied to it must be irrecoverably
+// removed. Approved/declined consents and adult accounts are never touched.
+//
+// The Convex-table half (consent row, profile, notifications, any incomplete club application
+// draft) is fully testable via convex-test. The Better Auth user/account/session rows live in
+// the `betterAuth` component, which convex-test does not mount (see `authEmail.ts`) — that half
+// is only exercisable against a real deployment, so it's isolated in its own internal action
+// (`hardDeleteAuthUser`) rather than mixed into the unit-testable mutation.
+// ---------------------------------------------------------------------------------------------
+
+export const listExpiredPendingConsents = internalQuery({
+	args: {
+		olderThan: v.number()
+	},
+	returns: v.array(
+		v.object({
+			consentId: v.id('parentChildConsents'),
+			childProfileId: v.id('profiles')
+		})
+	),
+	handler: async (ctx, args) => {
+		const pending = await ctx.db
+			.query('parentChildConsents')
+			.withIndex('by_status_and_created_at', (q) =>
+				q.eq('status', 'pending').lt('createdAt', args.olderThan)
+			)
+			.collect();
+		return pending.map((consent) => ({
+			consentId: consent._id,
+			childProfileId: consent.childProfileId
+		}));
+	}
+});
+
+// Deletes every Convex-table row tied to one expired-pending child account: the consent row,
+// any incomplete club application draft started during signup, notifications addressed to the
+// profile, and the profile itself. Re-verifies status/age so it can't be called against a
+// consent that has since been approved/declined by the time the cron reaches it. Returns
+// whether it actually deleted anything plus the profile's authUserId so the caller can also
+// remove the Better Auth user.
+export const purgeExpiredChildConsentData = internalMutation({
+	args: {
+		consentId: v.id('parentChildConsents'),
+		olderThan: v.number()
+	},
+	returns: v.object({
+		purged: v.boolean(),
+		authUserId: v.union(v.string(), v.null())
+	}),
+	handler: async (ctx, args) => {
+		const consent = await ctx.db.get(args.consentId);
+		if (!consent || consent.status !== 'pending' || consent.createdAt >= args.olderThan) {
+			return { purged: false, authUserId: null };
+		}
+
+		const profile = await ctx.db.get(consent.childProfileId);
+		const authUserId = profile ? getProfileAuthUserId(profile) : null;
+
+		const incompleteApplications = await ctx.db
+			.query('clubApplications')
+			.withIndex('by_applicant_profile_id', (q) =>
+				q.eq('applicantProfileId', consent.childProfileId)
+			)
+			.collect();
+		for (const application of incompleteApplications) {
+			if (application.status === 'incomplete') {
+				await ctx.db.delete(application._id);
+			}
+		}
+
+		const notifications = await ctx.db
+			.query('notifications')
+			.withIndex('by_profile', (q) => q.eq('profileId', consent.childProfileId))
+			.collect();
+		for (const notification of notifications) {
+			await ctx.db.delete(notification._id);
+		}
+
+		await clearPendingClubJoinsForProfile(ctx, consent.childProfileId);
+
+		await ctx.db.delete(consent._id);
+		if (profile) {
+			await ctx.db.delete(profile._id);
+		}
+
+		return authUserId ? { purged: true, authUserId } : { purged: false, authUserId: null };
+	}
+});
+
+// Removes the Better Auth `user` row plus its `account`/`session` rows via the adapter
+// component's deleteMany/deleteOne. Only reachable from `purgeExpiredChildConsents` below, never
+// exposed publicly. Not covered by convex-test (component not mounted there, see module header);
+// exercised manually against a real deployment instead.
+const MAX_DELETE_ITERATIONS = 50;
+
+export const hardDeleteAuthUser = internalAction({
+	args: {
+		authUserId: v.string()
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		// deleteOne removes at most one matching row per call, so loop until none remain (a user
+		// realistically has a handful of session/account rows, never anywhere near the safety cap).
+		for (const model of ['session', 'account'] as const) {
+			for (let i = 0; i < MAX_DELETE_ITERATIONS; i++) {
+				const deleted = await ctx.runMutation(components.betterAuth.adapter.deleteOne, {
+					input: {
+						model,
+						where: [{ field: 'userId', value: args.authUserId }]
+					}
+				});
+				if (!deleted) break;
+			}
+		}
+		await ctx.runMutation(components.betterAuth.adapter.deleteOne, {
+			input: {
+				model: 'user',
+				where: [{ field: '_id', value: args.authUserId }]
+			}
+		});
+		return null;
+	}
+});
+
+// Entry point invoked by the daily cron (see `crons.ts`). Finds every consent still `pending`
+// after `CONSENT_EXPIRY_MS`, purges the Convex-side data for each, and hard-deletes the
+// corresponding Better Auth user. Returns a count summary for the cron to log. Errors for an
+// individual account are reported to monitoring and skipped so one bad row can't block the rest
+// of the batch; the run still completes and its summary reflects partial progress.
+export const purgeExpiredChildConsents = internalAction({
+	args: {},
+	returns: v.object({
+		scanned: v.number(),
+		purged: v.number(),
+		failed: v.number()
+	}),
+	handler: async (ctx): Promise<{ scanned: number; purged: number; failed: number }> => {
+		const olderThan = Date.now() - CONSENT_EXPIRY_MS;
+		const candidates: Array<{
+			consentId: Id<'parentChildConsents'>;
+			childProfileId: Id<'profiles'>;
+		}> = await ctx.runQuery(internal.childSignup.listExpiredPendingConsents, {
+			olderThan
+		});
+
+		let purged = 0;
+		let failed = 0;
+		for (const candidate of candidates) {
+			try {
+				const result = await ctx.runMutation(internal.childSignup.purgeExpiredChildConsentData, {
+					consentId: candidate.consentId,
+					olderThan
+				});
+				if (!result.purged || !result.authUserId) continue;
+				await ctx.runAction(internal.childSignup.hardDeleteAuthUser, {
+					authUserId: result.authUserId
+				});
+				purged += 1;
+			} catch (error) {
+				failed += 1;
+				await reportConvexError(error, {
+					area: 'auth',
+					operation: 'child-signup:purge-expired-consent',
+					identifiers: { consentId: candidate.consentId }
+				});
+			}
+		}
+
+		return { scanned: candidates.length, purged, failed };
 	}
 });

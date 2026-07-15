@@ -2,11 +2,17 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Tabs, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
+	import type { Component } from 'svelte';
 
 	export type HeaderTabItem = {
 		label: string;
 		href: string;
 		aliases?: string[];
+		// Optional leading icon (e.g. a lock when the tab's content is read-only). First-class
+		// tab capability: any surface using HeaderTabs can attach one, sized/spaced consistently.
+		Icon?: Component<{ class?: string }>;
+		// Screen-reader text for what the icon conveys, since the icon itself is decorative markup.
+		iconLabel?: string;
 	};
 
 	type Props = {
@@ -21,10 +27,12 @@
 
 	const matchesTab = (tab: HeaderTabItem, pathname: string) => {
 		const currentPath = normalizePath(pathname);
-		const candidates = [tab.href, ...(tab.aliases ?? [])].map(normalizePath);
-		return candidates.some(
-			(candidate) => currentPath === candidate || currentPath.startsWith(`${candidate}/`)
-		);
+		const href = normalizePath(tab.href);
+		if (currentPath === href || currentPath.startsWith(`${href}/`)) return true;
+		// Aliases are bare parent paths that default to this tab (e.g. /session/X
+		// for the Activities tab). They must match exactly — prefix matching would
+		// make the aliased tab swallow every sibling tab's path.
+		return (tab.aliases ?? []).some((alias) => currentPath === normalizePath(alias));
 	};
 
 	let activeTabHref = $derived.by(() => {
@@ -44,7 +52,15 @@
 	<Tabs value={activeTabHref} onValueChange={handleValueChange} class="w-full">
 		<TabsList class="-mb-px justify-center lg:justify-start">
 			{#each tabs as tab (tab.href)}
-				<TabsTrigger value={tab.href}>{tab.label}</TabsTrigger>
+				<TabsTrigger value={tab.href}>
+					{#if tab.Icon}
+						<tab.Icon class="size-3.5" />
+						{#if tab.iconLabel}
+							<span class="sr-only">{tab.iconLabel}</span>
+						{/if}
+					{/if}
+					{tab.label}
+				</TabsTrigger>
 			{/each}
 		</TabsList>
 	</Tabs>

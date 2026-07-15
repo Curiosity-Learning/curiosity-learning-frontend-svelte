@@ -4,23 +4,39 @@ import { buildApiLogEntry } from './api-logging';
 describe('buildApiLogEntry', () => {
 	it('logs successful and redirect responses at info level', () => {
 		expect(
-			buildApiLogEntry({ method: 'GET', routeId: '/api/media/refresh', status: 200, durationMs: 12 })
-				.level
+			buildApiLogEntry({
+				method: 'GET',
+				routeId: '/api/media/refresh',
+				status: 200,
+				durationMs: 12
+			}).level
 		).toBe('info');
 		expect(
-			buildApiLogEntry({ method: 'GET', routeId: '/api/media/refresh', status: 302, durationMs: 12 })
-				.level
+			buildApiLogEntry({
+				method: 'GET',
+				routeId: '/api/media/refresh',
+				status: 302,
+				durationMs: 12
+			}).level
 		).toBe('info');
 	});
 
 	it('logs client errors at warn level', () => {
 		expect(
-			buildApiLogEntry({ method: 'POST', routeId: '/api/webhooks/resend', status: 401, durationMs: 5 })
-				.level
+			buildApiLogEntry({
+				method: 'POST',
+				routeId: '/api/webhooks/resend',
+				status: 401,
+				durationMs: 5
+			}).level
 		).toBe('warn');
 		expect(
-			buildApiLogEntry({ method: 'POST', routeId: '/api/webhooks/resend', status: 499, durationMs: 5 })
-				.level
+			buildApiLogEntry({
+				method: 'POST',
+				routeId: '/api/webhooks/resend',
+				status: 499,
+				durationMs: 5
+			}).level
 		).toBe('warn');
 	});
 

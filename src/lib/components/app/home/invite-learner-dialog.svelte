@@ -6,6 +6,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { _, t } from '$lib/i18n';
 	import { cn } from '$lib/utils.js';
 
 	type Props = {
@@ -17,22 +18,23 @@
 
 	let {
 		clubCode,
-		triggerLabel = 'Invite a learner',
+		triggerLabel,
 		triggerStyle = 'link',
 		cardMinHeightClass = 'min-h-56'
 	}: Props = $props();
 
 	let open = $state(false);
-	let copied = $state(false);
+	let copiedField = $state<string | null>(null);
 
-	let joinUrl = $derived(clubCode ? `/onboarding/join-club/${clubCode}` : '');
+	let learnerJoinUrl = $derived(clubCode ? `/onboarding/join-club/${clubCode}` : '');
+	let resolvedTriggerLabel = $derived(triggerLabel ?? t('inviteLearnerDialog.triggerLabel'));
 
-	const copyText = async (value: string) => {
+	const copyText = async (value: string, field: string) => {
 		try {
 			await navigator.clipboard.writeText(value);
-			copied = true;
+			copiedField = field;
 			window.setTimeout(() => {
-				copied = false;
+				copiedField = null;
 			}, 1200);
 		} catch {
 			// Ignore clipboard errors; users can still select + copy manually.
@@ -49,25 +51,20 @@
 						<Button
 							{...props}
 							variant="ghost"
-							class="h-full w-full justify-center rounded-xl type-lead-medium text-foreground hover:bg-accent/60"
+							class="h-full w-full justify-center rounded-xl type-lead-medium hover:bg-accent/60"
 						>
-							{triggerLabel}
+							{resolvedTriggerLabel}
 						</Button>
 					</CardContent>
 				</Card>
 			{:else if triggerStyle === 'button'}
 				<Button {...props} variant="outline" class="w-fit">
-					{triggerLabel}
+					{resolvedTriggerLabel}
 				</Button>
 			{:else}
-				<Button
-					{...props}
-					variant="ghost"
-					size="sm"
-					class="px-0 py-0 type-sm-bold text-orange-500 hover:bg-transparent hover:text-orange-600"
-				>
+				<Button {...props} variant="link" class="type-sm-bold">
 					<PlusIcon class="size-4" />
-					<span>{triggerLabel}</span>
+					<span>{resolvedTriggerLabel}</span>
 				</Button>
 			{/if}
 		{/snippet}
@@ -75,37 +72,49 @@
 
 	<Dialog.Content class="flex flex-col gap-5">
 		<Dialog.Header class="flex flex-col gap-2">
-			<Dialog.Title>Invite a learner</Dialog.Title>
-			<Dialog.Description>Share your invite code or a join link.</Dialog.Description>
+			<Dialog.Title>{$_('inviteLearnerDialog.dialogTitle')}</Dialog.Title>
+			<Dialog.Description>{$_('inviteLearnerDialog.dialogDescription')}</Dialog.Description>
 		</Dialog.Header>
 
 		{#if !clubCode}
-			<p class="type-sm text-muted-foreground">This club does not have an invite code yet.</p>
+			<p class="type-sm text-muted-foreground">{$_('inviteLearnerDialog.noLearnerCode')}</p>
 		{:else}
 			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-2">
-					<Label for="inviteCode">Invite code</Label>
+					<Label for="inviteCode">{$_('inviteLearnerDialog.learnerCodeLabel')}</Label>
 					<div class="flex items-center gap-2">
 						<Input id="inviteCode" readonly value={clubCode} class="type-code" />
-						<Button variant="outline" onclick={() => void copyText(clubCode)}>
+						<Button variant="outline" onclick={() => void copyText(clubCode, 'learnerCode')}>
 							<CopyIcon class="size-4" />
-							<span class="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+							<span class="hidden sm:inline"
+								>{copiedField === 'learnerCode'
+									? $_('inviteLearnerDialog.copied')
+									: $_('inviteLearnerDialog.copy')}</span
+							>
 						</Button>
 					</div>
 				</div>
 
 				<div class="flex flex-col gap-2">
-					<Label for="joinLink">Join link</Label>
+					<Label for="joinLink">{$_('inviteLearnerDialog.joinLinkLabel')}</Label>
 					<div class="flex items-center gap-2">
 						<Input
 							id="joinLink"
 							readonly
-							value={joinUrl}
-							class={cn('type-code', !joinUrl && 'opacity-70')}
+							value={learnerJoinUrl}
+							class={cn('type-code', !learnerJoinUrl && 'opacity-70')}
 						/>
-						<Button variant="outline" onclick={() => void copyText(joinUrl)} disabled={!joinUrl}>
+						<Button
+							variant="outline"
+							onclick={() => void copyText(learnerJoinUrl, 'learnerLink')}
+							disabled={!learnerJoinUrl}
+						>
 							<CopyIcon class="size-4" />
-							<span class="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+							<span class="hidden sm:inline"
+								>{copiedField === 'learnerLink'
+									? $_('inviteLearnerDialog.copied')
+									: $_('inviteLearnerDialog.copy')}</span
+							>
 						</Button>
 					</div>
 				</div>

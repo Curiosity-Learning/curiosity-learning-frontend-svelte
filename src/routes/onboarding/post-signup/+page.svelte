@@ -32,6 +32,12 @@
 	const profileResponse = useStableQuery(api.profiles.getMe, () =>
 		auth.isAuthenticated ? {} : 'skip'
 	);
+	// PRD 5.6: deferred club-join intent (pendingClubJoins table) recorded either at signup time
+	// (a code-join link) or by joinRequests.acceptJoinRequest (an accepted map join-request while
+	// onboarding gates were still pending).
+	const pendingJoinResponse = useStableQuery(api.pendingClubJoins.getMine, () =>
+		auth.isAuthenticated ? {} : 'skip'
+	);
 	const POST_SIGNUP_PENDING_KEY = 'cl_post_signup_pending_v1';
 
 	const parseStep = (value: string | null): 1 | 2 => (value === '2' ? 2 : 1);
@@ -309,13 +315,44 @@
 
 		pending = true;
 		try {
-			const pendingClubCode =
-				profileResponse.data?.pendingClubCode?.trim().toUpperCase() ??
-				extractPendingClubCodeFromPath(nextPath);
+			const pendingJoin = pendingJoinResponse.data;
+			if (pendingJoin?.clubId) {
+				const result = await convexClient.mutation(api.pendingClubJoins.consumeMine, {});
+				if (result.ok) {
+					if (browser) {
+						try {
+							localStorage.setItem('cl_last_club_id', result.clubId);
+						} catch {
+							// Ignore storage errors.
+						}
+					}
+					clearPostSignupPending();
+					// CL-711 CEO review round 3: a visitor who requested to join from the map/discovery
+					// page, signed up, and had the join auto-complete once onboarding gates cleared
+					// should land directly back in the join-request chat they started, not a club
+					// overview screen with a "View Chat" button. Falls back to the club overview when
+					// there's no such room (e.g. a code-join deferral, or the room genuinely can't be
+					// found) so the user is never left on a blank screen.
+					const destination = result.roomId ? `/chat?room=${result.roomId}` : `/club/${result.clubId}`;
+					await goto(destination, { replaceState: true });
+					return;
+				}
+				// 'no_pending' or 'club_unavailable': fall through to the URL-based fallback below,
+				// then to plain onboarding completion.
+			}
+
+			const pendingClubCode = extractPendingClubCodeFromPath(nextPath);
 			if (pendingClubCode) {
 				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
 					code: pendingClubCode
 				});
+				if (!result.ok) {
+					formErrorMessage =
+						result.error === 'rate_limited'
+							? t('onboarding.joinClub.rateLimited')
+							: t('onboarding.joinClubDetails.invalidDescription');
+					return;
+				}
 				if (browser) {
 					try {
 						localStorage.setItem('cl_last_club_id', result.clubId);
@@ -386,7 +423,7 @@
 					/>
 
 					<div class="flex flex-col gap-3">
-						<p class="type-field-label text-base leading-6 font-bold text-gray-900">
+						<p class="type-field-label text-gray-900">
 							{$_('onboarding.postSignup.profileImageLabel')}
 						</p>
 						<FileDropZone.Root
@@ -434,7 +471,7 @@
 														{$_('onboarding.postSignup.dropOrChooseImage')}
 													{/if}
 												</p>
-												<p class="text-xs text-gray-500">
+												<p class="type-sm text-gray-500">
 													{#if profileImageField.phase === 'processing'}
 														Hang tight while we finish preparing your profile picture.
 													{:else if profileImageField.isReady}
@@ -468,18 +505,18 @@
 							</div>
 						</FileDropZone.Root>
 						{#if profileImageError}
-							<p class="text-sm text-red-700">{profileImageError}</p>
+							<p class="type-body-compact text-red-700">{profileImageError}</p>
 						{:else if profileImageField.phase === 'processing'}
-							<p class="text-sm text-gray-600">Processing your image before you can continue.</p>
+							<p class="type-body-compact text-gray-600">Processing your image before you can continue.</p>
 						{:else if profileImageField.isReady}
-							<p class="text-sm text-emerald-700">Profile picture uploaded and ready.</p>
+							<p class="type-body-compact text-emerald-700">Profile picture uploaded and ready.</p>
 						{/if}
 					</div>
 				</div>
 			{:else}
 				<div class="flex flex-col gap-5">
 					<h1 class="type-step-title text-gray-900">{$_('onboarding.postSignup.pledgesTitle')}</h1>
-					<p class="text-sm leading-6 text-gray-600">
+					<p class="type-body text-gray-600">
 						{$_('onboarding.postSignup.pledgesDescription')}
 					</p>
 
@@ -490,15 +527,15 @@
 									<summary
 										class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3"
 									>
-										<span class="text-sm leading-6 font-bold text-gray-900">{item.title}</span>
+										<span class="type-body-bold text-gray-900">{item.title}</span>
 										<ChevronDownIcon
 											class="size-4 shrink-0 text-gray-500 transition-transform group-open:rotate-180"
 										/>
 									</summary>
 									<div class="flex flex-col gap-3 px-4 pb-4">
-										<p class="text-sm leading-6 text-gray-600">{item.description}</p>
+										<p class="type-body text-gray-600">{item.description}</p>
 										{#if item.bullets.length > 0}
-											<ul class="list-disc space-y-1 pl-5 text-sm leading-6 text-gray-600">
+											<ul class="type-body list-disc space-y-1 pl-5 text-gray-600">
 												{#each item.bullets as bullet, bulletIndex (bulletIndex)}
 													<li>{bullet}</li>
 												{/each}
@@ -509,13 +546,13 @@
 							{/each}
 						{:else if !pledgesResponse.data}
 							<div
-								class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600"
+								class="type-body-compact rounded-lg border border-gray-200 bg-white px-4 py-3 text-gray-600"
 							>
 								{$_('onboarding.postSignup.pledgesLoading')}
 							</div>
 						{:else}
 							<div
-								class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600"
+								class="type-body-compact rounded-lg border border-gray-200 bg-white px-4 py-3 text-gray-600"
 							>
 								{$_('onboarding.postSignup.pledgesEmpty')}
 							</div>
@@ -526,7 +563,7 @@
 						<Checkbox bind:checked={agreedAll} id="agree-all-post-signup" />
 						<label
 							for="agree-all-post-signup"
-							class="cursor-pointer text-sm leading-6 text-gray-600"
+							class="type-body cursor-pointer text-gray-600"
 						>
 							{$_('onboarding.postSignup.agreeAll')}
 						</label>

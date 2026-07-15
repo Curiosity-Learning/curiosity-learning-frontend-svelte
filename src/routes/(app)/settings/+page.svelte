@@ -13,7 +13,9 @@
 	} from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
 	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
@@ -29,9 +31,59 @@
 	const session = authClient.useSession();
 	const convexClient = useConvexClient();
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
+	const preferencesResponse = useStableQuery(api.preferences.get, {});
 	const legalDocumentsResponse = useStableQuery(api.legalDocuments.listActive, () =>
 		$session.data ? {} : 'skip'
 	);
+
+	// PRD 2.4/6.1.10 (CL-703): "View as Child". Parent side: lazily claim any approved
+	// parentChildConsents rows into parentLinks once per settings page load, then list them.
+	// Child side: whether this account has a linked parent, and whether they're old enough (>=16)
+	// to unlink it themselves.
+	let parentLinksSynced = $state(false);
+	$effect(() => {
+		if (parentLinksSynced) return;
+		if (!$session.data) return;
+		parentLinksSynced = true;
+		void convexClient.mutation(api.parentAccounts.syncParentLinks, {}).catch(() => {
+			// Best-effort: if this fails, getMyLinkedChildren just returns whatever was already
+			// claimed on a prior visit.
+		});
+	});
+	const linkedChildrenResponse = useStableQuery(api.parentAccounts.getMyLinkedChildren, () =>
+		$session.data ? {} : 'skip'
+	);
+	const myParentLinkResponse = useStableQuery(api.parentAccounts.getMyParentLink, () =>
+		$session.data ? {} : 'skip'
+	);
+	let linkedChildren = $derived(linkedChildrenResponse.data ?? []);
+	let myParentLink = $derived(myParentLinkResponse.data ?? null);
+
+	const childDisplayName = (child: { firstName: string | null; lastName: string | null; username: string | null }) =>
+		[child.firstName, child.lastName].filter(Boolean).join(' ').trim() ||
+		child.username ||
+		t('profileDetail.fallbackName');
+
+	let unlinkDialogOpen = $state(false);
+	let unlinkPending = $state(false);
+	let unlinkError = $state('');
+
+	const confirmUnlinkParent = async () => {
+		if (!myParentLink) return;
+		unlinkPending = true;
+		unlinkError = '';
+		try {
+			await convexClient.mutation(api.parentAccounts.unlinkParent, {
+				parentProfileId: myParentLink.parentProfileId
+			});
+			successMessage = t('parentAccounts.unlinkSuccess');
+			unlinkDialogOpen = false;
+		} catch (error) {
+			unlinkError = error instanceof Error ? error.message : t('parentAccounts.unlinkFailure');
+		} finally {
+			unlinkPending = false;
+		}
+	};
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
 		mode: 'immediate'
 	});
@@ -181,6 +233,90 @@
 		}
 	};
 
+	// Notification preferences (CL-715). Toggles persist immediately via preferences.upsert;
+	// the local copy keeps the UI responsive and is initialized once from the server value.
+	type NotificationPreferences = {
+		clubMemberChanges: boolean;
+		projectDeadlineReminder: boolean;
+		projectMemberAdded: boolean;
+		projectCompleted: boolean;
+		sessionReminder: boolean;
+		sessionActivityChanges: boolean;
+		updateLikes: boolean;
+		updateComments: boolean;
+		chatMessages: boolean;
+	};
+	type NotificationPreferenceKey = keyof NotificationPreferences;
+	let notificationPrefs = $state<NotificationPreferences | null>(null);
+
+	$effect(() => {
+		if (notificationPrefs) return;
+		const data = preferencesResponse.data;
+		if (!data) return;
+		notificationPrefs = { ...data.notificationPreferences };
+	});
+
+	let notificationToggles = $derived(
+		notificationPrefs
+			? [
+					{
+						group: $_('settingsPage.notificationsSessionsGroup'),
+						items: [
+							{
+								key: 'sessionReminder' as const,
+								label: $_('settingsPage.notificationsSessionReminderLabel'),
+								description: $_('settingsPage.notificationsSessionReminderDescription')
+							},
+							{
+								key: 'sessionActivityChanges' as const,
+								label: $_('settingsPage.notificationsSessionChangesLabel'),
+								description: $_('settingsPage.notificationsSessionChangesDescription')
+							}
+						]
+					},
+					{
+						group: $_('settingsPage.notificationsClubGroup'),
+						items: [
+							{
+								key: 'clubMemberChanges' as const,
+								label: $_('settingsPage.notificationsClubMemberChangesLabel'),
+								description: $_('settingsPage.notificationsClubMemberChangesDescription')
+							}
+						]
+					},
+					{
+						group: $_('settingsPage.notificationsProjectsGroup'),
+						items: [
+							{
+								key: 'projectMemberAdded' as const,
+								label: $_('settingsPage.notificationsProjectMembershipLabel'),
+								description: $_('settingsPage.notificationsProjectMembershipDescription')
+							},
+							{
+								key: 'projectCompleted' as const,
+								label: $_('settingsPage.notificationsProjectUpdatesLabel'),
+								description: $_('settingsPage.notificationsProjectUpdatesDescription')
+							}
+						]
+					}
+				]
+			: []
+	);
+
+	const setNotificationPreference = async (key: NotificationPreferenceKey, value: boolean) => {
+		if (!notificationPrefs) return;
+		const previous = notificationPrefs[key];
+		notificationPrefs[key] = value;
+		try {
+			await convexClient.mutation(api.preferences.upsert, {
+				notificationPreferences: { ...notificationPrefs }
+			});
+		} catch {
+			notificationPrefs[key] = previous;
+			errorMessage = t('settingsPage.notificationsSaveFailure');
+		}
+	};
+
 	const policyLinks = $derived(
 		orderedLegalDocuments.length
 			? orderedLegalDocuments.map((document) => ({
@@ -229,7 +365,7 @@
 					<AvatarFallback>{profileInitials}</AvatarFallback>
 				</Avatar>
 				<div class="flex flex-1 flex-col gap-2">
-					<p class="text-sm font-medium">Profile image</p>
+					<p class="type-body-medium">Profile image</p>
 					<FileDropZone.Root
 						accept={profileImageField.accept}
 						maxFiles={1}
@@ -240,7 +376,7 @@
 					>
 						<FileDropZone.Trigger>
 							<div
-								class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+								class="type-control inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 transition-colors hover:bg-accent hover:text-accent-foreground"
 							>
 								{profileImageField.isBusy ? 'Uploading...' : 'Upload image'}
 							</div>
@@ -266,11 +402,11 @@
 					}}
 				/>
 				{#if checkingUsername}
-					<p class="text-xs text-muted-foreground">Checking availability...</p>
+					<p class="type-sm text-muted-foreground">Checking availability...</p>
 				{:else if usernameAvailable === true}
-					<p class="text-xs text-emerald-600">Username is available.</p>
+					<p class="type-sm text-emerald-600">Username is available.</p>
 				{:else if usernameAvailable === false}
-					<p class="text-xs text-destructive">Username is already taken.</p>
+					<p class="type-sm text-destructive">Username is already taken.</p>
 				{/if}
 			</div>
 			<div class="flex flex-col gap-2 lg:col-span-2">
@@ -301,6 +437,109 @@
 
 	<Card>
 		<CardHeader class="flex flex-col gap-2">
+			<CardTitle>{$_('settingsPage.notificationsTitle')}</CardTitle>
+			<CardDescription>{$_('settingsPage.notificationsDescription')}</CardDescription>
+		</CardHeader>
+		<CardContent class="flex flex-col gap-4">
+			{#if !notificationPrefs}
+				<p class="type-body-compact text-muted-foreground">...</p>
+			{:else}
+				{#each notificationToggles as section (section.group)}
+					<div class="flex flex-col gap-2">
+						<p class="text-sm font-semibold text-foreground">{section.group}</p>
+						{#each section.items as item (item.key)}
+							<div
+								class="flex items-start justify-between gap-4 rounded-lg border border-border/70 p-3"
+							>
+								<div class="flex flex-col gap-1">
+									<Label for={`notification-${item.key}`}>{item.label}</Label>
+									<p class="type-body-compact text-muted-foreground">{item.description}</p>
+								</div>
+								<Switch
+									id={`notification-${item.key}`}
+									checked={notificationPrefs[item.key]}
+									onCheckedChange={(value) => void setNotificationPreference(item.key, value)}
+									class="mt-1 shrink-0"
+								/>
+							</div>
+						{/each}
+					</div>
+				{/each}
+				<div class="flex flex-col gap-2">
+					<p class="text-sm font-semibold text-foreground">
+						{$_('settingsPage.notificationsCriticalGroup')}
+					</p>
+					<div
+						class="flex items-start justify-between gap-4 rounded-lg border border-border/70 bg-muted/40 p-3"
+					>
+						<p class="type-body-compact text-muted-foreground">
+							{$_('settingsPage.notificationsCriticalDescription')}
+						</p>
+						<Switch checked disabled class="mt-1 shrink-0" />
+					</div>
+				</div>
+			{/if}
+		</CardContent>
+	</Card>
+
+	{#if linkedChildren.length > 0}
+		<Card>
+			<CardHeader class="flex flex-col gap-2">
+				<CardTitle>{$_('parentAccounts.linkedChildrenTitle')}</CardTitle>
+				<CardDescription>{$_('parentAccounts.linkedChildrenDescription')}</CardDescription>
+			</CardHeader>
+			<CardContent class="flex flex-col gap-2">
+				{#each linkedChildren as child (child.childProfileId)}
+					<div
+						class="flex items-center justify-between gap-4 rounded-lg border border-border/70 p-3"
+					>
+						<div class="flex flex-col">
+							<p class="type-sm-bold text-foreground">{childDisplayName(child)}</p>
+							{#if child.username}
+								<p class="type-body-compact text-muted-foreground">@{child.username}</p>
+							{/if}
+						</div>
+						<Button href={routes.childOverview(child.childProfileId)} variant="outline">
+							{t('parentAccounts.viewAsAction').replace('{name}', childDisplayName(child))}
+						</Button>
+					</div>
+				{/each}
+			</CardContent>
+		</Card>
+	{/if}
+
+	{#if myParentLink}
+		<Card>
+			<CardHeader class="flex flex-col gap-2">
+				<CardTitle>{$_('parentAccounts.linkedParentTitle')}</CardTitle>
+				<CardDescription>{$_('parentAccounts.linkedParentDescription')}</CardDescription>
+			</CardHeader>
+			<CardContent class="flex flex-col gap-3">
+				<div class="flex items-center justify-between gap-4 rounded-lg border border-border/70 p-3">
+					<p class="type-sm-bold text-foreground">
+						{[myParentLink.parentFirstName, myParentLink.parentLastName]
+							.filter(Boolean)
+							.join(' ')
+							.trim() || t('profileDetail.fallbackName')}
+					</p>
+					{#if myParentLink.canUnlink}
+						<Button
+							variant="outline"
+							onclick={() => {
+								unlinkError = '';
+								unlinkDialogOpen = true;
+							}}
+						>
+							{$_('parentAccounts.unlinkAction')}
+						</Button>
+					{/if}
+				</div>
+			</CardContent>
+		</Card>
+	{/if}
+
+	<Card>
+		<CardHeader class="flex flex-col gap-2">
 			<CardTitle>{$_('settingsPage.policiesTitle')}</CardTitle>
 			<CardDescription>{$_('settingsPage.policiesDescription')}</CardDescription>
 		</CardHeader>
@@ -311,3 +550,25 @@
 		</CardContent>
 	</Card>
 </div>
+
+<Dialog.Root bind:open={unlinkDialogOpen}>
+	<Dialog.Content>
+		<Dialog.Header>
+			<Dialog.Title>{$_('parentAccounts.unlinkConfirmTitle')}</Dialog.Title>
+			<Dialog.Description>{$_('parentAccounts.unlinkConfirmDescription')}</Dialog.Description>
+		</Dialog.Header>
+		{#if unlinkError}
+			<Alert variant="destructive">
+				<AlertDescription>{unlinkError}</AlertDescription>
+			</Alert>
+		{/if}
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => (unlinkDialogOpen = false)} disabled={unlinkPending}>
+				{$_('parentAccounts.unlinkCancel')}
+			</Button>
+			<Button variant="destructive" disabled={unlinkPending} onclick={() => void confirmUnlinkParent()}>
+				{$_('parentAccounts.unlinkConfirmAction')}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>

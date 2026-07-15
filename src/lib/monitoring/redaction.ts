@@ -1,4 +1,6 @@
-import type { Breadcrumb, ErrorEvent } from '@sentry/sveltekit';
+import type { Breadcrumb, ErrorEvent, Log } from '@sentry/sveltekit';
+// Not re-exported by @sentry/sveltekit; @sentry/core is its direct dependency.
+import type { TransactionEvent } from '@sentry/core';
 
 const REDACTED = '[Redacted]';
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -50,8 +52,8 @@ export const redactUnknown = (value: unknown, key = '', depth = 0): unknown => {
 	return value;
 };
 
-export const redactSentryEvent = (event: ErrorEvent): ErrorEvent => {
-	const redacted = redactUnknown(event) as ErrorEvent;
+const redactEventPayload = <T extends ErrorEvent | TransactionEvent>(event: T): T => {
+	const redacted = redactUnknown(event) as T;
 	delete redacted.user;
 
 	if (redacted.request) {
@@ -65,6 +67,15 @@ export const redactSentryEvent = (event: ErrorEvent): ErrorEvent => {
 
 	return redacted;
 };
+
+export const redactSentryEvent = (event: ErrorEvent): ErrorEvent => redactEventPayload(event);
+
+// Transactions carry request/page URLs and span data that beforeSend never sees.
+export const redactSentryTransaction = (event: TransactionEvent): TransactionEvent =>
+	redactEventPayload(event);
+
+// Floor for structured logs, independent of whether the call site sanitized its data.
+export const redactSentryLog = (log: Log): Log => redactUnknown(log) as Log;
 
 export const redactSentryBreadcrumb = (breadcrumb: Breadcrumb): Breadcrumb => {
 	const redacted = redactUnknown(breadcrumb) as Breadcrumb;

@@ -3,10 +3,9 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/state';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
-	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import { Button } from '$lib/components/ui/button';
-	import { PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
+	import { PageHeaderBackButton, PageHeaderTitle, ScreenBackButton } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { authClient } from '$lib/auth-client';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -17,7 +16,7 @@
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
 	import { navigateBack } from '$lib/navigation/back';
-	import { formatWeeklyMeetingLabel } from '$lib/domain/date';
+	import { formatScheduleSlot } from '$lib/domain/schedule';
 	import type { SignedDeliveryAsset } from '$lib/server/signed-media';
 
 	let { data }: { data: PageProps['data'] & { initialClubVideo: SignedDeliveryAsset | null } } =
@@ -43,9 +42,7 @@
 			? 'flex w-full max-w-3xl flex-col gap-6'
 			: 'mx-auto flex w-full max-w-[28.75rem] flex-1 flex-col gap-6'
 	);
-	let meetingLabel = $derived(
-		formatWeeklyMeetingLabel(club?.meetingDay ?? null, club?.meetingTime ?? null)
-	);
+	let scheduleLabels = $derived((club?.scheduleSlots ?? []).map(formatScheduleSlot));
 	let clubVideoUrl = $derived.by(() => {
 		const clubVideoAssetId = club?.videoMediaAssetId ?? null;
 		if (clubVideoAssetId && data.initialClubVideo?.assetId === clubVideoAssetId) {
@@ -114,6 +111,13 @@
 				const result = await convexClient.mutation(api.clubs.joinClubWithCode, {
 					code: data.code
 				});
+				if (!result.ok) {
+					errorMessage =
+						result.error === 'rate_limited'
+							? t('onboarding.joinClub.rateLimited')
+							: t('onboarding.joinClubDetails.invalidDescription');
+					return;
+				}
 				if (browser) {
 					try {
 						localStorage.setItem('cl_last_club_id', result.clubId);
@@ -149,37 +153,30 @@
 <FlowShell step={2} total={5} showSideIllustration={true} appFrame={isAppNewClubFlow}>
 	{#snippet headerSupplement()}
 		<div class="flex items-center justify-between gap-4">
-			<button
-				type="button"
-				class="inline-flex w-fit items-center text-gray-500 transition-colors duration-200 hover:text-gray-700"
-				aria-label={$_('common.goBack')}
-				onclick={() => void goBack()}
-			>
-				<ChevronLeftIcon class="size-7" />
-			</button>
+			<ScreenBackButton onclick={() => void goBack()} />
 		</div>
 	{/snippet}
 	<div class={contentClass}>
 		{#if preview.isLoading}
 			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
-				<p class="text-base text-gray-600">{$_('onboarding.joinClubDetails.loading')}</p>
+				<p class="type-lead text-gray-600">{$_('onboarding.joinClubDetails.loading')}</p>
 			</div>
 		{:else if !club}
 			<div class="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-5">
-				<h1 class="text-2xl font-bold text-gray-900">
+				<h1 class="type-h4-bold text-gray-900">
 					{$_('onboarding.joinClubDetails.invalidTitle')}
 				</h1>
-				<p class="text-base text-red-700">{$_('onboarding.joinClubDetails.invalidDescription')}</p>
+				<p class="type-lead text-red-700">{$_('onboarding.joinClubDetails.invalidDescription')}</p>
 				<Button href={joinClubPath} variant="outline" size="xl" class="h-12 w-full">
 					{$_('onboarding.joinClubDetails.enterAnother')}
 				</Button>
 			</div>
 		{:else if forcedGoogleSignupRecoveryPending}
 			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
-				<h1 class="text-2xl font-bold text-gray-900">
+				<h1 class="type-h4-bold text-gray-900">
 					{$_('onboarding.joinClubDetails.checkingAccountTitle')}
 				</h1>
-				<p class="text-base text-gray-600">
+				<p class="type-lead text-gray-600">
 					{$_('onboarding.joinClubDetails.checkingAccountDescription')}
 				</p>
 			</div>
@@ -195,14 +192,14 @@
 				</div>
 
 				<div class="flex flex-wrap gap-2">
-					{#if meetingLabel}
+					{#each scheduleLabels as scheduleLabel (scheduleLabel)}
 						<div
 							class="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-500"
 						>
 							<Clock3Icon class="size-4" />
-							<span>{meetingLabel}</span>
+							<span>{scheduleLabel}</span>
 						</div>
-					{/if}
+					{/each}
 				</div>
 
 				{#if clubVideoUrl && !videoLoadFailed}
@@ -222,7 +219,7 @@
 			</div>
 
 			{#if errorMessage}
-				<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+				<p class="type-body-compact rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
 					{errorMessage}
 				</p>
 			{/if}

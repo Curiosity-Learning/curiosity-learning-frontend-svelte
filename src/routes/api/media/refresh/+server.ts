@@ -3,8 +3,13 @@ import type { Id } from '$convex/_generated/dataModel';
 import { getConvexServerClient } from '$lib/server/convex';
 import { loadMediaDeliveryConfigOrNull } from '$lib/server/media-delivery';
 import {
+	getSignedApplicationVideoAsset,
+	getSignedGlobalUpdateAuthorAssets,
+	getSignedGlobalUpdateMediaAssets,
 	getSignedOwnedMediaAssets,
-	getSignedProjectMediaAssets
+	getSignedProjectMediaAssets,
+	getSignedViewerUpdateAuthorAssets,
+	getSignedViewerUpdateMediaAssets
 } from '$lib/server/signed-media';
 import type { RequestHandler } from './$types';
 
@@ -15,6 +20,23 @@ type RefreshContext =
 	| {
 			kind: 'project';
 			projectId: string;
+	  }
+	// CL-727: signing follow-up "load more" pages of the My Clubs feed (club-attribution scoped).
+	| {
+			kind: 'my-clubs-feed';
+	  }
+	// CL-726: signing follow-up "load more" pages of the All feed (global-visibility scoped;
+	// needs the update ids so the server can re-verify `canViewProject` per asset).
+	| {
+			kind: 'global-feed';
+			updateIds: string[];
+	  }
+	// CL-710 CEO review round 3: the club application video (application chat + review page).
+	// Authorization is resolved server-side from the applicationId (applicant, assigned reviewer,
+	// or reviewer who already reviewed it) — the client never needs to supply assetIds for this.
+	| {
+			kind: 'club-application';
+			applicationId: string;
 	  };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -33,6 +55,28 @@ const parseContext = (value: unknown): RefreshContext | null => {
 		return {
 			kind: 'project',
 			projectId: value.projectId
+		};
+	}
+
+	if (value.kind === 'my-clubs-feed') {
+		return { kind: 'my-clubs-feed' };
+	}
+
+	if (value.kind === 'global-feed' && Array.isArray(value.updateIds)) {
+		return {
+			kind: 'global-feed',
+			updateIds: value.updateIds.filter((id): id is string => typeof id === 'string')
+		};
+	}
+
+	if (
+		value.kind === 'club-application' &&
+		typeof value.applicationId === 'string' &&
+		value.applicationId.trim()
+	) {
+		return {
+			kind: 'club-application',
+			applicationId: value.applicationId
 		};
 	}
 
@@ -71,17 +115,50 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 
 	const convex = getConvexServerClient(locals.token);
-	const assets =
-		context.kind === 'owned'
-			? await getSignedOwnedMediaAssets(convex, assetIds as Id<'mediaAssets'>[], deliveryConfig)
-			: await getSignedProjectMediaAssets(
-					convex,
-					context.projectId as Id<'projects'>,
-					assetIds as Id<'mediaAssets'>[],
-					deliveryConfig
-				);
+	const typedAssetIds = assetIds as Id<'mediaAssets'>[];
 
-	return json({
-		assets
-	});
+	if (context.kind === 'owned') {
+		return json({ assets: await getSignedOwnedMediaAssets(convex, typedAssetIds, deliveryConfig) });
+	}
+
+	if (context.kind === 'project') {
+		return json({
+			assets: await getSignedProjectMediaAssets(
+				convex,
+				context.projectId as Id<'projects'>,
+				typedAssetIds,
+				deliveryConfig
+			)
+		});
+	}
+
+	if (context.kind === 'my-clubs-feed') {
+		// An asset requested here is either an update attachment (`updateFiles`) or an author
+		// avatar — the two id spaces don't overlap, so querying both and merging is safe.
+		const [authorAssets, mediaAssets] = await Promise.all([
+			getSignedViewerUpdateAuthorAssets(convex, typedAssetIds, 50, deliveryConfig),
+			getSignedViewerUpdateMediaAssets(convex, typedAssetIds, 50, deliveryConfig)
+		]);
+		return json({ assets: [...authorAssets, ...mediaAssets] });
+	}
+
+	if (context.kind === 'club-application') {
+		// The asset is derived server-side from the applicationId (see
+		// clubApplications.getApplicationVideoDeliveryAsset) — the client-supplied assetIds are only
+		// used above to satisfy the generic "must include assetIds" request shape, not trusted here.
+		const asset = await getSignedApplicationVideoAsset(
+			convex,
+			context.applicationId as Id<'clubApplications'>,
+			deliveryConfig
+		);
+		return json({ assets: asset ? [asset] : [] });
+	}
+
+	// context.kind === 'global-feed'
+	const updateIds = context.updateIds as Id<'updates'>[];
+	const [authorAssets, mediaAssets] = await Promise.all([
+		getSignedGlobalUpdateAuthorAssets(convex, updateIds, typedAssetIds, deliveryConfig),
+		getSignedGlobalUpdateMediaAssets(convex, updateIds, typedAssetIds, deliveryConfig)
+	]);
+	return json({ assets: [...authorAssets, ...mediaAssets] });
 };
