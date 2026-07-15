@@ -1,4 +1,9 @@
-import { redactSentryBreadcrumb, redactSentryEvent } from './redaction';
+import {
+	redactSentryBreadcrumb,
+	redactSentryEvent,
+	redactSentryLog,
+	redactSentryTransaction
+} from './redaction';
 
 export type SentryRuntimeEnv = {
 	dsn?: string | null;
@@ -47,13 +52,17 @@ export const buildSharedSentryOptions = (env: SentryRuntimeEnv) => {
 	return {
 		dsn,
 		enabled,
-		environment: env.environment?.trim() || 'production',
+		// Fail safe: an unconfigured environment must never pollute the "production"
+		// environment in Sentry, so the fallback is "development".
+		environment: env.environment?.trim() || 'development',
 		// EU / GDPR: never send email, IP, cookies, or other default PII.
 		sendDefaultPii: false,
 		tracesSampleRate: parseSampleRate(env.tracesSampleRate, 0),
 		profilesSampleRate: parseSampleRate(env.profilesSampleRate, 0),
 		enableLogs: parseBooleanEnv(env.logsEnabledFlag, false),
 		beforeSend: redactSentryEvent,
+		beforeSendTransaction: redactSentryTransaction,
+		beforeSendLog: redactSentryLog,
 		beforeBreadcrumb: redactSentryBreadcrumb,
 		// Session replay stays disabled (sample rate 0) — high GDPR risk for a learning platform.
 		replaysSessionSampleRate: 0,

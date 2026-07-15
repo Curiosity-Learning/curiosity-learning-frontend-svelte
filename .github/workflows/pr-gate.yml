@@ -45,5 +45,9 @@ jobs:
       - name: Lint
         run: npm run lint:ci
 
+      # Server project only: the client project needs Playwright browsers.
+      - name: Unit tests
+        run: npx vitest run --project server
+
       - name: Build
         run: npm run build
