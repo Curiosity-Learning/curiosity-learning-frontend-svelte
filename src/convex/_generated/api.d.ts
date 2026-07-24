@@ -39,6 +39,7 @@ import type * as mediaPipeline from "../mediaPipeline.js";
 import type * as mediaShared from "../mediaShared.js";
 import type * as mediaStorage from "../mediaStorage.js";
 import type * as migrateCl710 from "../migrateCl710.js";
+import type * as migrateLegacyPendingRole from "../migrateLegacyPendingRole.js";
 import type * as moderation from "../moderation.js";
 import type * as monitoring from "../monitoring.js";
 import type * as notifications from "../notifications.js";
@@ -104,6 +105,7 @@ declare const fullApi: ApiFromModules<{
   mediaShared: typeof mediaShared;
   mediaStorage: typeof mediaStorage;
   migrateCl710: typeof migrateCl710;
+  migrateLegacyPendingRole: typeof migrateLegacyPendingRole;
   moderation: typeof moderation;
   monitoring: typeof monitoring;
   notifications: typeof notifications;
