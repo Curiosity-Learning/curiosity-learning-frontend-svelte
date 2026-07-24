@@ -27,7 +27,11 @@ vi.mock('./authEmail', () => ({
 	getAuthUserEmailInfo: async (_ctx: unknown, authUserId: string) => {
 		const email = authEmailByUserId.get(authUserId);
 		if (!email) return null;
-		return { email, emailVerified: !unverifiedUsers.has(authUserId) };
+		return {
+			email,
+			emailVerified: !unverifiedUsers.has(authUserId),
+			name: 'Invited Person'
+		};
 	},
 	getAuthUserIdByEmail: async (_ctx: unknown, email: string) => {
 		for (const [authUserId, candidate] of authEmailByUserId) {
@@ -159,6 +163,8 @@ describe('adminInvites.claimAdminInvite', () => {
 			(await ctx.db.query('profiles').collect()).find((p) => p.authUserId === 'invited-user')
 		);
 		expect(profile?.globalRole).toBe('admin');
+		expect(profile?.firstName).toBe('Invited');
+		expect(profile?.lastName).toBe('Person');
 	});
 
 	it('does nothing without a pending invite, for unverified emails, expired and revoked invites', async () => {

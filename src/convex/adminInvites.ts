@@ -238,13 +238,17 @@ export const claimAdminInvite = mutation({
 
 		const now = Date.now();
 		// Admin accounts created directly on the admin portal never run the member app's
-		// onboarding, so a profile row may not exist yet — create a minimal one
-		// (auth.ensureProfile would backfill names/username if they ever use the member app).
+		// onboarding, so a profile row may not exist yet — create a minimal one carrying the
+		// Better Auth name (auth.ensureProfile would backfill username if they ever use the
+		// member app).
 		const existingProfile = await getProfileByAuthUserId(ctx, identity.subject);
+		const [firstName, ...lastNameParts] = (emailInfo.name ?? '').trim().split(/\s+/);
 		const profileId =
 			existingProfile?._id ??
 			(await ctx.db.insert('profiles', {
 				authUserId: identity.subject,
+				firstName: firstName || undefined,
+				lastName: lastNameParts.join(' ') || undefined,
 				isVerified: true,
 				firstLoginCompleted: false,
 				updatedAt: now

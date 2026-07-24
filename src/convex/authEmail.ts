@@ -20,15 +20,19 @@ export const getAuthUserEmail = async (
 export const getAuthUserEmailInfo = async (
 	ctx: QueryCtx | MutationCtx,
 	authUserId: string
-): Promise<{ email: string; emailVerified: boolean } | null> => {
+): Promise<{ email: string; emailVerified: boolean; name: string | null } | null> => {
 	const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
 		model: 'user',
 		where: [{ field: '_id', value: authUserId }]
-	})) as { email?: string | null; emailVerified?: boolean | null } | null;
+	})) as { email?: string | null; emailVerified?: boolean | null; name?: string | null } | null;
 	if (!authUser?.email) {
 		return null;
 	}
-	return { email: authUser.email, emailVerified: authUser.emailVerified === true };
+	return {
+		email: authUser.email,
+		emailVerified: authUser.emailVerified === true,
+		name: authUser.name ?? null
+	};
 };
 
 // Reverse lookup: Better Auth user id for an email, or null if no account exists yet.
