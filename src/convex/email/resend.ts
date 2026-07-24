@@ -5,7 +5,8 @@ export type TransactionalEmailType =
 	| 'parent-consent'
 	| 'password-reset'
 	| 'verification-otp'
-	| 'notification';
+	| 'notification'
+	| 'admin-invite';
 
 export const sendEmail = async (
 	args: EmailContent & { to: string; type: TransactionalEmailType }

@@ -206,6 +206,38 @@ export const parentConsentEmail = (args: {
 	};
 };
 
+// Invitation to become a platform admin (adminInvites.createInvite). The link points at the
+// separate admin portal, not the member app; when ADMIN_APP_ORIGIN is unset the email still
+// works, it just omits the button.
+export const adminInviteEmail = (args: {
+	inviterName?: string;
+	adminPortalUrl?: string;
+	expiresInDays: number;
+}): EmailContent => {
+	const invitedBy = args.inviterName
+		? `<strong style="color:${colors.foreground};">${escapeHtml(args.inviterName)}</strong> has invited you`
+		: 'You have been invited';
+	const invitedByText = args.inviterName
+		? `${args.inviterName} has invited you`
+		: 'You have been invited';
+	const instructions = `Sign in to the Curiosity Learning admin portal with this email address (or create an account with it) to accept. This invitation expires in ${args.expiresInDays} days.`;
+	return {
+		subject: 'You are invited to administer Curiosity Learning',
+		text: `${invitedByText} to be an administrator on Curiosity Learning.\n\n${instructions}${args.adminPortalUrl ? `\n\n${args.adminPortalUrl}` : ''}`,
+		html: layout({
+			preheader: 'You have been invited to be a Curiosity Learning administrator.',
+			title: 'Admin invitation',
+			children: `
+				${paragraph(`${invitedBy} to be an administrator on Curiosity Learning.`)}
+				${paragraph(instructions)}
+				${args.adminPortalUrl ? `${button(args.adminPortalUrl, 'Open admin portal')}${rawLink(args.adminPortalUrl)}` : ''}
+			`,
+			footer:
+				'If you were not expecting this invitation, you can ignore this email — nothing is granted until you sign in and accept.'
+		})
+	};
+};
+
 // Generic template for tiered notification emails (CL-715). Renders the same title/message
 // pair that is stored on the in-app `notifications` row, plus an optional CTA link into the app.
 export const notificationEmail = (args: {

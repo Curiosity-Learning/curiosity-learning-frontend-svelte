@@ -24,6 +24,9 @@ const trustedOrigins = [
 	'http://localhost:4173',
 	// Admin app dev origin (curiosity-learning-admin, separate repo, CEO admin-split decision).
 	'http://localhost:4174',
+	// Admin app deployed origin (e.g. https://admin.curiositylearning.org) — set per deployment
+	// as a Convex env var; unset in environments without a deployed admin portal.
+	process.env.ADMIN_APP_ORIGIN,
 	// ngrok tunnel for external device testing.
 	'https://arrased-semiurban-jean.ngrok-free.dev'
 ].filter((value): value is string => Boolean(value));

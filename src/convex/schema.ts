@@ -42,6 +42,25 @@ export default defineSchema({
 		.index('by_username', ['username'])
 		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
 
+	// PRD 5.10 follow-up: the only path that grants `profiles.globalRole = 'admin'` besides the
+	// CLI-only `profiles.setGlobalRole`. An existing admin records an invite for an email; the
+	// invitee claims it (adminInvites.claimAdminInvite) after signing in with a *verified* Better
+	// Auth account whose email matches. Rows are never deleted — accepted/revoked/expired states
+	// are kept as an audit trail of who was granted admin by whom.
+	adminInvites: defineTable({
+		// Normalized (trimmed, lowercased) — matches Better Auth's stored email casing.
+		email: v.string(),
+		// Absent only for bootstrap invites seeded via the CLI (adminInvites.seedInvite),
+		// before any admin exists to do the inviting.
+		invitedByProfileId: v.optional(v.id('profiles')),
+		createdAt: v.number(),
+		expiresAt: v.number(),
+		acceptedAt: v.optional(v.number()),
+		acceptedByProfileId: v.optional(v.id('profiles')),
+		revokedAt: v.optional(v.number()),
+		revokedByProfileId: v.optional(v.id('profiles'))
+	}).index('by_email', ['email']),
+
 	// PRD 5.6: replaces the old `profiles.pendingClubCode`/`pendingRole` mechanism (which deferred
 	// a club join until an onboarding gate — pledge agreement, or under-16 parental consent —
 	// cleared). One row per deferred join intent, keyed by profileId; `source` distinguishes a
