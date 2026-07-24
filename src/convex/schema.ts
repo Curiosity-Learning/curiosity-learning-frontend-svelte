@@ -27,13 +27,6 @@ export default defineSchema({
 		videoUrl: v.optional(v.string()),
 		signUpWith: v.optional(v.union(v.literal('email'), v.literal('google'))),
 		parentProfileId: v.optional(v.id('profiles')),
-		// TRANSITIONAL (same dance as the applicantUserId hotfix pair on main): the old
-		// pendingClubCode/pendingRole mechanism was replaced by pendingClubJoins (PRD 5.6), but
-		// prod profiles still carry pendingRole values, which would fail schema validation at
-		// deploy. Declared here so the deploy lands, then unset by migrateLegacyPendingRole:run
-		// (run once on prod); remove both fields + that migration afterwards.
-		pendingClubCode: v.optional(v.string()),
-		pendingRole: v.optional(v.union(v.literal('Learner'), v.literal('Guide'))),
 		// PRD 5.10: platform-wide capability, orthogonal to club/project roles. Grants access to
 		// the separate /admin route group (CL-693) only — must never be branched on inside normal
 		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).
