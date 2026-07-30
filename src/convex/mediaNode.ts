@@ -74,36 +74,60 @@ const toModerationLabels = (
 			parentName: label.ParentName
 		}));
 
-const buildImageModerator = ({
+const buildImageModerator = ({ client }: { client: S3Client }): MediaImageModerator => {
+	return async ({ bucket, objectKey }) => {
+		try {
+			return await moderateImageWithRekognition({ client, bucket, objectKey });
+		} catch (error) {
+			// The pipeline treats a moderator error as fail-safe (upload allowed,
+			// flagged for human review) without reporting it, so surface it here —
+			// otherwise a misconfiguration silently disables screening entirely.
+			await reportConvexError(error, {
+				area: 'media',
+				operation: 'media:image-moderation',
+				identifiers: { bucket, objectKey }
+			});
+			throw error;
+		}
+	};
+};
+
+const moderateImageWithRekognition = async ({
 	client,
-	rekognitionClient
+	bucket,
+	objectKey
 }: {
 	client: S3Client;
-	rekognitionClient: RekognitionClient;
-}): MediaImageModerator => {
-	return async ({ bucket, objectKey }) => {
-		const response = await client.send(
-			new GetObjectCommand({
-				Bucket: bucket,
-				Key: objectKey,
-				Range: `bytes=0-${REKOGNITION_MAX_IMAGE_BYTES - 1}`
-			})
-		);
+	bucket: string;
+	objectKey: string;
+}): Promise<MediaModerationLabel[]> => {
+	// Constructed lazily so a missing AWS_* environment variable surfaces as
+	// a screening failure (upload allowed, flagged for human review) instead
+	// of aborting processUpload before the pipeline records a single step —
+	// which took down every upload, including videos that never needed
+	// Rekognition at all.
+	const rekognitionClient = createRekognitionClient();
+	const response = await client.send(
+		new GetObjectCommand({
+			Bucket: bucket,
+			Key: objectKey,
+			Range: `bytes=0-${REKOGNITION_MAX_IMAGE_BYTES - 1}`
+		})
+	);
 
-		if (!response.Body) {
-			return [];
-		}
+	if (!response.Body) {
+		return [];
+	}
 
-		const bytes = await response.Body.transformToByteArray();
-		const result = await rekognitionClient.send(
-			new DetectModerationLabelsCommand({
-				Image: { Bytes: bytes },
-				MinConfidence: 40
-			})
-		);
+	const bytes = await response.Body.transformToByteArray();
+	const result = await rekognitionClient.send(
+		new DetectModerationLabelsCommand({
+			Image: { Bytes: bytes },
+			MinConfidence: 40
+		})
+	);
 
-		return toModerationLabels(result.ModerationLabels);
-	};
+	return toModerationLabels(result.ModerationLabels);
 };
 
 type PresignedPostCondition = NonNullable<
@@ -641,8 +665,7 @@ export const processUpload = internalAction({
 				storedSize: storageMetadata?.size ?? null,
 				storedContentType: storageMetadata?.contentType ?? null
 			});
-			const rekognitionClient = createRekognitionClient();
-			const moderateImage = buildImageModerator({ client, rekognitionClient });
+			const moderateImage = buildImageModerator({ client });
 
 			const result = await runMediaPipeline({
 				asset: {
