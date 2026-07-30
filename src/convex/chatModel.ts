@@ -6,7 +6,11 @@ import { isProjectArchived, listAttributedClubIds } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
 export type SendBlockedReason = 'archived' | 'not_participant' | null;
-export type RoomAccess = { canRead: boolean; canSend: boolean; sendBlockedReason: SendBlockedReason };
+export type RoomAccess = {
+	canRead: boolean;
+	canSend: boolean;
+	sendBlockedReason: SendBlockedReason;
+};
 // CL-695/725 CEO review: a chat's actionable state for the chat-list badge (item E).
 // 'action_needed' means the CURRENT viewer specifically has something to decide/do (e.g. a Guide
 // deciding a pending join request, or an applicant with an incomplete application to resume).
@@ -141,7 +145,15 @@ export const getProjectAccess = async (
 // CL-710 CEO review item 4: the chat stays open (sendable) even after the application is decided
 // — accepted or rejected — so the applicant can still reach out to the interviewer for support
 // later. Nothing about a clubApplication room ever blocks sending; only membership (applicant vs.
-// a Guide who reviewed it) gates `canRead`.
+// a Guide who reviewed it, vs. staff) gates `canRead`.
+//
+// Staff (profiles.globalRole === 'admin') get the same read+send access as a reviewer: until
+// peer review is staffed, applications are accepted/declined from the admin portal, and the
+// staff↔applicant conversation happens in this same room — the applicant keeps seeing it in the
+// member app's chat while admins use the portal's UI over the identical rooms/messages data.
+// This deliberately does NOT surface these rooms in the member app's chat list for admins:
+// chat.listRoomSummaries enumerates rooms from the viewer's own memberships/reviews/applications,
+// which an admin qua admin has none of.
 export const getClubApplicationAccess = async (
 	ctx: Ctx,
 	clubApplicationId: Id<'clubApplications'>,
@@ -152,6 +164,11 @@ export const getClubApplicationAccess = async (
 		return { canRead: false, canSend: false, sendBlockedReason: null };
 	}
 	if (application.applicantProfileId === profileId) {
+		return { canRead: true, canSend: true, sendBlockedReason: null };
+	}
+
+	const profile = await ctx.db.get(profileId);
+	if (profile?.globalRole === 'admin') {
 		return { canRead: true, canSend: true, sendBlockedReason: null };
 	}
 

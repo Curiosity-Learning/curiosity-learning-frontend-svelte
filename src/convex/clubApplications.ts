@@ -131,7 +131,7 @@ const assertReadyClubVideo = async (
 // clubs.ts's mirror). Kept as a same-environment (no-CDN-configured) fallback; the real fix is
 // getApplicationVideoDeliveryAsset below, which the client signs through
 // /api/media/refresh the same way club/session/project media already does.
-const resolveApplicationVideoUrl = async (
+export const resolveApplicationVideoUrl = async (
 	ctx: Ctx,
 	application: Doc<'clubApplications'>
 ): Promise<string | null> => {
@@ -568,8 +568,12 @@ export const upsertApplicationReview = mutation({
 // Creates the club and Guide membership for an accepted application. CL-710 CEO review item 3:
 // the interview IS the onboarding call, so this now runs inline from decideApplication's accept
 // branch — there is no separate confirm-onboarding-call step. Guarded by `createdClubId` so a
-// retried/duplicate call is a no-op rather than creating a second club.
-const createClubFromApplication = async (ctx: MutationCtx, application: Doc<'clubApplications'>) => {
+// retried/duplicate call is a no-op rather than creating a second club. Exported for admin.ts's
+// adminDecideApplication (staff decisions from the admin portal share the accept side effects).
+export const createClubFromApplication = async (
+	ctx: MutationCtx,
+	application: Doc<'clubApplications'>
+) => {
 	if (application.createdClubId) {
 		return { clubId: application.createdClubId };
 	}
