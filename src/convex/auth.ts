@@ -68,6 +68,16 @@ const socialProviders =
 			}
 		: undefined;
 
+// Share auth cookies across sibling subdomains (admin split): Google OAuth started on the admin
+// portal sets better-auth's signed state cookie via the admin origin's /api/auth proxy, but
+// Google always calls back on BETTER_AUTH_URL's origin (the member app), which cannot see a
+// host-only admin cookie — every admin OAuth attempt then dies with state_mismatch on the member
+// app's /api/auth/error page, and even a successful callback would set the session cookie on the
+// wrong origin. Set AUTH_COOKIE_DOMAIN (e.g. ".curiositylearning.org") only in deployments where
+// both apps are subdomains of it; leave unset elsewhere — localhost dev needs nothing because
+// cookies ignore ports, so 4174 and 5173 already share them.
+const authCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
+
 const REMEMBERED_SESSION_SECONDS = 60 * 60 * 24 * 30;
 
 const splitNameParts = (name?: string | null) => {
@@ -135,6 +145,16 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 			autoSignInAfterVerification: true
 		},
 		socialProviders,
+		...(authCookieDomain
+			? {
+					advanced: {
+						crossSubDomainCookies: {
+							enabled: true,
+							domain: authCookieDomain
+						}
+					}
+				}
+			: {}),
 		plugins: [
 			emailOTP({
 				otpLength: 6,
