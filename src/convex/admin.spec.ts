@@ -480,3 +480,259 @@ describe('admin.adminApplicationsPipeline', () => {
 		expect(agreeable?.avgScore).toBeCloseTo(7.5);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Staff application review (adminGetApplication / adminMoveToInterview /
+// adminDecideApplication) + admin chat access + interest signups.
+// ---------------------------------------------------------------------------
+
+const seedPendingApplication = async (t: ReturnType<typeof convexTest>) =>
+	t.run(async (ctx) => {
+		const now = Date.now();
+		const applicantProfileId = await ctx.db.insert('profiles', {
+			authUserId: 'applicant-user',
+			username: 'applicant',
+			firstName: 'App',
+			lastName: 'Licant',
+			isVerified: true,
+			firstLoginCompleted: true,
+			updatedAt: now
+		});
+		const applicationId = await ctx.db.insert('clubApplications', {
+			applicantProfileId,
+			status: 'pending',
+			name: 'Braga Curiosity Club',
+			description: 'A great club',
+			location: 'Braga',
+			createdAt: now,
+			updatedAt: now
+		});
+		const roomId = await ctx.db.insert('rooms', {
+			contextType: 'clubApplication',
+			clubApplicationId: applicationId
+		});
+		return { applicantProfileId, applicationId, roomId };
+	});
+
+describe('admin application review', () => {
+	it('rejects non-admin callers on every entry point', async () => {
+		const t = convexTest(schema, modules);
+		await seedProfile(t, 'regular-user');
+		const { applicationId } = await seedPendingApplication(t);
+		const regular = t.withIdentity({ subject: 'regular-user' });
+
+		await expect(regular.query(api.admin.adminGetApplication, { applicationId })).rejects.toThrow(
+			'Not authorized'
+		);
+		await expect(
+			regular.mutation(api.admin.adminMoveToInterview, { applicationId })
+		).rejects.toThrow('Not authorized');
+		await expect(
+			regular.mutation(api.admin.adminDecideApplication, { applicationId, decision: 'accepted' })
+		).rejects.toThrow('Not authorized');
+		await expect(regular.query(api.admin.adminListClubInterestSignups, {})).rejects.toThrow(
+			'Not authorized'
+		);
+	});
+
+	it('returns application detail including the chat room id', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicationId, roomId } = await seedPendingApplication(t);
+
+		const detail = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminGetApplication, { applicationId });
+
+		expect(detail?.status).toBe('pending');
+		expect(detail?.name).toBe('Braga Curiosity Club');
+		expect(detail?.applicant?.name).toBe('App Licant');
+		expect(detail?.roomId).toBe(roomId);
+		expect(detail?.reviews).toHaveLength(0);
+	});
+
+	it('lets an admin move a pending application to interview', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicationId, applicantProfileId } = await seedPendingApplication(t);
+
+		await t
+			.withIdentity({ subject: 'admin-user' })
+			.mutation(api.admin.adminMoveToInterview, { applicationId });
+
+		const { application, notifications } = await t.run(async (ctx) => ({
+			application: await ctx.db.get(applicationId),
+			notifications: await ctx.db.query('notifications').collect()
+		}));
+		expect(application?.status).toBe('interview');
+		expect(application?.movedToInterviewByProfileId).toBe(adminProfileId);
+		expect(
+			notifications.some((notification) => notification.profileId === applicantProfileId)
+		).toBe(true);
+	});
+
+	it('accepts straight from pending: creates the club, guide membership, and system message', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		await seedClubRoles(t);
+		const { applicationId, applicantProfileId, roomId } = await seedPendingApplication(t);
+
+		await t
+			.withIdentity({ subject: 'admin-user' })
+			.mutation(api.admin.adminDecideApplication, { applicationId, decision: 'accepted' });
+
+		const { application, club, membership, messages } = await t.run(async (ctx) => {
+			const applicationDoc = await ctx.db.get(applicationId);
+			const clubDoc = applicationDoc?.createdClubId
+				? await ctx.db.get(applicationDoc.createdClubId)
+				: null;
+			const membershipDoc = applicationDoc?.createdClubId
+				? await ctx.db
+						.query('clubMembers')
+						.withIndex('by_club_and_profile', (q) =>
+							q
+								.eq('clubId', applicationDoc.createdClubId as Id<'clubs'>)
+								.eq('profileId', applicantProfileId)
+						)
+						.first()
+				: null;
+			const messageDocs = await ctx.db
+				.query('messages')
+				.withIndex('by_room', (q) => q.eq('roomId', roomId))
+				.collect();
+			return {
+				application: applicationDoc,
+				club: clubDoc,
+				membership: membershipDoc,
+				messages: messageDocs
+			};
+		});
+
+		expect(application?.status).toBe('accepted');
+		expect(application?.decidedByProfileId).toBe(adminProfileId);
+		expect(club?.name).toBe('Braga Curiosity Club');
+		expect(membership).not.toBeNull();
+		expect(messages.some((message) => message.content.includes('accepted'))).toBe(true);
+	});
+
+	it('rejects with a note: note lands in the chat attributed to the admin', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicationId, roomId } = await seedPendingApplication(t);
+
+		await t.withIdentity({ subject: 'admin-user' }).mutation(api.admin.adminDecideApplication, {
+			applicationId,
+			decision: 'rejected',
+			rejectionNote: 'Not enough learners in the area yet.'
+		});
+
+		const { application, messages } = await t.run(async (ctx) => ({
+			application: await ctx.db.get(applicationId),
+			messages: await ctx.db
+				.query('messages')
+				.withIndex('by_room', (q) => q.eq('roomId', roomId))
+				.collect()
+		}));
+
+		expect(application?.status).toBe('rejected');
+		expect(application?.rejectionNote).toBe('Not enough learners in the area yet.');
+		expect(
+			messages.some(
+				(message) =>
+					message.profileId === adminProfileId &&
+					message.content === 'Not enough learners in the area yet.'
+			)
+		).toBe(true);
+		expect(messages.some((message) => !message.profileId)).toBe(true);
+	});
+
+	it('refuses to decide an already-decided application', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicationId } = await seedPendingApplication(t);
+		await t.run((ctx) => ctx.db.patch(applicationId, { status: 'rejected' }));
+
+		await expect(
+			t.withIdentity({ subject: 'admin-user' }).mutation(api.admin.adminDecideApplication, {
+				applicationId,
+				decision: 'accepted'
+			})
+		).rejects.toThrow('not awaiting a decision');
+	});
+});
+
+describe('admin chat access to application rooms', () => {
+	it('admin can read and send in an application chat; a random user cannot', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		await seedProfile(t, 'random-user');
+		const { roomId } = await seedPendingApplication(t);
+
+		const admin = t.withIdentity({ subject: 'admin-user' });
+		await admin.mutation(api.chat.sendMessage, {
+			roomId,
+			content: 'Hi! We had a look at your application.'
+		});
+		const listed = await admin.query(api.chat.listMessages, { roomId });
+		expect(listed.messages.some((m) => m.content.includes('had a look'))).toBe(true);
+
+		await expect(
+			t.withIdentity({ subject: 'random-user' }).query(api.chat.listMessages, { roomId })
+		).rejects.toThrow('cannot access');
+	});
+
+	it('the applicant sees the admin message in their own chat surface', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { roomId } = await seedPendingApplication(t);
+
+		await t.withIdentity({ subject: 'admin-user' }).mutation(api.chat.sendMessage, {
+			roomId,
+			content: 'Hello from the Curiosity team!'
+		});
+
+		const applicantView = await t
+			.withIdentity({ subject: 'applicant-user' })
+			.query(api.chat.listMessages, { roomId });
+		expect(applicantView.messages.some((m) => m.content === 'Hello from the Curiosity team!')).toBe(
+			true
+		);
+	});
+});
+
+describe('admin.adminListClubInterestSignups', () => {
+	it('lists signups newest-first for an admin', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		await t.run(async (ctx) => {
+			await ctx.db.insert('clubInterestSignups', {
+				email: 'older@example.com',
+				location: 'Porto',
+				createdAt: 1000,
+				updatedAt: 1000
+			});
+			await ctx.db.insert('clubInterestSignups', {
+				email: 'newer@example.com',
+				location: 'Braga',
+				createdAt: 2000,
+				updatedAt: 2000
+			});
+		});
+
+		const signups = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminListClubInterestSignups, {});
+
+		expect(signups).toHaveLength(2);
+		expect(signups[0].email).toBe('newer@example.com');
+		expect(signups[1].location).toBe('Porto');
+	});
+});
