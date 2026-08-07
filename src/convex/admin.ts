@@ -6,6 +6,7 @@ import { getClubRoleByKey, requireGlobalAdmin, requireProfile } from './permissi
 import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
 import { createClubFromApplication, resolveApplicationVideoUrl } from './clubApplications';
+import { getAuthUserEmail } from './authEmail';
 
 // ---------------------------------------------------------------------------
 // CL-732: Admin Operations Dashboard (PRD 6.14.1-6.14.3).
@@ -339,6 +340,7 @@ export type ApplicationPipelineItem = {
 	applicationId: Id<'clubApplications'>;
 	name: string;
 	applicantName: string | null;
+	applicantEmail: string | null;
 	clubName: string | null;
 	status: Doc<'clubApplications'>['status'];
 	createdAt: number;
@@ -400,6 +402,10 @@ export const adminApplicationsPipeline = query({
 				applicationId: application._id,
 				name: application.name,
 				applicantName: applicantProfile ? profileDisplayName(applicantProfile) : null,
+				// Auth email (Better Auth user record) — staff reach applicants outside the app too.
+				applicantEmail: applicantProfile
+					? await getAuthUserEmail(ctx, applicantProfile.authUserId)
+					: null,
 				clubName: await getClubName(ctx, application.createdClubId),
 				status: application.status,
 				createdAt: application.createdAt,
@@ -569,7 +575,8 @@ export const adminGetApplication = query({
 				? {
 						profileId: applicantProfile._id,
 						name: profileDisplayName(applicantProfile),
-						username: applicantProfile.username ?? null
+						username: applicantProfile.username ?? null,
+						email: await getAuthUserEmail(ctx, applicantProfile.authUserId)
 					}
 				: null,
 			clubName: await getClubName(ctx, application.createdClubId),

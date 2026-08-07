@@ -1,10 +1,31 @@
 import { convexTest } from 'convex-test';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
+
+// The betterAuth component is not available in convex-test, so the auth-email lookup module is
+// mocked with a fixed map — same pattern as adminInvites.spec.ts / parentAccounts.spec.ts.
+const { authEmailByUserId } = vi.hoisted(() => ({
+	authEmailByUserId: new Map<string, string>([['applicant-user', 'applicant@example.com']])
+}));
+
+vi.mock('./authEmail', () => ({
+	getAuthUserEmail: async (_ctx: unknown, authUserId: string) =>
+		authEmailByUserId.get(authUserId) ?? null,
+	getAuthUserEmailInfo: async (_ctx: unknown, authUserId: string) => {
+		const email = authEmailByUserId.get(authUserId);
+		return email ? { email, emailVerified: true, name: null } : null;
+	},
+	getAuthUserIdByEmail: async (_ctx: unknown, email: string) => {
+		for (const [authUserId, candidate] of authEmailByUserId) {
+			if (candidate === email) return authUserId;
+		}
+		return null;
+	}
+}));
 
 const seedProfile = async (
 	t: ReturnType<typeof convexTest>,
@@ -548,6 +569,7 @@ describe('admin application review', () => {
 		expect(detail?.status).toBe('pending');
 		expect(detail?.name).toBe('Braga Curiosity Club');
 		expect(detail?.applicant?.name).toBe('App Licant');
+		expect(detail?.applicant?.email).toBe('applicant@example.com');
 		expect(detail?.roomId).toBe(roomId);
 		expect(detail?.reviews).toHaveLength(0);
 	});
