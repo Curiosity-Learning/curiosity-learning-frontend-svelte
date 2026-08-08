@@ -39,6 +39,19 @@
 
 	onMount(() => {
 		clearOnboardingFlowState();
+
+		const desktopQuery = window.matchMedia('(min-width: 1024px)');
+		const syncDesktopLock = () => {
+			document.documentElement.classList.toggle('get-started-lock', desktopQuery.matches);
+		};
+
+		syncDesktopLock();
+		desktopQuery.addEventListener('change', syncDesktopLock);
+
+		return () => {
+			desktopQuery.removeEventListener('change', syncDesktopLock);
+			document.documentElement.classList.remove('get-started-lock');
+		};
 	});
 </script>
 
@@ -46,8 +59,8 @@
 	<title>{$_('common.appName')}</title>
 </svelte:head>
 
-<svg class="chalk-filter-definition" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true">
-	<filter id="chalk" x="-5%" y="-5%" width="110%" height="110%">
+<svg class="chalk-defs" xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true">
+	<filter id="chalk" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
 		<feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="5" result="wobble" />
 		<feDisplacementMap
 			in="SourceGraphic"
@@ -68,43 +81,34 @@
 	</filter>
 </svg>
 
-<div class="flex flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-8">
-	<section
-		class="relative mx-auto flex w-full max-w-7xl flex-col overflow-visible px-1 py-2 sm:px-2 sm:py-3 lg:min-h-[calc(100dvh-4rem)] lg:px-0 lg:py-0"
-	>
-		<div class="chalk-filter pointer-events-none absolute top-24 left-0 h-48 w-16 rotate-12 rounded-[100%] bg-[#f5a7b8]/55 blur-[1px]"></div>
-		<div class="chalk-filter pointer-events-none absolute top-24 right-3 size-28 text-yellow-400/90 sm:right-9 sm:size-36">
+<div class="get-started">
+	<div class="get-started__decor" aria-hidden="true">
+		<div class="get-started__blob get-started__blob--pink"></div>
+		<div class="chalk-filter get-started__blob get-started__blob--sun">
 			<div class="doodle-sun"></div>
 		</div>
-		<div class="chalk-filter pointer-events-none absolute top-48 right-0 hidden size-40 rounded-[46%] bg-green-600/75 lg:block"></div>
-		<div class="chalk-filter pointer-events-none absolute bottom-56 left-[38%] hidden h-4 w-20 rotate-[-18deg] rounded-full border-4 border-green-600/80 border-r-0 border-l-0 lg:block"></div>
+		<div class="chalk-filter get-started__blob get-started__blob--green"></div>
+		<div class="chalk-filter get-started__blob get-started__blob--stroke"></div>
+	</div>
 
-		<header class="relative z-10 flex items-center justify-between gap-4">
+	<div class="get-started__frame">
+		<header class="get-started__header">
 			<a href={routes.onboardingGetStarted} aria-label={$_('common.appName')} class="shrink-0">
-				<img src="/brand/curiosity-learning-logo.png" alt={$_('common.appName')} class="h-9 w-auto" />
+				<img
+					src="/brand/curiosity-learning-logo.png"
+					alt={$_('common.appName')}
+					class="h-9 w-auto"
+				/>
 			</a>
-
-			<nav aria-label="Get started" class="flex items-center gap-2 sm:gap-3">
-				<Button
-					href={routes.onboardingJoinClub}
-					size="lg"
-					class="px-4"
-				>
-					{$_('onboarding.getStarted.joinClub')}
-				</Button>
-				<Button href={routes.onboardingStartClub} variant="outline" size="lg" class="hidden px-4 sm:inline-flex">
-					{$_('onboarding.getStarted.startClub')}
-				</Button>
-			</nav>
 		</header>
 
-		<div class="relative z-10 grid gap-8 pt-16 pb-10 sm:pt-20 sm:pb-12 lg:flex-1 lg:grid-cols-2 lg:items-center lg:gap-12 lg:py-4">
-			<div class="flex w-full flex-col items-center gap-6 text-center lg:items-start lg:text-left">
-				<div class="flex w-full flex-col gap-4">
+		<section class="get-started__hero">
+			<div class="get-started__copy">
+				<div class="flex w-full flex-col gap-3 sm:gap-4">
 					<h1 class="hero-title text-neutral-black">
 						{$_('onboarding.getStarted.subtitle')}
 					</h1>
-					<p class="w-full text-lg leading-7 text-gray-700 sm:text-xl sm:leading-8">
+					<p class="w-full text-lg leading-7 text-gray-700 sm:text-xl sm:leading-8 lg:text-lg lg:leading-7">
 						{$_('onboarding.getStarted.kicker')}
 					</p>
 				</div>
@@ -127,41 +131,59 @@
 				</div>
 			</div>
 
-			<div class="relative hidden min-h-[31rem] min-w-[26rem] items-end justify-center lg:flex">
-				<div class="chalk-filter absolute bottom-8 left-4 size-10 rounded-full bg-yellow-400/85 sm:left-10"></div>
-				<div class="chalk-filter absolute bottom-2 right-16 size-9 rounded-full bg-purple-500/75"></div>
-				<div class="chalk-filter absolute top-8 left-10 hidden h-5 w-14 rotate-[-18deg] rounded-full border-4 border-green-700/80 border-r-0 border-l-0 sm:block"></div>
+			<div class="get-started__art">
+				<div class="chalk-filter get-started__art-dot get-started__art-dot--yellow"></div>
+				<div class="chalk-filter get-started__art-dot get-started__art-dot--purple"></div>
+				<div class="chalk-filter get-started__art-stroke"></div>
 
 				<img
 					src={onboardingIllustration}
 					alt={$_('onboarding.getStarted.illustrationAlt')}
-					class="chalk-filter relative z-10 h-auto w-full max-w-[42rem] object-contain drop-shadow-[0_16px_26px_rgba(67,45,23,0.12)]"
+					class="get-started__illustration"
 				/>
 			</div>
-		</div>
+		</section>
 
-		<div class="relative z-10 grid gap-5 pt-6 pb-1 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8 lg:pt-0">
+		<footer class="get-started__footer">
 			{#each featureCards as feature (feature.titleKey)}
-				<div class="flex flex-col items-center gap-3 text-center">
+				{@const Icon = feature.icon}
+				<div class="get-started__feature">
 					<div class={`feature-icon feature-icon--${feature.tone}`}>
 						<svg class="chalk-filter feature-icon-background" viewBox="0 0 60 60" aria-hidden="true">
 							<circle cx="30" cy="30" r="28" />
 						</svg>
-						<svelte:component this={feature.icon} class="chalk-filter relative z-10 size-8" />
+						<Icon class="chalk-filter relative z-10 size-8" />
 					</div>
 					<div class="flex flex-col gap-1.5">
 						<h2 class="text-lg leading-6 text-green-700">{$_(feature.titleKey)}</h2>
-						<p class="text-sm leading-6 text-gray-600">{$_(feature.descriptionKey)}</p>
+						<p class="text-sm leading-6 text-gray-600 lg:leading-5">{$_(feature.descriptionKey)}</p>
 					</div>
 				</div>
 			{/each}
-		</div>
-	</section>
+		</footer>
+	</div>
 </div>
 
 <style>
-	.chalk-filter-definition {
+	/* Desktop-only: stop document rubber-banding while this page is mounted. */
+	:global(html.get-started-lock),
+	:global(html.get-started-lock body) {
+		height: 100%;
+		overflow: hidden;
+		overscroll-behavior: none;
+	}
+
+	:global(html.get-started-lock #main-content),
+	:global(html.get-started-lock #main-content > .app-texture-background) {
+		height: 100%;
+		overflow: hidden;
+	}
+
+	.chalk-defs {
 		position: absolute;
+		width: 0;
+		height: 0;
+		overflow: hidden;
 		pointer-events: none;
 	}
 
@@ -169,17 +191,298 @@
 		filter: url('#chalk');
 	}
 
+	.get-started {
+		position: relative;
+		isolation: isolate;
+		box-sizing: border-box;
+		min-height: 100dvh;
+		overflow-x: clip;
+		padding: 1rem;
+	}
+
+	@media (min-width: 640px) {
+		.get-started {
+			padding: 1.5rem;
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.get-started {
+			height: 100dvh;
+			max-height: 100dvh;
+			overflow: clip;
+			overscroll-behavior: none;
+			padding: 1.25rem 3rem;
+		}
+	}
+
+	.get-started__decor {
+		position: absolute;
+		inset: 0;
+		overflow: clip;
+		pointer-events: none;
+	}
+
+	.get-started__blob--pink {
+		position: absolute;
+		top: 6rem;
+		left: 1rem;
+		width: 4rem;
+		height: 12rem;
+		rotate: 12deg;
+		border-radius: 100%;
+		background: rgb(245 167 184 / 0.55);
+		filter: url('#chalk') blur(1px);
+	}
+
+	.get-started__blob--sun {
+		position: absolute;
+		top: 6rem;
+		right: 1.75rem;
+		width: 7rem;
+		height: 7rem;
+		color: rgb(250 204 21 / 0.9);
+	}
+
+	.get-started__blob--green {
+		position: absolute;
+		top: 12rem;
+		right: 1rem;
+		display: none;
+		width: 10rem;
+		height: 10rem;
+		border-radius: 46%;
+		background: rgb(22 163 74 / 0.75);
+	}
+
+	.get-started__blob--stroke {
+		position: absolute;
+		bottom: 14rem;
+		left: 38%;
+		display: none;
+		width: 5rem;
+		height: 1rem;
+		rotate: -18deg;
+		border-radius: 9999px;
+		border: 4px solid rgb(22 163 74 / 0.8);
+		border-right: 0;
+		border-left: 0;
+	}
+
+	@media (min-width: 640px) {
+		.get-started__blob--sun {
+			right: 3rem;
+			width: 9rem;
+			height: 9rem;
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.get-started__blob--pink {
+			left: 3rem;
+		}
+
+		.get-started__blob--sun {
+			right: 4rem;
+		}
+
+		.get-started__blob--green,
+		.get-started__blob--stroke {
+			display: block;
+		}
+	}
+
+	.get-started__frame {
+		position: relative;
+		z-index: 10;
+		display: grid;
+		width: 100%;
+		max-width: 80rem;
+		min-height: inherit;
+		margin-inline: auto;
+		gap: 0;
+	}
+
+	@media (min-width: 1024px) {
+		.get-started__frame {
+			height: 100%;
+			min-height: 0;
+			grid-template-rows: auto minmax(0, 1fr) auto;
+		}
+	}
+
+	.get-started__header {
+		display: flex;
+		align-items: center;
+	}
+
+	.get-started__hero {
+		display: grid;
+		gap: 2rem;
+		padding-block: 4rem 2.5rem;
+	}
+
+	@media (min-width: 640px) {
+		.get-started__hero {
+			padding-block: 5rem 3rem;
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.get-started__hero {
+			height: 100%;
+			min-height: 0;
+			grid-template-columns: 1fr 1fr;
+			align-items: center;
+			gap: 2.5rem;
+			overflow: clip;
+			padding-block: 0.75rem;
+		}
+	}
+
+	.get-started__copy {
+		display: flex;
+		width: 100%;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.5rem;
+		text-align: center;
+	}
+
+	@media (min-width: 1024px) {
+		.get-started__copy {
+			align-items: flex-start;
+			gap: 1.25rem;
+			text-align: left;
+		}
+	}
+
+	.get-started__art {
+		position: relative;
+		display: none;
+		width: 100%;
+		min-height: 0;
+		align-items: flex-end;
+		justify-content: center;
+		overflow: clip;
+	}
+
+	@media (min-width: 1024px) {
+		.get-started__art {
+			display: flex;
+			height: 100%;
+			max-height: 100%;
+		}
+	}
+
+	.get-started__art-dot,
+	.get-started__art-stroke {
+		position: absolute;
+	}
+
+	.get-started__art-dot--yellow {
+		bottom: 2rem;
+		left: 1rem;
+		width: 2.5rem;
+		height: 2.5rem;
+		border-radius: 9999px;
+		background: rgb(250 204 21 / 0.85);
+	}
+
+	.get-started__art-dot--purple {
+		right: 4rem;
+		bottom: 0.5rem;
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: 9999px;
+		background: rgb(168 85 247 / 0.75);
+	}
+
+	.get-started__art-stroke {
+		top: 2rem;
+		left: 2.5rem;
+		display: none;
+		width: 3.5rem;
+		height: 1.25rem;
+		rotate: -18deg;
+		border-radius: 9999px;
+		border: 4px solid rgb(21 128 61 / 0.8);
+		border-right: 0;
+		border-left: 0;
+	}
+
+	@media (min-width: 640px) {
+		.get-started__art-dot--yellow {
+			left: 2.5rem;
+		}
+
+		.get-started__art-stroke {
+			display: block;
+		}
+	}
+
+	.get-started__illustration {
+		position: relative;
+		z-index: 10;
+		width: 100%;
+		max-width: 42rem;
+		height: auto;
+		max-height: min(28rem, 42dvh);
+		object-fit: contain;
+		filter: url('#chalk') drop-shadow(0 16px 26px rgba(67, 45, 23, 0.12));
+	}
+
+	@media (min-width: 1280px) {
+		.get-started__illustration {
+			max-height: min(34rem, 48dvh);
+		}
+	}
+
+	.get-started__footer {
+		display: grid;
+		gap: 1.25rem;
+		padding-block: 1.5rem 0.25rem;
+	}
+
+	@media (min-width: 640px) {
+		.get-started__footer {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.get-started__footer {
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+			gap: 1.5rem;
+			padding-block: 1rem 0;
+		}
+	}
+
+	.get-started__feature {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+		text-align: center;
+	}
+
+	@media (min-width: 1024px) {
+		.get-started__feature {
+			gap: 0.5rem;
+		}
+	}
+
 	.hero-title {
 		font-family: var(--font-family-heading-h1);
-		font-size: clamp(3.5rem, 8vw, 6.75rem);
+		font-size: clamp(3.25rem, 7vw, 5.5rem);
 		line-height: 0.9;
 		font-weight: 400;
 		text-wrap: balance;
 	}
 
-	@media (min-width: 768px) and (max-width: 1279px) {
+	@media (max-width: 639px) {
 		.hero-title {
-			font-size: clamp(3.75rem, 6vw, 5.25rem);
+			font-size: clamp(3.5rem, 12vw, 4.5rem);
 		}
 	}
 
