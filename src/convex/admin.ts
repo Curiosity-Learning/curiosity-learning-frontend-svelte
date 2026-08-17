@@ -5,7 +5,7 @@ import type { QueryCtx } from './_generated/server';
 import { getClubRoleByKey, requireGlobalAdmin, requireProfile } from './permissions';
 import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
-import { createClubFromApplication, resolveApplicationVideoUrl } from './clubApplications';
+import { applicationHasReadyVideo, createClubFromApplication } from './clubApplications';
 import { getAuthUserEmail } from './authEmail';
 
 // ---------------------------------------------------------------------------
@@ -581,10 +581,10 @@ export const adminGetApplication = query({
 				: null,
 			clubName: await getClubName(ctx, application.createdClubId),
 			createdClubId: application.createdClubId ?? null,
-			// Direct storage URL (see clubApplications.resolveApplicationVideoUrl's caveat: in
-			// environments with private buckets + CDN signing this can 403; the admin portal has no
-			// signed-delivery proxy yet, and current production serves direct URLs).
-			videoUrl: await resolveApplicationVideoUrl(ctx, application),
+			// Whether a ready video exists. The admin portal fetches the playable URL separately via
+			// clubApplicationsNode.getApplicationVideoSignedUrl — a direct storage URL here would 403
+			// in any environment with secure media delivery (private bucket + CloudFront signing).
+			hasVideo: await applicationHasReadyVideo(ctx, application),
 			roomId: room?._id ?? null,
 			reviews
 		};
