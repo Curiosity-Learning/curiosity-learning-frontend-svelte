@@ -396,6 +396,28 @@ export const getMyIncompleteApplication = query({
 	}
 });
 
+// Applicant-initiated support channel for an in-progress (incomplete) application: historically
+// the chat room only came into existence at submission (submitApplication above), which left
+// applicants stuck mid-wizard — e.g. on a failing video upload — with no way to reach staff.
+// Idempotent via ensureClubApplicationRoom; the room carries over to submission unchanged (same
+// application row, same room), and access/chat-list/rendering already handle incomplete
+// applications (getClubApplicationAccess and chat.listRoomSummaries never check status).
+// Staff-initiated counterpart: admin.ts's adminEnsureApplicationRoom.
+export const ensureMyApplicationRoom = mutation({
+	args: {},
+	returns: v.object({ roomId: v.id('rooms') }),
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const application = await getLatestIncompleteApplication(ctx, profile._id);
+		if (!application) {
+			throw new ConvexError('No application in progress');
+		}
+		const roomId = await ensureClubApplicationRoom(ctx, application._id);
+		return { roomId };
+	}
+});
+
 // CL-690 CEO review item F: enriched with the application's chat roomId (null until submission
 // creates one — see ensureClubApplicationRoom in submitApplication) so the no-club page can link
 // straight to the chat instead of just the generic chat list.

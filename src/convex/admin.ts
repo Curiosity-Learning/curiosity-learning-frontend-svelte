@@ -591,6 +591,27 @@ export const adminGetApplication = query({
 	}
 });
 
+// Staff-initiated chat with an applicant whose application is still incomplete — e.g. to nudge
+// them to finish, or help with a failing video upload. Rooms historically only existed from
+// submission onward; this creates one on demand (idempotent), and the applicant's app picks it up
+// automatically (chat.listRoomSummaries enumerates all own applications regardless of status).
+// Applicant-initiated counterpart: clubApplications.ensureMyApplicationRoom.
+export const adminEnsureApplicationRoom = mutation({
+	args: {
+		applicationId: v.id('clubApplications')
+	},
+	returns: v.object({ roomId: v.id('rooms') }),
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		const roomId = await ensureClubApplicationRoom(ctx, application._id);
+		return { roomId };
+	}
+});
+
 export const adminMoveToInterview = mutation({
 	args: {
 		applicationId: v.id('clubApplications')

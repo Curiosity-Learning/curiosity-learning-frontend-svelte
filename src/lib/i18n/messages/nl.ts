@@ -528,6 +528,8 @@ const nl = {
 			videoUploading: 'Je video wordt geüpload...',
 			videoDropPrompt: 'Sleep een video hierheen of kies er een',
 			videoRequirements: 'MP4, MOV, WEBM of M4V tot 100 MB.',
+			needHelp: 'Lukt het niet met je aanvraag?',
+			messageUs: 'Stuur ons een bericht',
 			videoRequired: 'Upload een video voordat je je aanmelding verzendt.',
 			videoUploadingStatus: 'Video uploaden...',
 			videoUploadedStatus: 'Video geüpload',
@@ -737,6 +739,8 @@ const nl = {
 		emptyState: 'Je hebt nog geen lidmaatschapsverzoek of Start Club-aanvraag ingediend.',
 		openChat: 'Open chat',
 		resumeApplication: 'Aanvraag hervatten',
+		messageUs: 'Stuur ons een bericht',
+		messageUsFailure: 'Kan de chat niet openen. Probeer het opnieuw.',
 		startKindLabel: 'Start Club-aanvraag',
 		joinKindLabel: 'Lidmaatschapsverzoek'
 	},
