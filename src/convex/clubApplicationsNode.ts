@@ -33,7 +33,9 @@ export const getApplicationVideoSignedUrl = action({
 			expiresAt: v.union(v.number(), v.null())
 		})
 	),
-	handler: async (ctx, args) => {
+	// The explicit return annotation breaks the type cycle created by referencing `api` (whose
+	// type includes this module) inside the handler.
+	handler: async (ctx, args): Promise<{ url: string; expiresAt: number | null } | null> => {
 		const asset = await ctx.runQuery(api.clubApplications.getApplicationVideoDeliveryAsset, {
 			applicationId: args.applicationId
 		});
