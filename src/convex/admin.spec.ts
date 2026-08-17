@@ -572,6 +572,7 @@ describe('admin application review', () => {
 		expect(detail?.applicant?.email).toBe('applicant@example.com');
 		expect(detail?.roomId).toBe(roomId);
 		expect(detail?.reviews).toHaveLength(0);
+		expect(detail?.hasVideo).toBe(false);
 	});
 
 	it('lets an admin move a pending application to interview', async () => {

@@ -161,9 +161,7 @@ describe('application decision pipeline', () => {
 				.withIndex('by_profile', (q) => q.eq('profileId', applicantProfileId))
 				.collect()
 		);
-		expect(notifications.some((n) => n.title === 'Your application moved to interview')).toBe(
-			true
-		);
+		expect(notifications.some((n) => n.title === 'Your application moved to interview')).toBe(true);
 	});
 
 	it('rejects moving a non-pending application to interview', async () => {
@@ -462,9 +460,12 @@ describe('getApplicationVideoDeliveryAsset', () => {
 		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
 		await addReview(t, applicationId, reviewerProfileId);
 
-		const asApplicant = await applicant.query(api.clubApplications.getApplicationVideoDeliveryAsset, {
-			applicationId
-		});
+		const asApplicant = await applicant.query(
+			api.clubApplications.getApplicationVideoDeliveryAsset,
+			{
+				applicationId
+			}
+		);
 		expect(asApplicant).toMatchObject({
 			assetId: videoMediaAssetId,
 			storageProvider: 's3',
@@ -484,7 +485,8 @@ describe('getApplicationVideoDeliveryAsset', () => {
 	});
 
 	it('resolves a delivery asset for a Guide assigned to review it, before they have reviewed', async () => {
-		const { otherReviewer, otherReviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		const { otherReviewer, otherReviewerProfileId, applicationId, t } =
+			await seedApplicationFixture();
 		const videoMediaAssetId = await insertBragaLikeVideoAsset(t, 'applicant-user');
 		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
 		const now = Date.now();
@@ -510,6 +512,32 @@ describe('getApplicationVideoDeliveryAsset', () => {
 			{ applicationId }
 		);
 		expect(asAssignedReviewer).toMatchObject({ assetId: videoMediaAssetId });
+	});
+
+	it('resolves a delivery asset for a global admin (staff review from the admin portal)', async () => {
+		const { applicationId, t } = await seedApplicationFixture();
+		const videoMediaAssetId = await insertBragaLikeVideoAsset(t, 'applicant-user');
+		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
+		const adminProfileId = await t.run((ctx) =>
+			ctx.db.insert('profiles', {
+				authUserId: 'admin-user',
+				username: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			})
+		);
+		await t.run((ctx) =>
+			ctx.runMutation(internal.profiles.setGlobalRole, {
+				profileId: adminProfileId,
+				globalRole: 'admin'
+			})
+		);
+
+		const asAdmin = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.clubApplications.getApplicationVideoDeliveryAsset, { applicationId });
+		expect(asAdmin).toMatchObject({ assetId: videoMediaAssetId, mediaKind: 'video' });
 	});
 
 	it('denies a Guide with no assignment and no review', async () => {
