@@ -582,6 +582,44 @@ describe('listMyApplications', () => {
 	});
 });
 
+// Applicant-initiated support chat for an in-progress application (pre-submission), so someone
+// stuck mid-wizard — e.g. on a failing video upload — can reach staff.
+describe('ensureMyApplicationRoom', () => {
+	it('creates the room for an incomplete application, idempotently, and the applicant can chat', async () => {
+		const { applicant, applicationId, t } = await seedApplicationFixture();
+		await t.run((ctx) => ctx.db.patch(applicationId, { status: 'incomplete' }));
+
+		const first = await applicant.mutation(api.clubApplications.ensureMyApplicationRoom, {});
+		const second = await applicant.mutation(api.clubApplications.ensureMyApplicationRoom, {});
+		expect(second.roomId).toBe(first.roomId);
+
+		const room = await t.run((ctx) => ctx.db.get(first.roomId));
+		expect(room).toMatchObject({
+			contextType: 'clubApplication',
+			clubApplicationId: applicationId
+		});
+
+		const message = await applicant.mutation(api.chat.sendMessage, {
+			roomId: first.roomId,
+			content: 'My video upload keeps failing — help?'
+		});
+		expect(message?.content).toBe('My video upload keeps failing — help?');
+
+		const summaries = await applicant.query(api.chat.listRoomSummaries, {});
+		expect(summaries.some((summary: { roomId: string }) => summary.roomId === first.roomId)).toBe(
+			true
+		);
+	});
+
+	it('throws when the user has no incomplete application', async () => {
+		// The fixture's application is 'pending' — submitted, not in progress.
+		const { applicant } = await seedApplicationFixture();
+		await expect(
+			applicant.mutation(api.clubApplications.ensureMyApplicationRoom, {})
+		).rejects.toThrow('No application in progress');
+	});
+});
+
 // CL-695/725 CEO review items A and E: the chat member overview and the chat-list
 // open/action-needed/closed badge for clubApplication rooms.
 describe('clubApplication chat overview and action state', () => {
