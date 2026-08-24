@@ -7,12 +7,13 @@ import type { GenericDataModel } from 'convex/server';
 import { ConvexError, v } from 'convex/values';
 import { components, internal } from './_generated/api';
 import { mutation, query } from './_generated/server';
+import type { MutationCtx } from './_generated/server';
 import authConfig from './auth.config';
 import { sendEmail } from './email/resend';
 import { passwordResetEmail, verificationOtpEmail } from './email/templates';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 import { setPendingClubJoin } from './pendingClubJoinsModel';
-import { sanitizeUsernameFromEmail } from './usernameValidator';
+import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
 import { autoCreateJoinRequestFromNextPath } from './joinRequests';
 
 export const authComponent = createClient(components.betterAuth);
@@ -100,6 +101,28 @@ const splitNameParts = (name?: string | null) => {
 const normalizeUsername = (value?: string | null) => {
 	const normalized = value?.trim().toLowerCase() ?? '';
 	return normalized.length > 0 ? normalized : undefined;
+};
+
+// Mirrors clubs.ts resolveUniqueUsername: suffixes an email-derived username until it is free of
+// conflicts, keeping candidates within MAX_USERNAME_LENGTH. Returns undefined when 2–99 are all
+// taken; callers then leave the username for the user to pick in post-signup.
+const findAvailableUsernameVariant = async (
+	ctx: MutationCtx,
+	authUserId: string,
+	base: string
+): Promise<string | undefined> => {
+	for (let suffix = 2; suffix <= 99; suffix += 1) {
+		const suffixText = String(suffix);
+		const candidate = `${base.slice(0, MAX_USERNAME_LENGTH - suffixText.length)}${suffixText}`;
+		const match = await ctx.db
+			.query('profiles')
+			.withIndex('by_username', (q) => q.eq('username', candidate))
+			.first();
+		if (!match || getProfileAuthUserId(match) === authUserId) {
+			return candidate;
+		}
+	}
+	return undefined;
 };
 
 // PRD 5.6: extracts a pending code-join intent from the post-auth `next` redirect path. Resolved
@@ -403,13 +426,19 @@ export const completeSignupProfile = mutation({
 
 		const existing = await getProfileByAuthUserId(ctx, authUser._id);
 
+		let resolvedUsername = desiredUsername;
 		if (desiredUsername) {
 			const conflicting = await ctx.db
 				.query('profiles')
 				.withIndex('by_username', (q) => q.eq('username', desiredUsername))
 				.first();
 			if (conflicting && getProfileAuthUserId(conflicting) !== authUser._id) {
-				throw new ConvexError('Username is already taken');
+				if (normalizedUsername) {
+					throw new ConvexError('Username is already taken');
+				}
+				// The conflicting name is only an email-derived default the user never chose —
+				// pick a suffixed variant instead of failing the whole signup flow.
+				resolvedUsername = await findAvailableUsernameVariant(ctx, authUser._id, desiredUsername);
 			}
 		}
 
@@ -418,7 +447,9 @@ export const completeSignupProfile = mutation({
 			firstName: existing?.firstName ?? firstName,
 			lastName: existing?.lastName ?? lastName,
 			coverPhotoUrl: existing?.coverPhotoUrl ?? authUser.image ?? undefined,
-			username: desiredUsername,
+			// A patched undefined would REMOVE an already-stored username (Convex patch
+			// semantics), so keep the existing one when no new value was resolved.
+			username: resolvedUsername ?? existing?.username,
 			signUpWith: args.signUpWith,
 			dateOfBirth: args.dateOfBirth ?? existing?.dateOfBirth,
 			updatedAt: now
@@ -452,14 +483,14 @@ export const completeSignupProfile = mutation({
 		// the join request they intended to send instead of requiring a second tap.
 		await autoCreateJoinRequestFromNextPath(ctx, args.nextPath, profileId);
 
-		if (desiredUsername && desiredUsername !== authUsername) {
+		if (resolvedUsername && resolvedUsername !== authUsername) {
 			await ctx.runMutation(components.betterAuth.adapter.updateOne, {
 				input: {
 					model: 'user',
 					where: [{ field: '_id', value: authUser._id }],
 					update: {
-						username: desiredUsername,
-						displayUsername: desiredUsername,
+						username: resolvedUsername,
+						displayUsername: resolvedUsername,
 						updatedAt: now
 					}
 				}

@@ -5,7 +5,7 @@
 
 const USERNAME_PATTERN = /^[a-z0-9_]+$/;
 const MIN_USERNAME_LENGTH = 3;
-const MAX_USERNAME_LENGTH = 30;
+export const MAX_USERNAME_LENGTH = 30;
 
 export const isValidUsername = (username: string): boolean => {
 	if (!username) return false;
