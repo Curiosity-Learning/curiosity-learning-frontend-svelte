@@ -12,7 +12,11 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { InputField } from '$lib/components/app/form';
-	import { getUsernameValidationError, normalizeUsername } from '$lib/auth/username';
+	import {
+		getUsernameValidationError,
+		normalizeUsername,
+		sanitizeUsernameSuggestion
+	} from '$lib/auth/username';
 	import { createDebouncedLookup } from '$lib/forms/debounced-lookup';
 	import { _, t } from '$lib/i18n';
 	import { createMediaField } from '$lib/media/media-field.svelte';
@@ -178,7 +182,7 @@
 		if (!profileResponse.data) return;
 		usernamePrefilled = true;
 		if (!username.trim()) {
-			username = profileResponse.data.username ?? '';
+			username = sanitizeUsernameSuggestion(profileResponse.data.username ?? '');
 		}
 	});
 

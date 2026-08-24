@@ -21,6 +21,7 @@ import {
 } from './permissions';
 import { authComponent } from './auth';
 import { ensureClubRoom } from './chatModel';
+import { sanitizeUsernameFromEmail } from './usernameValidator';
 import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsModel';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
@@ -252,7 +253,7 @@ const resolveUniqueUsername = async (
 	userId: string,
 	email: string
 ): Promise<string | undefined> => {
-	const preferred = email.split('@')[0]?.trim().toLowerCase() ?? '';
+	const preferred = sanitizeUsernameFromEmail(email);
 	if (!preferred) return undefined;
 
 	const firstMatch = await ctx.db

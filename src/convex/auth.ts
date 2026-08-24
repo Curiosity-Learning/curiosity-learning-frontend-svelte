@@ -12,6 +12,7 @@ import { sendEmail } from './email/resend';
 import { passwordResetEmail, verificationOtpEmail } from './email/templates';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 import { setPendingClubJoin } from './pendingClubJoinsModel';
+import { sanitizeUsernameFromEmail } from './usernameValidator';
 import { autoCreateJoinRequestFromNextPath } from './joinRequests';
 
 export const authComponent = createClient(components.betterAuth);
@@ -339,7 +340,7 @@ export const ensureProfile = mutation({
 		const existing = await getProfileByAuthUserId(ctx, authUser._id);
 
 		const now = Date.now();
-		const username = authUser.email.split('@')[0].toLowerCase();
+		const username = sanitizeUsernameFromEmail(authUser.email);
 		const { firstName, lastName } = splitNameParts(authUser.name);
 
 		if (existing) {
@@ -395,7 +396,7 @@ export const completeSignupProfile = mutation({
 		const authUsername = normalizeUsername(
 			'username' in authUser ? (authUser.username as string | null | undefined) : undefined
 		);
-		const fallbackUsername = normalizeUsername(authUser.email.split('@')[0]);
+		const fallbackUsername = sanitizeUsernameFromEmail(authUser.email);
 		const desiredUsername = normalizedUsername ?? fallbackUsername;
 		const { firstName, lastName } = splitNameParts(authUser.name);
 		const pendingJoinCode = extractPendingJoinCode(args.nextPath);
