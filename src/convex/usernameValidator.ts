@@ -15,6 +15,21 @@ export const isValidUsername = (username: string): boolean => {
 	return USERNAME_PATTERN.test(username);
 };
 
+/**
+ * Derives a valid username candidate from an email's local part. Email prefixes may contain
+ * characters the username rules reject (dots, hyphens, plus signs), so they can't be used
+ * verbatim as defaults. Returns undefined when nothing usable remains.
+ */
+export const sanitizeUsernameFromEmail = (email: string): string | undefined => {
+	const sanitized = (email.split('@')[0] ?? '')
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9_]+/g, '_')
+		.replace(/^_+|_+$/g, '')
+		.slice(0, MAX_USERNAME_LENGTH);
+	return sanitized.length >= MIN_USERNAME_LENGTH ? sanitized : undefined;
+};
+
 export const getUsernameValidationError = (username: string): string | null => {
 	if (!username) {
 		return 'Username is required';
