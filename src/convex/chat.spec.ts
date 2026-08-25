@@ -751,6 +751,88 @@ describe('context room chat', () => {
 		);
 	});
 
+	it('treats staff who wrote in an application room as real participants with their own chat list entry', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'applicant-user',
+				username: 'applicant',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const staffProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'staff-user',
+				firstName: 'Staff',
+				lastName: 'Person',
+				globalRole: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const otherStaffProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'other-staff-user',
+				username: 'otherstaff',
+				globalRole: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const applicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'Application chat',
+				createdAt: now,
+				updatedAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', {
+				contextType: 'clubApplication',
+				clubApplicationId: applicationId
+			});
+
+			return { applicantProfileId, staffProfileId, otherStaffProfileId, roomId };
+		});
+		const applicant = base.withIdentity({ subject: 'applicant-user' });
+		const staff = base.withIdentity({ subject: 'staff-user' });
+		const otherStaff = base.withIdentity({ subject: 'other-staff-user' });
+
+		// Before anyone writes: staff are invisible — not participants, no chat list entry.
+		let participants = await applicant.query(api.chat.getRoomParticipants, {
+			roomId: ids.roomId
+		});
+		expect(
+			participants.participants.some((p) => p.profileId === ids.staffProfileId)
+		).toBe(false);
+		expect(await staff.query(api.chat.listRoomSummaries, {})).toEqual([]);
+
+		await staff.mutation(api.chat.sendMessage, { roomId: ids.roomId, content: 'Hello!' });
+		await applicant.mutation(api.chat.sendMessage, { roomId: ids.roomId, content: 'Hi back!' });
+
+		// The staff sender now appears in the applicant's participant list, labeled Staff; the
+		// applicant (already context-derived) is not duplicated by their own messages.
+		participants = await applicant.query(api.chat.getRoomParticipants, { roomId: ids.roomId });
+		expect(participants.participants).toContainEqual(
+			expect.objectContaining({ profileId: ids.staffProfileId, roleLabel: 'Staff' })
+		);
+		expect(
+			participants.participants.filter((p) => p.profileId === ids.applicantProfileId)
+		).toHaveLength(1);
+
+		// The room lands in the writing admin's personal chat list, titled like a reviewer's view
+		// (counterpart = applicant). An admin who never wrote still sees nothing.
+		expect(await staff.query(api.chat.listRoomSummaries, {})).toContainEqual(
+			expect.objectContaining({
+				contextType: 'clubApplication',
+				roomId: ids.roomId,
+				roomName: 'applicant',
+				roomSubtitle: 'Application chat',
+				lastMessagePreview: 'Hi back!'
+			})
+		);
+		expect(await otherStaff.query(api.chat.listRoomSummaries, {})).toEqual([]);
+	});
+
 	it('gives a join-request room the same title/subtitle as the chat header (CL-695 round 3)', async () => {
 		const base = convexTest(schema, modules);
 		const ids = await base.run(async (ctx) => {
