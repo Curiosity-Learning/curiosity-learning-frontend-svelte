@@ -1197,18 +1197,24 @@
 															</AvatarFallback>
 														</Avatar>
 													{/if}
-													<!-- items-end matters for own messages: with a long message this column
-													wrapper grows to the full row width, and without it the width-capped bubble
-													would sit at the wrapper's LEFT edge, leaving a dead gap on the right. -->
-													<div class={`flex min-w-0 flex-col ${isOwnMessage ? 'items-end' : ''}`}>
+													<!-- The width cap lives on this column wrapper, not the bubble: a capped
+													bubble inside an uncapped wrapper leaves dead space beside the bubble whenever
+													the message text wraps (the wrapper keeps its unwrapped intrinsic width),
+													pushing trailing siblings — the report flag — away from the bubble and
+													stranding own messages short of the right edge. -->
+													<div
+														class={`flex min-w-0 flex-col ${
+															isDesktopViewport ? 'max-w-[85%]' : 'max-w-[18.75rem]'
+														}`}
+													>
 														{#if !isOwnMessage && entry.senderName}
 															<p class="type-xs px-1 text-muted-foreground">{entry.senderName}</p>
 														{/if}
 														<div
 															class={`${
 																isDesktopViewport
-																	? 'max-w-[85%] rounded-2xl px-3 py-2'
-																	: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
+																	? 'rounded-2xl px-3 py-2'
+																	: 'w-full rounded-[10px] px-[10px] pt-[10px] pb-1'
 															} ${
 																isOwnMessage
 																	? 'bg-orange-100 text-foreground'
