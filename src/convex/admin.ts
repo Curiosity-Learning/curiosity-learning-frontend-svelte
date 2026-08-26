@@ -350,12 +350,40 @@ export type ApplicationPipelineItem = {
 	avgScore: number | null;
 	scoreDiscrepancyFlag: boolean;
 	adminFollowUpFlag: Doc<'clubApplications'>['adminFollowUpFlag'] | null;
+	chatLastMessageAt: number | null;
+	// The latest human message in the application chat is the applicant's — i.e. nobody (staff or
+	// reviewer) has responded yet. While staff run the pipeline from the portal, this is the "you
+	// have a reply waiting" signal; no per-admin read state, any reply clears it for everyone.
+	chatAwaitingReply: boolean;
 };
 
 const getClubName = async (ctx: QueryCtx, clubId: Id<'clubs'> | undefined) => {
 	if (!clubId) return null;
 	const club = await ctx.db.get(clubId);
 	return club?.name ?? null;
+};
+
+const getApplicationChatState = async (ctx: QueryCtx, application: Doc<'clubApplications'>) => {
+	const room = await ctx.db
+		.query('rooms')
+		.withIndex('by_club_application_id', (q) => q.eq('clubApplicationId', application._id))
+		.first();
+	if (!room) {
+		return { chatLastMessageAt: null, chatAwaitingReply: false };
+	}
+	// System messages (no profileId, e.g. the automated decision notice) don't count as a reply:
+	// scan past them to the latest human message. 20 is more than enough — system messages are
+	// posted one at a time around a decision, never in runs.
+	const recent = await ctx.db
+		.query('messages')
+		.withIndex('by_room', (q) => q.eq('roomId', room._id))
+		.order('desc')
+		.take(20);
+	const lastHumanMessage = recent.find((message) => message.profileId !== undefined);
+	return {
+		chatLastMessageAt: recent[0]?._creationTime ?? null,
+		chatAwaitingReply: lastHumanMessage?.profileId === application.applicantProfileId
+	};
 };
 
 export const adminApplicationsPipeline = query({
@@ -397,6 +425,7 @@ export const adminApplicationsPipeline = query({
 			const scoreDiscrepancyFlag =
 				scores.length >= 2 ? Math.max(...scores) - Math.min(...scores) >= 4 : false;
 			const applicantProfile = await ctx.db.get(application.applicantProfileId);
+			const chatState = await getApplicationChatState(ctx, application);
 
 			return {
 				applicationId: application._id,
@@ -413,7 +442,9 @@ export const adminApplicationsPipeline = query({
 				reviewCount: applicationReviews.length,
 				avgScore,
 				scoreDiscrepancyFlag,
-				adminFollowUpFlag: application.adminFollowUpFlag ?? null
+				adminFollowUpFlag: application.adminFollowUpFlag ?? null,
+				chatLastMessageAt: chatState.chatLastMessageAt,
+				chatAwaitingReply: chatState.chatAwaitingReply
 			};
 		};
 

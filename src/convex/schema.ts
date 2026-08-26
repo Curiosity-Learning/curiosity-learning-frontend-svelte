@@ -801,7 +801,12 @@ export default defineSchema({
 				reason: v.optional(v.string())
 			})
 		)
-	}).index('by_room', ['roomId']),
+	})
+		.index('by_room', ['roomId'])
+		// Rooms a profile has written in — powers staff's message-derived chat list (chat.ts
+		// listRoomSummaries): staff access application rooms via globalRole, not membership, so
+		// their sent messages are the only record tying them to the room.
+		.index('by_profile', ['profileId']),
 
 	rateLimits: defineTable({
 		key: v.string(),

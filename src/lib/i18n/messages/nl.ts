@@ -655,7 +655,9 @@ const nl = {
 		membersCountLabel: '{count} leden',
 		actionNeededBadge: 'Actie vereist',
 		openBadge: 'Open',
-		closedBadge: 'Gesloten'
+		closedBadge: 'Gesloten',
+		todayLabel: 'Vandaag',
+		yesterdayLabel: 'Gisteren'
 	},
 	suspendedScreen: {
 		title: 'Je account is geschorst',
@@ -685,7 +687,8 @@ const nl = {
 		pendingBannerTitle: 'Nieuw lidmaatschapsverzoek van {name}',
 		pendingBannerDescription: 'Bekijk dit verzoek en beslis hieronder.',
 		pendingRequesterBannerTitle: 'Je lidmaatschapsverzoek is in behandeling',
-		pendingRequesterBannerDescription: 'Een Guide beoordeelt je verzoek. Je kunt het op elk moment annuleren.',
+		pendingRequesterBannerDescription:
+			'Een Guide beoordeelt je verzoek. Je kunt het op elk moment annuleren.',
 		acceptButton: 'Accepteren',
 		declineButton: 'Afwijzen',
 		cancelButton: 'Verzoek annuleren',

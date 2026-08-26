@@ -27,6 +27,16 @@ export const formatClockTime = (input: number) =>
 		minute: '2-digit'
 	});
 
+/** Midnight (local time) timestamp of the calendar day containing the input. */
+export const startOfDay = (timestamp: number) => new Date(timestamp).setHours(0, 0, 0, 0);
+
+/**
+ * Whole calendar days between today and the day containing the input, in local time
+ * (0 = today, 1 = yesterday). Rounded so DST shifts don't produce off-by-one days.
+ */
+export const calendarDaysAgo = (timestamp: number) =>
+	Math.round((startOfDay(Date.now()) - startOfDay(timestamp)) / 86_400_000);
+
 export const toTimestamp = (value: string) => {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime()) ? null : date.getTime();

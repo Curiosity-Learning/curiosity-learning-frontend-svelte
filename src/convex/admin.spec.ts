@@ -535,6 +535,57 @@ const seedPendingApplication = async (t: ReturnType<typeof convexTest>) =>
 		return { applicantProfileId, applicationId, roomId };
 	});
 
+describe('admin.adminApplicationsPipeline chat state', () => {
+	it('flags applications whose latest human chat message is from the applicant', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicantProfileId, applicationId, roomId } = await seedPendingApplication(t);
+
+		const readPipelineItem = async () => {
+			const result = await t
+				.withIdentity({ subject: 'admin-user' })
+				.query(api.admin.adminApplicationsPipeline, {});
+			return result.items.find((item) => item.applicationId === applicationId);
+		};
+
+		// No messages yet: nothing awaiting.
+		let item = await readPipelineItem();
+		expect(item?.chatLastMessageAt).toBeNull();
+		expect(item?.chatAwaitingReply).toBe(false);
+
+		// Applicant writes: awaiting a reply.
+		await t.run(async (ctx) => {
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: applicantProfileId,
+				content: 'Hi, any update?'
+			});
+		});
+		item = await readPipelineItem();
+		expect(item?.chatLastMessageAt).not.toBeNull();
+		expect(item?.chatAwaitingReply).toBe(true);
+
+		// A system message (no profileId) after it does not count as a reply.
+		await t.run(async (ctx) => {
+			await ctx.db.insert('messages', { roomId, content: 'Automated notice' });
+		});
+		item = await readPipelineItem();
+		expect(item?.chatAwaitingReply).toBe(true);
+
+		// Staff reply clears it.
+		await t.run(async (ctx) => {
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: adminProfileId,
+				content: 'On it!'
+			});
+		});
+		item = await readPipelineItem();
+		expect(item?.chatAwaitingReply).toBe(false);
+	});
+});
+
 describe('admin application review', () => {
 	it('rejects non-admin callers on every entry point', async () => {
 		const t = convexTest(schema, modules);

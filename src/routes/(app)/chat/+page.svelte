@@ -33,7 +33,7 @@
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { _, formatT, t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
-	import { formatClockTime } from '$lib/domain/date';
+	import { calendarDaysAgo, formatClockTime, formatShortDate, startOfDay } from '$lib/domain/date';
 
 	type RoomActionState = 'open' | 'action_needed' | 'closed';
 	type RoomSummary = {
@@ -319,6 +319,29 @@
 				)
 			: visibleMessages
 	);
+
+	const dayLabelFor = (dayStartTimestamp: number) => {
+		const daysAgo = calendarDaysAgo(dayStartTimestamp);
+		if (daysAgo === 0) return t('chat.todayLabel');
+		if (daysAgo === 1) return t('chat.yesterdayLabel');
+		return formatShortDate(dayStartTimestamp);
+	};
+
+	// Messages grouped by calendar day so each day gets its own separator label (the label used to
+	// be a hardcoded "Today" regardless of when the messages were sent).
+	let messageGroups = $derived.by(() => {
+		const groups: { dayStart: number; messages: VisibleMessage[] }[] = [];
+		for (const entry of displayedMessages) {
+			const dayStart = startOfDay(entry.createdAt);
+			const currentGroup = groups[groups.length - 1];
+			if (currentGroup && currentGroup.dayStart === dayStart) {
+				currentGroup.messages.push(entry);
+			} else {
+				groups.push({ dayStart, messages: [entry] });
+			}
+		}
+		return groups;
+	});
 
 	$effect(() => {
 		const serverIds = new Set(serverMessages.map((entry) => entry._id));
@@ -799,7 +822,10 @@
 										<!-- CL-695/725 CEO review item E: only call out the states worth a glance —
 										nothing rendered for the unremarkable "open, nothing pending" default. -->
 										{#if room.actionState === 'action_needed'}
-											<Badge size="sm" class="shrink-0 border-transparent bg-orange-100 text-orange-700">
+											<Badge
+												size="sm"
+												class="shrink-0 border-transparent bg-orange-100 text-orange-700"
+											>
 												{$_('chat.actionNeededBadge')}
 											</Badge>
 										{:else if room.actionState === 'closed'}
@@ -882,7 +908,9 @@
 										<p class="type-sm mb-1.5 text-muted-foreground">
 											{$_('applicationChat.videoLabel')}
 										</p>
-										<div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
+										<div
+											class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900"
+										>
 											<!-- svelte-ignore a11y_media_has_caption -->
 											<video
 												src={applicationVideoUrl}
@@ -901,7 +929,9 @@
 									low-emphasis row instead of large standalone buttons floating above it. -->
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 										<AlertTitle>{$_('applicationChat.pendingBannerTitle')}</AlertTitle>
-										<AlertDescription>{$_('applicationChat.pendingBannerDescription')}</AlertDescription>
+										<AlertDescription
+											>{$_('applicationChat.pendingBannerDescription')}</AlertDescription
+										>
 										<div class="col-start-2 mt-3 flex flex-wrap gap-2">
 											<Button
 												type="button"
@@ -1006,7 +1036,9 @@
 													name: joinRequestInfo.requesterName
 												})}
 											</AlertTitle>
-											<AlertDescription>{$_('joinRequestChat.pendingBannerDescription')}</AlertDescription>
+											<AlertDescription
+												>{$_('joinRequestChat.pendingBannerDescription')}</AlertDescription
+											>
 											<div class="col-start-2 mt-3 flex flex-wrap gap-2">
 												<Button
 													type="button"
@@ -1119,111 +1151,118 @@
 									<p class="type-body mt-auto px-4 text-center text-muted-foreground lg:px-0">
 										{$_('chat.messageSearchNoMatches')}
 									</p>
-								{:else if !isMessageSearching}
-									<p
-										class={`type-sm mt-auto text-center text-muted-foreground ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
-									>
-										Today
-									</p>
 								{/if}
 								<div
-									class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'} ${isMessageSearching ? 'mt-auto' : ''}`}
+									class={`mt-auto flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pt-4 pb-3'}`}
 								>
-									{#each displayedMessages as entry (entry.key)}
-										{#if entry.profileId === null}
-											<div data-message-key={entry.key} class="flex justify-center">
-												<p
-													class="type-sm max-w-[85%] rounded-full bg-gray-100 px-3 py-1 text-center text-muted-foreground"
-												>
-													{entry.content}
-												</p>
-											</div>
-										{:else}
-											{@const isOwnMessage = entry.profileId === viewer.data?._id}
-											<div
-												data-message-key={entry.key}
-												class={`group flex items-end gap-1.5 ${
-													isOwnMessage
-														? isDesktopViewport
-															? 'justify-end'
-															: 'justify-end pl-11'
-														: isDesktopViewport
-															? 'justify-start'
-															: 'justify-start pr-11'
-												}`}
-											>
-												{#if entry.messageId && !isOwnMessage}
-													<span
-														class="opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
+									{#each messageGroups as group (group.dayStart)}
+										<p class="type-sm text-center text-muted-foreground">
+											{dayLabelFor(group.dayStart)}
+										</p>
+										{#each group.messages as entry (entry.key)}
+											{#if entry.profileId === null}
+												<div data-message-key={entry.key} class="flex justify-center">
+													<p
+														class="type-sm max-w-[85%] rounded-full bg-gray-100 px-3 py-1 text-center text-muted-foreground"
 													>
-														<ReportIssueDialog
-															targetType="chat_message"
-															targetId={entry.messageId}
-															contextText={entry.content}
-															triggerAriaLabel={$_('reportEntryPoints.chatMessageAction')}
-														/>
-													</span>
-												{/if}
-												{#if !isOwnMessage}
-													<!-- CL-695/725 CEO review item B: sender attribution on every inbound
-													message, even in a 1:1 chat. Own outgoing messages skip this — obvious. -->
-													<Avatar class="size-6 shrink-0 self-end bg-gray-200">
-														{#if entry.senderAvatarUrl}
-															<AvatarImage src={entry.senderAvatarUrl} alt={entry.senderName ?? ''} />
-														{/if}
-														<AvatarFallback class="text-[0.6rem] type-caption-bold">
-															{initialsFromName(entry.senderName ?? '?')}
-														</AvatarFallback>
-													</Avatar>
-												{/if}
-												<div class="flex min-w-0 flex-col">
-													{#if !isOwnMessage && entry.senderName}
-														<p class="type-xs px-1 text-muted-foreground">{entry.senderName}</p>
-													{/if}
-													<div
-														class={`${
-															isDesktopViewport
-																? 'max-w-[85%] rounded-2xl px-3 py-2'
-																: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
-														} ${
-															isOwnMessage
-																? 'bg-orange-100 text-foreground'
-																: 'bg-purple-100 text-foreground'
-														}`}
-													>
-														<p
-															class={`break-words ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
-														>
-															{#each linkifySegments(entry.content) as segment, index (index)}
-																{#if segment.type === 'url'}
-																	<a
-																		href={segment.value}
-																		target="_blank"
-																		rel="noopener noreferrer"
-																		class="underline underline-offset-2 hover:opacity-80"
-																	>
-																		{segment.value}
-																	</a>
-																{:else}
-																	{segment.value}
-																{/if}
-															{/each}
-														</p>
-														<p
-															class={`text-right text-muted-foreground ${isDesktopViewport ? 'type-sm mt-1' : 'type-caption mt-[2px]'}`}
-														>
-															{#if entry.status === 'sending'}
-																Sending...
-															{:else if entry.status === 'failed'}
-																Failed to send
-															{:else}
-																{formatClockTime(entry.createdAt)}
-															{/if}
-														</p>
-													</div>
+														{entry.content}
+													</p>
 												</div>
-											</div>
-										{/if}
+											{:else}
+												{@const isOwnMessage = entry.profileId === viewer.data?._id}
+												<div
+													data-message-key={entry.key}
+													class={`group flex items-end gap-1.5 ${
+														isOwnMessage
+															? isDesktopViewport
+																? 'justify-end'
+																: 'justify-end pl-11'
+															: isDesktopViewport
+																? 'justify-start'
+																: 'justify-start pr-11'
+													}`}
+												>
+													{#if !isOwnMessage}
+														<!-- CL-695/725 CEO review item B: sender attribution on every inbound
+													message, even in a 1:1 chat. Own outgoing messages skip this — obvious. -->
+														<Avatar class="size-6 shrink-0 self-end bg-gray-200">
+															{#if entry.senderAvatarUrl}
+																<AvatarImage
+																	src={entry.senderAvatarUrl}
+																	alt={entry.senderName ?? ''}
+																/>
+															{/if}
+															<AvatarFallback class="type-caption-bold text-[0.6rem]">
+																{initialsFromName(entry.senderName ?? '?')}
+															</AvatarFallback>
+														</Avatar>
+													{/if}
+													<!-- items-end matters for own messages: with a long message this column
+													wrapper grows to the full row width, and without it the width-capped bubble
+													would sit at the wrapper's LEFT edge, leaving a dead gap on the right. -->
+													<div class={`flex min-w-0 flex-col ${isOwnMessage ? 'items-end' : ''}`}>
+														{#if !isOwnMessage && entry.senderName}
+															<p class="type-xs px-1 text-muted-foreground">{entry.senderName}</p>
+														{/if}
+														<div
+															class={`${
+																isDesktopViewport
+																	? 'max-w-[85%] rounded-2xl px-3 py-2'
+																	: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
+															} ${
+																isOwnMessage
+																	? 'bg-orange-100 text-foreground'
+																	: 'bg-purple-100 text-foreground'
+															}`}
+														>
+															<p
+																class={`break-words ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
+															>
+																{#each linkifySegments(entry.content) as segment, index (index)}
+																	{#if segment.type === 'url'}
+																		<a
+																			href={segment.value}
+																			target="_blank"
+																			rel="noopener noreferrer"
+																			class="underline underline-offset-2 hover:opacity-80"
+																		>
+																			{segment.value}
+																		</a>
+																	{:else}
+																		{segment.value}
+																	{/if}
+																{/each}
+															</p>
+															<p
+																class={`text-right text-muted-foreground ${isDesktopViewport ? 'type-sm mt-1' : 'type-caption mt-[2px]'}`}
+															>
+																{#if entry.status === 'sending'}
+																	Sending...
+																{:else if entry.status === 'failed'}
+																	Failed to send
+																{:else}
+																	{formatClockTime(entry.createdAt)}
+																{/if}
+															</p>
+														</div>
+													</div>
+													{#if entry.messageId && !isOwnMessage}
+														<!-- The report affordance trails the message (reads left-to-right: sender,
+												message, actions) instead of leading it. -->
+														<span
+															class="opacity-100 transition-opacity lg:opacity-0 lg:group-focus-within:opacity-100 lg:group-hover:opacity-100"
+														>
+															<ReportIssueDialog
+																targetType="chat_message"
+																targetId={entry.messageId}
+																contextText={entry.content}
+																triggerAriaLabel={$_('reportEntryPoints.chatMessageAction')}
+															/>
+														</span>
+													{/if}
+												</div>
+											{/if}
+										{/each}
 									{/each}
 								</div>
 							{/if}

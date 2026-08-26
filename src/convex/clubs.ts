@@ -21,6 +21,7 @@ import {
 } from './permissions';
 import { authComponent } from './auth';
 import { ensureClubRoom } from './chatModel';
+import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
 import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsModel';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
@@ -252,7 +253,7 @@ const resolveUniqueUsername = async (
 	userId: string,
 	email: string
 ): Promise<string | undefined> => {
-	const preferred = email.split('@')[0]?.trim().toLowerCase() ?? '';
+	const preferred = sanitizeUsernameFromEmail(email);
 	if (!preferred) return undefined;
 
 	const firstMatch = await ctx.db
@@ -264,7 +265,8 @@ const resolveUniqueUsername = async (
 	}
 
 	for (let suffix = 2; suffix <= 99; suffix += 1) {
-		const candidate = `${preferred}${suffix}`;
+		const suffixText = String(suffix);
+		const candidate = `${preferred.slice(0, MAX_USERNAME_LENGTH - suffixText.length)}${suffixText}`;
 		const match = await ctx.db
 			.query('profiles')
 			.withIndex('by_username', (q) => q.eq('username', candidate))

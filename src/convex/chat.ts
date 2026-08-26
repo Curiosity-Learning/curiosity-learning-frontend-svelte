@@ -163,6 +163,25 @@ export const listRoomSummaries = query({
 			await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
 		}
 
+		// Staff: conversations they've actually written in belong in their personal chat list too.
+		// Staff reach application rooms via profiles.globalRole (chatModel), not membership, so the
+		// walks above never find those rooms — their sent messages are the only record tying them
+		// to the conversation. Message-derived on purpose: merely *being* staff surfaces nothing
+		// (getClubApplicationAccess deliberately keeps admin-readable rooms out of this list);
+		// having spoken in a room makes it theirs like any other participant's. Admin-only guard:
+		// members' rooms are already covered by the membership walks, so they skip the scan.
+		if (profile.globalRole === 'admin') {
+			const sentMessages = await ctx.db
+				.query('messages')
+				.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+				.collect();
+			for (const message of sentMessages) {
+				if (rooms.has(message.roomId)) continue;
+				const room = await ctx.db.get(message.roomId);
+				if (room) rooms.set(room._id, room);
+			}
+		}
+
 		const summaries: Array<{
 			roomId: Id<'rooms'>;
 			roomName: string;
@@ -402,6 +421,34 @@ export const getRoomParticipants = query({
 					}
 				}
 				break;
+			}
+		}
+
+		// Anyone who has actually written in the room is a participant, even without a
+		// context-derived role — today that's staff running the application pipeline from the admin
+		// portal (chatModel grants them send access via profiles.globalRole, so no membership or
+		// review row ever lists them, and they'd otherwise be invisible senders). Derived from the
+		// messages themselves rather than a membership table, matching how every other participant
+		// list here is derived. Scoped to the 1:1-style contexts staff write in: club/project rooms
+		// derive membership fully and can hold thousands of messages, so they skip the scan.
+		if (room.contextType === 'clubApplication' || room.contextType === 'joinRequest') {
+			const listedProfileIds = new Set(participants.map((participant) => participant.profileId));
+			const roomMessages = await ctx.db
+				.query('messages')
+				.withIndex('by_room', (q) => q.eq('roomId', room._id))
+				.collect();
+			for (const message of roomMessages) {
+				if (!message.profileId || listedProfileIds.has(message.profileId)) continue;
+				listedProfileIds.add(message.profileId);
+				const senderProfile = await getRelatedProfile(ctx, message.profileId);
+				if (!senderProfile) continue;
+				participants.push(
+					await summarizeProfileForChat(
+						ctx,
+						senderProfile,
+						senderProfile.globalRole === 'admin' ? 'Staff' : 'Member'
+					)
+				);
 			}
 		}
 
