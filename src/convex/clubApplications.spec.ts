@@ -161,9 +161,7 @@ describe('application decision pipeline', () => {
 				.withIndex('by_profile', (q) => q.eq('profileId', applicantProfileId))
 				.collect()
 		);
-		expect(notifications.some((n) => n.title === 'Your application moved to interview')).toBe(
-			true
-		);
+		expect(notifications.some((n) => n.title === 'Your application moved to interview')).toBe(true);
 	});
 
 	it('rejects moving a non-pending application to interview', async () => {
@@ -462,9 +460,12 @@ describe('getApplicationVideoDeliveryAsset', () => {
 		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
 		await addReview(t, applicationId, reviewerProfileId);
 
-		const asApplicant = await applicant.query(api.clubApplications.getApplicationVideoDeliveryAsset, {
-			applicationId
-		});
+		const asApplicant = await applicant.query(
+			api.clubApplications.getApplicationVideoDeliveryAsset,
+			{
+				applicationId
+			}
+		);
 		expect(asApplicant).toMatchObject({
 			assetId: videoMediaAssetId,
 			storageProvider: 's3',
@@ -484,7 +485,8 @@ describe('getApplicationVideoDeliveryAsset', () => {
 	});
 
 	it('resolves a delivery asset for a Guide assigned to review it, before they have reviewed', async () => {
-		const { otherReviewer, otherReviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		const { otherReviewer, otherReviewerProfileId, applicationId, t } =
+			await seedApplicationFixture();
 		const videoMediaAssetId = await insertBragaLikeVideoAsset(t, 'applicant-user');
 		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
 		const now = Date.now();
@@ -510,6 +512,32 @@ describe('getApplicationVideoDeliveryAsset', () => {
 			{ applicationId }
 		);
 		expect(asAssignedReviewer).toMatchObject({ assetId: videoMediaAssetId });
+	});
+
+	it('resolves a delivery asset for a global admin (staff review from the admin portal)', async () => {
+		const { applicationId, t } = await seedApplicationFixture();
+		const videoMediaAssetId = await insertBragaLikeVideoAsset(t, 'applicant-user');
+		await t.run((ctx) => ctx.db.patch(applicationId, { videoMediaAssetId }));
+		const adminProfileId = await t.run((ctx) =>
+			ctx.db.insert('profiles', {
+				authUserId: 'admin-user',
+				username: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			})
+		);
+		await t.run((ctx) =>
+			ctx.runMutation(internal.profiles.setGlobalRole, {
+				profileId: adminProfileId,
+				globalRole: 'admin'
+			})
+		);
+
+		const asAdmin = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.clubApplications.getApplicationVideoDeliveryAsset, { applicationId });
+		expect(asAdmin).toMatchObject({ assetId: videoMediaAssetId, mediaKind: 'video' });
 	});
 
 	it('denies a Guide with no assignment and no review', async () => {
@@ -551,6 +579,44 @@ describe('listMyApplications', () => {
 
 		const afterRoom = await applicant.query(api.clubApplications.listMyApplications, {});
 		expect(afterRoom[0]).toMatchObject({ _id: applicationId, roomId });
+	});
+});
+
+// Applicant-initiated support chat for an in-progress application (pre-submission), so someone
+// stuck mid-wizard — e.g. on a failing video upload — can reach staff.
+describe('ensureMyApplicationRoom', () => {
+	it('creates the room for an incomplete application, idempotently, and the applicant can chat', async () => {
+		const { applicant, applicationId, t } = await seedApplicationFixture();
+		await t.run((ctx) => ctx.db.patch(applicationId, { status: 'incomplete' }));
+
+		const first = await applicant.mutation(api.clubApplications.ensureMyApplicationRoom, {});
+		const second = await applicant.mutation(api.clubApplications.ensureMyApplicationRoom, {});
+		expect(second.roomId).toBe(first.roomId);
+
+		const room = await t.run((ctx) => ctx.db.get(first.roomId));
+		expect(room).toMatchObject({
+			contextType: 'clubApplication',
+			clubApplicationId: applicationId
+		});
+
+		const message = await applicant.mutation(api.chat.sendMessage, {
+			roomId: first.roomId,
+			content: 'My video upload keeps failing — help?'
+		});
+		expect(message?.content).toBe('My video upload keeps failing — help?');
+
+		const summaries = await applicant.query(api.chat.listRoomSummaries, {});
+		expect(summaries.some((summary: { roomId: string }) => summary.roomId === first.roomId)).toBe(
+			true
+		);
+	});
+
+	it('throws when the user has no incomplete application', async () => {
+		// The fixture's application is 'pending' — submitted, not in progress.
+		const { applicant } = await seedApplicationFixture();
+		await expect(
+			applicant.mutation(api.clubApplications.ensureMyApplicationRoom, {})
+		).rejects.toThrow('No application in progress');
 	});
 });
 

@@ -531,6 +531,8 @@ const en = {
 			videoUploading: 'Uploading your video...',
 			videoDropPrompt: 'Drag and drop or choose a video',
 			videoRequirements: 'MP4, MOV, WEBM, or M4V up to 100 MB.',
+			needHelp: 'Having trouble with your application?',
+			messageUs: 'Message us',
 			videoRequired: 'Please upload a video before submitting your application.',
 			videoUploadingStatus: 'Uploading video...',
 			videoUploadedStatus: 'Video uploaded',
@@ -743,6 +745,8 @@ const en = {
 		emptyState: 'You have not submitted a join request or a Start Club application yet.',
 		openChat: 'Open chat',
 		resumeApplication: 'Resume application',
+		messageUs: 'Message us',
+		messageUsFailure: 'Unable to open the chat. Please try again.',
 		startKindLabel: 'Start Club application',
 		joinKindLabel: 'Join request'
 	},

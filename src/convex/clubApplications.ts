@@ -145,16 +145,35 @@ export const resolveApplicationVideoUrl = async (
 	return resolveMediaAssetFileUrl(asset);
 };
 
+// Whether the application has a ready, playable video — the readiness half of
+// resolveApplicationVideoUrl without committing to a delivery URL. Used by admin.ts's
+// adminGetApplication so the admin portal knows to fetch the signed URL
+// (clubApplicationsNode.getApplicationVideoSignedUrl).
+export const applicationHasReadyVideo = async (ctx: Ctx, application: Doc<'clubApplications'>) => {
+	if (!application.videoMediaAssetId) {
+		return false;
+	}
+	const asset = await ctx.db.get(application.videoMediaAssetId);
+	return Boolean(asset && asset.status === 'ready' && asset.mediaKind === 'video');
+};
+
 // Whether `profileId` is allowed to view the given application's video: the applicant themselves,
 // any Guide assigned to review it (assignment exists — covers the review-list page, before a
-// review is submitted), or any Guide who has reviewed it (covers the chat page's access rule,
-// which is gated on "has an applicationReviews row" — see getApplicationForRoom above).
+// review is submitted), any Guide who has reviewed it (covers the chat page's access rule,
+// which is gated on "has an applicationReviews row" — see getApplicationForRoom above), or a
+// global admin (staff decide applications from the admin portal, and already have chat access to
+// application rooms via chatModel.getClubApplicationAccess's globalRole check — denying them the
+// video here was an inconsistency).
 const canAccessApplicationVideo = async (
 	ctx: Ctx,
 	application: Doc<'clubApplications'>,
 	profileId: Id<'profiles'>
 ) => {
 	if (application.applicantProfileId === profileId) {
+		return true;
+	}
+	const profile = await ctx.db.get(profileId);
+	if (profile?.globalRole === 'admin') {
 		return true;
 	}
 	if (await getApplicationReview(ctx, application._id, profileId)) {
@@ -374,6 +393,28 @@ export const getMyIncompleteApplication = query({
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
 		return await getLatestIncompleteApplication(ctx, profile._id);
+	}
+});
+
+// Applicant-initiated support channel for an in-progress (incomplete) application: historically
+// the chat room only came into existence at submission (submitApplication above), which left
+// applicants stuck mid-wizard — e.g. on a failing video upload — with no way to reach staff.
+// Idempotent via ensureClubApplicationRoom; the room carries over to submission unchanged (same
+// application row, same room), and access/chat-list/rendering already handle incomplete
+// applications (getClubApplicationAccess and chat.listRoomSummaries never check status).
+// Staff-initiated counterpart: admin.ts's adminEnsureApplicationRoom.
+export const ensureMyApplicationRoom = mutation({
+	args: {},
+	returns: v.object({ roomId: v.id('rooms') }),
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const application = await getLatestIncompleteApplication(ctx, profile._id);
+		if (!application) {
+			throw new ConvexError('No application in progress');
+		}
+		const roomId = await ensureClubApplicationRoom(ctx, application._id);
+		return { roomId };
 	}
 });
 

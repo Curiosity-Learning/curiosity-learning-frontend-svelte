@@ -607,6 +607,43 @@ describe('admin application review', () => {
 		);
 	});
 
+	it('creates a chat room on demand for an incomplete application, idempotently', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		// An incomplete draft — no room exists yet (rooms are otherwise only created at submission).
+		const applicationId = await t.run(async (ctx) => {
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'draft-user',
+				username: 'draft-applicant',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			return await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'incomplete',
+				name: 'Draft Curiosity Club',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			});
+		});
+		const admin = t.withIdentity({ subject: 'admin-user' });
+
+		await expect(
+			t
+				.withIdentity({ subject: 'draft-user' })
+				.mutation(api.admin.adminEnsureApplicationRoom, { applicationId })
+		).rejects.toThrow('Not authorized');
+
+		const first = await admin.mutation(api.admin.adminEnsureApplicationRoom, { applicationId });
+		const second = await admin.mutation(api.admin.adminEnsureApplicationRoom, { applicationId });
+		expect(second.roomId).toBe(first.roomId);
+
+		const detail = await admin.query(api.admin.adminGetApplication, { applicationId });
+		expect(detail?.roomId).toBe(first.roomId);
+	});
+
 	it('returns application detail including the chat room id', async () => {
 		const t = convexTest(schema, modules);
 		const adminProfileId = await seedProfile(t, 'admin-user');
@@ -623,6 +660,7 @@ describe('admin application review', () => {
 		expect(detail?.applicant?.email).toBe('applicant@example.com');
 		expect(detail?.roomId).toBe(roomId);
 		expect(detail?.reviews).toHaveLength(0);
+		expect(detail?.hasVideo).toBe(false);
 	});
 
 	it('lets an admin move a pending application to interview', async () => {

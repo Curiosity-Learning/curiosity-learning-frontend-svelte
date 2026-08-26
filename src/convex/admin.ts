@@ -5,7 +5,7 @@ import type { QueryCtx } from './_generated/server';
 import { getClubRoleByKey, requireGlobalAdmin, requireProfile } from './permissions';
 import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
-import { createClubFromApplication, resolveApplicationVideoUrl } from './clubApplications';
+import { applicationHasReadyVideo, createClubFromApplication } from './clubApplications';
 import { getAuthUserEmail } from './authEmail';
 
 // ---------------------------------------------------------------------------
@@ -612,13 +612,34 @@ export const adminGetApplication = query({
 				: null,
 			clubName: await getClubName(ctx, application.createdClubId),
 			createdClubId: application.createdClubId ?? null,
-			// Direct storage URL (see clubApplications.resolveApplicationVideoUrl's caveat: in
-			// environments with private buckets + CDN signing this can 403; the admin portal has no
-			// signed-delivery proxy yet, and current production serves direct URLs).
-			videoUrl: await resolveApplicationVideoUrl(ctx, application),
+			// Whether a ready video exists. The admin portal fetches the playable URL separately via
+			// clubApplicationsNode.getApplicationVideoSignedUrl — a direct storage URL here would 403
+			// in any environment with secure media delivery (private bucket + CloudFront signing).
+			hasVideo: await applicationHasReadyVideo(ctx, application),
 			roomId: room?._id ?? null,
 			reviews
 		};
+	}
+});
+
+// Staff-initiated chat with an applicant whose application is still incomplete — e.g. to nudge
+// them to finish, or help with a failing video upload. Rooms historically only existed from
+// submission onward; this creates one on demand (idempotent), and the applicant's app picks it up
+// automatically (chat.listRoomSummaries enumerates all own applications regardless of status).
+// Applicant-initiated counterpart: clubApplications.ensureMyApplicationRoom.
+export const adminEnsureApplicationRoom = mutation({
+	args: {
+		applicationId: v.id('clubApplications')
+	},
+	returns: v.object({ roomId: v.id('rooms') }),
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		const roomId = await ensureClubApplicationRoom(ctx, application._id);
+		return { roomId };
 	}
 });
 
