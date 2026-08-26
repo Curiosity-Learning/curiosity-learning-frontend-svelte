@@ -656,7 +656,9 @@ const en = {
 		membersCountLabel: '{count} members',
 		actionNeededBadge: 'Action needed',
 		openBadge: 'Open',
-		closedBadge: 'Closed'
+		closedBadge: 'Closed',
+		todayLabel: 'Today',
+		yesterdayLabel: 'Yesterday'
 	},
 	suspendedScreen: {
 		title: 'Your account is suspended',
@@ -686,7 +688,8 @@ const en = {
 		pendingBannerTitle: 'New join request from {name}',
 		pendingBannerDescription: 'Review this request and decide below.',
 		pendingRequesterBannerTitle: 'Your request to join is pending',
-		pendingRequesterBannerDescription: 'A Guide will review your request. You can cancel it any time.',
+		pendingRequesterBannerDescription:
+			'A Guide will review your request. You can cancel it any time.',
 		acceptButton: 'Accept',
 		declineButton: 'Decline',
 		cancelButton: 'Cancel request',
