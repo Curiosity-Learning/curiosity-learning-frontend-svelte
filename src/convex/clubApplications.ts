@@ -5,15 +5,14 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import {
 	getClubRoleByKey,
-	getMembershipByProfileId,
 	getProfileByAuthUserId,
 	listMembershipsForProfile,
 	requireIdentity,
 	requireProfile
 } from './permissions';
-import { ensureClubApplicationRoom, ensureClubRoom } from './chatModel';
+import { ensureClubApplicationRoom } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
-import { assignClubToCocGroup } from './cocModel';
+import { createClubForFounder } from './clubCreationModel';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	assignReviewsForApplicationIfWindowOpen,
@@ -180,27 +179,6 @@ const canAccessApplicationVideo = async (
 		return true;
 	}
 	return Boolean(await getAssignment(ctx, application._id, profileId));
-};
-
-const createInviteCodeCandidate = () => {
-	const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-	let code = '';
-	for (let index = 0; index < 6; index += 1) {
-		code += alphabet[Math.floor(Math.random() * alphabet.length)];
-	}
-	return code;
-};
-
-const createInviteCode = async (ctx: Ctx) => {
-	for (let attempt = 0; attempt < 20; attempt += 1) {
-		const code = createInviteCodeCandidate();
-		const existing = await ctx.db
-			.query('clubs')
-			.withIndex('by_club_code', (q) => q.eq('clubCode', code))
-			.first();
-		if (!existing) return code;
-	}
-	throw new ConvexError('Failed to generate unique invite code');
 };
 
 const trimOptional = (value?: string) => {
@@ -619,64 +597,22 @@ export const createClubFromApplication = async (
 		return { clubId: application.createdClubId };
 	}
 
-	const applicantProfile = await ctx.db.get(application.applicantProfileId);
-	if (!applicantProfile) {
-		throw new ConvexError('Applicant profile not found');
-	}
-	const inviteCode = await createInviteCode(ctx);
-	const now = Date.now();
-	const clubId = await ctx.db.insert('clubs', {
+	// Shared with clubLeaderInvites.claimMyLeaderInvite (clubCreationModel.ts): club row + code,
+	// club room, Guide membership, profile activation, CoC assignment.
+	const { clubId } = await createClubForFounder(ctx, {
+		founderProfileId: application.applicantProfileId,
 		name: application.name,
-		clubCode: inviteCode,
 		description: application.description,
 		location: application.location,
 		locationLatitude: application.locationLatitude,
 		locationLongitude: application.locationLongitude,
-		videoMediaAssetId: application.videoMediaAssetId,
-		// Discoverable by default (CEO decision): new clubs are opted into the public map/preview
-		// unless a Guide later opts out via clubs.updateClub.
-		discoverable: true,
-		kind: 'curiosity',
-		createdByProfileId: application.applicantProfileId,
-		createdAt: now,
-		updatedAt: now
+		videoMediaAssetId: application.videoMediaAssetId
 	});
-	await ensureClubRoom(ctx, clubId);
-
-	const guideRole = await getRoleByKey(ctx, 'guide');
-	const existingMembership = await getMembershipByProfileId(
-		ctx,
-		clubId,
-		application.applicantProfileId
-	);
-	if (!existingMembership) {
-		await ctx.db.insert('clubMembers', {
-			clubId,
-			profileId: application.applicantProfileId,
-			roleId: guideRole._id,
-			firstName: applicantProfile.firstName,
-			lastName: applicantProfile.lastName,
-			username: applicantProfile.username,
-			coverPhotoUrl: applicantProfile.coverPhotoUrl,
-			createdAt: now
-		});
-	}
 
 	await ctx.db.patch(application._id, {
 		createdClubId: clubId,
-		updatedAt: now
+		updatedAt: Date.now()
 	});
-	await ctx.db.patch(application.applicantProfileId, {
-		activeClubId: clubId,
-		firstLoginCompleted: true,
-		updatedAt: now
-	});
-
-	const createdClub = await ctx.db.get(clubId);
-	if (createdClub) {
-		// PRD 6.5 step 7 / CL-707: launch auto-assigns the new club to a Club of Clubs group.
-		await assignClubToCocGroup(ctx, createdClub, application.applicantProfileId);
-	}
 
 	return { clubId };
 };

@@ -6,7 +6,8 @@ export type TransactionalEmailType =
 	| 'password-reset'
 	| 'verification-otp'
 	| 'notification'
-	| 'admin-invite';
+	| 'admin-invite'
+	| 'club-leader-invite';
 
 export const sendEmail = async (
 	args: EmailContent & { to: string; type: TransactionalEmailType }

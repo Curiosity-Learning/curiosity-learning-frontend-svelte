@@ -18,6 +18,15 @@ export const load: LayoutServerLoad = async ({ locals, request, url }) => {
 		// lightweight switcher query (no schedule slots/video URL/profile per club) is enough.
 		const clubs = await convex.query(api.clubs.getMyClubSwitcherItems, {});
 		if (clubs.length === 0) {
+			// Admin-invited leaders (clubLeaderInvites) skip the application flow entirely: their
+			// club was drafted by staff and is founded here, on their first club-less arrival, by
+			// matching their verified email against a pending invite. The mutation is a fast
+			// no_invite for everyone else and club-less users are rare, so running it inside this
+			// gate keeps the whole flow to a single choke point.
+			const claim = await convex.mutation(api.clubLeaderInvites.claimMyLeaderInvite, {});
+			if (claim.status === 'claimed') {
+				throw redirect(307, routes.clubHome(claim.clubId));
+			}
 			throw redirect(307, routes.newClub);
 		}
 	}
