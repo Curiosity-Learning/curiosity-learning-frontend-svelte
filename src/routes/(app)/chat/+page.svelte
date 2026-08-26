@@ -304,10 +304,7 @@
 				profileId: entry.profileId,
 				content: entry.content,
 				createdAt: entry.createdAt,
-				status: entry.status,
-				senderName:
-					[viewer.data?.firstName, viewer.data?.lastName].filter(Boolean).join(' ') || null,
-				senderAvatarUrl: viewer.data?.coverPhotoUrl ?? null
+				status: entry.status
 			}))
 		];
 
@@ -1187,8 +1184,7 @@
 												>
 													{#if !isOwnMessage}
 														<!-- CL-695/725 CEO review item B: sender attribution on every inbound
-													message, even in a 1:1 chat. Own messages get their avatar too, but no
-													name label — obvious. -->
+													message, even in a 1:1 chat. Own outgoing messages skip this — obvious. -->
 														<Avatar class="size-6 shrink-0 self-end bg-gray-200">
 															{#if entry.senderAvatarUrl}
 																<AvatarImage
@@ -1201,7 +1197,10 @@
 															</AvatarFallback>
 														</Avatar>
 													{/if}
-													<div class="flex min-w-0 flex-col">
+													<!-- items-end matters for own messages: with a long message this column
+													wrapper grows to the full row width, and without it the width-capped bubble
+													would sit at the wrapper's LEFT edge, leaving a dead gap on the right. -->
+													<div class={`flex min-w-0 flex-col ${isOwnMessage ? 'items-end' : ''}`}>
 														{#if !isOwnMessage && entry.senderName}
 															<p class="type-xs px-1 text-muted-foreground">{entry.senderName}</p>
 														{/if}
@@ -1260,19 +1259,6 @@
 																triggerAriaLabel={$_('reportEntryPoints.chatMessageAction')}
 															/>
 														</span>
-													{/if}
-													{#if isOwnMessage}
-														<Avatar class="size-6 shrink-0 self-end bg-gray-200">
-															{#if entry.senderAvatarUrl}
-																<AvatarImage
-																	src={entry.senderAvatarUrl}
-																	alt={entry.senderName ?? ''}
-																/>
-															{/if}
-															<AvatarFallback class="type-caption-bold text-[0.6rem]">
-																{initialsFromName(entry.senderName ?? '?')}
-															</AvatarFallback>
-														</Avatar>
 													{/if}
 												</div>
 											{/if}
