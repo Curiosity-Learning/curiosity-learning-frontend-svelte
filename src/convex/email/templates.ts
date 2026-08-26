@@ -238,6 +238,41 @@ export const adminInviteEmail = (args: {
 	};
 };
 
+// Invitation for someone who already runs a club (clubLeaderInvites.createLeaderInvite). Staff
+// created the club for them; signing up on the member app with this email address is all that is
+// left. Deliberately a minimal doorway — everything else happens in the app (CEO principle from
+// the onboarding review threads).
+export const clubLeaderInviteEmail = (args: {
+	clubName: string;
+	inviterName?: string;
+	signUpUrl?: string;
+	expiresInDays: number;
+}): EmailContent => {
+	const clubName = escapeHtml(args.clubName);
+	const invitedBy = args.inviterName
+		? `<strong style="color:${colors.foreground};">${escapeHtml(args.inviterName)}</strong> has set up`
+		: 'The Curiosity Learning team has set up';
+	const invitedByText = args.inviterName
+		? `${args.inviterName} has set up`
+		: 'The Curiosity Learning team has set up';
+	const instructions = `Create your account using this email address and your club will be waiting for you — no application needed. This invitation expires in ${args.expiresInDays} days.`;
+	return {
+		subject: `Your club "${args.clubName}" is ready on Curiosity Learning`,
+		text: `${invitedByText} "${args.clubName}" for you on Curiosity Learning.\n\n${instructions}${args.signUpUrl ? `\n\n${args.signUpUrl}` : ''}`,
+		html: layout({
+			preheader: `Your club "${args.clubName}" is ready — create your account to take the reins.`,
+			title: 'Your club is ready',
+			children: `
+				${paragraph(`${invitedBy} <strong style="color:${colors.foreground};">${clubName}</strong> for you on Curiosity Learning.`)}
+				${paragraph(instructions)}
+				${args.signUpUrl ? `${button(args.signUpUrl, 'Create your account')}${rawLink(args.signUpUrl)}` : ''}
+			`,
+			footer:
+				'If you were not expecting this invitation, you can ignore this email — nothing happens until you sign up and the email address is verified.'
+		})
+	};
+};
+
 // Generic template for tiered notification emails (CL-715). Renders the same title/message
 // pair that is stored on the in-app `notifications` row, plus an optional CTA link into the app.
 export const notificationEmail = (args: {

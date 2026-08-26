@@ -61,6 +61,35 @@ export default defineSchema({
 		revokedByProfileId: v.optional(v.id('profiles'))
 	}).index('by_email', ['email']),
 
+	// Admin-issued invitation for someone who already runs a club in the real world: staff create
+	// the club record up front (as draft fields on this row) and the invitee skips the whole
+	// application pipeline. Claimed exactly like adminInvites — the invitee signs up on the member
+	// app with a *verified* Better Auth account whose email matches, and
+	// clubLeaderInvites.claimMyLeaderInvite founds the club with them as its Guide. This is a
+	// deliberate, admin-only exception to the CL-714 rule that promoteMember is the only path to
+	// Guide: that rule bans shareable guide *codes* on existing clubs; this is a single-use,
+	// email-addressed grant that creates a brand-new club (a founder is necessarily a Guide, same
+	// as an accepted applicant). Rows are never deleted — audit trail like adminInvites.
+	clubLeaderInvites: defineTable({
+		// Normalized (trimmed, lowercased) — matches Better Auth's stored email casing.
+		email: v.string(),
+		invitedByProfileId: v.id('profiles'),
+		// Club draft, filled in by the inviting admin; becomes the clubs row on claim.
+		clubName: v.string(),
+		clubDescription: v.optional(v.string()),
+		clubLocation: v.optional(v.string()),
+		clubLocationLatitude: v.optional(v.number()),
+		clubLocationLongitude: v.optional(v.number()),
+		createdAt: v.number(),
+		expiresAt: v.number(),
+		acceptedAt: v.optional(v.number()),
+		acceptedByProfileId: v.optional(v.id('profiles')),
+		// Set together with acceptedAt when the claim founds the club.
+		createdClubId: v.optional(v.id('clubs')),
+		revokedAt: v.optional(v.number()),
+		revokedByProfileId: v.optional(v.id('profiles'))
+	}).index('by_email', ['email']),
+
 	// PRD 5.6: replaces the old `profiles.pendingClubCode`/`pendingRole` mechanism (which deferred
 	// a club join until an onboarding gate — pledge agreement, or under-16 parental consent —
 	// cleared). One row per deferred join intent, keyed by profileId; `source` distinguishes a
