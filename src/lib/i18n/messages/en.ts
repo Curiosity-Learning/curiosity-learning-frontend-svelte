@@ -659,6 +659,7 @@ const en = {
 		actionNeededBadge: 'Action needed',
 		openBadge: 'Open',
 		closedBadge: 'Closed',
+		unreadBadgeLabel: '{count} unread messages',
 		todayLabel: 'Today',
 		yesterdayLabel: 'Yesterday'
 	},

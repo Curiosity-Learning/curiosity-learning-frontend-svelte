@@ -913,3 +913,88 @@ describe('context room chat', () => {
 		);
 	});
 });
+
+describe('last read markers', () => {
+	it('reports unread counts from the viewer read watermark', async () => {
+		const { base, viewer, roomId, otherProfileId } = await seedClubChatFixture();
+
+		// Never-opened room: the full inbound history counts as unread.
+		let summaries = await viewer.query(api.chat.listRoomSummaries, {});
+		expect(summaries[0].unreadCount).toBe(1);
+
+		await viewer.mutation(api.chat.markRoomRead, { roomId });
+		summaries = await viewer.query(api.chat.listRoomSummaries, {});
+		expect(summaries[0].unreadCount).toBe(0);
+
+		await base.run(async (ctx) => {
+			await ctx.db.insert('messages', { roomId, profileId: otherProfileId, content: 'New one' });
+			// System messages (no profileId) count as unread too — decision notices should badge.
+			await ctx.db.insert('messages', { roomId, content: 'System notice' });
+		});
+		summaries = await viewer.query(api.chat.listRoomSummaries, {});
+		expect(summaries[0].unreadCount).toBe(2);
+	});
+
+	it('never counts the viewer own messages as unread', async () => {
+		const { viewer, roomId } = await seedClubChatFixture();
+		await viewer.mutation(api.chat.markRoomRead, { roomId });
+
+		await viewer.mutation(api.chat.sendMessage, { roomId, content: 'My own message' });
+
+		const summaries = await viewer.query(api.chat.listRoomSummaries, {});
+		expect(summaries[0].unreadCount).toBe(0);
+	});
+
+	it('advances a single marker row per room instead of stacking rows', async () => {
+		const { base, viewer, roomId, viewerProfileId } = await seedClubChatFixture();
+
+		await viewer.mutation(api.chat.markRoomRead, { roomId });
+		await viewer.mutation(api.chat.markRoomRead, { roomId });
+
+		const markers = await base.run((ctx) =>
+			ctx.db
+				.query('roomReadMarkers')
+				.withIndex('by_profile_and_room', (q) =>
+					q.eq('profileId', viewerProfileId).eq('roomId', roomId)
+				)
+				.collect()
+		);
+		expect(markers).toHaveLength(1);
+		expect(Object.keys(markers[0]).sort()).toEqual(
+			['_creationTime', '_id', 'lastReadAt', 'profileId', 'roomId'].sort()
+		);
+	});
+
+	it('caps unread counting at 100 for the 99+ badge', async () => {
+		const { base, viewer, roomId, otherProfileId } = await seedClubChatFixture();
+		await base.run(async (ctx) => {
+			for (let index = 0; index < 110; index += 1) {
+				await ctx.db.insert('messages', {
+					roomId,
+					profileId: otherProfileId,
+					content: `Bulk ${index}`
+				});
+			}
+		});
+
+		const summaries = await viewer.query(api.chat.listRoomSummaries, {});
+		expect(summaries[0].unreadCount).toBe(100);
+	});
+
+	it('rejects marking rooms the profile cannot read', async () => {
+		const { base, roomId } = await seedClubChatFixture();
+		await base.run(async (ctx) => {
+			await ctx.db.insert('profiles', {
+				authUserId: 'outsider-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+		});
+		const outsider = base.withIdentity({ subject: 'outsider-user' });
+
+		await expect(outsider.mutation(api.chat.markRoomRead, { roomId })).rejects.toThrow(
+			'You cannot access this chat'
+		);
+	});
+});
