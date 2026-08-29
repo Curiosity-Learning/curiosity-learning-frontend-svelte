@@ -6,6 +6,7 @@ import { getClubRoleByKey, requireGlobalAdmin, requireProfile } from './permissi
 import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
 import { applicationHasReadyVideo, createClubFromApplication } from './clubApplications';
+import { resolveSeasonForManualAssignment } from './reviewAssignmentModel';
 import { getAuthUserEmail } from './authEmail';
 
 // ---------------------------------------------------------------------------
@@ -588,20 +589,23 @@ export const adminGetApplication = query({
 			? await ctx.db.get(application.decidedByProfileId)
 			: null;
 
-		// Staff-granted chat participants without review rows (applicationSupportGuides) — e.g.
-		// the onboarding contact attached to an admin-invited leader's application.
-		const supportGuideRows = await ctx.db
-			.query('applicationSupportGuides')
-			.withIndex('by_application_and_guide', (q) => q.eq('applicationId', application._id))
+		// Assigned reviewers/interviewers (PRD 6.11: they are the application chat's guide-side
+		// participants). hasReviewed distinguishes "assigned, scores pending" from "reviewed".
+		const assignmentRows = await ctx.db
+			.query('applicationReviewAssignments')
+			.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
 			.collect();
-		const supportGuides = await Promise.all(
-			supportGuideRows.map(async (grant) => {
-				const guideProfile = await ctx.db.get(grant.guideProfileId);
+		const assignedReviewers = await Promise.all(
+			assignmentRows.map(async (assignment) => {
+				const reviewerProfile = await ctx.db.get(assignment.reviewerProfileId);
 				return {
-					profileId: grant.guideProfileId,
-					name: guideProfile ? profileDisplayName(guideProfile) : 'Unknown user',
-					username: guideProfile?.username ?? null,
-					addedAt: grant.createdAt
+					profileId: assignment.reviewerProfileId,
+					name: reviewerProfile ? profileDisplayName(reviewerProfile) : 'Unknown user',
+					username: reviewerProfile?.username ?? null,
+					assignedAt: assignment.assignedAt,
+					hasReviewed: reviewRows.some(
+						(review) => review.reviewerProfileId === assignment.reviewerProfileId
+					)
 				};
 			})
 		);
@@ -636,56 +640,60 @@ export const adminGetApplication = query({
 			hasVideo: await applicationHasReadyVideo(ctx, application),
 			roomId: room?._id ?? null,
 			reviews,
-			supportGuides
+			assignedReviewers
 		};
 	}
 });
 
-// Attach a Guide (or any member) to this application's chat without a review row — they get
-// read/send access (chatModel.getClubApplicationAccess) and the room appears in their chat list
-// (chat.listRoomSummaries). Primary use: giving an admin-invited leader an onboarding contact.
-export const adminAddApplicationSupportGuide = mutation({
+// Manually assign a reviewer/interviewer to an application — the same applicationReviewAssignments
+// row the auto-assignment cron creates, so everything downstream (review page, chat access per
+// PRD 6.11 "Applicant + assigned interviewers", chat list) just works. Primary use: attaching an
+// interviewer to an admin-invited leader's application, which the cron never touches.
+export const adminAssignReviewer = mutation({
 	args: {
 		applicationId: v.id('clubApplications'),
 		profileId: v.id('profiles')
 	},
 	handler: async (ctx, args) => {
-		const identity = await requireGlobalAdmin(ctx);
-		const callerProfile = await requireProfile(ctx, identity.subject);
+		await requireGlobalAdmin(ctx);
 		const application = await ctx.db.get(args.applicationId);
 		if (!application) {
 			throw new ConvexError('Application not found');
 		}
-		const guideProfile = await ctx.db.get(args.profileId);
-		if (!guideProfile) {
+		const reviewerProfile = await ctx.db.get(args.profileId);
+		if (!reviewerProfile) {
 			throw new ConvexError('User not found');
 		}
 		if (application.applicantProfileId === args.profileId) {
-			throw new ConvexError('The applicant already has access to their own chat');
+			throw new ConvexError('The applicant cannot review their own application');
 		}
 		const existing = await ctx.db
-			.query('applicationSupportGuides')
-			.withIndex('by_application_and_guide', (q) =>
-				q.eq('applicationId', args.applicationId).eq('guideProfileId', args.profileId)
+			.query('applicationReviewAssignments')
+			.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+				q.eq('applicationId', args.applicationId).eq('reviewerProfileId', args.profileId)
 			)
 			.first();
 		if (existing) {
-			throw new ConvexError('That user is already in this chat');
+			throw new ConvexError('That user is already assigned to this application');
 		}
-		// Make sure the room exists so the grant is immediately usable (incomplete applications
-		// may not have one yet).
+		const season = await resolveSeasonForManualAssignment(ctx);
+		if (!season) {
+			throw new ConvexError('No seasons configured — create a season first (Seasons & Booklet)');
+		}
+		// Make sure the room exists so the assignment is immediately usable for chat (incomplete
+		// applications may not have one yet).
 		await ensureClubApplicationRoom(ctx, args.applicationId);
-		await ctx.db.insert('applicationSupportGuides', {
+		await ctx.db.insert('applicationReviewAssignments', {
 			applicationId: args.applicationId,
-			guideProfileId: args.profileId,
-			addedByProfileId: callerProfile._id,
-			createdAt: Date.now()
+			reviewerProfileId: args.profileId,
+			seasonId: season._id,
+			assignedAt: Date.now()
 		});
 		return null;
 	}
 });
 
-export const adminRemoveApplicationSupportGuide = mutation({
+export const adminUnassignReviewer = mutation({
 	args: {
 		applicationId: v.id('clubApplications'),
 		profileId: v.id('profiles')
@@ -693,13 +701,22 @@ export const adminRemoveApplicationSupportGuide = mutation({
 	handler: async (ctx, args) => {
 		await requireGlobalAdmin(ctx);
 		const existing = await ctx.db
-			.query('applicationSupportGuides')
-			.withIndex('by_application_and_guide', (q) =>
-				q.eq('applicationId', args.applicationId).eq('guideProfileId', args.profileId)
+			.query('applicationReviewAssignments')
+			.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+				q.eq('applicationId', args.applicationId).eq('reviewerProfileId', args.profileId)
 			)
 			.first();
 		if (!existing) {
-			throw new ConvexError('That user is not an added chat participant');
+			throw new ConvexError('That user is not assigned to this application');
+		}
+		const review = await ctx.db
+			.query('applicationReviews')
+			.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+				q.eq('applicationId', args.applicationId).eq('reviewerProfileId', args.profileId)
+			)
+			.first();
+		if (review) {
+			throw new ConvexError('That reviewer has already submitted a review and cannot be unassigned');
 		}
 		await ctx.db.delete(existing._id);
 		return null;

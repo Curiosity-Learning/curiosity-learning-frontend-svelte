@@ -7,6 +7,7 @@ import { getProfileByAuthUserId, requireGlobalAdmin, requireIdentity } from './p
 import { getAuthUserEmailInfo } from './authEmail';
 import { createClubForFounder } from './clubCreationModel';
 import { ensureClubApplicationRoom } from './chatModel';
+import { resolveSeasonForManualAssignment } from './reviewAssignmentModel';
 import { sendEmail } from './email/resend';
 import { clubLeaderInviteEmail } from './email/templates';
 
@@ -265,13 +266,14 @@ const createAcceptedApplicationForInvite = async (
 
 // CLI backfill for invites claimed before the support chat existed:
 //   npx convex run clubLeaderInvites:backfillApplicationForAcceptedInvite \
-//     '{"inviteId": "...", "supportGuideProfileId": "..."}' [--prod]
-// Creates the accepted application + room for an already-claimed invite and optionally attaches
-// a support guide (applicationSupportGuides) in the same call.
+//     '{"inviteId": "...", "reviewerProfileId": "..."}' [--prod]
+// Creates the accepted application + room for an already-claimed invite and optionally assigns
+// a reviewer/interviewer (the same applicationReviewAssignments row adminAssignReviewer creates,
+// which per PRD 6.11 makes them a chat participant).
 export const backfillApplicationForAcceptedInvite = internalMutation({
 	args: {
 		inviteId: v.id('clubLeaderInvites'),
-		supportGuideProfileId: v.optional(v.id('profiles'))
+		reviewerProfileId: v.optional(v.id('profiles'))
 	},
 	handler: async (ctx, args) => {
 		const invite = await ctx.db.get(args.inviteId);
@@ -289,23 +291,27 @@ export const backfillApplicationForAcceptedInvite = internalMutation({
 			invite.createdClubId
 		);
 
-		if (args.supportGuideProfileId) {
-			const guideProfile = await ctx.db.get(args.supportGuideProfileId);
-			if (!guideProfile) {
-				throw new ConvexError('Support guide profile not found');
+		if (args.reviewerProfileId) {
+			const reviewerProfile = await ctx.db.get(args.reviewerProfileId);
+			if (!reviewerProfile) {
+				throw new ConvexError('Reviewer profile not found');
 			}
-			const existingGrant = await ctx.db
-				.query('applicationSupportGuides')
-				.withIndex('by_application_and_guide', (q) =>
-					q.eq('applicationId', applicationId).eq('guideProfileId', args.supportGuideProfileId!)
+			const existingAssignment = await ctx.db
+				.query('applicationReviewAssignments')
+				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+					q.eq('applicationId', applicationId).eq('reviewerProfileId', args.reviewerProfileId!)
 				)
 				.first();
-			if (!existingGrant) {
-				await ctx.db.insert('applicationSupportGuides', {
+			if (!existingAssignment) {
+				const season = await resolveSeasonForManualAssignment(ctx);
+				if (!season) {
+					throw new ConvexError('No seasons configured — create a season first');
+				}
+				await ctx.db.insert('applicationReviewAssignments', {
 					applicationId,
-					guideProfileId: args.supportGuideProfileId,
-					addedByProfileId: invite.invitedByProfileId,
-					createdAt: Date.now()
+					reviewerProfileId: args.reviewerProfileId,
+					seasonId: season._id,
+					assignedAt: Date.now()
 				});
 			}
 		}
