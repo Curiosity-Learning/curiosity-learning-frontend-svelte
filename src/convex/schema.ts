@@ -837,6 +837,18 @@ export default defineSchema({
 		// their sent messages are the only record tying them to the room.
 		.index('by_profile', ['profileId']),
 
+	// Per-viewer "last read" watermark for a chat room. One row per (profile, room) pair, created
+	// lazily the first time a viewer opens the room. Everything in the room with a _creationTime
+	// after `lastReadAt` counts as unread for that viewer (chat.listRoomSummaries derives the
+	// per-room unread badge from it). Deliberately not a membership table — room visibility stays
+	// fully derived from context (clubMembers/projectMembers/applications/joinRequests), and a
+	// marker row grants nothing by itself.
+	roomReadMarkers: defineTable({
+		roomId: v.id('rooms'),
+		profileId: v.id('profiles'),
+		lastReadAt: v.number()
+	}).index('by_profile_and_room', ['profileId', 'roomId']),
+
 	rateLimits: defineTable({
 		key: v.string(),
 		windowStart: v.number(),

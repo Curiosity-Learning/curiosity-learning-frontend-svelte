@@ -48,6 +48,8 @@
 		canSend: boolean;
 		sendBlockedReason: 'archived' | 'not_participant' | null;
 		actionState: RoomActionState;
+		/** Last-read feature: messages newer than the viewer's read watermark, capped server-side. */
+		unreadCount: number;
 	};
 	type LocalMessage = {
 		localId: string;
@@ -282,6 +284,21 @@
 	let hasMoreMessages = $derived(
 		isSelectedRoomMessagesFresh ? Boolean(messagesResponse.data?.hasMore) : false
 	);
+
+	// Last-read feature: while the viewer has a room open, keep their read watermark current.
+	// Fires on room open and again whenever the live summaries subscription reports unread
+	// messages in the open room (i.e. a new inbound message arrives while it's on screen). Gated
+	// on the staleness check so a room is only marked read once its own messages are actually
+	// rendered — not while keepPreviousData is still showing the previous room's page.
+	$effect(() => {
+		const roomId = selectedRoomId;
+		if (!roomId || !isSelectedRoomMessagesFresh) return;
+		if ((activeRoom?.unreadCount ?? 0) === 0) return;
+		convexClient.mutation(api.chat.markRoomRead, { roomId }).catch(() => {
+			// Best-effort: a failed watermark write just leaves the badge in place; the effect
+			// re-runs on the next summaries update.
+		});
+	});
 	let visibleMessages = $derived.by(() => {
 		const serverIds = new Set(serverMessages.map((entry) => entry._id));
 		const localEntries = localMessages.filter(
@@ -459,6 +476,10 @@
 		// club (matching the chat header's subtext) instead of the generic "No messages yet".
 		return room.roomSubtitle ?? 'No messages yet';
 	};
+
+	// Last-read feature: the summaries query caps unread counting server-side, so anything at or
+	// past the cap renders as "99+" (mirrors the notifications bell badge in profile/+page.svelte).
+	const formatUnreadBadge = (count: number) => (count > 99 ? '99+' : `${count}`);
 
 	const openRoom = async (roomId: Id<'rooms'>) => {
 		const params = new SvelteURLSearchParams(page.url.searchParams);
@@ -816,9 +837,28 @@
 										</p>
 									</div>
 									<div class="mt-1 flex items-center gap-2">
-										<p class="type-sm min-w-0 flex-1 truncate text-muted-foreground">
+										<p
+											class={`type-sm min-w-0 flex-1 truncate ${
+												room.unreadCount > 0 && selectedRoomId !== room.roomId
+													? 'font-semibold text-foreground'
+													: 'text-muted-foreground'
+											}`}
+										>
 											{roomPreviewText(room)}
 										</p>
+										<!-- Last-read feature: unread badge, hidden for the open room (its watermark
+										is being advanced by the mark-read effect, so a badge would only flash). -->
+										{#if room.unreadCount > 0 && selectedRoomId !== room.roomId}
+											<Badge
+												size="sm"
+												class="shrink-0 border-transparent bg-orange-500 text-white"
+												aria-label={formatT('chat.unreadBadgeLabel', {
+													count: room.unreadCount
+												})}
+											>
+												{formatUnreadBadge(room.unreadCount)}
+											</Badge>
+										{/if}
 										<!-- CL-695/725 CEO review item E: only call out the states worth a glance —
 										nothing rendered for the unremarkable "open, nothing pending" default. -->
 										{#if room.actionState === 'action_needed'}

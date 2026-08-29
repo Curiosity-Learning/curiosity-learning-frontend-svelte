@@ -656,6 +656,7 @@ const nl = {
 		actionNeededBadge: 'Actie vereist',
 		openBadge: 'Open',
 		closedBadge: 'Gesloten',
+		unreadBadgeLabel: '{count} ongelezen berichten',
 		todayLabel: 'Vandaag',
 		yesterdayLabel: 'Gisteren'
 	},

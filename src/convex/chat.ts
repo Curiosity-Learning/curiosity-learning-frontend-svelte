@@ -17,6 +17,8 @@ import { listAttributedClubIds } from './projectsModel';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
+// Unread counting stops scanning here; the UI renders anything at/over the cap as "99+".
+const UNREAD_COUNT_CAP = 100;
 type Ctx = QueryCtx | MutationCtx;
 
 const requireRoomAccess = async (
@@ -39,6 +41,31 @@ const requireRoomAccess = async (
 	}
 
 	return room;
+};
+
+const getReadMarker = async (ctx: Ctx, profileId: Id<'profiles'>, roomId: Id<'rooms'>) =>
+	await ctx.db
+		.query('roomReadMarkers')
+		.withIndex('by_profile_and_room', (q) => q.eq('profileId', profileId).eq('roomId', roomId))
+		.first();
+
+// Messages the viewer hasn't seen yet: everything after their last-read watermark except their
+// own messages (you can't have "unread" messages you wrote yourself — this also keeps a viewer's
+// very first message in a room from counting as unread before any marker row exists). System
+// messages (no profileId, e.g. decision notices) deliberately DO count. A missing marker means
+// the viewer never opened the room, so the room's full history is unread.
+const countUnreadMessages = async (
+	ctx: Ctx,
+	roomId: Id<'rooms'>,
+	profileId: Id<'profiles'>,
+	lastReadAt: number
+) => {
+	const unread = await ctx.db
+		.query('messages')
+		.withIndex('by_room', (q) => q.eq('roomId', roomId).gt('_creationTime', lastReadAt))
+		.filter((q) => q.neq(q.field('profileId'), profileId))
+		.take(UNREAD_COUNT_CAP);
+	return unread.length;
 };
 
 const addRoomByClub = async (
@@ -197,6 +224,9 @@ export const listRoomSummaries = query({
 			sendBlockedReason: SendBlockedReason;
 			// CL-695/725 CEO review item E: powers the chat-list open/action-needed/closed badge.
 			actionState: RoomActionState;
+			// Last-read feature: messages newer than the viewer's roomReadMarkers watermark, capped
+			// at UNREAD_COUNT_CAP (rendered as "99+"). Own messages never count.
+			unreadCount: number;
 		}> = [];
 
 		for (const room of rooms.values()) {
@@ -214,6 +244,13 @@ export const listRoomSummaries = query({
 			// there is one). Club/project rooms have no counterpart, so they keep their plain name.
 			const genericName = await getRoomName(ctx, room);
 			const counterpart = await getRoomCounterpart(ctx, room, profile._id);
+			const readMarker = await getReadMarker(ctx, profile._id, room._id);
+			const unreadCount = await countUnreadMessages(
+				ctx,
+				room._id,
+				profile._id,
+				readMarker?.lastReadAt ?? 0
+			);
 			summaries.push({
 				roomId: room._id,
 				roomName: counterpart?.name ?? genericName,
@@ -223,7 +260,8 @@ export const listRoomSummaries = query({
 				lastMessageAt: latestMessage?._creationTime ?? room._creationTime,
 				canSend: access.canSend,
 				sendBlockedReason: access.sendBlockedReason,
-				actionState: await getRoomActionState(ctx, room, profile._id, access)
+				actionState: await getRoomActionState(ctx, room, profile._id, access),
+				unreadCount
 			});
 		}
 
@@ -482,5 +520,45 @@ export const sendMessage = mutation({
 			content
 		});
 		return await ctx.db.get(messageId);
+	}
+});
+
+// Last-read feature: moves the viewer's watermark for a room up to "now". Called by the chat page
+// whenever the viewer has the room open and the summaries subscription reports unread messages.
+// Requires only READ access on purpose: closed/archived chats stay readable, and reading them
+// should still clear their badge. The parent "View as Child" surfaces (parentAccounts.ts) never
+// call this — a parent reading a child's chat must not silently mark it read for the child.
+export const markRoomRead = mutation({
+	args: {
+		roomId: v.id('rooms')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		await requireRoomAccess(ctx, args.roomId, profile._id, 'read');
+
+		// Watermark = the newest message's _creationTime, not Date.now(): "read" means "seen
+		// everything currently in the room", and message _creationTime carries sub-millisecond
+		// precision that a wall-clock watermark taken in the same millisecond would sort below.
+		const latestMessage = await ctx.db
+			.query('messages')
+			.withIndex('by_room', (q) => q.eq('roomId', args.roomId))
+			.order('desc')
+			.first();
+		const lastReadAt = latestMessage?._creationTime ?? Date.now();
+		const marker = await getReadMarker(ctx, profile._id, args.roomId);
+		if (marker) {
+			// Guard against out-of-order calls (two tabs, retries) regressing the watermark.
+			if (marker.lastReadAt < lastReadAt) {
+				await ctx.db.patch(marker._id, { lastReadAt });
+			}
+			return null;
+		}
+		await ctx.db.insert('roomReadMarkers', {
+			roomId: args.roomId,
+			profileId: profile._id,
+			lastReadAt
+		});
+		return null;
 	}
 });
