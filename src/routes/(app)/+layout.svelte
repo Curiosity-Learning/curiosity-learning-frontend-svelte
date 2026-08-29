@@ -213,11 +213,41 @@
 			: navState.title
 	);
 
+	// Admin-invited leaders (clubLeaderInvites): the server-side claim in +layout.server.ts only
+	// runs inside the club-less redirect gate, which skips every allowlisted path — and a fresh
+	// sign-up lands directly on /new-club (allowlisted), with only allowlisted pages (chat,
+	// profile) reachable from there, so that claim never fired for the primary flow. This effect
+	// covers it: any signed-in club-less user triggers one claim attempt per session, wherever
+	// they are, and a successful claim drops them straight into their new club.
+	let leaderInviteClaimState = $state<'idle' | 'pending' | 'done'>('idle');
 	$effect(() => {
 		if (!browser) return;
 		if (!isAuthReady) return;
 		if (clubsResponse.isLoading) return;
 		if (clubs.length > 0) return;
+		if (leaderInviteClaimState !== 'idle') return;
+		leaderInviteClaimState = 'pending';
+		convexClient
+			.mutation(api.clubLeaderInvites.claimMyLeaderInvite, {})
+			.then((result) => {
+				if (result.status === 'claimed') {
+					void goto(routes.clubHome(result.clubId), { replaceState: true });
+				}
+			})
+			.catch(() => undefined)
+			.finally(() => {
+				leaderInviteClaimState = 'done';
+			});
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		if (!isAuthReady) return;
+		if (clubsResponse.isLoading) return;
+		if (clubs.length > 0) return;
+		// Let a pending leader-invite claim resolve before bouncing to /new-club, so an invited
+		// leader lands in their club instead of racing the redirect.
+		if (leaderInviteClaimState !== 'done') return;
 		if (isNoClubAllowedPath(activePath)) {
 			return;
 		}
