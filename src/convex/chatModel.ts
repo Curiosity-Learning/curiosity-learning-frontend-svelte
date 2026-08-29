@@ -182,15 +182,18 @@ export const getClubApplicationAccess = async (
 		return { canRead: true, canSend: true, sendBlockedReason: null };
 	}
 
-	// Staff-granted chat access without a review row (applicationSupportGuides): e.g. the
-	// onboarding contact attached to an admin-invited leader's application.
-	const supportGrant = await ctx.db
-		.query('applicationSupportGuides')
-		.withIndex('by_application_and_guide', (q) =>
-			q.eq('applicationId', clubApplicationId).eq('guideProfileId', profileId)
+	// PRD 6.11 chat membership: club_application participants are "Applicant + assigned
+	// interviewers" — an applicationReviewAssignments row IS the assignment, so assigned
+	// reviewers can chat (e.g. to schedule the interview) even before submitting scores. Also
+	// how staff attach an interviewer to an admin-invited leader's application (which has no
+	// auto-assigned reviewers): admin.adminAssignReviewer.
+	const assignment = await ctx.db
+		.query('applicationReviewAssignments')
+		.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+			q.eq('applicationId', clubApplicationId).eq('reviewerProfileId', profileId)
 		)
 		.first();
-	const canRead = Boolean(supportGrant);
+	const canRead = Boolean(assignment);
 	return { canRead, canSend: canRead, sendBlockedReason: null };
 };
 

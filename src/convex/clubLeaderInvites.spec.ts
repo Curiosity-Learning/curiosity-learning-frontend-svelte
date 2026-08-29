@@ -67,6 +67,22 @@ const seedRoles = async (t: ReturnType<typeof convexTest>) =>
 		});
 	});
 
+// Manual reviewer assignment resolves a season (reviewAssignmentModel.resolveSeasonForManualAssignment).
+const seedSeason = async (t: ReturnType<typeof convexTest>) =>
+	t.run(async (ctx) => {
+		const now = Date.now();
+		await ctx.db.insert('seasons', {
+			name: 'Test Season',
+			startDate: now - 1000,
+			endDate: now + 1000 * 60 * 60 * 24 * 90,
+			reviewWindowOpen: now - 1000,
+			reviewWindowClose: now + 1000 * 60 * 60 * 24 * 30,
+			feedbackDeadline: now + 1000 * 60 * 60 * 24 * 60,
+			createdAt: now,
+			updatedAt: now
+		});
+	});
+
 const seedProfile = async (
 	t: ReturnType<typeof convexTest>,
 	authUserId: string
@@ -220,12 +236,13 @@ describe('clubLeaderInvites.claimMyLeaderInvite', () => {
 		);
 	});
 
-	it('support guides added by staff can see and send in the invited leader’s chat', async () => {
+	it('an admin-assigned reviewer becomes a chat participant (PRD 6.11), and unassign revokes it', async () => {
 		const t = convexTest(schema, modules);
 		await seedRoles(t);
+		await seedSeason(t);
 		await seedAdmin(t);
 		await seedProfile(t, 'leader-user');
-		const guideProfileId = await seedProfile(t, 'stranger-user');
+		const reviewerProfileId = await seedProfile(t, 'stranger-user');
 		await inviteLeader(t);
 		await t
 			.withIdentity({ subject: 'leader-user' })
@@ -235,28 +252,28 @@ describe('clubLeaderInvites.claimMyLeaderInvite', () => {
 			async (ctx) => (await ctx.db.query('clubApplications').collect())[0]
 		);
 
-		// Before the grant: the guide's chat list has no application room.
+		// Before the assignment: the reviewer's chat list has no application room.
 		const before = await t
 			.withIdentity({ subject: 'stranger-user' })
 			.query(api.chat.listRoomSummaries, {});
 		expect(before.some((summary) => summary.contextType === 'clubApplication')).toBe(false);
 
-		await asAdmin(t).mutation(api.admin.adminAddApplicationSupportGuide, {
+		await asAdmin(t).mutation(api.admin.adminAssignReviewer, {
 			applicationId: application._id,
-			profileId: guideProfileId
+			profileId: reviewerProfileId
 		});
 
 		const after = await t
 			.withIdentity({ subject: 'stranger-user' })
 			.query(api.chat.listRoomSummaries, {});
-		const supportRoom = after.find((summary) => summary.contextType === 'clubApplication');
-		expect(supportRoom).toBeDefined();
-		expect(supportRoom?.canSend).toBe(true);
+		const interviewRoom = after.find((summary) => summary.contextType === 'clubApplication');
+		expect(interviewRoom).toBeDefined();
+		expect(interviewRoom?.canSend).toBe(true);
 
-		// Removing the grant takes the room away again.
-		await asAdmin(t).mutation(api.admin.adminRemoveApplicationSupportGuide, {
+		// Unassigning (no review submitted) takes the room away again.
+		await asAdmin(t).mutation(api.admin.adminUnassignReviewer, {
 			applicationId: application._id,
-			profileId: guideProfileId
+			profileId: reviewerProfileId
 		});
 		const removed = await t
 			.withIdentity({ subject: 'stranger-user' })
@@ -264,12 +281,13 @@ describe('clubLeaderInvites.claimMyLeaderInvite', () => {
 		expect(removed.some((summary) => summary.contextType === 'clubApplication')).toBe(false);
 	});
 
-	it('backfills the application + support guide for an invite claimed before this existed', async () => {
+	it('backfills the application + assigned reviewer for an invite claimed before this existed', async () => {
 		const t = convexTest(schema, modules);
 		await seedRoles(t);
+		await seedSeason(t);
 		await seedAdmin(t);
 		await seedProfile(t, 'leader-user');
-		const guideProfileId = await seedProfile(t, 'stranger-user');
+		const reviewerProfileId = await seedProfile(t, 'stranger-user');
 		await inviteLeader(t);
 		await t
 			.withIdentity({ subject: 'leader-user' })
@@ -291,7 +309,7 @@ describe('clubLeaderInvites.claimMyLeaderInvite', () => {
 		const { applicationId } = await t.run((ctx) =>
 			ctx.runMutation(internal.clubLeaderInvites.backfillApplicationForAcceptedInvite, {
 				inviteId: inviteRow._id,
-				supportGuideProfileId: guideProfileId
+				reviewerProfileId
 			})
 		);
 
@@ -299,10 +317,10 @@ describe('clubLeaderInvites.claimMyLeaderInvite', () => {
 		expect(application?.status).toBe('accepted');
 		expect(application?.createdClubId).toBe(inviteRow.createdClubId);
 
-		const guideRooms = await t
+		const reviewerRooms = await t
 			.withIdentity({ subject: 'stranger-user' })
 			.query(api.chat.listRoomSummaries, {});
-		expect(guideRooms.some((summary) => summary.contextType === 'clubApplication')).toBe(true);
+		expect(reviewerRooms.some((summary) => summary.contextType === 'clubApplication')).toBe(true);
 
 		// Running it again is a no-op (idempotent per club).
 		const again = await t.run((ctx) =>

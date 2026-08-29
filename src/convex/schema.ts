@@ -252,21 +252,6 @@ export default defineSchema({
 		.index('by_status_and_created_at', ['status', 'createdAt'])
 		.index('by_created_club_id', ['createdClubId']),
 
-	// Staff-granted access to a club application's chat for a specific Guide, without a review
-	// row (applicationReviews carries scores that feed admin metrics, so it must never be
-	// synthesized just for chat access). Primary use: giving an admin-invited leader
-	// (clubLeaderInvites) an onboarding contact — their claim creates an accepted application +
-	// room but no reviewers, so staff attach the regional Guide here from the admin portal.
-	// Generic on purpose: works for any application's chat.
-	applicationSupportGuides: defineTable({
-		applicationId: v.id('clubApplications'),
-		guideProfileId: v.id('profiles'),
-		addedByProfileId: v.id('profiles'),
-		createdAt: v.number()
-	})
-		.index('by_application_and_guide', ['applicationId', 'guideProfileId'])
-		.index('by_guide', ['guideProfileId']),
-
 	applicationReviews: defineTable({
 		applicationId: v.id('clubApplications'),
 		reviewerProfileId: v.id('profiles'),

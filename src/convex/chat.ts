@@ -180,14 +180,15 @@ export const listRoomSummaries = query({
 			await addRoomByClubApplication(ctx, rooms, review.applicationId);
 		}
 
-		// Application chats this profile was attached to as a staff-granted support guide (e.g.
-		// the onboarding contact for an admin-invited leader) — same surfacing as reviewer rooms.
-		const supportGrants = await ctx.db
-			.query('applicationSupportGuides')
-			.withIndex('by_guide', (q) => q.eq('guideProfileId', profile._id))
+		// PRD 6.11: assigned interviewers are club_application chat participants, so assignments
+		// surface the room even before a review is submitted (reviews above cover the escape-
+		// hatch case of a review without an assignment row).
+		const assignments = await ctx.db
+			.query('applicationReviewAssignments')
+			.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
 			.collect();
-		for (const grant of supportGrants) {
-			await addRoomByClubApplication(ctx, rooms, grant.applicationId);
+		for (const assignment of assignments) {
+			await addRoomByClubApplication(ctx, rooms, assignment.applicationId);
 		}
 
 		// Own join requests: surfaced regardless of club membership, so a user with no club

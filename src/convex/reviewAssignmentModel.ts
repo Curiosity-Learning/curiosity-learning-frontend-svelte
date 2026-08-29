@@ -86,6 +86,22 @@ export const adminUpdateReviewSettings = mutation({
 	}
 });
 
+// The season a MANUAL assignment (admin.adminAssignReviewer, leader-invite backfill) books
+// against: the one whose review window is open, else the most recent one. Manual assignments are
+// staff decisions and shouldn't fail just because no window is open right now — but they do need
+// a season row for the load-balancing indexes.
+export const resolveSeasonForManualAssignment = async (ctx: QueryCtx | MutationCtx) => {
+	const seasons = await ctx.db.query('seasons').collect();
+	if (seasons.length === 0) return null;
+	const now = Date.now();
+	return (
+		seasons.find((season) => season.reviewWindowOpen <= now && now <= season.reviewWindowClose) ??
+		seasons.reduce((latest, season) =>
+			season.reviewWindowOpen > latest.reviewWindowOpen ? season : latest
+		)
+	);
+};
+
 // The season whose review window currently contains `now`, or null.
 const getOpenReviewWindowSeason = async (ctx: MutationCtx, now: number) => {
 	const seasons = await ctx.db.query('seasons').collect();
