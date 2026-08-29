@@ -1,11 +1,12 @@
 import { ConvexError, v } from 'convex/values';
-import { internalAction, mutation, query } from './_generated/server';
+import { internalAction, internalMutation, mutation, query } from './_generated/server';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import type { Doc } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import { getProfileByAuthUserId, requireGlobalAdmin, requireIdentity } from './permissions';
 import { getAuthUserEmailInfo } from './authEmail';
 import { createClubForFounder } from './clubCreationModel';
+import { ensureClubApplicationRoom } from './chatModel';
 import { sendEmail } from './email/resend';
 import { clubLeaderInviteEmail } from './email/templates';
 
@@ -217,7 +218,99 @@ export const claimMyLeaderInvite = mutation({
 			createdClubId: clubId
 		});
 
+		// Invited leaders also get the standard application-support chat: a real accepted
+		// clubApplications row (their application WAS accepted — by staff, up front) plus its
+		// room. That gives them the same in-app channel every applicant has, staff can join from
+		// the admin portal, and specific Guides can be attached via applicationSupportGuides.
+		await createAcceptedApplicationForInvite(ctx, invite, profile._id, clubId);
+
 		return { status: 'claimed' as const, clubId };
+	}
+});
+
+// Shared by claimMyLeaderInvite and the CLI backfill below. Idempotent per club via the
+// by_created_club_id lookup.
+const createAcceptedApplicationForInvite = async (
+	ctx: MutationCtx,
+	invite: Doc<'clubLeaderInvites'>,
+	applicantProfileId: Id<'profiles'>,
+	clubId: Id<'clubs'>
+) => {
+	const existing = await ctx.db
+		.query('clubApplications')
+		.withIndex('by_created_club_id', (q) => q.eq('createdClubId', clubId))
+		.first();
+	if (existing) {
+		return { applicationId: existing._id };
+	}
+
+	const now = Date.now();
+	const applicationId = await ctx.db.insert('clubApplications', {
+		applicantProfileId,
+		status: 'accepted',
+		name: invite.clubName,
+		description: invite.clubDescription,
+		location: invite.clubLocation,
+		locationLatitude: invite.clubLocationLatitude,
+		locationLongitude: invite.clubLocationLongitude,
+		createdClubId: clubId,
+		decidedAt: now,
+		decidedByProfileId: invite.invitedByProfileId,
+		createdAt: now,
+		updatedAt: now
+	});
+	await ensureClubApplicationRoom(ctx, applicationId);
+	return { applicationId };
+};
+
+// CLI backfill for invites claimed before the support chat existed:
+//   npx convex run clubLeaderInvites:backfillApplicationForAcceptedInvite \
+//     '{"inviteId": "...", "supportGuideProfileId": "..."}' [--prod]
+// Creates the accepted application + room for an already-claimed invite and optionally attaches
+// a support guide (applicationSupportGuides) in the same call.
+export const backfillApplicationForAcceptedInvite = internalMutation({
+	args: {
+		inviteId: v.id('clubLeaderInvites'),
+		supportGuideProfileId: v.optional(v.id('profiles'))
+	},
+	handler: async (ctx, args) => {
+		const invite = await ctx.db.get(args.inviteId);
+		if (!invite) {
+			throw new ConvexError('Invite not found');
+		}
+		if (!invite.acceptedAt || !invite.acceptedByProfileId || !invite.createdClubId) {
+			throw new ConvexError('Invite has not been claimed yet');
+		}
+
+		const { applicationId } = await createAcceptedApplicationForInvite(
+			ctx,
+			invite,
+			invite.acceptedByProfileId,
+			invite.createdClubId
+		);
+
+		if (args.supportGuideProfileId) {
+			const guideProfile = await ctx.db.get(args.supportGuideProfileId);
+			if (!guideProfile) {
+				throw new ConvexError('Support guide profile not found');
+			}
+			const existingGrant = await ctx.db
+				.query('applicationSupportGuides')
+				.withIndex('by_application_and_guide', (q) =>
+					q.eq('applicationId', applicationId).eq('guideProfileId', args.supportGuideProfileId!)
+				)
+				.first();
+			if (!existingGrant) {
+				await ctx.db.insert('applicationSupportGuides', {
+					applicationId,
+					guideProfileId: args.supportGuideProfileId,
+					addedByProfileId: invite.invitedByProfileId,
+					createdAt: Date.now()
+				});
+			}
+		}
+
+		return { applicationId };
 	}
 });
 

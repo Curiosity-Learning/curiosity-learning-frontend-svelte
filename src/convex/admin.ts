@@ -588,6 +588,24 @@ export const adminGetApplication = query({
 			? await ctx.db.get(application.decidedByProfileId)
 			: null;
 
+		// Staff-granted chat participants without review rows (applicationSupportGuides) — e.g.
+		// the onboarding contact attached to an admin-invited leader's application.
+		const supportGuideRows = await ctx.db
+			.query('applicationSupportGuides')
+			.withIndex('by_application_and_guide', (q) => q.eq('applicationId', application._id))
+			.collect();
+		const supportGuides = await Promise.all(
+			supportGuideRows.map(async (grant) => {
+				const guideProfile = await ctx.db.get(grant.guideProfileId);
+				return {
+					profileId: grant.guideProfileId,
+					name: guideProfile ? profileDisplayName(guideProfile) : 'Unknown user',
+					username: guideProfile?.username ?? null,
+					addedAt: grant.createdAt
+				};
+			})
+		);
+
 		return {
 			applicationId: application._id,
 			status: application.status,
@@ -617,8 +635,74 @@ export const adminGetApplication = query({
 			// in any environment with secure media delivery (private bucket + CloudFront signing).
 			hasVideo: await applicationHasReadyVideo(ctx, application),
 			roomId: room?._id ?? null,
-			reviews
+			reviews,
+			supportGuides
 		};
+	}
+});
+
+// Attach a Guide (or any member) to this application's chat without a review row — they get
+// read/send access (chatModel.getClubApplicationAccess) and the room appears in their chat list
+// (chat.listRoomSummaries). Primary use: giving an admin-invited leader an onboarding contact.
+export const adminAddApplicationSupportGuide = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		profileId: v.id('profiles')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireGlobalAdmin(ctx);
+		const callerProfile = await requireProfile(ctx, identity.subject);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		const guideProfile = await ctx.db.get(args.profileId);
+		if (!guideProfile) {
+			throw new ConvexError('User not found');
+		}
+		if (application.applicantProfileId === args.profileId) {
+			throw new ConvexError('The applicant already has access to their own chat');
+		}
+		const existing = await ctx.db
+			.query('applicationSupportGuides')
+			.withIndex('by_application_and_guide', (q) =>
+				q.eq('applicationId', args.applicationId).eq('guideProfileId', args.profileId)
+			)
+			.first();
+		if (existing) {
+			throw new ConvexError('That user is already in this chat');
+		}
+		// Make sure the room exists so the grant is immediately usable (incomplete applications
+		// may not have one yet).
+		await ensureClubApplicationRoom(ctx, args.applicationId);
+		await ctx.db.insert('applicationSupportGuides', {
+			applicationId: args.applicationId,
+			guideProfileId: args.profileId,
+			addedByProfileId: callerProfile._id,
+			createdAt: Date.now()
+		});
+		return null;
+	}
+});
+
+export const adminRemoveApplicationSupportGuide = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		profileId: v.id('profiles')
+	},
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const existing = await ctx.db
+			.query('applicationSupportGuides')
+			.withIndex('by_application_and_guide', (q) =>
+				q.eq('applicationId', args.applicationId).eq('guideProfileId', args.profileId)
+			)
+			.first();
+		if (!existing) {
+			throw new ConvexError('That user is not an added chat participant');
+		}
+		await ctx.db.delete(existing._id);
+		return null;
 	}
 });
 

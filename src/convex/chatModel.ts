@@ -178,7 +178,19 @@ export const getClubApplicationAccess = async (
 			q.eq('applicationId', clubApplicationId).eq('reviewerProfileId', profileId)
 		)
 		.first();
-	const canRead = Boolean(review);
+	if (review) {
+		return { canRead: true, canSend: true, sendBlockedReason: null };
+	}
+
+	// Staff-granted chat access without a review row (applicationSupportGuides): e.g. the
+	// onboarding contact attached to an admin-invited leader's application.
+	const supportGrant = await ctx.db
+		.query('applicationSupportGuides')
+		.withIndex('by_application_and_guide', (q) =>
+			q.eq('applicationId', clubApplicationId).eq('guideProfileId', profileId)
+		)
+		.first();
+	const canRead = Boolean(supportGrant);
 	return { canRead, canSend: canRead, sendBlockedReason: null };
 };
 

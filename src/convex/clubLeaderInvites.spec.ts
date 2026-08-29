@@ -201,6 +201,116 @@ describe('clubLeaderInvites.claimMyLeaderInvite', () => {
 		expect(inviteRow.acceptedAt).toBeDefined();
 		expect(inviteRow.acceptedByProfileId).toBe(leaderProfileId);
 		expect(inviteRow.createdClubId).toBe(result.clubId);
+
+		// The claim also creates the standard support channel: an accepted application linked to
+		// the club, with its chat room.
+		const { application, room } = await t.run(async (ctx) => {
+			const application = (await ctx.db.query('clubApplications').collect())[0];
+			const room = (await ctx.db.query('rooms').collect()).find(
+				(row) => row.contextType === 'clubApplication'
+			);
+			return { application, room };
+		});
+		expect(application?.status).toBe('accepted');
+		expect(application?.applicantProfileId).toBe(leaderProfileId);
+		expect(application?.createdClubId).toBe(result.clubId);
+		expect(application?.name).toBe('Braga Curiosity Club');
+		expect(room && 'clubApplicationId' in room ? room.clubApplicationId : null).toBe(
+			application?._id
+		);
+	});
+
+	it('support guides added by staff can see and send in the invited leader’s chat', async () => {
+		const t = convexTest(schema, modules);
+		await seedRoles(t);
+		await seedAdmin(t);
+		await seedProfile(t, 'leader-user');
+		const guideProfileId = await seedProfile(t, 'stranger-user');
+		await inviteLeader(t);
+		await t
+			.withIdentity({ subject: 'leader-user' })
+			.mutation(api.clubLeaderInvites.claimMyLeaderInvite, {});
+
+		const application = await t.run(
+			async (ctx) => (await ctx.db.query('clubApplications').collect())[0]
+		);
+
+		// Before the grant: the guide's chat list has no application room.
+		const before = await t
+			.withIdentity({ subject: 'stranger-user' })
+			.query(api.chat.listRoomSummaries, {});
+		expect(before.some((summary) => summary.contextType === 'clubApplication')).toBe(false);
+
+		await asAdmin(t).mutation(api.admin.adminAddApplicationSupportGuide, {
+			applicationId: application._id,
+			profileId: guideProfileId
+		});
+
+		const after = await t
+			.withIdentity({ subject: 'stranger-user' })
+			.query(api.chat.listRoomSummaries, {});
+		const supportRoom = after.find((summary) => summary.contextType === 'clubApplication');
+		expect(supportRoom).toBeDefined();
+		expect(supportRoom?.canSend).toBe(true);
+
+		// Removing the grant takes the room away again.
+		await asAdmin(t).mutation(api.admin.adminRemoveApplicationSupportGuide, {
+			applicationId: application._id,
+			profileId: guideProfileId
+		});
+		const removed = await t
+			.withIdentity({ subject: 'stranger-user' })
+			.query(api.chat.listRoomSummaries, {});
+		expect(removed.some((summary) => summary.contextType === 'clubApplication')).toBe(false);
+	});
+
+	it('backfills the application + support guide for an invite claimed before this existed', async () => {
+		const t = convexTest(schema, modules);
+		await seedRoles(t);
+		await seedAdmin(t);
+		await seedProfile(t, 'leader-user');
+		const guideProfileId = await seedProfile(t, 'stranger-user');
+		await inviteLeader(t);
+		await t
+			.withIdentity({ subject: 'leader-user' })
+			.mutation(api.clubLeaderInvites.claimMyLeaderInvite, {});
+
+		// Simulate a pre-feature claim by deleting the application the claim just created.
+		await t.run(async (ctx) => {
+			for (const application of await ctx.db.query('clubApplications').collect()) {
+				await ctx.db.delete(application._id);
+			}
+			for (const room of await ctx.db.query('rooms').collect()) {
+				if (room.contextType === 'clubApplication') await ctx.db.delete(room._id);
+			}
+		});
+
+		const inviteRow = await t.run(
+			async (ctx) => (await ctx.db.query('clubLeaderInvites').collect())[0]
+		);
+		const { applicationId } = await t.run((ctx) =>
+			ctx.runMutation(internal.clubLeaderInvites.backfillApplicationForAcceptedInvite, {
+				inviteId: inviteRow._id,
+				supportGuideProfileId: guideProfileId
+			})
+		);
+
+		const application = await t.run((ctx) => ctx.db.get(applicationId));
+		expect(application?.status).toBe('accepted');
+		expect(application?.createdClubId).toBe(inviteRow.createdClubId);
+
+		const guideRooms = await t
+			.withIdentity({ subject: 'stranger-user' })
+			.query(api.chat.listRoomSummaries, {});
+		expect(guideRooms.some((summary) => summary.contextType === 'clubApplication')).toBe(true);
+
+		// Running it again is a no-op (idempotent per club).
+		const again = await t.run((ctx) =>
+			ctx.runMutation(internal.clubLeaderInvites.backfillApplicationForAcceptedInvite, {
+				inviteId: inviteRow._id
+			})
+		);
+		expect(again.applicationId).toBe(applicationId);
 	});
 
 	it('does nothing without a pending invite, for unverified emails, expired, revoked, or suspended', async () => {
