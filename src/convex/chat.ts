@@ -463,9 +463,25 @@ export const getRoomParticipants = query({
 						.query('applicationReviews')
 						.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
 						.collect();
+					const reviewerProfileIds = new Set<Id<'profiles'>>();
 					for (const review of reviews) {
 						const reviewerProfile = await getRelatedProfile(ctx, review.reviewerProfileId);
 						if (!reviewerProfile) continue;
+						reviewerProfileIds.add(review.reviewerProfileId);
+						participants.push(await summarizeProfileForChat(ctx, reviewerProfile, 'Reviewer'));
+					}
+					// Assigned reviewers are chat participants per PRD 6.11, even before submitting
+					// scores (chatModel.getClubApplicationAccess grants them access) — without this
+					// they could write in the chat while being invisible in the members dialog.
+					const assignments = await ctx.db
+						.query('applicationReviewAssignments')
+						.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
+						.collect();
+					for (const assignment of assignments) {
+						if (reviewerProfileIds.has(assignment.reviewerProfileId)) continue;
+						const reviewerProfile = await getRelatedProfile(ctx, assignment.reviewerProfileId);
+						if (!reviewerProfile) continue;
+						reviewerProfileIds.add(assignment.reviewerProfileId);
 						participants.push(await summarizeProfileForChat(ctx, reviewerProfile, 'Reviewer'));
 					}
 				}

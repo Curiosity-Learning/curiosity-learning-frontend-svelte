@@ -270,6 +270,17 @@ describe('clubLeaderInvites.claimMyLeaderInvite', () => {
 		expect(interviewRoom).toBeDefined();
 		expect(interviewRoom?.canSend).toBe(true);
 
+		// The members dialog lists the assigned reviewer even before any review is submitted.
+		const participants = await t
+			.withIdentity({ subject: 'leader-user' })
+			.query(api.chat.getRoomParticipants, { roomId: interviewRoom!.roomId });
+		expect(
+			participants.participants.some(
+				(participant) =>
+					participant.profileId === reviewerProfileId && participant.roleLabel === 'Reviewer'
+			)
+		).toBe(true);
+
 		// Unassigning (no review submitted) takes the room away again.
 		await asAdmin(t).mutation(api.admin.adminUnassignReviewer, {
 			applicationId: application._id,
