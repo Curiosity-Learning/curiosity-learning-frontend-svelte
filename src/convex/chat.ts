@@ -180,6 +180,16 @@ export const listRoomSummaries = query({
 			await addRoomByClubApplication(ctx, rooms, review.applicationId);
 		}
 
+		// Application chats this profile was attached to as a staff-granted support guide (e.g.
+		// the onboarding contact for an admin-invited leader) — same surfacing as reviewer rooms.
+		const supportGrants = await ctx.db
+			.query('applicationSupportGuides')
+			.withIndex('by_guide', (q) => q.eq('guideProfileId', profile._id))
+			.collect();
+		for (const grant of supportGrants) {
+			await addRoomByClubApplication(ctx, rooms, grant.applicationId);
+		}
+
 		// Own join requests: surfaced regardless of club membership, so a user with no club
 		// membership at all still sees their pending/decided join-request chats (PRD 6.8).
 		const ownJoinRequests = await ctx.db

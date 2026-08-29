@@ -6,6 +6,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { page } from '$app/state';
 	import { _, t } from '$lib/i18n';
 	import { cn } from '$lib/utils.js';
 
@@ -26,7 +27,9 @@
 	let open = $state(false);
 	let copiedField = $state<string | null>(null);
 
-	let learnerJoinUrl = $derived(clubCode ? `/onboarding/join-club/${clubCode}` : '');
+	let learnerJoinUrl = $derived(
+		clubCode ? `${page.url.origin}/onboarding/join-club/${clubCode}` : ''
+	);
 	let resolvedTriggerLabel = $derived(triggerLabel ?? t('inviteLearnerDialog.triggerLabel'));
 
 	const copyText = async (value: string, field: string) => {
