@@ -4,7 +4,6 @@ import { internal } from './_generated/api';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import {
-	getClubRoleByKey,
 	getProfileByAuthUserId,
 	listMembershipsForProfile,
 	requireIdentity,
@@ -39,14 +38,6 @@ type ApplicationDraft = {
 	applicantRole?: string;
 	referralSource?: string;
 	referralOther?: string;
-};
-
-const getRoleByKey = async (ctx: Ctx, key: 'guide' | 'learner') => {
-	const role = await getClubRoleByKey(ctx, key);
-	if (!role) {
-		throw new ConvexError(`Default role ${key} is not configured`);
-	}
-	return role;
 };
 
 const isGuideSomewhere = async (ctx: Ctx, userId: string) => {
