@@ -241,6 +241,112 @@ export const getRoomAccess = async (
 	}
 };
 
+// Earliest createdAt across rows, 0 when there are none ("no derivable association").
+const earliestCreatedAt = (rows: Array<{ createdAt: number }>) =>
+	rows.reduce((earliest, row) => (!earliest || row.createdAt < earliest ? row.createdAt : earliest), 0);
+
+// Last-read feature: when a viewer became associated with a room's context. Used by
+// chat.listRoomSummaries as the unread floor for viewers with no roomReadMarkers row yet — a new
+// member of an old club shouldn't find its entire history badged as unread; counting starts at
+// the same association the access rules above derive room visibility from. Returns 0
+// ("everything unread") when no association time is derivable.
+export const getRoomJoinedAt = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>,
+	profileId: Id<'profiles'>
+): Promise<number> => {
+	switch (room.contextType) {
+		case 'club': {
+			const memberships = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', room.clubId).eq('profileId', profileId)
+				)
+				.collect();
+			return earliestCreatedAt(memberships);
+		}
+		case 'project': {
+			const memberships = await ctx.db
+				.query('projectMembers')
+				.withIndex('by_project_and_profile', (q) =>
+					q.eq('projectId', room.projectId).eq('profileId', profileId)
+				)
+				.collect();
+			const memberJoinedAt = earliestCreatedAt(memberships);
+			if (memberJoinedAt) return memberJoinedAt;
+
+			// Guide observers (getProjectObserverAccess): associated through their qualifying club
+			// membership, so their unread floor is when they joined the attributed club.
+			let observerJoinedAt = 0;
+			const attributedClubIds = await listAttributedClubIds(ctx, room.projectId);
+			for (const clubId of attributedClubIds) {
+				const clubMemberships = await ctx.db
+					.query('clubMembers')
+					.withIndex('by_club_and_profile', (q) =>
+						q.eq('clubId', clubId).eq('profileId', profileId)
+					)
+					.collect();
+				for (const membership of clubMemberships) {
+					const role = await ctx.db.get(membership.roleId);
+					if (!role?.permissions.includes('project:read')) continue;
+					if (!observerJoinedAt || membership.createdAt < observerJoinedAt) {
+						observerJoinedAt = membership.createdAt;
+					}
+				}
+			}
+			return observerJoinedAt;
+		}
+		case 'clubApplication': {
+			const application = await ctx.db.get(room.clubApplicationId);
+			if (!application) return 0;
+			// The room exists FOR the applicant: everything in it is addressed to them.
+			if (application.applicantProfileId === profileId) return application.createdAt;
+
+			// Reviewers: the assignment is the earliest association (it precedes the review row);
+			// the review-row fallback covers legacy reviews from before windowed assignment.
+			const assignment = await ctx.db
+				.query('applicationReviewAssignments')
+				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+					q.eq('applicationId', room.clubApplicationId).eq('reviewerProfileId', profileId)
+				)
+				.first();
+			if (assignment) return assignment.assignedAt;
+			const review = await ctx.db
+				.query('applicationReviews')
+				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+					q.eq('applicationId', room.clubApplicationId).eq('reviewerProfileId', profileId)
+				)
+				.first();
+			if (review) return review.createdAt;
+
+			// Staff (globalRole admin): no membership/assignment row ever ties them to the room —
+			// like listRoomSummaries' message-derived listing, their association starts with the
+			// first message they wrote in it.
+			const firstOwnMessage = await ctx.db
+				.query('messages')
+				.withIndex('by_room', (q) => q.eq('roomId', room._id))
+				.filter((q) => q.eq(q.field('profileId'), profileId))
+				.first();
+			return firstOwnMessage?._creationTime ?? 0;
+		}
+		case 'joinRequest': {
+			const joinRequest = await ctx.db.get(room.joinRequestId);
+			if (!joinRequest) return 0;
+			// The room exists FOR the requester: everything in it is addressed to them.
+			if (joinRequest.requesterProfileId === profileId) return joinRequest.createdAt;
+
+			// Deciding Guides: associated through their club membership (getJoinRequestAccess).
+			const memberships = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', joinRequest.clubId).eq('profileId', profileId)
+				)
+				.collect();
+			return earliestCreatedAt(memberships);
+		}
+	}
+};
+
 // CL-695/725 CEO review item E: lets the chat list show whether a chat is still open, closed, or
 // specifically waiting on THIS viewer to act. Deliberately separate from `getRoomAccess` (which
 // only answers read/send) since a chat can be sendable but not "actionable" (e.g. a requester

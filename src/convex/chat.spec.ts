@@ -918,7 +918,8 @@ describe('last read markers', () => {
 	it('reports unread counts from the viewer read watermark', async () => {
 		const { base, viewer, roomId, otherProfileId } = await seedClubChatFixture();
 
-		// Never-opened room: the full inbound history counts as unread.
+		// Never-opened room: inbound history since the viewer joined the club counts as unread
+		// (the fixture's Welcome message postdates the viewer's membership).
 		let summaries = await viewer.query(api.chat.listRoomSummaries, {});
 		expect(summaries[0].unreadCount).toBe(1);
 
@@ -996,5 +997,378 @@ describe('last read markers', () => {
 		await expect(outsider.mutation(api.chat.markRoomRead, { roomId })).rejects.toThrow(
 			'You cannot access this chat'
 		);
+	});
+});
+
+// Last-read follow-up: with no read marker yet, unread counting floors at the viewer's
+// context-join time (getRoomJoinedAt) instead of the beginning of history. Tests pin the join
+// timestamp to an existing message's _creationTime: `gt` then excludes that message and
+// everything before it, deterministically, with no wall-clock races.
+describe('unread floor at context join', () => {
+	it('club: messages from before the viewer joined never count as unread', async () => {
+		const { base, viewer, roomId, clubId, viewerProfileId, otherProfileId, firstMessageId } =
+			await seedClubChatFixture();
+
+		await base.run(async (ctx) => {
+			const welcome = await ctx.db.get(firstMessageId);
+			const membership = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', clubId).eq('profileId', viewerProfileId)
+				)
+				.first();
+			// Viewer joined exactly when Welcome was sent: Welcome is history, not unread.
+			await ctx.db.patch(membership!._id, { createdAt: welcome!._creationTime });
+			await ctx.db.insert('messages', { roomId, profileId: otherProfileId, content: 'After' });
+		});
+		let summaries = await viewer.query(api.chat.listRoomSummaries, {});
+		expect(summaries[0].unreadCount).toBe(1);
+
+		// Joined after everything currently in the room: nothing is unread.
+		await base.run(async (ctx) => {
+			const membership = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club_and_profile', (q) =>
+					q.eq('clubId', clubId).eq('profileId', viewerProfileId)
+				)
+				.first();
+			await ctx.db.patch(membership!._id, { createdAt: Date.now() + 60_000 });
+		});
+		summaries = await viewer.query(api.chat.listRoomSummaries, {});
+		expect(summaries[0].unreadCount).toBe(0);
+	});
+
+	it('project: member and guide observer floors start at their own joins', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const projectRoleId = await ctx.db.insert('projectRoles', {
+				key: 'contributor',
+				name: 'Contributor',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const guideRoleId = await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const earlyProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'early-user',
+				username: 'early',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const lateProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'late-user',
+				username: 'late',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const observerProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'observer-user',
+				username: 'observer',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Observer club',
+				discoverable: false,
+				createdByProfileId: observerProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Long-running project',
+				dueDate: now,
+				visibility: 'clubs',
+				createdByProfileId: earlyProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('projectAttributions', {
+				projectId,
+				profileId: earlyProfileId,
+				clubId,
+				createdAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', { contextType: 'project', projectId });
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: earlyProfileId,
+				roleId: projectRoleId,
+				createdAt: now
+			});
+			const oldMessageId = await ctx.db.insert('messages', {
+				roomId,
+				profileId: earlyProfileId,
+				content: 'Old discussion'
+			});
+			const oldMessage = await ctx.db.get(oldMessageId);
+			// Late member and observing Guide both join exactly at the old message's time.
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: lateProfileId,
+				roleId: projectRoleId,
+				createdAt: oldMessage!._creationTime
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: observerProfileId,
+				roleId: guideRoleId,
+				createdAt: oldMessage!._creationTime
+			});
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: earlyProfileId,
+				content: 'Fresh update'
+			});
+			return { roomId };
+		});
+
+		const late = base.withIdentity({ subject: 'late-user' });
+		const observer = base.withIdentity({ subject: 'observer-user' });
+		const early = base.withIdentity({ subject: 'early-user' });
+
+		const lateSummary = (await late.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+		const observerSummary = (await observer.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+		const earlySummary = (await early.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+
+		expect(lateSummary?.unreadCount).toBe(1);
+		expect(observerSummary?.unreadCount).toBe(1);
+		// The early member wrote everything themselves: nothing inbound, nothing unread.
+		expect(earlySummary?.unreadCount).toBe(0);
+	});
+
+	it('join request: requester counts from request creation, Guides from club join', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const guideRoleId = await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['club_join_request:decide'],
+				order: 0,
+				createdAt: now
+			});
+			const requesterProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'requester-user',
+				username: 'requester',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const guideProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'guide-user',
+				username: 'guide',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Turtles Club',
+				discoverable: true,
+				createdByProfileId: guideProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const joinRequestId = await ctx.db.insert('joinRequests', {
+				clubId,
+				requesterProfileId,
+				status: 'pending',
+				createdAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', { contextType: 'joinRequest', joinRequestId });
+			const firstAskId = await ctx.db.insert('messages', {
+				roomId,
+				profileId: requesterProfileId,
+				content: 'May I join?'
+			});
+			const firstAsk = await ctx.db.get(firstAskId);
+			// The Guide joined the club exactly when the first message landed: it predates them.
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: guideProfileId,
+				roleId: guideRoleId,
+				createdAt: firstAsk!._creationTime
+			});
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: guideProfileId,
+				content: 'Tell us more'
+			});
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: requesterProfileId,
+				content: 'I love turtles'
+			});
+			return { roomId };
+		});
+
+		const requester = base.withIdentity({ subject: 'requester-user' });
+		const guide = base.withIdentity({ subject: 'guide-user' });
+
+		const requesterSummary = (await requester.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+		const guideSummary = (await guide.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+
+		// Requester: the room exists for them — the Guide's reply is unread (own messages aren't).
+		expect(requesterSummary?.unreadCount).toBe(1);
+		// Guide: only the follow-up sent after they joined counts; the pre-join ask does not.
+		expect(guideSummary?.unreadCount).toBe(1);
+	});
+
+	it('application: applicant counts from application creation, reviewers from assignment', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'applicant-user',
+				username: 'applicant',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const reviewerProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'reviewer-user',
+				username: 'reviewer',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const seasonId = await ctx.db.insert('seasons', {
+				name: 'Autumn 2026',
+				startDate: now,
+				endDate: now,
+				reviewWindowOpen: now,
+				reviewWindowClose: now,
+				feedbackDeadline: now,
+				createdAt: now,
+				updatedAt: now
+			});
+			const applicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'Braga Curiosity Club',
+				createdAt: now,
+				updatedAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', {
+				contextType: 'clubApplication',
+				clubApplicationId: applicationId
+			});
+			const introId = await ctx.db.insert('messages', {
+				roomId,
+				profileId: applicantProfileId,
+				content: 'Here is my application'
+			});
+			const intro = await ctx.db.get(introId);
+			// Reviewer assigned exactly when the intro landed: the intro predates their assignment.
+			await ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId,
+				seasonId,
+				assignedAt: intro!._creationTime
+			});
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: reviewerProfileId,
+				content: 'Thanks, reviewing now'
+			});
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: applicantProfileId,
+				content: 'Any questions?'
+			});
+			return { roomId };
+		});
+
+		const applicant = base.withIdentity({ subject: 'applicant-user' });
+		const reviewer = base.withIdentity({ subject: 'reviewer-user' });
+
+		const applicantSummary = (await applicant.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+		const reviewerSummary = (await reviewer.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+
+		// Applicant: the room exists for them — the reviewer's reply is unread.
+		expect(applicantSummary?.unreadCount).toBe(1);
+		// Reviewer: only the follow-up after their assignment counts, not the pre-assignment intro.
+		expect(reviewerSummary?.unreadCount).toBe(1);
+	});
+
+	it('application: staff association starts with their first message in the room', async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'applicant-user',
+				username: 'applicant',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const staffProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'staff-user',
+				username: 'staff',
+				globalRole: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const applicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'Porto Curiosity Club',
+				createdAt: now,
+				updatedAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', {
+				contextType: 'clubApplication',
+				clubApplicationId: applicationId
+			});
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: applicantProfileId,
+				content: 'Before staff got involved'
+			});
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: staffProfileId,
+				content: 'Staff here, taking over'
+			});
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: applicantProfileId,
+				content: 'Great, thanks'
+			});
+			return { roomId };
+		});
+
+		const staff = base.withIdentity({ subject: 'staff-user' });
+		const staffSummary = (await staff.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+
+		// Only the applicant's reply AFTER the staff member first wrote counts as unread; the
+		// pre-involvement message does not.
+		expect(staffSummary?.unreadCount).toBe(1);
 	});
 });

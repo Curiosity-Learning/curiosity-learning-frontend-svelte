@@ -6,6 +6,7 @@ import {
 	getRoomAccess,
 	getRoomActionState,
 	getRoomCounterpart,
+	getRoomJoinedAt,
 	getRoomName,
 	summarizeProfileForChat,
 	type ChatParticipantSummary,
@@ -52,8 +53,8 @@ const getReadMarker = async (ctx: Ctx, profileId: Id<'profiles'>, roomId: Id<'ro
 // Messages the viewer hasn't seen yet: everything after their last-read watermark except their
 // own messages (you can't have "unread" messages you wrote yourself — this also keeps a viewer's
 // very first message in a room from counting as unread before any marker row exists). System
-// messages (no profileId, e.g. decision notices) deliberately DO count. A missing marker means
-// the viewer never opened the room, so the room's full history is unread.
+// messages (no profileId, e.g. decision notices) deliberately DO count. For viewers with no
+// marker yet, the caller passes their context-join time (getRoomJoinedAt) as the floor.
 const countUnreadMessages = async (
 	ctx: Ctx,
 	roomId: Id<'rooms'>,
@@ -256,12 +257,12 @@ export const listRoomSummaries = query({
 			const genericName = await getRoomName(ctx, room);
 			const counterpart = await getRoomCounterpart(ctx, room, profile._id);
 			const readMarker = await getReadMarker(ctx, profile._id, room._id);
-			const unreadCount = await countUnreadMessages(
-				ctx,
-				room._id,
-				profile._id,
-				readMarker?.lastReadAt ?? 0
-			);
+			// No marker = the viewer never opened this room: unread counting starts when they
+			// became associated with the room's context, not at the beginning of history — a new
+			// member of an old club shouldn't meet a 99+ badge of backlog from before they joined.
+			const unreadFloor =
+				readMarker?.lastReadAt ?? (await getRoomJoinedAt(ctx, room, profile._id));
+			const unreadCount = await countUnreadMessages(ctx, room._id, profile._id, unreadFloor);
 			summaries.push({
 				roomId: room._id,
 				roomName: counterpart?.name ?? genericName,
