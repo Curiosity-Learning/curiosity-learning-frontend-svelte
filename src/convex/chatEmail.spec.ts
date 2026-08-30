@@ -289,6 +289,71 @@ describe('chat email notifications', () => {
 		);
 	});
 
+	// Subject wording for 1:1-style rooms (CL-764 follow-up): the recipient is not in the app, so
+	// the subject alone must identify the conversation — "from {person}" for the reviewer/staff
+	// side, "your {name} application" for the applicant (whose application name equals the club
+	// name, making the bare name ambiguous with the club's group chat).
+	it('application room: applicant and staff get context-specific subjects', async () => {
+		vi.useFakeTimers();
+		const t = convexTest(schema, modules);
+		const { roomId } = await t.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'learner-user',
+				firstName: 'Lars',
+				lastName: 'Learner',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			await ctx.db.insert('profiles', {
+				authUserId: 'guide-user',
+				firstName: 'Gina',
+				lastName: 'Guide',
+				globalRole: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const applicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'Lisbon Curiosity Club',
+				createdAt: now - DAY,
+				updatedAt: now - DAY
+			});
+			const roomId = await ctx.db.insert('rooms', {
+				contextType: 'clubApplication',
+				clubApplicationId: applicationId
+			});
+			return { roomId };
+		});
+		const staff = t.withIdentity({ subject: 'guide-user' });
+		const applicant = t.withIdentity({ subject: 'learner-user' });
+
+		// Staff writes → the applicant's email says it's about THEIR application, not the club chat.
+		await staff.mutation(api.chat.sendMessage, { roomId, content: 'Hi from the review team' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'learner@example.com',
+				subject: 'New messages in your Lisbon Curiosity Club application'
+			})
+		);
+
+		// Applicant replies → the staff email leads with who it is from.
+		sendEmailMock.mockClear();
+		await applicant.mutation(api.chat.markRoomRead, { roomId });
+		await applicant.mutation(api.chat.sendMessage, { roomId, content: 'Thanks, question...' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'guide@example.com',
+				subject: 'New messages from Lars Learner (Lisbon Curiosity Club application)'
+			})
+		);
+	});
+
 	it('tracks delivery state per (recipient, room) on roomEmailMarkers', async () => {
 		vi.useFakeTimers();
 		const { t, guide, roomId, learnerProfileId, guideProfileId } = await seedFixture();
