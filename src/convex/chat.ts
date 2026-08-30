@@ -1,18 +1,21 @@
 import { ConvexError, v } from 'convex/values';
+import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { mutation, query } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
 import {
 	getRoomAccess,
 	getRoomActionState,
 	getRoomCounterpart,
 	getRoomJoinedAt,
 	getRoomName,
+	listRoomRecipientProfileIds,
 	summarizeProfileForChat,
 	type ChatParticipantSummary,
 	type RoomActionState,
 	type SendBlockedReason
 } from './chatModel';
+import { isKindMuted } from './notificationsModel';
 import { getRelatedProfile, requireIdentity, requireProfile } from './permissions';
 import { listAttributedClubIds } from './projectsModel';
 
@@ -20,6 +23,12 @@ const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
 // Unread counting stops scanning here; the UI renders anything at/over the cap as "99+".
 const UNREAD_COUNT_CAP = 100;
+// Chat email notifications (CL-764): grace window between the first unseen message and the
+// email about it. Long enough that someone active in the app reads the message in-app first
+// (no email at all), short enough that an absent member hears about a conversation while it
+// is still happening — deliberately NOT a debounce on room activity, which a long-running
+// conversation would postpone indefinitely.
+const CHAT_EMAIL_DELAY_MS = 10 * 60 * 1000;
 type Ctx = QueryCtx | MutationCtx;
 
 const requireRoomAccess = async (
@@ -49,6 +58,56 @@ const getReadMarker = async (ctx: Ctx, profileId: Id<'profiles'>, roomId: Id<'ro
 		.query('roomReadMarkers')
 		.withIndex('by_profile_and_room', (q) => q.eq('profileId', profileId).eq('roomId', roomId))
 		.first();
+
+const getEmailMarker = async (ctx: Ctx, profileId: Id<'profiles'>, roomId: Id<'rooms'>) =>
+	await ctx.db
+		.query('roomEmailMarkers')
+		.withIndex('by_profile_and_room', (q) => q.eq('profileId', profileId).eq('roomId', roomId))
+		.first();
+
+// The unread floor for a viewer with no read marker yet is their context-join time, mirroring
+// listRoomSummaries — shared here with the email path so "has unread" means the same thing for
+// badges and emails.
+const getUnreadFloor = async (ctx: Ctx, room: Doc<'rooms'>, profileId: Id<'profiles'>) => {
+	const readMarker = await getReadMarker(ctx, profileId, room._id);
+	return readMarker?.lastReadAt ?? (await getRoomJoinedAt(ctx, room, profileId));
+};
+
+// Chat email notifications (CL-764): called on every send. For each recipient this is at most
+// one marker read; only the FIRST message of an unread batch schedules a delivery check (later
+// sends see `scheduledFor` in the future or `lastEmailedAt` past the floor and skip), so a busy
+// room does no repeated scheduling work. A `scheduledFor` in the past means a delivery job was
+// lost — reschedule rather than treat it as pending.
+const scheduleChatEmailNotifications = async (
+	ctx: MutationCtx,
+	room: Doc<'rooms'>,
+	senderProfileId: Id<'profiles'>
+) => {
+	const recipients = await listRoomRecipientProfileIds(ctx, room);
+	const now = Date.now();
+	for (const profileId of recipients) {
+		if (profileId === senderProfileId) continue;
+		const emailMarker = await getEmailMarker(ctx, profileId, room._id);
+		if (emailMarker?.scheduledFor && emailMarker.scheduledFor > now) continue;
+		const unreadFloor = await getUnreadFloor(ctx, room, profileId);
+		// Already emailed about this unread batch; opening the room advances lastReadAt past
+		// lastEmailedAt, which re-arms the notification.
+		if (emailMarker?.lastEmailedAt && emailMarker.lastEmailedAt > unreadFloor) continue;
+		// Muted recipients never get a job scheduled; the delivery re-checks in case someone
+		// mutes during the grace window.
+		if (await isKindMuted(ctx, profileId, 'chatMessages')) continue;
+		const scheduledFor = now + CHAT_EMAIL_DELAY_MS;
+		if (emailMarker) {
+			await ctx.db.patch(emailMarker._id, { scheduledFor });
+		} else {
+			await ctx.db.insert('roomEmailMarkers', { roomId: room._id, profileId, scheduledFor });
+		}
+		await ctx.scheduler.runAfter(CHAT_EMAIL_DELAY_MS, internal.chat.deliverChatEmailNotification, {
+			roomId: room._id,
+			profileId
+		});
+	}
+};
 
 // Messages the viewer hasn't seen yet: everything after their last-read watermark except their
 // own messages (you can't have "unread" messages you wrote yourself — this also keeps a viewer's
@@ -532,7 +591,7 @@ export const sendMessage = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		await requireRoomAccess(ctx, args.roomId, profile._id, 'send');
+		const room = await requireRoomAccess(ctx, args.roomId, profile._id, 'send');
 
 		const content = args.content.trim();
 		if (!content) {
@@ -547,6 +606,7 @@ export const sendMessage = mutation({
 			profileId: profile._id,
 			content
 		});
+		await scheduleChatEmailNotifications(ctx, room, profile._id);
 		return await ctx.db.get(messageId);
 	}
 });
@@ -586,6 +646,73 @@ export const markRoomRead = mutation({
 			roomId: args.roomId,
 			profileId: profile._id,
 			lastReadAt
+		});
+		return null;
+	}
+});
+
+// Chat email notifications (CL-764): the delayed delivery check, fired CHAT_EMAIL_DELAY_MS after
+// the first message of an unread batch. Sends at most ONE "new messages" email per (recipient,
+// room) per unread batch — a recipient who read the room during the grace window gets nothing,
+// and nothing is sent again until they open the room. Email-only by design: chat gets no in-app
+// notification rows (the nav unread badge is the in-app signal), so this bypasses
+// dispatchNotification while reusing the same mute semantics (chat_activity kind, chatMessages
+// preference) and the same email channel — which is also what keeps child accounts email-free
+// (non-critical emails to child accounts resolve to no deliverable address).
+export const deliverChatEmailNotification = internalMutation({
+	args: {
+		roomId: v.id('rooms'),
+		profileId: v.id('profiles')
+	},
+	handler: async (ctx, args) => {
+		const marker = await getEmailMarker(ctx, args.profileId, args.roomId);
+		// Clear the pending flag no matter what happens below, so future sends can schedule again.
+		if (marker?.scheduledFor) {
+			await ctx.db.patch(marker._id, { scheduledFor: undefined });
+		}
+
+		const room = await ctx.db.get(args.roomId);
+		if (!room) return null;
+		// Re-derive recipients: someone who left the context during the grace window keeps read
+		// access to history but is no longer part of the conversation.
+		const recipients = await listRoomRecipientProfileIds(ctx, room);
+		if (!recipients.has(args.profileId)) return null;
+
+		const unreadFloor = await getUnreadFloor(ctx, room, args.profileId);
+		// Read during the grace window: they saw it in-app, no email.
+		const firstUnread = await ctx.db
+			.query('messages')
+			.withIndex('by_room', (q) => q.eq('roomId', args.roomId).gt('_creationTime', unreadFloor))
+			.filter((q) => q.neq(q.field('profileId'), args.profileId))
+			.first();
+		if (!firstUnread) return null;
+		// Another delivery already covered this batch (two jobs can race when a stale
+		// scheduledFor was rescheduled).
+		if (marker?.lastEmailedAt && marker.lastEmailedAt > unreadFloor) return null;
+		if (await isKindMuted(ctx, args.profileId, 'chatMessages')) return null;
+
+		// Same title resolution as the chat list: counterpart name for 1:1-like rooms, room name
+		// otherwise. No message bodies in the email, deliberately.
+		const genericName = await getRoomName(ctx, room);
+		const counterpart = await getRoomCounterpart(ctx, room, args.profileId);
+		const roomName = counterpart ? `${counterpart.name} (${genericName})` : genericName;
+
+		const now = Date.now();
+		if (marker) {
+			await ctx.db.patch(marker._id, { lastEmailedAt: now });
+		} else {
+			await ctx.db.insert('roomEmailMarkers', {
+				roomId: args.roomId,
+				profileId: args.profileId,
+				lastEmailedAt: now
+			});
+		}
+		await ctx.scheduler.runAfter(0, internal.notifications.sendNotificationEmail, {
+			recipientProfileId: args.profileId,
+			critical: false,
+			title: `New messages in ${roomName}`,
+			message: `There are new messages in ${roomName} waiting for you. Open the chat to catch up.`,
+			url: `/chat?room=${args.roomId}`
 		});
 		return null;
 	}

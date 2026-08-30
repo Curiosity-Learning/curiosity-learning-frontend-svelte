@@ -451,6 +451,100 @@ export const getRoomCounterpart = async (
 	}
 };
 
+// Chat email notifications (CL-764): who should be told about new messages in a room. Mirrors
+// the participant model of chat.getRoomParticipants (PRD 6.8.1) but returns bare profile ids —
+// the email path needs no names/avatars. Left members are excluded on purpose: they keep READ
+// access to history, but a conversation continuing without them is not theirs to be nudged
+// about. The message-derived rule for 1:1-style rooms matches getRoomParticipants: staff who
+// have written in an application/join-request room are participants even though no membership
+// row ties them to it.
+export const listRoomRecipientProfileIds = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>
+): Promise<Set<Id<'profiles'>>> => {
+	const recipients = new Set<Id<'profiles'>>();
+	switch (room.contextType) {
+		case 'club': {
+			const members = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club', (q) => q.eq('clubId', room.clubId))
+				.collect();
+			for (const member of members) {
+				if (!member.leftAt) recipients.add(member.profileId);
+			}
+			break;
+		}
+		case 'project': {
+			const memberships = await ctx.db
+				.query('projectMembers')
+				.withIndex('by_project', (q) => q.eq('projectId', room.projectId))
+				.collect();
+			for (const membership of memberships) {
+				if (!membership.leftAt) recipients.add(membership.profileId);
+			}
+			// Attributed clubs' Guides observe the project chat (getProjectObserverAccess), so new
+			// messages are addressed to them too.
+			const attributedClubIds = await listAttributedClubIds(ctx, room.projectId);
+			for (const clubId of attributedClubIds) {
+				const clubMembers = await ctx.db
+					.query('clubMembers')
+					.withIndex('by_club', (q) => q.eq('clubId', clubId))
+					.collect();
+				for (const member of clubMembers) {
+					if (member.leftAt || recipients.has(member.profileId)) continue;
+					const role = await ctx.db.get(member.roleId);
+					if (role?.key !== 'guide') continue;
+					recipients.add(member.profileId);
+				}
+			}
+			break;
+		}
+		case 'joinRequest': {
+			const joinRequest = await ctx.db.get(room.joinRequestId);
+			if (!joinRequest) break;
+			recipients.add(joinRequest.requesterProfileId);
+			const clubMembers = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club', (q) => q.eq('clubId', joinRequest.clubId))
+				.collect();
+			for (const member of clubMembers) {
+				if (member.leftAt) continue;
+				const role = await ctx.db.get(member.roleId);
+				if (role?.key === 'guide') recipients.add(member.profileId);
+			}
+			break;
+		}
+		case 'clubApplication': {
+			const application = await ctx.db.get(room.clubApplicationId);
+			if (!application) break;
+			recipients.add(application.applicantProfileId);
+			const reviews = await ctx.db
+				.query('applicationReviews')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', room.clubApplicationId))
+				.collect();
+			for (const review of reviews) recipients.add(review.reviewerProfileId);
+			const assignments = await ctx.db
+				.query('applicationReviewAssignments')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', room.clubApplicationId))
+				.collect();
+			for (const assignment of assignments) recipients.add(assignment.reviewerProfileId);
+			break;
+		}
+	}
+
+	if (room.contextType === 'clubApplication' || room.contextType === 'joinRequest') {
+		const roomMessages = await ctx.db
+			.query('messages')
+			.withIndex('by_room', (q) => q.eq('roomId', room._id))
+			.collect();
+		for (const message of roomMessages) {
+			if (message.profileId) recipients.add(message.profileId);
+		}
+	}
+
+	return recipients;
+};
+
 export const ensureClubRoom = async (ctx: MutationCtx, clubId: Id<'clubs'>) => {
 	const existing = await ctx.db
 		.query('rooms')

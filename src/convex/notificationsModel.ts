@@ -37,12 +37,15 @@ export type NotificationKind =
 	| 'project_join_request_decision' // requester: your join request was accepted/declined (CL-722)
 	| 'feedback_due' // PRD 6.13.2 (CL-733): 7 days / 3 days / day-of the feedback deadline
 	| 'quality_flag' // PRD 6.11.4/6.13.2 (CL-733): club's feedback average dropped below 7/10
+	// high, email-only (CL-764): "new messages in {room}" after the 10-minute grace window.
+	// Deliberately NEVER passed to dispatchNotification — chat gets no in-app notification rows
+	// (the nav unread badge is the in-app signal); chat.ts delivers the email directly and uses
+	// this kind's config for the tier/preference wiring.
+	| 'chat_activity'
 	// medium
 	| 'member_joined'; // guides: a new member joined the club
 // TODO kinds (no producers exist yet; add here when they land):
 // - 'project_update' / 'project_completed' (medium, preference: projectCompleted)
-// - chat message emails/digests are OUT OF SCOPE for v1 (deliberate anti-spam decision;
-//   PRD 6.13 allows this simplification). The `chatMessages` preference field is reserved.
 
 export type NotificationTier = 'critical' | 'high' | 'medium';
 
@@ -86,10 +89,13 @@ export const notificationKindConfig: Record<NotificationKind, KindConfig> = {
 	project_join_request_decision: { tier: 'high', preferenceKey: 'projectMemberAdded' },
 	feedback_due: { tier: 'high', preferenceKey: 'feedbackReminders' },
 	quality_flag: { tier: 'high', preferenceKey: 'qualityFlags' },
+	chat_activity: { tier: 'high', preferenceKey: 'chatMessages' },
 	member_joined: { tier: 'medium', preferenceKey: 'clubMemberChanges' }
 };
 
-const isKindMuted = async (
+// Exported for chat.ts's email-only chat_activity delivery, which bypasses dispatchNotification
+// (no in-app row by design) but must honor the same mute semantics.
+export const isKindMuted = async (
 	ctx: MutationCtx,
 	profileId: Id<'profiles'>,
 	preferenceKey: NotificationPreferenceKey
