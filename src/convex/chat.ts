@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import {
 	getChatEmailCopy,
+	getChatEmailKind,
 	getRoomAccess,
 	getRoomActionState,
 	getRoomCounterpart,
@@ -16,7 +17,7 @@ import {
 	type RoomActionState,
 	type SendBlockedReason
 } from './chatModel';
-import { isKindMuted } from './notificationsModel';
+import { isKindMuted, notificationKindConfig } from './notificationsModel';
 import { getRelatedProfile, requireIdentity, requireProfile } from './permissions';
 import { listAttributedClubIds } from './projectsModel';
 
@@ -85,6 +86,7 @@ const scheduleChatEmailNotifications = async (
 	senderProfileId: Id<'profiles'>
 ) => {
 	const recipients = await listRoomRecipientProfileIds(ctx, room);
+	const kindConfig = notificationKindConfig[getChatEmailKind(room)];
 	const now = Date.now();
 	for (const profileId of recipients) {
 		if (profileId === senderProfileId) continue;
@@ -95,8 +97,10 @@ const scheduleChatEmailNotifications = async (
 		// lastEmailedAt, which re-arms the notification.
 		if (emailMarker?.lastEmailedAt && emailMarker.lastEmailedAt > unreadFloor) continue;
 		// Muted recipients never get a job scheduled; the delivery re-checks in case someone
-		// mutes during the grace window.
-		if (await isKindMuted(ctx, profileId, 'chatMessages')) continue;
+		// mutes during the grace window. Critical chat kinds (review_chat_activity) have no
+		// preference key and cannot be muted.
+		if (kindConfig.preferenceKey && (await isKindMuted(ctx, profileId, kindConfig.preferenceKey)))
+			continue;
 		const scheduledFor = now + CHAT_EMAIL_DELAY_MS;
 		if (emailMarker) {
 			await ctx.db.patch(emailMarker._id, { scheduledFor });
@@ -657,9 +661,11 @@ export const markRoomRead = mutation({
 // room) per unread batch — a recipient who read the room during the grace window gets nothing,
 // and nothing is sent again until they open the room. Email-only by design: chat gets no in-app
 // notification rows (the nav unread badge is the in-app signal), so this bypasses
-// dispatchNotification while reusing the same mute semantics (chat_activity kind, chatMessages
-// preference) and the same email channel — which is also what keeps child accounts email-free
-// (non-critical emails to child accounts resolve to no deliverable address).
+// dispatchNotification while reusing the kind config (chatModel.getChatEmailKind: muteable
+// chat_activity for club/project rooms, critical review_chat_activity for application and
+// join-request rooms) and the same email channel — the tier is also what decides child-account
+// routing: critical chat email goes to the approved parent, high resolves to no deliverable
+// address for children.
 export const deliverChatEmailNotification = internalMutation({
 	args: {
 		roomId: v.id('rooms'),
@@ -690,7 +696,12 @@ export const deliverChatEmailNotification = internalMutation({
 		// Another delivery already covered this batch (two jobs can race when a stale
 		// scheduledFor was rescheduled).
 		if (marker?.lastEmailedAt && marker.lastEmailedAt > unreadFloor) return null;
-		if (await isKindMuted(ctx, args.profileId, 'chatMessages')) return null;
+		const kindConfig = notificationKindConfig[getChatEmailKind(room)];
+		if (
+			kindConfig.preferenceKey &&
+			(await isKindMuted(ctx, args.profileId, kindConfig.preferenceKey))
+		)
+			return null;
 
 		// Wording lives in chatModel.getChatEmailCopy — an exhaustive per-contextType switch, so a
 		// future room type is a compile error there rather than a silently-wrong subject. No
@@ -709,7 +720,9 @@ export const deliverChatEmailNotification = internalMutation({
 		}
 		await ctx.scheduler.runAfter(0, internal.notifications.sendNotificationEmail, {
 			recipientProfileId: args.profileId,
-			critical: false,
+			// Critical chat kinds (application/join-request rooms) route child accounts' email to
+			// the approved parent; high kinds resolve to no deliverable address for children.
+			critical: kindConfig.tier === 'critical',
 			title,
 			message: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
 			url: `/chat?room=${args.roomId}`

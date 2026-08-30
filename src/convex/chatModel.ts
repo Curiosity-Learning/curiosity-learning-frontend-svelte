@@ -1,6 +1,7 @@
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
+import type { NotificationKind } from './notificationsModel';
 import { getRelatedProfile, hasPermissionForProfile } from './permissions';
 import { isProjectArchived, listAttributedClubIds } from './projectsModel';
 
@@ -461,6 +462,22 @@ export const getRoomCounterpart = async (
 // join request" on the applicant/requester side, where the bare application name would be
 // ambiguous with the club's own group chat (application name == club name).
 export type ChatEmailCopy = { title: string; chatLabel: string };
+
+// Which notification kind a room's chat emails use (CL-764 CEO call): club/project group chats
+// are muteable and never email child accounts (high tier); application and join-request chats
+// are 1:1 review conversations that stall if the applicant/requester never hears about a reply,
+// so they always email and route to the approved parent for child accounts (critical tier).
+// Exhaustive on purpose — a new room type must pick its email tier here explicitly.
+export const getChatEmailKind = (room: Doc<'rooms'>): NotificationKind => {
+	switch (room.contextType) {
+		case 'club':
+		case 'project':
+			return 'chat_activity';
+		case 'clubApplication':
+		case 'joinRequest':
+			return 'review_chat_activity';
+	}
+};
 
 export const getChatEmailCopy = async (
 	ctx: Ctx,

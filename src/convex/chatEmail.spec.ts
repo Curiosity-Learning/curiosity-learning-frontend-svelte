@@ -356,6 +356,118 @@ describe('chat email notifications', () => {
 		);
 	});
 
+	// CEO call (CL-764): application/join-request chats are critical — a review conversation
+	// stalls if the applicant never hears about a reply, so these emails ignore the chatMessages
+	// mute and route to the approved parent for child accounts. Club/project chats stay muteable
+	// (covered above) and never email children.
+	it('application room: emails ignore the chatMessages mute preference', async () => {
+		vi.useFakeTimers();
+		const t = convexTest(schema, modules);
+		const { roomId, applicantProfileId } = await t.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'learner-user',
+				firstName: 'Lars',
+				lastName: 'Learner',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			await ctx.db.insert('profiles', {
+				authUserId: 'guide-user',
+				firstName: 'Gina',
+				lastName: 'Guide',
+				globalRole: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const applicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'Lisbon Curiosity Club',
+				createdAt: now - DAY,
+				updatedAt: now - DAY
+			});
+			const roomId = await ctx.db.insert('rooms', {
+				contextType: 'clubApplication',
+				clubApplicationId: applicationId
+			});
+			return { roomId, applicantProfileId };
+		});
+		await muteChatMessagesFor(t, applicantProfileId);
+
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.chat.sendMessage, { roomId, content: 'Important review question' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'learner@example.com',
+				subject: 'New messages regarding your club application'
+			})
+		);
+	});
+
+	it('application room: a child applicant email routes to the approved parent', async () => {
+		vi.useFakeTimers();
+		const t = convexTest(schema, modules);
+		const { roomId } = await t.run(async (ctx) => {
+			const now = Date.now();
+			const childProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'child-user',
+				username: 'kiddo',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			await ctx.db.insert('parentChildConsents', {
+				childProfileId,
+				parentEmail: 'parent@example.com',
+				status: 'approved',
+				token: 'token-1',
+				approvedAt: now,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('profiles', {
+				authUserId: 'guide-user',
+				firstName: 'Gina',
+				lastName: 'Guide',
+				globalRole: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const applicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId: childProfileId,
+				status: 'pending',
+				name: 'Kids Club',
+				createdAt: now - DAY,
+				updatedAt: now - DAY
+			});
+			const roomId = await ctx.db.insert('rooms', {
+				contextType: 'clubApplication',
+				clubApplicationId: applicationId
+			});
+			return { roomId };
+		});
+
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.chat.sendMessage, { roomId, content: 'Question for the applicant' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'parent@example.com',
+				subject: 'New messages regarding your club application'
+			})
+		);
+	});
+
 	it('tracks delivery state per (recipient, room) on roomEmailMarkers', async () => {
 		vi.useFakeTimers();
 		const { t, guide, roomId, learnerProfileId, guideProfileId } = await seedFixture();
