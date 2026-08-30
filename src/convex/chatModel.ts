@@ -472,20 +472,33 @@ export const getChatEmailCopy = async (
 		case 'club':
 		case 'project':
 			return { title: `New messages in ${genericName}`, chatLabel: genericName };
-		case 'clubApplication':
-		case 'joinRequest': {
-			const contextLabel =
-				room.contextType === 'clubApplication' ? `${genericName} application` : genericName;
+		case 'clubApplication': {
 			const counterpart = await getRoomCounterpart(ctx, room, recipientProfileId);
 			if (counterpart) {
 				return {
-					title: `New messages from ${counterpart.name} (${contextLabel})`,
-					chatLabel: `your chat with ${counterpart.name} (${contextLabel})`
+					title: `New messages from ${counterpart.name} (${genericName} application)`,
+					chatLabel: `your chat with ${counterpart.name} (${genericName} application)`
+				};
+			}
+			// Applicant's own room: no club name/location in the subject on purpose (CEO call) —
+			// the auto-generated application name is a mouthful, and "your club application"
+			// already identifies the conversation fully for the person it is addressed to.
+			return {
+				title: 'New messages regarding your club application',
+				chatLabel: 'your club application chat'
+			};
+		}
+		case 'joinRequest': {
+			const counterpart = await getRoomCounterpart(ctx, room, recipientProfileId);
+			if (counterpart) {
+				return {
+					title: `New messages from ${counterpart.name} (${genericName})`,
+					chatLabel: `your chat with ${counterpart.name} (${genericName})`
 				};
 			}
 			return {
-				title: `New messages in your ${contextLabel}`,
-				chatLabel: `your ${contextLabel} chat`
+				title: `New messages in your ${genericName}`,
+				chatLabel: `your ${genericName} chat`
 			};
 		}
 	}

@@ -337,7 +337,9 @@ describe('chat email notifications', () => {
 		expect(sendEmailMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				to: 'learner@example.com',
-				subject: 'New messages in your Lisbon Curiosity Club application'
+				// No club name on purpose: "your club application" fully identifies the room for
+				// its addressee, and the auto-generated application name is location noise.
+				subject: 'New messages regarding your club application'
 			})
 		);
 
