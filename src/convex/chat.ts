@@ -4,6 +4,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import {
+	getChatEmailCopy,
 	getRoomAccess,
 	getRoomActionState,
 	getRoomCounterpart,
@@ -691,26 +692,10 @@ export const deliverChatEmailNotification = internalMutation({
 		if (marker?.lastEmailedAt && marker.lastEmailedAt > unreadFloor) return null;
 		if (await isKindMuted(ctx, args.profileId, 'chatMessages')) return null;
 
-		// Email subject/body wording (CL-764 follow-up): the recipient is by definition NOT in the
-		// app, so the subject alone must say which conversation this is. Group rooms use the plain
-		// room name. 1:1-style rooms lead with the counterpart ("from {person}") for the
-		// reviewer/Guide side; for the applicant/requester's own room there is no counterpart and
-		// the application name equals the club name, so "your {name} application" is what keeps it
-		// distinguishable from the club's group chat. No message bodies in the email, deliberately.
-		const genericName = await getRoomName(ctx, room);
-		const counterpart = await getRoomCounterpart(ctx, room, args.profileId);
-		const contextLabel =
-			room.contextType === 'clubApplication' ? `${genericName} application` : genericName;
-		const title = counterpart
-			? `New messages from ${counterpart.name} (${contextLabel})`
-			: room.contextType === 'clubApplication' || room.contextType === 'joinRequest'
-				? `New messages in your ${contextLabel}`
-				: `New messages in ${genericName}`;
-		const chatLabel = counterpart
-			? `your chat with ${counterpart.name} (${contextLabel})`
-			: room.contextType === 'clubApplication' || room.contextType === 'joinRequest'
-				? `your ${contextLabel} chat`
-				: genericName;
+		// Wording lives in chatModel.getChatEmailCopy — an exhaustive per-contextType switch, so a
+		// future room type is a compile error there rather than a silently-wrong subject. No
+		// message bodies in the email, deliberately.
+		const { title, chatLabel } = await getChatEmailCopy(ctx, room, args.profileId);
 
 		const now = Date.now();
 		if (marker) {

@@ -451,6 +451,46 @@ export const getRoomCounterpart = async (
 	}
 };
 
+// Chat email notifications (CL-764): the email's subject and a "which chat" label for its body,
+// resolved per room type. The switch has NO default on purpose — the non-void return type makes
+// a missing case a compile error, so adding a new contextType (e.g. DMs, CL-740) forces an
+// explicit wording decision here instead of silently inheriting a fallback. Wording rationale:
+// the recipient is by definition not in the app, so the subject alone must identify the
+// conversation — group rooms use the plain room name; 1:1-style rooms lead with the counterpart
+// ("from {person}") on the reviewer/Guide side, and say "your {name} application" / "your {club}
+// join request" on the applicant/requester side, where the bare application name would be
+// ambiguous with the club's own group chat (application name == club name).
+export type ChatEmailCopy = { title: string; chatLabel: string };
+
+export const getChatEmailCopy = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>,
+	recipientProfileId: Id<'profiles'>
+): Promise<ChatEmailCopy> => {
+	const genericName = await getRoomName(ctx, room);
+	switch (room.contextType) {
+		case 'club':
+		case 'project':
+			return { title: `New messages in ${genericName}`, chatLabel: genericName };
+		case 'clubApplication':
+		case 'joinRequest': {
+			const contextLabel =
+				room.contextType === 'clubApplication' ? `${genericName} application` : genericName;
+			const counterpart = await getRoomCounterpart(ctx, room, recipientProfileId);
+			if (counterpart) {
+				return {
+					title: `New messages from ${counterpart.name} (${contextLabel})`,
+					chatLabel: `your chat with ${counterpart.name} (${contextLabel})`
+				};
+			}
+			return {
+				title: `New messages in your ${contextLabel}`,
+				chatLabel: `your ${contextLabel} chat`
+			};
+		}
+	}
+};
+
 // Chat email notifications (CL-764): who should be told about new messages in a room. Mirrors
 // the participant model of chat.getRoomParticipants (PRD 6.8.1) but returns bare profile ids —
 // the email path needs no names/avatars. Left members are excluded on purpose: they keep READ
