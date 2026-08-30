@@ -54,6 +54,11 @@
 		isAuthReady ? {} : 'skip'
 	);
 	const profileResponse = useStableQuery(api.profiles.getMe, () => (isAuthReady ? {} : 'skip'));
+	// Chat nav badge (CL-715 follow-up): total unread across the viewer's rooms. The query
+	// degrades to 0 server-side rather than throwing, so no error state is needed here.
+	const chatUnreadResponse = useStableQuery(api.chat.getTotalUnreadCount, () =>
+		isAuthReady ? {} : 'skip'
+	);
 	let clubs = $derived(clubsResponse.data ?? []);
 	let sidebarProfileName = $derived.by(() => {
 		const profile = profileResponse.data;
@@ -188,7 +193,8 @@
 	let hasClubAccess = $derived(clubs.length > 0);
 	let navigation = $derived(
 		buildAppNavigation(clubIdForNav, {
-			hasClubAccess
+			hasClubAccess,
+			chatUnreadCount: chatUnreadResponse.data ?? 0
 		})
 	);
 	let navState = $derived(deriveNavState(navigation, activePath));
