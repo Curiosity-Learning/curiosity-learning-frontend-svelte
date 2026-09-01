@@ -847,3 +847,55 @@ describe('admin.adminListClubInterestSignups', () => {
 		expect(signups[1].location).toBe('Porto');
 	});
 });
+
+describe('admin.adminAnalyticsApplications', () => {
+	it('rejects a non-admin caller', async () => {
+		const t = convexTest(schema, modules);
+		await seedProfile(t, 'regular-user');
+		await expect(
+			t.withIdentity({ subject: 'regular-user' }).query(api.admin.adminAnalyticsApplications, {})
+		).rejects.toThrow('Not authorized');
+	});
+
+	it('returns raw referral fields per application, defaulting missing ones to null', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'applicant-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'With referral',
+				referralSource: 'instagram',
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'accepted',
+				name: 'Without referral',
+				createdAt: now + 1,
+				updatedAt: now + 1
+			});
+		});
+
+		const rows = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminAnalyticsApplications, {});
+
+		expect(rows).toHaveLength(2);
+		const withReferral = rows.find((row) => row.referralSource === 'instagram');
+		expect(withReferral?.status).toBe('pending');
+		expect(withReferral?.referralOther).toBeNull();
+		const withoutReferral = rows.find((row) => row.referralSource === null);
+		expect(withoutReferral?.status).toBe('accepted');
+	});
+});

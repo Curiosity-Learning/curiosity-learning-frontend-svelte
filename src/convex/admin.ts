@@ -468,6 +468,31 @@ export const adminApplicationsPipeline = query({
 	}
 });
 
+// Lightweight per-application rows for the admin portal's analytics page (charts grouped by
+// cohort season). Raw values only — referral-source alias normalization and season bucketing are
+// presentation concerns and live in the admin app.
+export type AdminAnalyticsApplicationRow = {
+	createdAt: number;
+	status: Doc<'clubApplications'>['status'];
+	referralSource: string | null;
+	referralOther: string | null;
+};
+
+export const adminAnalyticsApplications = query({
+	args: {},
+	handler: async (ctx): Promise<AdminAnalyticsApplicationRow[]> => {
+		await requireGlobalAdmin(ctx);
+
+		const applications = await ctx.db.query('clubApplications').collect();
+		return applications.map((application) => ({
+			createdAt: application.createdAt,
+			status: application.status,
+			referralSource: application.referralSource ?? null,
+			referralOther: application.referralOther ?? null
+		}));
+	}
+});
+
 // ---------------------------------------------------------------------------
 // 4. Quality flags (CL-733, PRD 6.11.4).
 //
@@ -716,7 +741,9 @@ export const adminUnassignReviewer = mutation({
 			)
 			.first();
 		if (review) {
-			throw new ConvexError('That reviewer has already submitted a review and cannot be unassigned');
+			throw new ConvexError(
+				'That reviewer has already submitted a review and cannot be unassigned'
+			);
 		}
 		await ctx.db.delete(existing._id);
 		return null;
