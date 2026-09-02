@@ -22,10 +22,13 @@ export type AppNavItem = {
 	icon: Component<{ class?: string }>;
 	placement?: AppNavPlacement;
 	children?: AppNavChildItem[];
+	// Count badge on the nav item (currently: total unread chat messages). 0/undefined = no badge.
+	badgeCount?: number;
 };
 
 export type AppNavigationOptions = {
 	hasClubAccess?: boolean;
+	chatUnreadCount?: number;
 };
 
 // Route structure:
@@ -37,6 +40,7 @@ export const buildAppNavigation = (
 	options: AppNavigationOptions = {}
 ): AppNavItem[] => {
 	const hasClubAccess = options.hasClubAccess ?? Boolean(clubId);
+	const chatUnreadCount = options.chatUnreadCount ?? 0;
 	const items: AppNavItem[] = [];
 
 	if (hasClubAccess && clubId) {
@@ -58,7 +62,8 @@ export const buildAppNavigation = (
 				key: 'chat',
 				label: 'Chat',
 				href: routes.chat,
-				icon: MessageCircleIcon
+				icon: MessageCircleIcon,
+				badgeCount: chatUnreadCount
 			}
 		);
 	} else {
@@ -73,7 +78,13 @@ export const buildAppNavigation = (
 			// no-club allowlist), but with no nav entry it was undiscoverable — their
 			// join-request/start-club application chats were only reachable via a link buried
 			// on the no-club page itself. Surface Chat directly in the nav for this state too.
-			{ key: 'chat', label: 'Chat', href: routes.chat, icon: MessageCircleIcon }
+			{
+				key: 'chat',
+				label: 'Chat',
+				href: routes.chat,
+				icon: MessageCircleIcon,
+				badgeCount: chatUnreadCount
+			}
 		);
 	}
 

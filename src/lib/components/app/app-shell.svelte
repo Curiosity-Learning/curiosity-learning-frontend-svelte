@@ -293,6 +293,7 @@
 								label={nav.label}
 								active={activeNav === nav.key}
 								Icon={nav.icon}
+								badgeCount={nav.badgeCount}
 							/>
 						{/if}
 					{/each}
@@ -340,6 +341,7 @@
 								label={nav.label}
 								active={activeNav === nav.key}
 								Icon={nav.icon}
+								badgeCount={nav.badgeCount}
 							/>
 						{/if}
 					{/each}
@@ -523,6 +525,7 @@
 								label={nav.label}
 								active={activeNav === nav.key}
 								Icon={nav.icon}
+								badgeCount={nav.badgeCount}
 							/>
 						{/each}
 					</nav>

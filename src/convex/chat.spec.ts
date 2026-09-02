@@ -1000,6 +1000,99 @@ describe('last read markers', () => {
 	});
 });
 
+// Chat nav badge (CL-715 follow-up): one total across every readable room, same watermark/floor
+// rules as the per-room counts above.
+describe('total unread count (nav badge)', () => {
+	// A second club room for the fixture viewer, seeded with inbound messages.
+	const addSecondClubRoom = async (
+		base: Awaited<ReturnType<typeof seedClubChatFixture>>['base'],
+		viewerProfileId: Awaited<ReturnType<typeof seedClubChatFixture>>['viewerProfileId'],
+		senderProfileId: Awaited<ReturnType<typeof seedClubChatFixture>>['otherProfileId'],
+		messageCount: number
+	) =>
+		await base.run(async (ctx) => {
+			const now = Date.now();
+			const roleId = await ctx.db.insert('clubRoles', {
+				key: 'learner',
+				name: 'Learner',
+				permissions: [],
+				order: 1,
+				createdAt: now
+			});
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Second club',
+				discoverable: false,
+				createdByProfileId: viewerProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			const secondRoomId = await ctx.db.insert('rooms', { contextType: 'club', clubId });
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: viewerProfileId,
+				roleId,
+				createdAt: now
+			});
+			for (let index = 0; index < messageCount; index += 1) {
+				await ctx.db.insert('messages', {
+					roomId: secondRoomId,
+					profileId: senderProfileId,
+					content: `Second club ${index}`
+				});
+			}
+			return secondRoomId;
+		});
+
+	it('sums unread across rooms and shrinks as each room is read', async () => {
+		const { base, viewer, roomId, viewerProfileId, otherProfileId } = await seedClubChatFixture();
+		const secondRoomId = await addSecondClubRoom(base, viewerProfileId, otherProfileId, 2);
+
+		// Fixture room: 1 inbound message; second room: 2.
+		expect(await viewer.query(api.chat.getTotalUnreadCount, {})).toBe(3);
+
+		await viewer.mutation(api.chat.markRoomRead, { roomId: secondRoomId });
+		expect(await viewer.query(api.chat.getTotalUnreadCount, {})).toBe(1);
+
+		await viewer.mutation(api.chat.markRoomRead, { roomId });
+		expect(await viewer.query(api.chat.getTotalUnreadCount, {})).toBe(0);
+	});
+
+	it('never counts the viewer own messages toward the total', async () => {
+		const { viewer, roomId } = await seedClubChatFixture();
+		await viewer.mutation(api.chat.markRoomRead, { roomId });
+
+		await viewer.mutation(api.chat.sendMessage, { roomId, content: 'My own message' });
+
+		expect(await viewer.query(api.chat.getTotalUnreadCount, {})).toBe(0);
+	});
+
+	it('caps the total at 100 across rooms for the 99+ badge', async () => {
+		const { base, viewer, roomId, viewerProfileId, otherProfileId } = await seedClubChatFixture();
+		await base.run(async (ctx) => {
+			for (let index = 0; index < 60; index += 1) {
+				await ctx.db.insert('messages', {
+					roomId,
+					profileId: otherProfileId,
+					content: `Bulk ${index}`
+				});
+			}
+		});
+		await addSecondClubRoom(base, viewerProfileId, otherProfileId, 60);
+
+		expect(await viewer.query(api.chat.getTotalUnreadCount, {})).toBe(100);
+	});
+
+	it('returns 0 instead of throwing for unauthenticated or profile-less callers', async () => {
+		const { base } = await seedClubChatFixture();
+
+		// No identity at all, and an identity with no profile row: both degrade to 0 (badge
+		// contract, mirroring notifications.unreadCount) rather than throwing.
+		expect(await base.query(api.chat.getTotalUnreadCount, {})).toBe(0);
+		const stranger = base.withIdentity({ subject: 'no-profile-user' });
+		expect(await stranger.query(api.chat.getTotalUnreadCount, {})).toBe(0);
+	});
+});
+
 // Last-read follow-up: with no read marker yet, unread counting floors at the viewer's
 // context-join time (getRoomJoinedAt) instead of the beginning of history. Tests pin the join
 // timestamp to an existing message's _creationTime: `gt` then excludes that message and

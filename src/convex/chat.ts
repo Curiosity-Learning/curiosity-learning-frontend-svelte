@@ -13,7 +13,12 @@ import {
 	type RoomActionState,
 	type SendBlockedReason
 } from './chatModel';
-import { getRelatedProfile, requireIdentity, requireProfile } from './permissions';
+import {
+	getProfileByAuthUserId,
+	getRelatedProfile,
+	requireIdentity,
+	requireProfile
+} from './permissions';
 import { listAttributedClubIds } from './projectsModel';
 
 const MAX_MESSAGE_LENGTH = 1_000;
@@ -59,13 +64,14 @@ const countUnreadMessages = async (
 	ctx: Ctx,
 	roomId: Id<'rooms'>,
 	profileId: Id<'profiles'>,
-	lastReadAt: number
+	lastReadAt: number,
+	cap: number = UNREAD_COUNT_CAP
 ) => {
 	const unread = await ctx.db
 		.query('messages')
 		.withIndex('by_room', (q) => q.eq('roomId', roomId).gt('_creationTime', lastReadAt))
 		.filter((q) => q.neq(q.field('profileId'), profileId))
-		.take(UNREAD_COUNT_CAP);
+		.take(cap);
 	return unread.length;
 };
 
@@ -117,109 +123,119 @@ const addRoomByJoinRequest = async (
 	if (room) rooms.set(room._id, room);
 };
 
+// Every room the given profile's chat list can surface, keyed by room id. Shared by
+// listRoomSummaries (the chat list) and getTotalUnreadCount (the nav badge) so the two can never
+// disagree about which rooms exist for a viewer. Callers still re-check getRoomAccess per room:
+// enumeration is derived from (possibly stale/left) associations, access is the source of truth.
+const collectVisibleRooms = async (ctx: QueryCtx, profile: Doc<'profiles'>) => {
+	const rooms = new Map<Id<'rooms'>, Doc<'rooms'>>();
+
+	const clubMemberships = await ctx.db
+		.query('clubMembers')
+		.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+		.collect();
+	for (const membership of clubMemberships) {
+		await addRoomByClub(ctx, rooms, membership.clubId);
+
+		const role = await ctx.db.get(membership.roleId);
+		if (role?.permissions.includes('project:read')) {
+			const attributionRows = await ctx.db
+				.query('projectAttributions')
+				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+				.collect();
+			const projectIds = new Set(attributionRows.map((row) => row.projectId));
+			for (const projectId of projectIds) {
+				await addRoomByProject(ctx, rooms, projectId);
+			}
+		}
+
+		// Only current (not-left) Guides surface join-request chats for their club: a Guide
+		// who has left shouldn't keep seeing new applicants' rooms, though history for chats
+		// they already participated in is preserved by getJoinRequestAccess's own check.
+		if (!membership.leftAt && role?.permissions.includes('club_join_request:decide')) {
+			const joinRequests = await ctx.db
+				.query('joinRequests')
+				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+				.collect();
+			for (const joinRequest of joinRequests) {
+				await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
+			}
+		}
+	}
+
+	const projectMemberships = await ctx.db
+		.query('projectMembers')
+		.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+		.collect();
+	for (const membership of projectMemberships) {
+		await addRoomByProject(ctx, rooms, membership.projectId);
+	}
+
+	const applications = await ctx.db
+		.query('clubApplications')
+		.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', profile._id))
+		.collect();
+	for (const application of applications) {
+		await addRoomByClubApplication(ctx, rooms, application._id);
+	}
+
+	const reviews = await ctx.db
+		.query('applicationReviews')
+		.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
+		.collect();
+	for (const review of reviews) {
+		await addRoomByClubApplication(ctx, rooms, review.applicationId);
+	}
+
+	// PRD 6.11: assigned interviewers are club_application chat participants, so assignments
+	// surface the room even before a review is submitted (reviews above cover the escape-
+	// hatch case of a review without an assignment row).
+	const assignments = await ctx.db
+		.query('applicationReviewAssignments')
+		.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
+		.collect();
+	for (const assignment of assignments) {
+		await addRoomByClubApplication(ctx, rooms, assignment.applicationId);
+	}
+
+	// Own join requests: surfaced regardless of club membership, so a user with no club
+	// membership at all still sees their pending/decided join-request chats (PRD 6.8).
+	const ownJoinRequests = await ctx.db
+		.query('joinRequests')
+		.withIndex('by_requester_profile_id', (q) => q.eq('requesterProfileId', profile._id))
+		.collect();
+	for (const joinRequest of ownJoinRequests) {
+		await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
+	}
+
+	// Staff: conversations they've actually written in belong in their personal chat list too.
+	// Staff reach application rooms via profiles.globalRole (chatModel), not membership, so the
+	// walks above never find those rooms — their sent messages are the only record tying them
+	// to the conversation. Message-derived on purpose: merely *being* staff surfaces nothing
+	// (getClubApplicationAccess deliberately keeps admin-readable rooms out of this list);
+	// having spoken in a room makes it theirs like any other participant's. Admin-only guard:
+	// members' rooms are already covered by the membership walks, so they skip the scan.
+	if (profile.globalRole === 'admin') {
+		const sentMessages = await ctx.db
+			.query('messages')
+			.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+			.collect();
+		for (const message of sentMessages) {
+			if (rooms.has(message.roomId)) continue;
+			const room = await ctx.db.get(message.roomId);
+			if (room) rooms.set(room._id, room);
+		}
+	}
+
+	return rooms;
+};
+
 export const listRoomSummaries = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const rooms = new Map<Id<'rooms'>, Doc<'rooms'>>();
-
-		const clubMemberships = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
-			.collect();
-		for (const membership of clubMemberships) {
-			await addRoomByClub(ctx, rooms, membership.clubId);
-
-			const role = await ctx.db.get(membership.roleId);
-			if (role?.permissions.includes('project:read')) {
-				const attributionRows = await ctx.db
-					.query('projectAttributions')
-					.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
-					.collect();
-				const projectIds = new Set(attributionRows.map((row) => row.projectId));
-				for (const projectId of projectIds) {
-					await addRoomByProject(ctx, rooms, projectId);
-				}
-			}
-
-			// Only current (not-left) Guides surface join-request chats for their club: a Guide
-			// who has left shouldn't keep seeing new applicants' rooms, though history for chats
-			// they already participated in is preserved by getJoinRequestAccess's own check.
-			if (!membership.leftAt && role?.permissions.includes('club_join_request:decide')) {
-				const joinRequests = await ctx.db
-					.query('joinRequests')
-					.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
-					.collect();
-				for (const joinRequest of joinRequests) {
-					await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
-				}
-			}
-		}
-
-		const projectMemberships = await ctx.db
-			.query('projectMembers')
-			.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
-			.collect();
-		for (const membership of projectMemberships) {
-			await addRoomByProject(ctx, rooms, membership.projectId);
-		}
-
-		const applications = await ctx.db
-			.query('clubApplications')
-			.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', profile._id))
-			.collect();
-		for (const application of applications) {
-			await addRoomByClubApplication(ctx, rooms, application._id);
-		}
-
-		const reviews = await ctx.db
-			.query('applicationReviews')
-			.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
-			.collect();
-		for (const review of reviews) {
-			await addRoomByClubApplication(ctx, rooms, review.applicationId);
-		}
-
-		// PRD 6.11: assigned interviewers are club_application chat participants, so assignments
-		// surface the room even before a review is submitted (reviews above cover the escape-
-		// hatch case of a review without an assignment row).
-		const assignments = await ctx.db
-			.query('applicationReviewAssignments')
-			.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
-			.collect();
-		for (const assignment of assignments) {
-			await addRoomByClubApplication(ctx, rooms, assignment.applicationId);
-		}
-
-		// Own join requests: surfaced regardless of club membership, so a user with no club
-		// membership at all still sees their pending/decided join-request chats (PRD 6.8).
-		const ownJoinRequests = await ctx.db
-			.query('joinRequests')
-			.withIndex('by_requester_profile_id', (q) => q.eq('requesterProfileId', profile._id))
-			.collect();
-		for (const joinRequest of ownJoinRequests) {
-			await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
-		}
-
-		// Staff: conversations they've actually written in belong in their personal chat list too.
-		// Staff reach application rooms via profiles.globalRole (chatModel), not membership, so the
-		// walks above never find those rooms — their sent messages are the only record tying them
-		// to the conversation. Message-derived on purpose: merely *being* staff surfaces nothing
-		// (getClubApplicationAccess deliberately keeps admin-readable rooms out of this list);
-		// having spoken in a room makes it theirs like any other participant's. Admin-only guard:
-		// members' rooms are already covered by the membership walks, so they skip the scan.
-		if (profile.globalRole === 'admin') {
-			const sentMessages = await ctx.db
-				.query('messages')
-				.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
-				.collect();
-			for (const message of sentMessages) {
-				if (rooms.has(message.roomId)) continue;
-				const room = await ctx.db.get(message.roomId);
-				if (room) rooms.set(room._id, room);
-			}
-		}
+		const rooms = await collectVisibleRooms(ctx, profile);
 
 		const summaries: Array<{
 			roomId: Id<'rooms'>;
@@ -260,8 +276,7 @@ export const listRoomSummaries = query({
 			// No marker = the viewer never opened this room: unread counting starts when they
 			// became associated with the room's context, not at the beginning of history — a new
 			// member of an old club shouldn't meet a 99+ badge of backlog from before they joined.
-			const unreadFloor =
-				readMarker?.lastReadAt ?? (await getRoomJoinedAt(ctx, room, profile._id));
+			const unreadFloor = readMarker?.lastReadAt ?? (await getRoomJoinedAt(ctx, room, profile._id));
 			const unreadCount = await countUnreadMessages(ctx, room._id, profile._id, unreadFloor);
 			summaries.push({
 				roomId: room._id,
@@ -281,14 +296,49 @@ export const listRoomSummaries = query({
 	}
 });
 
+// Total unread messages across every room the viewer can read, for the global "Chat" nav badge.
+// Deliberately NOT listRoomSummaries: the badge subscription lives in the app layout and re-runs
+// on every message anywhere in the viewer's rooms, so it skips everything the chat list needs
+// beyond the count (latest message, names, counterparts, action states) and stops scanning at
+// UNREAD_COUNT_CAP total (rendered "99+"). Same degradation contract as notifications.unreadCount:
+// returns 0 instead of throwing for unauthenticated callers, missing profiles, and suspended
+// accounts (see the suspension-bypass note there and in permissions.ts).
+export const getTotalUnreadCount = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return 0;
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
+		if (!profile) return 0;
+
+		const rooms = await collectVisibleRooms(ctx, profile);
+		let total = 0;
+		for (const room of rooms.values()) {
+			const access = await getRoomAccess(ctx, room, profile._id);
+			if (!access.canRead) continue;
+			const readMarker = await getReadMarker(ctx, profile._id, room._id);
+			const unreadFloor = readMarker?.lastReadAt ?? (await getRoomJoinedAt(ctx, room, profile._id));
+			total += await countUnreadMessages(
+				ctx,
+				room._id,
+				profile._id,
+				unreadFloor,
+				UNREAD_COUNT_CAP - total
+			);
+			if (total >= UNREAD_COUNT_CAP) return UNREAD_COUNT_CAP;
+		}
+		return total;
+	}
+});
+
 // CL-695/725 CEO review item B: sender attribution for every chat, including 1:1-like ones. The
 // caller (chat/+page.svelte) only renders name/avatar for INBOUND messages (its own messages are
 // obviously self-attributed), but resolving it here for every distinct sender keeps the frontend
 // from needing a second round-trip per message.
 const attachSenderSummaries = async (ctx: QueryCtx, records: Doc<'messages'>[]) => {
-	const profileIds = [...new Set(records.map((record) => record.profileId).filter(Boolean))] as Id<
-		'profiles'
-	>[];
+	const profileIds = [
+		...new Set(records.map((record) => record.profileId).filter(Boolean))
+	] as Id<'profiles'>[];
 	const summaries = new Map<Id<'profiles'>, ChatParticipantSummary>();
 	for (const profileId of profileIds) {
 		const profile = await getRelatedProfile(ctx, profileId);
