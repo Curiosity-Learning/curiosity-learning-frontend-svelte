@@ -1,6 +1,7 @@
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
+import type { NotificationKind } from './notificationsModel';
 import { getRelatedProfile, hasPermissionForProfile } from './permissions';
 import { isProjectArchived, listAttributedClubIds } from './projectsModel';
 
@@ -449,6 +450,169 @@ export const getRoomCounterpart = async (
 		default:
 			return null;
 	}
+};
+
+// Chat email notifications (CL-764): the email's subject and a "which chat" label for its body,
+// resolved per room type. The switch has NO default on purpose — the non-void return type makes
+// a missing case a compile error, so adding a new contextType (e.g. DMs, CL-740) forces an
+// explicit wording decision here instead of silently inheriting a fallback. Wording rationale:
+// the recipient is by definition not in the app, so the subject alone must identify the
+// conversation — group rooms use the plain room name; 1:1-style rooms lead with the counterpart
+// ("from {person}") on the reviewer/Guide side, and say "your {name} application" / "your {club}
+// join request" on the applicant/requester side, where the bare application name would be
+// ambiguous with the club's own group chat (application name == club name).
+export type ChatEmailCopy = { title: string; chatLabel: string };
+
+// Which notification kind a room's chat emails use (CL-764 CEO call): club/project group chats
+// are muteable and never email child accounts (high tier); application and join-request chats
+// are 1:1 review conversations that stall if the applicant/requester never hears about a reply,
+// so they always email and route to the approved parent for child accounts (critical tier).
+// Exhaustive on purpose — a new room type must pick its email tier here explicitly.
+export const getChatEmailKind = (room: Doc<'rooms'>): NotificationKind => {
+	switch (room.contextType) {
+		case 'club':
+		case 'project':
+			return 'chat_activity';
+		case 'clubApplication':
+		case 'joinRequest':
+			return 'review_chat_activity';
+	}
+};
+
+export const getChatEmailCopy = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>,
+	recipientProfileId: Id<'profiles'>
+): Promise<ChatEmailCopy> => {
+	const genericName = await getRoomName(ctx, room);
+	switch (room.contextType) {
+		case 'club':
+		case 'project':
+			return { title: `New messages in ${genericName}`, chatLabel: genericName };
+		case 'clubApplication': {
+			const counterpart = await getRoomCounterpart(ctx, room, recipientProfileId);
+			if (counterpart) {
+				return {
+					title: `New messages from ${counterpart.name} (${genericName} application)`,
+					chatLabel: `your chat with ${counterpart.name} (${genericName} application)`
+				};
+			}
+			// Applicant's own room: no club name/location in the subject on purpose (CEO call) —
+			// the auto-generated application name is a mouthful, and "your club application"
+			// already identifies the conversation fully for the person it is addressed to.
+			return {
+				title: 'New messages regarding your club application',
+				chatLabel: 'your club application chat'
+			};
+		}
+		case 'joinRequest': {
+			const counterpart = await getRoomCounterpart(ctx, room, recipientProfileId);
+			if (counterpart) {
+				return {
+					title: `New messages from ${counterpart.name} (${genericName})`,
+					chatLabel: `your chat with ${counterpart.name} (${genericName})`
+				};
+			}
+			return {
+				title: `New messages in your ${genericName}`,
+				chatLabel: `your ${genericName} chat`
+			};
+		}
+	}
+};
+
+// Chat email notifications (CL-764): who should be told about new messages in a room. Mirrors
+// the participant model of chat.getRoomParticipants (PRD 6.8.1) but returns bare profile ids —
+// the email path needs no names/avatars. Left members are excluded on purpose: they keep READ
+// access to history, but a conversation continuing without them is not theirs to be nudged
+// about. The message-derived rule for 1:1-style rooms matches getRoomParticipants: staff who
+// have written in an application/join-request room are participants even though no membership
+// row ties them to it.
+export const listRoomRecipientProfileIds = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>
+): Promise<Set<Id<'profiles'>>> => {
+	const recipients = new Set<Id<'profiles'>>();
+	switch (room.contextType) {
+		case 'club': {
+			const members = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club', (q) => q.eq('clubId', room.clubId))
+				.collect();
+			for (const member of members) {
+				if (!member.leftAt) recipients.add(member.profileId);
+			}
+			break;
+		}
+		case 'project': {
+			const memberships = await ctx.db
+				.query('projectMembers')
+				.withIndex('by_project', (q) => q.eq('projectId', room.projectId))
+				.collect();
+			for (const membership of memberships) {
+				if (!membership.leftAt) recipients.add(membership.profileId);
+			}
+			// Attributed clubs' Guides observe the project chat (getProjectObserverAccess), so new
+			// messages are addressed to them too.
+			const attributedClubIds = await listAttributedClubIds(ctx, room.projectId);
+			for (const clubId of attributedClubIds) {
+				const clubMembers = await ctx.db
+					.query('clubMembers')
+					.withIndex('by_club', (q) => q.eq('clubId', clubId))
+					.collect();
+				for (const member of clubMembers) {
+					if (member.leftAt || recipients.has(member.profileId)) continue;
+					const role = await ctx.db.get(member.roleId);
+					if (role?.key !== 'guide') continue;
+					recipients.add(member.profileId);
+				}
+			}
+			break;
+		}
+		case 'joinRequest': {
+			const joinRequest = await ctx.db.get(room.joinRequestId);
+			if (!joinRequest) break;
+			recipients.add(joinRequest.requesterProfileId);
+			const clubMembers = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club', (q) => q.eq('clubId', joinRequest.clubId))
+				.collect();
+			for (const member of clubMembers) {
+				if (member.leftAt) continue;
+				const role = await ctx.db.get(member.roleId);
+				if (role?.key === 'guide') recipients.add(member.profileId);
+			}
+			break;
+		}
+		case 'clubApplication': {
+			const application = await ctx.db.get(room.clubApplicationId);
+			if (!application) break;
+			recipients.add(application.applicantProfileId);
+			const reviews = await ctx.db
+				.query('applicationReviews')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', room.clubApplicationId))
+				.collect();
+			for (const review of reviews) recipients.add(review.reviewerProfileId);
+			const assignments = await ctx.db
+				.query('applicationReviewAssignments')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', room.clubApplicationId))
+				.collect();
+			for (const assignment of assignments) recipients.add(assignment.reviewerProfileId);
+			break;
+		}
+	}
+
+	if (room.contextType === 'clubApplication' || room.contextType === 'joinRequest') {
+		const roomMessages = await ctx.db
+			.query('messages')
+			.withIndex('by_room', (q) => q.eq('roomId', room._id))
+			.collect();
+		for (const message of roomMessages) {
+			if (message.profileId) recipients.add(message.profileId);
+		}
+	}
+
+	return recipients;
 };
 
 export const ensureClubRoom = async (ctx: MutationCtx, clubId: Id<'clubs'>) => {

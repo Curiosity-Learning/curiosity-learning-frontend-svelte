@@ -849,6 +849,20 @@ export default defineSchema({
 		lastReadAt: v.number()
 	}).index('by_profile_and_room', ['profileId', 'roomId']),
 
+	// Chat email notifications (CL-764): per-(profile, room) email-delivery state, kept separate
+	// from roomReadMarkers so the read watermark stays single-purpose. `lastEmailedAt` is when the
+	// last "new messages" email for this room went out to this profile — no further email is sent
+	// until their lastReadAt passes it (opening the room re-arms the notification).
+	// `scheduledFor` marks a pending grace-period delivery check (chat.sendMessage schedules one
+	// per recipient per unread batch); a value in the past is treated as stale, so a crashed
+	// delivery job self-heals on the next message instead of silencing the room forever.
+	roomEmailMarkers: defineTable({
+		roomId: v.id('rooms'),
+		profileId: v.id('profiles'),
+		lastEmailedAt: v.optional(v.number()),
+		scheduledFor: v.optional(v.number())
+	}).index('by_profile_and_room', ['profileId', 'roomId']),
+
 	rateLimits: defineTable({
 		key: v.string(),
 		windowStart: v.number(),
