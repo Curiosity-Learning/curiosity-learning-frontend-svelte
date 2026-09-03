@@ -13,6 +13,10 @@
 
 	const applicationsResponse = useStableQuery(api.clubApplications.listReviewableApplications, {});
 	let applications = $derived(applicationsResponse.data ?? []);
+	// Outside a season's review window Guides aren't asked to score (the detail page hides the
+	// form), so the card's call to action is just "View application".
+	const reviewWindowResponse = useStableQuery(api.reviewAssignmentModel.getReviewWindowState, {});
+	let reviewWindowOpen = $derived(reviewWindowResponse.data?.open ?? false);
 </script>
 
 <div class="flex w-full flex-col gap-6 py-6">
@@ -54,7 +58,9 @@
 							{/if}
 						</div>
 						<span class="type-sm-bold flex shrink-0 items-center gap-1 text-orange-600">
-							{$_('applicationReviewList.reviewLink')}
+							{reviewWindowOpen
+								? $_('applicationReviewList.reviewLink')
+								: $_('chatContext.viewApplication')}
 							<ArrowRightIcon class="size-4" />
 						</span>
 					</a>

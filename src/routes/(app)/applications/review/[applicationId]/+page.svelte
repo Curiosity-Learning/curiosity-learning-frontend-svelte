@@ -51,8 +51,13 @@
 	let prefilledFor = $state<string | null>(null);
 	let savePending = $state(false);
 
+	// Scoring is season-driven: the form only shows while a review window is open
+	// (reviewAssignmentModel.isReviewWindowOpen). Ron, 2026-09-03: not asking Guides for scores
+	// right now, past the 2 weeks since the review period opened — creating next season with its
+	// review window on the admin Seasons tab brings the form back without a code change.
 	let canScore = $derived(
 		application?.status === 'pending' &&
+			application.reviewWindowOpen &&
 			application.viewer.role === 'reviewer' &&
 			(application.viewer.isAssigned || application.viewer.hasReviewed)
 	);

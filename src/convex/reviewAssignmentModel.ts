@@ -3,7 +3,7 @@ import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
-import { requireGlobalAdmin } from './permissions';
+import { requireGlobalAdmin, requireIdentity } from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -103,13 +103,30 @@ export const resolveSeasonForManualAssignment = async (ctx: QueryCtx | MutationC
 };
 
 // The season whose review window currently contains `now`, or null.
-const getOpenReviewWindowSeason = async (ctx: MutationCtx, now: number) => {
+export const getOpenReviewWindowSeason = async (ctx: QueryCtx | MutationCtx, now: number) => {
 	const seasons = await ctx.db.query('seasons').collect();
 	return (
 		seasons.find((season) => season.reviewWindowOpen <= now && now <= season.reviewWindowClose) ??
 		null
 	);
 };
+
+// Whether Guides are currently being asked to score applications: true only while some season's
+// review window contains `now`. The member app hides the scoring form outside a window (Ron,
+// 2026-09-03: "we are past the 2 weeks since the opening of the reviewal period" — not asking
+// Guides for scores right now). Nothing to flip when the next season starts: create the season
+// with its review window on the admin Seasons tab and scoring reappears on its own.
+export const isReviewWindowOpen = async (ctx: QueryCtx | MutationCtx, now = Date.now()) =>
+	Boolean(await getOpenReviewWindowSeason(ctx, now));
+
+export const getReviewWindowState = query({
+	args: {},
+	returns: v.object({ open: v.boolean() }),
+	handler: async (ctx) => {
+		await requireIdentity(ctx);
+		return { open: await isReviewWindowOpen(ctx) };
+	}
+});
 
 // Eligible reviewer pool: active (non-left) Guide-role membership in a non-abandoned club. A
 // Guide is only counted once even if they Guide multiple clubs. The applicant exclusion happens
@@ -180,8 +197,7 @@ const assignReviewersForApplication = async (
 	if (needed <= 0) return 0;
 
 	const candidates = eligibleGuideProfileIds.filter(
-		(profileId) =>
-			profileId !== application.applicantProfileId && !alreadyAssigned.has(profileId)
+		(profileId) => profileId !== application.applicantProfileId && !alreadyAssigned.has(profileId)
 	);
 
 	const loads = await Promise.all(

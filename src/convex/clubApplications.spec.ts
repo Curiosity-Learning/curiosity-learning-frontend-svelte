@@ -623,6 +623,8 @@ describe('getApplication', () => {
 			status: 'pending',
 			applicant: { name: 'App Licant', username: 'applicant' },
 			viewer: { role: 'applicant', hasReviewed: false, isAssigned: false },
+			// No season with an open review window seeded → scoring is hidden.
+			reviewWindowOpen: false,
 			myReview: null,
 			review: null
 		});
@@ -660,6 +662,8 @@ describe('getApplication', () => {
 		});
 
 		expect(result?.viewer).toEqual({ role: 'reviewer', hasReviewed: false, isAssigned: true });
+		// assignReviewer seeds a season whose review window contains now.
+		expect(result?.reviewWindowOpen).toBe(true);
 		expect(result?.myReview).toBeNull();
 		expect(result?.review?.reviews).toHaveLength(1);
 		expect(result?.review?.assignedReviewers).toEqual([

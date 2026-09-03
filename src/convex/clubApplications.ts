@@ -15,6 +15,7 @@ import { createClubForFounder } from './clubCreationModel';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	assignReviewsForApplicationIfWindowOpen,
+	isReviewWindowOpen,
 	maybeNotifyScoreDiscrepancy
 } from './reviewAssignmentModel';
 
@@ -981,6 +982,9 @@ export const getApplication = query({
 				hasReviewed: v.boolean(),
 				isAssigned: v.boolean()
 			}),
+			// Season-driven: the scoring form only renders while a review window is open (see
+			// reviewAssignmentModel.isReviewWindowOpen).
+			reviewWindowOpen: v.boolean(),
 			myReview: v.union(
 				v.null(),
 				v.object({
@@ -1061,6 +1065,7 @@ export const getApplication = query({
 				hasReviewed: viewer.hasReviewed,
 				isAssigned: viewer.isAssigned
 			},
+			reviewWindowOpen: await isReviewWindowOpen(ctx),
 			myReview: ownReview
 				? {
 						principlesScore: ownReview.principlesScore ?? null,
