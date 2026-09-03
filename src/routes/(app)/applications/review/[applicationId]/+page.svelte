@@ -54,8 +54,10 @@
 	const scoreText = (score: number | null) => (score === null ? '–' : String(score));
 
 	// --- Review form (assigned or reviewing Guide, while the application is still pending) ---
-	let principlesScore = $state('');
-	let safetyScore = $state('');
+	// `bind:value` on a type="number" input hands back a number once the user types, and '' when
+	// the field is cleared — so the score state is string | number and parseScore normalises.
+	let principlesScore = $state<string | number>('');
+	let safetyScore = $state<string | number>('');
 	let note = $state('');
 	let prefilledFor = $state<string | null>(null);
 	let savePending = $state(false);
@@ -87,8 +89,8 @@
 		note = application.myReview?.note ?? '';
 	});
 
-	const parseScore = (value: string) => {
-		const trimmed = value.trim();
+	const parseScore = (value: string | number) => {
+		const trimmed = String(value).trim();
 		if (!/^\d+$/.test(trimmed)) return null;
 		const parsed = Number(trimmed);
 		return parsed >= 0 && parsed <= 10 ? parsed : null;
