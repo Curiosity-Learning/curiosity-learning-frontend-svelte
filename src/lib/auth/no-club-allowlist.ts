@@ -6,8 +6,10 @@ import { routes } from '$lib/routes';
 // the PARENT to have a club), and /chat (CL-710 CEO review item 1: a start-club or join-request
 // applicant is, by definition, club-less — without this, their "Open chat" button on the no-club
 // page got silently redirected right back to /new-club instead of opening the
-// interview/application chat) — see CL-690's original no-club allowlist that this extends. Shared
-// by `(app)/+layout.server.ts` (SSR redirect-to-/new-club gate) and `(app)/+layout.svelte`
+// interview/application chat) — see CL-690's original no-club allowlist that this extends, and
+// /applications (a start-club applicant is club-less by definition, and must be able to open their
+// own application's detail page from the chat context banner / no-club card). Shared by
+// `(app)/+layout.server.ts` (SSR redirect-to-/new-club gate) and `(app)/+layout.svelte`
 // (client-side navigation effect with the same job) so the two can't drift out of sync with each
 // other.
 export const noClubAllowedPaths = [
@@ -17,7 +19,8 @@ export const noClubAllowedPaths = [
 	routes.settings,
 	routes.notifications,
 	routes.child,
-	routes.chat
+	routes.chat,
+	routes.applications
 ];
 
 // A path is "allowed without a club" if it IS one of the above, or is nested under one of them

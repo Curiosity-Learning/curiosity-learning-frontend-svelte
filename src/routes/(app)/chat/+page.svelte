@@ -8,6 +8,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { api } from '$convex/_generated/api';
 	import {
+		ChatContextBanner,
 		LoadingState,
 		PageBottomNavVisibility,
 		PageContentMode,
@@ -29,7 +30,6 @@
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
-	import { requestSignedMediaUrls } from '$lib/media/signed-media.svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { _, formatT, t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
@@ -43,6 +43,8 @@
 		// no messages yet, for rooms with a 1:1 counterpart — see roomPreviewText below.
 		roomSubtitle: string | null;
 		contextType: 'club' | 'project' | 'clubApplication' | 'joinRequest';
+		contextId: string;
+		contextName: string;
 		lastMessagePreview: string | null;
 		lastMessageAt: number;
 		canSend: boolean;
@@ -193,65 +195,6 @@
 	let rejectNote = $state('');
 	let followUpDialogOpen = $state(false);
 	let followUpReason = $state('');
-	// CL-710 CEO review item 2: the applicant's video, surfaced directly in the application chat.
-	// Failure is tracked PER URL: the direct URL may 403 (private bucket) before the signed URL
-	// arrives, and a boolean flag would keep the player hidden after the good URL lands.
-	let applicationVideoFailedUrl = $state<string | null>(null);
-	// CL-710 CEO review round 3 (Braga bug): applicationInfo.videoUrl is a direct storage URL that
-	// 403s once secure media delivery (CloudFront) is configured, because the bucket is then
-	// private. Prefer a signed delivery URL fetched via /api/media/refresh, falling back to the
-	// direct URL (works in local dev, where the bucket is public) if signing isn't available.
-	// Nothing renders until the signing request settles, so the browser never wastes a request
-	// (and an error state) on the direct URL in CDN-enabled environments.
-	let applicationSignedVideoUrl = $state<string | null>(null);
-	let applicationVideoRequestSettled = $state(false);
-	let applicationVideoRequestKey = $state<string | null>(null);
-
-	$effect(() => {
-		const info = applicationInfo;
-		const assetId = info?.videoMediaAssetId ?? null;
-		const applicationId = info?.applicationId ?? null;
-		if (!assetId || !applicationId) {
-			applicationSignedVideoUrl = null;
-			applicationVideoRequestKey = null;
-			applicationVideoRequestSettled = true;
-			return;
-		}
-
-		const requestKey = `${applicationId}:${assetId}`;
-		if (applicationVideoRequestKey === requestKey) {
-			return;
-		}
-		applicationVideoRequestKey = requestKey;
-		applicationVideoRequestSettled = false;
-
-		void (async () => {
-			try {
-				const assets = await requestSignedMediaUrls({
-					assetIds: [assetId],
-					context: { kind: 'club-application', applicationId }
-				});
-				if (applicationVideoRequestKey !== requestKey) return;
-				applicationSignedVideoUrl = assets[0]?.signedUrl ?? null;
-			} catch {
-				// Secure media delivery isn't configured (local dev) or the request failed — fall back
-				// to applicationInfo.videoUrl below rather than surfacing an error for a nice-to-have.
-				if (applicationVideoRequestKey !== requestKey) return;
-				applicationSignedVideoUrl = null;
-			} finally {
-				if (applicationVideoRequestKey === requestKey) {
-					applicationVideoRequestSettled = true;
-				}
-			}
-		})();
-	});
-
-	let applicationVideoUrl = $derived(
-		applicationVideoRequestSettled
-			? (applicationSignedVideoUrl ?? applicationInfo?.videoUrl ?? null)
-			: null
-	);
-
 	// CL-695/725 CEO review item A: chat member overview (header highlight + a "view members"
 	// dialog), backed by chat.getRoomParticipants.
 	const participantsResponse = useStableQuery(api.chat.getRoomParticipants, () =>
@@ -378,7 +321,6 @@
 		shouldStickToBottom = true;
 		pendingPrependScrollHeight = null;
 		pendingPrependAnchor = null;
-		applicationVideoFailedUrl = null;
 	});
 
 	$effect(() => {
@@ -466,6 +408,43 @@
 	let headerTitleName = $derived(roomDisplayName(activeRoom));
 	let headerSubtitle = $derived(activeRoom?.roomSubtitle ?? null);
 	let hasParticipantsToShow = $derived((participantsInfo?.participants.length ?? 0) > 0);
+
+	// Chat context banner: where "the thing this chat is about" lives. Club/project/application
+	// links come straight from `activeRoom` (listRoomSummaries carries contextId, and is keyed to
+	// the selected room, so there is no stale-room flicker). Join requests are role-aware and
+	// depend on the staleness-guarded `joinRequestInfo`: Guides (and an accepted requester) go to
+	// the club dashboard; a pending requester isn't a member yet, so they get the public club
+	// preview — only if the club is discoverable, since the preview page 404s otherwise.
+	let chatContextLink = $derived.by(() => {
+		const room = activeRoom;
+		if (!room) return null;
+		switch (room.contextType) {
+			case 'club':
+				return { href: routes.clubHome(room.contextId), label: $_('chatContext.openClub') };
+			case 'project':
+				return {
+					href: routes.projectDetail(room.contextId),
+					label: $_('chatContext.openProject')
+				};
+			case 'clubApplication':
+				return {
+					href: routes.applicationReviewDetail(room.contextId),
+					label: $_('chatContext.viewApplication')
+				};
+			case 'joinRequest': {
+				const info = joinRequestInfo;
+				if (!info) return null;
+				if (!info.isRequester || info.status === 'accepted') {
+					return { href: routes.clubHome(info.clubId), label: $_('chatContext.openClub') };
+				}
+				if (!info.clubDiscoverable) return null;
+				return {
+					href: routes.publicClubPreview(info.clubId),
+					label: $_('chatContext.viewClub')
+				};
+			}
+		}
+	});
 
 	const roomPreviewText = (room: RoomSummary) => {
 		const preview = room.lastMessagePreview?.trim();
@@ -631,22 +610,6 @@
 				error instanceof Error ? error.message : t('joinRequestChat.cancelFailure');
 		} finally {
 			joinRequestActionPending = false;
-		}
-	};
-
-	const moveToInterviewAction = async () => {
-		if (!applicationInfo) return;
-		applicationActionPending = true;
-		applicationActionError = '';
-		try {
-			await convexClient.mutation(api.clubApplications.moveToInterview, {
-				applicationId: applicationInfo.applicationId
-			});
-		} catch (error) {
-			applicationActionError =
-				error instanceof Error ? error.message : t('applicationChat.moveToInterviewFailure');
-		} finally {
-			applicationActionPending = false;
 		}
 	};
 
@@ -932,6 +895,18 @@
 						</div>
 					</div>
 
+					{#if activeRoom && chatContextLink}
+						<div class={isDesktopViewport ? 'px-4 pt-4' : 'pt-3'}>
+							<ChatContextBanner
+								contextType={activeRoom.contextType}
+								contextId={activeRoom.contextId}
+								contextName={activeRoom.contextName}
+								href={chatContextLink.href}
+								label={chatContextLink.label}
+							/>
+						</div>
+					{/if}
+
 					<div
 						bind:this={messageScrollRef}
 						onscroll={handleMessagesScroll}
@@ -941,50 +916,16 @@
 					>
 						<div class="flex min-h-full flex-col">
 							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
-								<!-- CL-710 CEO review item 2: the application video, one of the most important
-								parts of the application, surfaced directly in the review/interview chat. -->
-								{#if applicationVideoUrl && applicationVideoFailedUrl !== applicationVideoUrl}
-									<div class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
-										<p class="type-sm mb-1.5 text-muted-foreground">
-											{$_('applicationChat.videoLabel')}
-										</p>
-										<div
-											class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900"
-										>
-											<!-- svelte-ignore a11y_media_has_caption -->
-											<video
-												src={applicationVideoUrl}
-												controls
-												preload="metadata"
-												class="h-44 w-full object-cover sm:h-52"
-												onerror={() => {
-													applicationVideoFailedUrl = applicationVideoUrl;
-												}}
-											></video>
-										</div>
-									</div>
-								{/if}
-								{#if applicationInfo.status === 'pending' && applicationInfo.canDecide}
-									<!-- CL-695/725 CEO review item D: actions live INSIDE the banner as a compact,
-									low-emphasis row instead of large standalone buttons floating above it. -->
+								<!-- The application itself (details + video) lives on the detail page behind the
+								context banner above; the chat only carries the workflow banners. Moving to the
+								interview stage is a Core Team action in the admin portal, so the pending banner is
+								informational for Guides. -->
+								{#if applicationInfo.status === 'pending' && !applicationInfo.isApplicant}
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 										<AlertTitle>{$_('applicationChat.pendingBannerTitle')}</AlertTitle>
 										<AlertDescription
 											>{$_('applicationChat.pendingBannerDescription')}</AlertDescription
 										>
-										<div class="col-start-2 mt-3 flex flex-wrap gap-2">
-											<Button
-												type="button"
-												size="sm"
-												variant="secondary"
-												disabled={applicationActionPending}
-												onclick={() => void moveToInterviewAction()}
-											>
-												{applicationActionPending
-													? $_('applicationChat.movingToInterview')
-													: $_('applicationChat.moveToInterviewButton')}
-											</Button>
-										</div>
 									</Alert>
 								{:else if applicationInfo.status === 'interview' && applicationInfo.canDecide}
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>

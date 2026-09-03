@@ -244,7 +244,10 @@ export const getRoomAccess = async (
 
 // Earliest createdAt across rows, 0 when there are none ("no derivable association").
 const earliestCreatedAt = (rows: Array<{ createdAt: number }>) =>
-	rows.reduce((earliest, row) => (!earliest || row.createdAt < earliest ? row.createdAt : earliest), 0);
+	rows.reduce(
+		(earliest, row) => (!earliest || row.createdAt < earliest ? row.createdAt : earliest),
+		0
+	);
 
 // Last-read feature: when a viewer became associated with a room's context. Used by
 // chat.listRoomSummaries as the unread floor for viewers with no roomReadMarkers row yet — a new
@@ -397,8 +400,11 @@ export const getRoomActionState = async (
 			if (!review) {
 				return 'open';
 			}
-			const decided = application.status === 'accepted' || application.status === 'rejected';
-			return decided ? 'open' : 'action_needed';
+			// A reviewing Guide only has something to DO once the Core Team has put the application
+			// in the interview stage (run the interview, then accept/reject from this chat). While
+			// pending there is nothing to act on here — moving to interview is admin-portal only — and
+			// a decided application is just an open conversation.
+			return application.status === 'interview' ? 'action_needed' : 'open';
 		}
 	}
 };
@@ -415,6 +421,38 @@ export const getRoomName = async (ctx: Ctx, room: Doc<'rooms'>) => {
 			const joinRequest = await ctx.db.get(room.joinRequestId);
 			const club = joinRequest ? await ctx.db.get(joinRequest.clubId) : null;
 			return club ? `${club.name} join request` : 'Join request chat';
+		}
+	}
+};
+
+// Chat context banner: which entity a room belongs to, so the chat page can link straight to it
+// (club dashboard / project page / application detail / the join request's club). `contextName`
+// is the entity's own name — for join requests that is the CLUB name, not getRoomName's
+// "<club> join request" label.
+export const getRoomContext = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>
+): Promise<{ contextId: string; contextName: string }> => {
+	switch (room.contextType) {
+		case 'club':
+			return {
+				contextId: room.clubId,
+				contextName: (await ctx.db.get(room.clubId))?.name ?? 'Club'
+			};
+		case 'project':
+			return {
+				contextId: room.projectId,
+				contextName: (await ctx.db.get(room.projectId))?.name ?? 'Project'
+			};
+		case 'clubApplication':
+			return {
+				contextId: room.clubApplicationId,
+				contextName: (await ctx.db.get(room.clubApplicationId))?.name ?? 'Application'
+			};
+		case 'joinRequest': {
+			const joinRequest = await ctx.db.get(room.joinRequestId);
+			const club = joinRequest ? await ctx.db.get(joinRequest.clubId) : null;
+			return { contextId: room.joinRequestId, contextName: club?.name ?? 'Club' };
 		}
 	}
 };

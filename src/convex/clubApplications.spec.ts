@@ -115,6 +115,24 @@ const addReview = async (
 	);
 };
 
+// Staff move applications to interview from the admin portal (admin.adminMoveToInterview); for
+// these Guide-side decision tests we stage the row directly.
+const moveToInterviewAsStaff = async (
+	t: Awaited<ReturnType<typeof seedApplicationFixture>>['t'],
+	applicationId: Id<'clubApplications'>
+) => {
+	const now = Date.now();
+	await t.run(async (ctx) => {
+		await ctx.db.patch(applicationId, {
+			status: 'interview',
+			movedToInterviewAt: now,
+			updatedAt: now
+		});
+		const { ensureClubApplicationRoom } = await import('./chatModel');
+		await ensureClubApplicationRoom(ctx, applicationId);
+	});
+};
+
 describe('application decision pipeline', () => {
 	const setupReviewedApplication = async () => {
 		const fixture = await seedApplicationFixture();
@@ -131,47 +149,6 @@ describe('application decision pipeline', () => {
 		return fixture;
 	};
 
-	it('requires a review before moving to interview', async () => {
-		const { otherReviewer, applicationId } = await seedApplicationFixture();
-		await expect(
-			otherReviewer.mutation(api.clubApplications.moveToInterview, { applicationId })
-		).rejects.toThrow('Only a Guide who reviewed this application can do this');
-	});
-
-	it('moves to interview, creates the chat room, and notifies the applicant', async () => {
-		const { reviewer, applicantProfileId, applicationId, t } = await setupReviewedApplication();
-
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
-
-		const application = await t.run((ctx) => ctx.db.get(applicationId));
-		expect(application?.status).toBe('interview');
-		expect(application?.movedToInterviewAt).toBeDefined();
-
-		const room = await t.run((ctx) =>
-			ctx.db
-				.query('rooms')
-				.withIndex('by_club_application_id', (q) => q.eq('clubApplicationId', applicationId))
-				.first()
-		);
-		expect(room).not.toBeNull();
-
-		const notifications = await t.run((ctx) =>
-			ctx.db
-				.query('notifications')
-				.withIndex('by_profile', (q) => q.eq('profileId', applicantProfileId))
-				.collect()
-		);
-		expect(notifications.some((n) => n.title === 'Your application moved to interview')).toBe(true);
-	});
-
-	it('rejects moving a non-pending application to interview', async () => {
-		const { reviewer, applicationId } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
-		await expect(
-			reviewer.mutation(api.clubApplications.moveToInterview, { applicationId })
-		).rejects.toThrow('Only applications in review can move to interview');
-	});
-
 	it('rejects deciding an application that is not in interview', async () => {
 		const { reviewer, applicationId } = await setupReviewedApplication();
 		await expect(
@@ -183,8 +160,8 @@ describe('application decision pipeline', () => {
 	});
 
 	it('enforces the deciding-reviewer gate on decideApplication', async () => {
-		const { otherReviewer, reviewer, applicationId } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		const { otherReviewer, applicationId, t } = await setupReviewedApplication();
+		await moveToInterviewAsStaff(t, applicationId);
 		await expect(
 			otherReviewer.mutation(api.clubApplications.decideApplication, {
 				applicationId,
@@ -197,7 +174,7 @@ describe('application decision pipeline', () => {
 	// club inline — there is no more separate confirm-onboarding-call step.
 	it('accepts an application, creates the club immediately, and notifies the applicant', async () => {
 		const { reviewer, applicantProfileId, applicationId, t } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 
 		await reviewer.mutation(api.clubApplications.decideApplication, {
 			applicationId,
@@ -236,7 +213,7 @@ describe('application decision pipeline', () => {
 
 	it('is idempotent if decideApplication were somehow invoked twice for the same acceptance', async () => {
 		const { reviewer, applicationId, t } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 		await reviewer.mutation(api.clubApplications.decideApplication, {
 			applicationId,
 			decision: 'accepted'
@@ -259,7 +236,7 @@ describe('application decision pipeline', () => {
 
 	it('rejects an application, posts the personal note and a system message, and notifies the applicant', async () => {
 		const { reviewer, applicantProfileId, applicationId, t } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 
 		await reviewer.mutation(api.clubApplications.decideApplication, {
 			applicationId,
@@ -299,7 +276,7 @@ describe('application decision pipeline', () => {
 	// rejected — so the applicant can still reach out for support later.
 	it('keeps the chat open and sendable for the applicant once rejected', async () => {
 		const { reviewer, applicant, applicationId, t } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 		await reviewer.mutation(api.clubApplications.decideApplication, {
 			applicationId,
 			decision: 'rejected'
@@ -326,7 +303,7 @@ describe('application decision pipeline', () => {
 	// should still be able to message their interviewer for support.
 	it('keeps the chat open and sendable for the applicant once accepted', async () => {
 		const { reviewer, applicant, applicationId, t } = await setupReviewedApplication();
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 		await reviewer.mutation(api.clubApplications.decideApplication, {
 			applicationId,
 			decision: 'accepted'
@@ -350,7 +327,7 @@ describe('application decision pipeline', () => {
 	});
 
 	it('sets and requires the follow-up flag only while accepted', async () => {
-		const { reviewer, applicationId } = await setupReviewedApplication();
+		const { reviewer, applicationId, t } = await setupReviewedApplication();
 		await expect(
 			reviewer.mutation(api.clubApplications.setAdminFollowUpFlag, {
 				applicationId,
@@ -358,7 +335,7 @@ describe('application decision pipeline', () => {
 			})
 		).rejects.toThrow('Only accepted applications can be flagged for follow-up');
 
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 		await reviewer.mutation(api.clubApplications.decideApplication, {
 			applicationId,
 			decision: 'accepted'
@@ -562,6 +539,180 @@ describe('getApplicationVideoDeliveryAsset', () => {
 	});
 });
 
+// Application detail page (/applications/review/{id}) + the chat page's per-room query share one
+// audience (resolveApplicationViewer): applicant, admin, reviewer, assigned Guide.
+describe('getApplication', () => {
+	const DAY_MS = 24 * 60 * 60 * 1000;
+
+	const assignReviewer = async (
+		t: Awaited<ReturnType<typeof seedApplicationFixture>>['t'],
+		applicationId: Id<'clubApplications'>,
+		reviewerProfileId: Id<'profiles'>
+	) => {
+		const now = Date.now();
+		const seasonId = await t.mutation(internal.seasons.createSeason, {
+			name: 'Test Season',
+			startDate: now + 60 * DAY_MS,
+			endDate: now + 120 * DAY_MS,
+			reviewWindowOpen: now - DAY_MS,
+			reviewWindowClose: now + DAY_MS,
+			feedbackDeadline: now + 150 * DAY_MS
+		});
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId,
+				seasonId,
+				assignedAt: now
+			})
+		);
+	};
+
+	const seedAdmin = async (t: Awaited<ReturnType<typeof seedApplicationFixture>>['t']) => {
+		const adminProfileId = await t.run((ctx) =>
+			ctx.db.insert('profiles', {
+				authUserId: 'admin-user',
+				username: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			})
+		);
+		await t.run((ctx) =>
+			ctx.runMutation(internal.profiles.setGlobalRole, {
+				profileId: adminProfileId,
+				globalRole: 'admin'
+			})
+		);
+		return t.withIdentity({ subject: 'admin-user' });
+	};
+
+	it('gives the applicant their own details but no review data', async () => {
+		const { applicant, reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+
+		const result = await applicant.query(api.clubApplications.getApplication, { applicationId });
+
+		expect(result).toMatchObject({
+			applicationId,
+			name: 'New Curiosity Club',
+			description: 'A great club',
+			status: 'pending',
+			applicant: { name: 'App Licant', username: 'applicant' },
+			viewer: { role: 'applicant', hasReviewed: false, isAssigned: false },
+			// No season with an open review window seeded → scoring is hidden.
+			reviewWindowOpen: false,
+			myReview: null,
+			decision: null,
+			review: null
+		});
+		// Nothing about who reviewed or what they wrote leaks through any field.
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('Rev Iewer');
+		expect(serialized).not.toContain('Looks great');
+	});
+
+	it('gives a reviewer only their own review, never other reviewers scores or names', async () => {
+		const { reviewer, reviewerProfileId, otherReviewerProfileId, applicationId, t } =
+			await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		// Someone else reviewed it too; that must stay invisible to `reviewer`.
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviews', {
+				applicationId,
+				reviewerProfileId: otherReviewerProfileId,
+				score: 3,
+				note: 'Secret second opinion',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			})
+		);
+
+		const result = await reviewer.query(api.clubApplications.getApplication, { applicationId });
+
+		expect(result?.viewer).toEqual({ role: 'reviewer', hasReviewed: true, isAssigned: false });
+		expect(result?.myReview).toEqual({
+			principlesScore: null,
+			safetyScore: null,
+			note: 'Looks great'
+		});
+		expect(result?.decision).toEqual({ decidedByName: null, adminFollowUpFlag: null });
+		expect(result?.review).toBeNull();
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('Secret second opinion');
+		expect(serialized).not.toContain('other-reviewer');
+	});
+
+	it('gives an assigned Guide who has not reviewed yet no review data at all', async () => {
+		const { otherReviewer, otherReviewerProfileId, reviewerProfileId, applicationId, t } =
+			await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		await assignReviewer(t, applicationId, otherReviewerProfileId);
+
+		const result = await otherReviewer.query(api.clubApplications.getApplication, {
+			applicationId
+		});
+
+		expect(result?.viewer).toEqual({ role: 'reviewer', hasReviewed: false, isAssigned: true });
+		// assignReviewer seeds a season whose review window contains now.
+		expect(result?.reviewWindowOpen).toBe(true);
+		expect(result?.myReview).toBeNull();
+		expect(result?.review).toBeNull();
+		expect(JSON.stringify(result)).not.toContain('Looks great');
+	});
+
+	it('gives a global admin everything', async () => {
+		const { reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		const admin = await seedAdmin(t);
+
+		const result = await admin.query(api.clubApplications.getApplication, { applicationId });
+
+		expect(result?.viewer).toEqual({ role: 'admin', hasReviewed: false, isAssigned: false });
+		expect(result?.decision).toEqual({ decidedByName: null, adminFollowUpFlag: null });
+		expect(result?.review?.reviews).toEqual([
+			expect.objectContaining({ reviewerName: 'Rev Iewer', score: 8, note: 'Looks great' })
+		]);
+		expect(result?.review?.assignedReviewers).toEqual([]);
+	});
+
+	it('rejects a Guide with no assignment and no review', async () => {
+		const { otherReviewer, reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+
+		await expect(
+			otherReviewer.query(api.clubApplications.getApplication, { applicationId })
+		).rejects.toThrow('You cannot access this application');
+	});
+
+	it('returns null for an unknown application', async () => {
+		const { applicant, applicationId, t } = await seedApplicationFixture();
+		await t.run((ctx) => ctx.db.delete(applicationId));
+
+		expect(
+			await applicant.query(api.clubApplications.getApplication, { applicationId })
+		).toBeNull();
+	});
+
+	it('lets an assigned Guide and an admin read the chat-page application info (no decide rights)', async () => {
+		const { otherReviewer, otherReviewerProfileId, applicationId, t } =
+			await seedApplicationFixture();
+		await assignReviewer(t, applicationId, otherReviewerProfileId);
+		const admin = await seedAdmin(t);
+		const roomId = await t.run((ctx) =>
+			ctx.db.insert('rooms', { contextType: 'clubApplication', clubApplicationId: applicationId })
+		);
+
+		const asAssigned = await otherReviewer.query(api.clubApplications.getApplicationForRoom, {
+			roomId
+		});
+		expect(asAssigned).toMatchObject({ isApplicant: false, canDecide: false, hasReviewed: false });
+
+		const asAdmin = await admin.query(api.clubApplications.getApplicationForRoom, { roomId });
+		expect(asAdmin).toMatchObject({ isApplicant: false, canDecide: false, hasReviewed: false });
+	});
+});
+
 // CL-690 CEO review item F: listMyApplications must carry the chat roomId so the no-club page can
 // link straight to the chat instead of the generic chat list.
 describe('listMyApplications', () => {
@@ -654,7 +805,7 @@ describe('clubApplication chat overview and action state', () => {
 			return await ensureClubApplicationRoom(ctx, applicationId);
 		});
 		// Move the application to the interview stage so the reviewer has an active decision to make.
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 
 		const reviewerSummaries = await reviewer.query(api.chat.listRoomSummaries, {});
 		const applicantSummaries = await applicant.query(api.chat.listRoomSummaries, {});
@@ -677,7 +828,7 @@ describe('clubApplication chat overview and action state', () => {
 			const { ensureClubApplicationRoom } = await import('./chatModel');
 			return await ensureClubApplicationRoom(ctx, applicationId);
 		});
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 		await reviewer.mutation(api.clubApplications.decideApplication, {
 			applicationId,
 			decision: 'rejected'
@@ -701,7 +852,7 @@ describe('clubApplication chat overview and action state', () => {
 			const { ensureClubApplicationRoom } = await import('./chatModel');
 			return await ensureClubApplicationRoom(ctx, applicationId);
 		});
-		await reviewer.mutation(api.clubApplications.moveToInterview, { applicationId });
+		await moveToInterviewAsStaff(t, applicationId);
 		await reviewer.mutation(api.clubApplications.decideApplication, {
 			applicationId,
 			decision: 'accepted'

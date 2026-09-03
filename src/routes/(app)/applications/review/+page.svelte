@@ -1,199 +1,71 @@
 <script lang="ts">
-	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
+	// The Guide's peer-review queue (CL-709): applications assigned to them that they haven't
+	// scored yet. Each card links to the application detail page, which is where the video,
+	// the full details, and the scoring form live.
+	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
+	import { api } from '$convex/_generated/api';
 	import { EmptyState, LoadingState } from '$lib/components/app';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
-	import { Button } from '$lib/components/ui/button';
-	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
-	import { FieldLabel } from '$lib/components/ui/field';
-	import { Input } from '$lib/components/ui/input';
-	import { Textarea } from '$lib/components/ui/textarea';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
-	import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
-	import { api } from '$convex/_generated/api';
-	import type { Id } from '$convex/_generated/dataModel';
-	import { useConvexClient } from 'convex-svelte';
-	import { requestSignedMediaUrls } from '$lib/media/signed-media.svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { formatShortDate } from '$lib/domain/date';
 	import { _ } from '$lib/i18n';
+	import { routes } from '$lib/routes';
 
-	const convexClient = useConvexClient();
 	const applicationsResponse = useStableQuery(api.clubApplications.listReviewableApplications, {});
 	let applications = $derived(applicationsResponse.data ?? []);
-	let principlesScores = $state<Record<string, string>>({});
-	let safetyScores = $state<Record<string, string>>({});
-	let notes = $state<Record<string, string>>({});
-	let pendingApplicationId = $state<string | null>(null);
-	// CL-710 CEO review item 2: the video is one of the most important parts of the application —
-	// playback failure is tracked PER URL: the direct URL may 403 (private bucket) before the
-	// signed URL arrives, and a boolean flag would keep the player hidden after the good URL lands.
-	let videoFailedUrlsById = $state<Record<string, string | null>>({});
-	// CL-710 CEO review round 3 (Braga bug): application.videoUrl is a direct storage URL that
-	// 403s once secure media delivery (CloudFront) is configured, because the bucket is then
-	// private. Prefer a signed delivery URL fetched per-card via /api/media/refresh, falling back
-	// to the direct URL (works in local dev, where the bucket is public) if signing isn't
-	// available.
-	let signedVideoUrlsById = $state<Record<string, string | null>>({});
-	const requestedVideoAssetIds = new SvelteSet<string>();
-
-	$effect(() => {
-		for (const application of applications) {
-			const assetId = application.videoMediaAssetId;
-			if (!assetId || requestedVideoAssetIds.has(application._id)) continue;
-			requestedVideoAssetIds.add(application._id);
-
-			void (async () => {
-				try {
-					const assets = await requestSignedMediaUrls({
-						assetIds: [assetId],
-						context: { kind: 'club-application', applicationId: application._id }
-					});
-					signedVideoUrlsById[application._id] = assets[0]?.signedUrl ?? null;
-				} catch {
-					// Secure media delivery isn't configured (local dev) or the request failed — fall
-					// back to application.videoUrl below rather than surfacing an error.
-					signedVideoUrlsById[application._id] = null;
-				}
-			})();
-		}
-	});
-
-	const videoUrlFor = (application: (typeof applications)[number]) => {
-		// Wait for the signing request to settle before rendering anything, so the browser never
-		// attempts (and errors on) the direct URL in CDN-enabled environments.
-		if (application.videoMediaAssetId && !(application._id in signedVideoUrlsById)) {
-			return null;
-		}
-		return signedVideoUrlsById[application._id] ?? application.videoUrl ?? null;
-	};
-
-	const submitReview = async (applicationId: string) => {
-		const principlesScore = Number(principlesScores[applicationId] ?? '');
-		const safetyScore = Number(safetyScores[applicationId] ?? '');
-		const note = notes[applicationId]?.trim() ?? '';
-		pendingApplicationId = applicationId;
-		try {
-			await convexClient.mutation(api.clubApplications.upsertApplicationReview, {
-				applicationId: applicationId as Id<'clubApplications'>,
-				principlesScore,
-				safetyScore,
-				note
-			});
-			showGlobalSnackbar({ title: 'Review saved' });
-		} catch (error) {
-			captureUnexpectedOperationalError(error, {
-				area: 'admin',
-				operation: 'application-review:save',
-				identifiers: { applicationId }
-			});
-			showGlobalSnackbar({
-				title: 'Unable to save review',
-				description: error instanceof Error ? error.message : 'Please try again.'
-			});
-		} finally {
-			pendingApplicationId = null;
-		}
-	};
+	// Outside a season's review window Guides aren't asked to score (the detail page hides the
+	// form), so the card's call to action is just "View application".
+	const reviewWindowResponse = useStableQuery(api.reviewAssignmentModel.getReviewWindowState, {});
+	let reviewWindowOpen = $derived(reviewWindowResponse.data?.open ?? false);
 </script>
 
 <div class="flex w-full flex-col gap-6 py-6">
 	<div class="flex flex-col gap-2">
-		<h1 class="type-h4-bold text-foreground">Club applications</h1>
-		<p class="type-body text-muted-foreground">Assigned to you for peer review.</p>
+		<h1 class="type-h4-bold text-foreground">{$_('applicationReviewList.title')}</h1>
+		<p class="type-body text-muted-foreground">{$_('applicationReviewList.subtitle')}</p>
 	</div>
 
 	{#if applicationsResponse.isLoading}
-		<LoadingState label="Loading applications" />
+		<LoadingState label={$_('applicationReviewList.title')} />
 	{:else if applicationsResponse.error}
 		<Alert variant="destructive">
 			<AlertDescription>{applicationsResponse.error.message}</AlertDescription>
 		</Alert>
 	{:else if applications.length === 0}
-		<EmptyState title="No applications assigned" description="Nothing is currently waiting on your review." />
+		<EmptyState
+			title={$_('applicationReviewList.emptyTitle')}
+			description={$_('applicationReviewList.emptyDescription')}
+		/>
 	{:else}
-		<div class="grid gap-4">
+		<ul class="grid gap-3">
 			{#each applications as application (application._id)}
-				<Card>
-					<CardHeader>
-						<CardTitle>{application.name}</CardTitle>
-					</CardHeader>
-					<CardContent class="flex flex-col gap-4">
-						<div class="type-sm flex flex-col gap-1 text-muted-foreground">
-							{#if application.location}<p>{application.location}</p>{/if}
-							{#if application.description}<p>{application.description}</p>{/if}
-						</div>
-
-						<div class="flex flex-col gap-2">
-							<FieldLabel>{$_('applicationChat.videoLabel')}</FieldLabel>
-							{#if videoUrlFor(application) && videoFailedUrlsById[application._id] !== videoUrlFor(application)}
-								<div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
-									<!-- svelte-ignore a11y_media_has_caption -->
-									<video
-										src={videoUrlFor(application)}
-										controls
-										preload="metadata"
-										class="h-56 w-full object-cover"
-										onerror={() => {
-											videoFailedUrlsById[application._id] = videoUrlFor(application);
-										}}
-									></video>
-								</div>
-							{:else}
-								<p class="type-sm text-muted-foreground">{$_('applicationChat.videoUnavailable')}</p>
+				<li>
+					<a
+						href={routes.applicationReviewDetail(application._id)}
+						data-sveltekit-preload-data="hover"
+						class="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-white px-4 py-3 transition-colors hover:border-orange-200 hover:bg-orange-50"
+					>
+						<div class="flex min-w-0 flex-col gap-0.5">
+							<p class="type-lead-bold truncate text-foreground">{application.name}</p>
+							<p class="type-sm truncate text-muted-foreground">
+								{formatShortDate(application.createdAt)}
+								{#if application.location}
+									· {application.location}
+								{/if}
+							</p>
+							{#if application.description}
+								<p class="type-sm line-clamp-2 text-muted-foreground">{application.description}</p>
 							{/if}
 						</div>
-
-						<div class="grid gap-3 sm:grid-cols-2">
-							<div class="flex flex-col gap-2">
-								<FieldLabel for={`principles-score-${application._id}`}>
-									Guiding Principles alignment (0-10)
-								</FieldLabel>
-								<Input
-									id={`principles-score-${application._id}`}
-									type="number"
-									min="0"
-									max="10"
-									step="1"
-									placeholder="0-10"
-									value={principlesScores[application._id] ?? ''}
-									oninput={(event) =>
-										(principlesScores[application._id] = event.currentTarget.value)}
-								/>
-							</div>
-							<div class="flex flex-col gap-2">
-								<FieldLabel for={`safety-score-${application._id}`}>Safety (0-10)</FieldLabel>
-								<Input
-									id={`safety-score-${application._id}`}
-									type="number"
-									min="0"
-									max="10"
-									step="1"
-									placeholder="0-10"
-									value={safetyScores[application._id] ?? ''}
-									oninput={(event) => (safetyScores[application._id] = event.currentTarget.value)}
-								/>
-							</div>
-						</div>
-						<div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-							<div class="flex flex-col gap-2">
-								<FieldLabel for={`review-note-${application._id}`} required>Review note</FieldLabel>
-								<Textarea
-									id={`review-note-${application._id}`}
-									placeholder="Required review note"
-									value={notes[application._id] ?? ''}
-									oninput={(event) => (notes[application._id] = event.currentTarget.value)}
-								/>
-							</div>
-							<Button
-								class="self-end"
-								disabled={pendingApplicationId === application._id}
-								onclick={() => void submitReview(application._id)}
-							>
-								{pendingApplicationId === application._id ? 'Saving...' : 'Save'}
-							</Button>
-						</div>
-					</CardContent>
-				</Card>
+						<span class="type-sm-bold flex shrink-0 items-center gap-1 text-orange-600">
+							{reviewWindowOpen
+								? $_('applicationReviewList.reviewLink')
+								: $_('chatContext.viewApplication')}
+							<ArrowRightIcon class="size-4" />
+						</span>
+					</a>
+				</li>
 			{/each}
-		</div>
+		</ul>
 	{/if}
 </div>

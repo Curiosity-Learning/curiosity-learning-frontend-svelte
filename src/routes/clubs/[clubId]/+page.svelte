@@ -12,6 +12,7 @@
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
 	import { navigateBack } from '$lib/navigation/back';
+	import { routes } from '$lib/routes';
 	import { formatScheduleSlot } from '$lib/domain/schedule';
 
 	let { data }: PageProps = $props();
@@ -35,7 +36,7 @@
 	});
 
 	const getSignUpPath = () => {
-		const next = `/clubs/${data.clubId}`;
+		const next = routes.publicClubPreview(data.clubId);
 		return `/auth/sign-up?next=${encodeURIComponent(next)}&forceSignup=1`;
 	};
 
@@ -81,7 +82,12 @@
 			<div class="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-5">
 				<h1 class="text-2xl font-bold text-gray-900">{$_('publicClubPreview.notFoundTitle')}</h1>
 				<p class="text-base text-red-700">{$_('publicClubPreview.notFoundDescription')}</p>
-				<Button href="/onboarding/join-club/public-clubs" variant="outline" size="xl" class="h-12 w-full">
+				<Button
+					href="/onboarding/join-club/public-clubs"
+					variant="outline"
+					size="xl"
+					class="h-12 w-full"
+				>
 					{$_('publicClubPreview.backToPublicClubs')}
 				</Button>
 			</div>

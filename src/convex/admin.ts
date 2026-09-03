@@ -5,7 +5,11 @@ import type { QueryCtx } from './_generated/server';
 import { getClubRoleByKey, requireGlobalAdmin, requireProfile } from './permissions';
 import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
-import { applicationHasReadyVideo, createClubFromApplication } from './clubApplications';
+import {
+	applicationHasReadyVideo,
+	buildApplicationReviewSummary,
+	createClubFromApplication
+} from './clubApplications';
 import { resolveSeasonForManualAssignment } from './reviewAssignmentModel';
 import { getAuthUserEmail } from './authEmail';
 
@@ -591,49 +595,15 @@ export const adminGetApplication = query({
 			.withIndex('by_club_application_id', (q) => q.eq('clubApplicationId', application._id))
 			.first();
 
-		const reviewRows = await ctx.db
-			.query('applicationReviews')
-			.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
-			.collect();
-		const reviews = await Promise.all(
-			reviewRows.map(async (review) => {
-				const reviewerProfile = await ctx.db.get(review.reviewerProfileId);
-				return {
-					reviewId: review._id,
-					reviewerName: reviewerProfile ? profileDisplayName(reviewerProfile) : 'Unknown reviewer',
-					principlesScore: review.principlesScore ?? null,
-					safetyScore: review.safetyScore ?? null,
-					score: review.score,
-					note: review.note,
-					createdAt: review.createdAt
-				};
-			})
+		// Reviews + assigned reviewers: shared with the member app's clubApplications.getApplication.
+		const { reviews, assignedReviewers } = await buildApplicationReviewSummary(
+			ctx,
+			application._id
 		);
 
 		const decidedByProfile = application.decidedByProfileId
 			? await ctx.db.get(application.decidedByProfileId)
 			: null;
-
-		// Assigned reviewers/interviewers (PRD 6.11: they are the application chat's guide-side
-		// participants). hasReviewed distinguishes "assigned, scores pending" from "reviewed".
-		const assignmentRows = await ctx.db
-			.query('applicationReviewAssignments')
-			.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
-			.collect();
-		const assignedReviewers = await Promise.all(
-			assignmentRows.map(async (assignment) => {
-				const reviewerProfile = await ctx.db.get(assignment.reviewerProfileId);
-				return {
-					profileId: assignment.reviewerProfileId,
-					name: reviewerProfile ? profileDisplayName(reviewerProfile) : 'Unknown user',
-					username: reviewerProfile?.username ?? null,
-					assignedAt: assignment.assignedAt,
-					hasReviewed: reviewRows.some(
-						(review) => review.reviewerProfileId === assignment.reviewerProfileId
-					)
-				};
-			})
-		);
 
 		return {
 			applicationId: application._id,

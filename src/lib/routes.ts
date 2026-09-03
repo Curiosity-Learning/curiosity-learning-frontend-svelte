@@ -18,6 +18,7 @@ export const routes = {
 	settings: '/settings',
 	settingsMediaUploadDev: '/settings/media-upload-dev',
 	notifications: '/notifications',
+	applications: '/applications',
 	applicationsReview: '/applications/review',
 	feedback: '/feedback',
 	child: '/child',
@@ -32,6 +33,9 @@ export const routes = {
 	clubSettings: (clubId: string) => `/club/${clubId}/settings`,
 	sessionDetail: (sessionId: string) => `/session/${sessionId}/activities`,
 	projectDetail: (projectId: string) => `/project/${projectId}/overview`,
+	applicationReviewDetail: (applicationId: string) => `/applications/review/${applicationId}`,
+	// Public club preview (src/routes/clubs/[clubId]): only resolves discoverable clubs.
+	publicClubPreview: (clubId: string) => `/clubs/${clubId}`,
 	activityBooklet: '/activity-booklet',
 	activityBookletDetail: (activityId: string) => `/activity-booklet/${activityId}`
 } as const;

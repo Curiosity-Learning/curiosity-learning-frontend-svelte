@@ -10,6 +10,7 @@ import {
 	getRoomActionState,
 	getRoomCounterpart,
 	getRoomJoinedAt,
+	getRoomContext,
 	getRoomName,
 	listRoomRecipientProfileIds,
 	summarizeProfileForChat,
@@ -310,6 +311,11 @@ export const listRoomSummaries = query({
 			// their own room, where the preview area keeps the plain "no messages yet" copy.
 			roomSubtitle: string | null;
 			contextType: Doc<'rooms'>['contextType'];
+			// Chat context banner: the entity this room belongs to (club/project/application/join
+			// request id) and its display name, so the chat page can link to it without a second
+			// per-room query.
+			contextId: string;
+			contextName: string;
 			lastMessagePreview: string | null;
 			lastMessageAt: number;
 			canSend: boolean;
@@ -342,11 +348,14 @@ export const listRoomSummaries = query({
 			// member of an old club shouldn't meet a 99+ badge of backlog from before they joined.
 			const unreadFloor = readMarker?.lastReadAt ?? (await getRoomJoinedAt(ctx, room, profile._id));
 			const unreadCount = await countUnreadMessages(ctx, room._id, profile._id, unreadFloor);
+			const context = await getRoomContext(ctx, room);
 			summaries.push({
 				roomId: room._id,
 				roomName: counterpart?.name ?? genericName,
 				roomSubtitle: counterpart ? genericName : null,
 				contextType: room.contextType,
+				contextId: context.contextId,
+				contextName: context.contextName,
 				lastMessagePreview: latestMessage?.content ?? null,
 				lastMessageAt: latestMessage?._creationTime ?? room._creationTime,
 				canSend: access.canSend,
