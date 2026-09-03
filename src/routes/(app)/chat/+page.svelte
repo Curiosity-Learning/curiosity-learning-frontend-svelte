@@ -8,7 +8,6 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { api } from '$convex/_generated/api';
 	import {
-		ApplicationVideo,
 		ChatContextBanner,
 		LoadingState,
 		PageBottomNavVisibility,
@@ -614,22 +613,6 @@
 		}
 	};
 
-	const moveToInterviewAction = async () => {
-		if (!applicationInfo) return;
-		applicationActionPending = true;
-		applicationActionError = '';
-		try {
-			await convexClient.mutation(api.clubApplications.moveToInterview, {
-				applicationId: applicationInfo.applicationId
-			});
-		} catch (error) {
-			applicationActionError =
-				error instanceof Error ? error.message : t('applicationChat.moveToInterviewFailure');
-		} finally {
-			applicationActionPending = false;
-		}
-	};
-
 	const acceptApplicationAction = async () => {
 		if (!applicationInfo) return;
 		applicationActionPending = true;
@@ -913,13 +896,15 @@
 					</div>
 
 					{#if activeRoom && chatContextLink}
-						<ChatContextBanner
-							contextType={activeRoom.contextType}
-							contextId={activeRoom.contextId}
-							contextName={activeRoom.contextName}
-							href={chatContextLink.href}
-							label={chatContextLink.label}
-						/>
+						<div class={isDesktopViewport ? 'px-4 pt-4' : 'px-3 pt-3'}>
+							<ChatContextBanner
+								contextType={activeRoom.contextType}
+								contextId={activeRoom.contextId}
+								contextName={activeRoom.contextName}
+								href={chatContextLink.href}
+								label={chatContextLink.label}
+							/>
+						</div>
 					{/if}
 
 					<div
@@ -931,38 +916,16 @@
 					>
 						<div class="flex min-h-full flex-col">
 							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
-								<!-- CL-710 CEO review item 2: the application video, one of the most important
-								parts of the application, surfaced directly in the review/interview chat. -->
-								{#key applicationInfo.applicationId}
-									<ApplicationVideo
-										applicationId={applicationInfo.applicationId}
-										videoMediaAssetId={applicationInfo.videoMediaAssetId}
-										fallbackUrl={applicationInfo.videoUrl}
-										label={$_('applicationChat.videoLabel')}
-										class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}
-									/>
-								{/key}
-								{#if applicationInfo.status === 'pending' && applicationInfo.canDecide}
-									<!-- CL-695/725 CEO review item D: actions live INSIDE the banner as a compact,
-									low-emphasis row instead of large standalone buttons floating above it. -->
+								<!-- The application itself (details + video) lives on the detail page behind the
+								context banner above; the chat only carries the workflow banners. Moving to the
+								interview stage is a Core Team action in the admin portal, so the pending banner is
+								informational for Guides. -->
+								{#if applicationInfo.status === 'pending' && !applicationInfo.isApplicant}
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 										<AlertTitle>{$_('applicationChat.pendingBannerTitle')}</AlertTitle>
 										<AlertDescription
 											>{$_('applicationChat.pendingBannerDescription')}</AlertDescription
 										>
-										<div class="col-start-2 mt-3 flex flex-wrap gap-2">
-											<Button
-												type="button"
-												size="sm"
-												variant="secondary"
-												disabled={applicationActionPending}
-												onclick={() => void moveToInterviewAction()}
-											>
-												{applicationActionPending
-													? $_('applicationChat.movingToInterview')
-													: $_('applicationChat.moveToInterviewButton')}
-											</Button>
-										</div>
 									</Alert>
 								{:else if applicationInfo.status === 'interview' && applicationInfo.canDecide}
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>

@@ -669,43 +669,10 @@ export const createClubFromApplication = async (
 	return { clubId };
 };
 
-export const moveToInterview = mutation({
-	args: {
-		applicationId: v.id('clubApplications')
-	},
-	returns: v.object({ success: v.boolean() }),
-	handler: async (ctx, args) => {
-		const identity = await requireIdentity(ctx);
-		const reviewerProfile = await requireProfile(ctx, identity.subject);
-		const application = await ctx.db.get(args.applicationId);
-		if (!application) {
-			throw new ConvexError('Application not found');
-		}
-		if (application.status !== 'pending') {
-			throw new ConvexError('Only applications in review can move to interview');
-		}
-
-		await requireDecidingReviewer(ctx, args.applicationId, reviewerProfile._id);
-
-		const now = Date.now();
-		await ctx.db.patch(application._id, {
-			status: 'interview',
-			movedToInterviewAt: now,
-			movedToInterviewByProfileId: reviewerProfile._id,
-			updatedAt: now
-		});
-		await ensureClubApplicationRoom(ctx, application._id);
-
-		await dispatchNotification(ctx, {
-			recipientProfileId: application.applicantProfileId,
-			kind: 'application_status',
-			title: 'Your application moved to interview',
-			message: 'Your application moved to interview — expect a message to schedule a call.'
-		});
-
-		return { success: true };
-	}
-});
+// Moving an application to the interview stage is a Core Team decision made from the admin
+// portal (admin.adminMoveToInterview) — Ron, 2026-09-03: Guides review, chat, and interview;
+// they never move an application forward themselves. The former Guide-facing moveToInterview
+// mutation was removed for that reason.
 
 // CL-710 CEO review item 3: the interview itself IS the onboarding call. Accepting an application
 // creates the club immediately — there is no more separate "confirm onboarding call" step.

@@ -36,7 +36,7 @@
 	data-context-id={contextId}
 	data-sveltekit-preload-data="hover"
 	class={cn(
-		'flex w-full items-center gap-3 border-b border-orange-100 bg-orange-50 px-4 py-2.5 text-left transition-colors hover:bg-orange-100/70 focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:outline-none',
+		'flex w-full items-center gap-3 rounded-xl border border-orange-100 bg-orange-50 px-4 py-2.5 text-left transition-colors hover:bg-orange-100/70 focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:outline-none',
 		className
 	)}
 >
