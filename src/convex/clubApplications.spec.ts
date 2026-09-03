@@ -562,6 +562,159 @@ describe('getApplicationVideoDeliveryAsset', () => {
 	});
 });
 
+// Application detail page (/applications/review/{id}) + the chat page's per-room query share one
+// audience (resolveApplicationViewer): applicant, admin, reviewer, assigned Guide.
+describe('getApplication', () => {
+	const DAY_MS = 24 * 60 * 60 * 1000;
+
+	const assignReviewer = async (
+		t: Awaited<ReturnType<typeof seedApplicationFixture>>['t'],
+		applicationId: Id<'clubApplications'>,
+		reviewerProfileId: Id<'profiles'>
+	) => {
+		const now = Date.now();
+		const seasonId = await t.mutation(internal.seasons.createSeason, {
+			name: 'Test Season',
+			startDate: now + 60 * DAY_MS,
+			endDate: now + 120 * DAY_MS,
+			reviewWindowOpen: now - DAY_MS,
+			reviewWindowClose: now + DAY_MS,
+			feedbackDeadline: now + 150 * DAY_MS
+		});
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId,
+				seasonId,
+				assignedAt: now
+			})
+		);
+	};
+
+	const seedAdmin = async (t: Awaited<ReturnType<typeof seedApplicationFixture>>['t']) => {
+		const adminProfileId = await t.run((ctx) =>
+			ctx.db.insert('profiles', {
+				authUserId: 'admin-user',
+				username: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			})
+		);
+		await t.run((ctx) =>
+			ctx.runMutation(internal.profiles.setGlobalRole, {
+				profileId: adminProfileId,
+				globalRole: 'admin'
+			})
+		);
+		return t.withIdentity({ subject: 'admin-user' });
+	};
+
+	it('gives the applicant their own details but no review data', async () => {
+		const { applicant, reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+
+		const result = await applicant.query(api.clubApplications.getApplication, { applicationId });
+
+		expect(result).toMatchObject({
+			applicationId,
+			name: 'New Curiosity Club',
+			description: 'A great club',
+			status: 'pending',
+			applicant: { name: 'App Licant', username: 'applicant' },
+			viewer: { role: 'applicant', hasReviewed: false, isAssigned: false },
+			myReview: null,
+			review: null
+		});
+		// Nothing about who reviewed or what they wrote leaks through any field.
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('Rev Iewer');
+		expect(serialized).not.toContain('Looks great');
+	});
+
+	it('gives a reviewer who reviewed the full review block plus their own review', async () => {
+		const { reviewer, reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+
+		const result = await reviewer.query(api.clubApplications.getApplication, { applicationId });
+
+		expect(result?.viewer).toEqual({ role: 'reviewer', hasReviewed: true, isAssigned: false });
+		expect(result?.myReview).toEqual({
+			principlesScore: null,
+			safetyScore: null,
+			note: 'Looks great'
+		});
+		expect(result?.review?.reviews).toEqual([
+			expect.objectContaining({ reviewerName: 'Rev Iewer', score: 8, note: 'Looks great' })
+		]);
+	});
+
+	it('gives an assigned Guide who has not reviewed yet the review block, with no own review', async () => {
+		const { otherReviewer, otherReviewerProfileId, reviewerProfileId, applicationId, t } =
+			await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		await assignReviewer(t, applicationId, otherReviewerProfileId);
+
+		const result = await otherReviewer.query(api.clubApplications.getApplication, {
+			applicationId
+		});
+
+		expect(result?.viewer).toEqual({ role: 'reviewer', hasReviewed: false, isAssigned: true });
+		expect(result?.myReview).toBeNull();
+		expect(result?.review?.reviews).toHaveLength(1);
+		expect(result?.review?.assignedReviewers).toEqual([
+			expect.objectContaining({ profileId: otherReviewerProfileId, hasReviewed: false })
+		]);
+	});
+
+	it('gives a global admin everything', async () => {
+		const { reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+		const admin = await seedAdmin(t);
+
+		const result = await admin.query(api.clubApplications.getApplication, { applicationId });
+
+		expect(result?.viewer).toEqual({ role: 'admin', hasReviewed: false, isAssigned: false });
+		expect(result?.review?.reviews).toHaveLength(1);
+	});
+
+	it('rejects a Guide with no assignment and no review', async () => {
+		const { otherReviewer, reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		await addReview(t, applicationId, reviewerProfileId);
+
+		await expect(
+			otherReviewer.query(api.clubApplications.getApplication, { applicationId })
+		).rejects.toThrow('You cannot access this application');
+	});
+
+	it('returns null for an unknown application', async () => {
+		const { applicant, applicationId, t } = await seedApplicationFixture();
+		await t.run((ctx) => ctx.db.delete(applicationId));
+
+		expect(
+			await applicant.query(api.clubApplications.getApplication, { applicationId })
+		).toBeNull();
+	});
+
+	it('lets an assigned Guide and an admin read the chat-page application info (no decide rights)', async () => {
+		const { otherReviewer, otherReviewerProfileId, applicationId, t } =
+			await seedApplicationFixture();
+		await assignReviewer(t, applicationId, otherReviewerProfileId);
+		const admin = await seedAdmin(t);
+		const roomId = await t.run((ctx) =>
+			ctx.db.insert('rooms', { contextType: 'clubApplication', clubApplicationId: applicationId })
+		);
+
+		const asAssigned = await otherReviewer.query(api.clubApplications.getApplicationForRoom, {
+			roomId
+		});
+		expect(asAssigned).toMatchObject({ isApplicant: false, canDecide: false, hasReviewed: false });
+
+		const asAdmin = await admin.query(api.clubApplications.getApplicationForRoom, { roomId });
+		expect(asAdmin).toMatchObject({ isApplicant: false, canDecide: false, hasReviewed: false });
+	});
+});
+
 // CL-690 CEO review item F: listMyApplications must carry the chat roomId so the no-club page can
 // link straight to the chat instead of the generic chat list.
 describe('listMyApplications', () => {

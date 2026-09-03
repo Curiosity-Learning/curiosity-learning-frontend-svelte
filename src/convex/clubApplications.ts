@@ -9,7 +9,7 @@ import {
 	requireIdentity,
 	requireProfile
 } from './permissions';
-import { ensureClubApplicationRoom } from './chatModel';
+import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
 import { createClubForFounder } from './clubCreationModel';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
@@ -147,29 +147,91 @@ export const applicationHasReadyVideo = async (ctx: Ctx, application: Doc<'clubA
 	return Boolean(asset && asset.status === 'ready' && asset.mediaKind === 'video');
 };
 
-// Whether `profileId` is allowed to view the given application's video: the applicant themselves,
-// any Guide assigned to review it (assignment exists — covers the review-list page, before a
-// review is submitted), any Guide who has reviewed it (covers the chat page's access rule,
-// which is gated on "has an applicationReviews row" — see getApplicationForRoom above), or a
-// global admin (staff decide applications from the admin portal, and already have chat access to
-// application rooms via chatModel.getClubApplicationAccess's globalRole check — denying them the
-// video here was an inconsistency).
+// Who is looking at an application, and therefore what they may see of it. The audience is the
+// same one chatModel.getClubApplicationAccess admits to the application chat: the applicant
+// themselves, a global admin (staff decide applications from the admin portal), any Guide who has
+// reviewed it, and any Guide merely ASSIGNED to review it (covers the review page and the chat
+// before scores are submitted — and the hand-assigned reviewers of a season where no guides
+// existed when applications came in). Returns null for everyone else. Used by the video delivery
+// gate, the chat page's getApplicationForRoom, and the application detail page's getApplication.
+export type ApplicationViewer =
+	| { role: 'applicant'; hasReviewed: false; isAssigned: false }
+	| { role: 'admin'; hasReviewed: false; isAssigned: false }
+	| { role: 'reviewer'; hasReviewed: boolean; isAssigned: boolean };
+
+export const resolveApplicationViewer = async (
+	ctx: Ctx,
+	application: Doc<'clubApplications'>,
+	profile: Doc<'profiles'>
+): Promise<ApplicationViewer | null> => {
+	if (application.applicantProfileId === profile._id) {
+		return { role: 'applicant', hasReviewed: false, isAssigned: false };
+	}
+	if (profile.globalRole === 'admin') {
+		return { role: 'admin', hasReviewed: false, isAssigned: false };
+	}
+	const review = await getApplicationReview(ctx, application._id, profile._id);
+	const assignment = await getAssignment(ctx, application._id, profile._id);
+	if (!review && !assignment) {
+		return null;
+	}
+	return { role: 'reviewer', hasReviewed: Boolean(review), isAssigned: Boolean(assignment) };
+};
+
 const canAccessApplicationVideo = async (
 	ctx: Ctx,
 	application: Doc<'clubApplications'>,
-	profileId: Id<'profiles'>
+	profile: Doc<'profiles'>
+) => Boolean(await resolveApplicationViewer(ctx, application, profile));
+
+// Reviews and reviewer assignments of an application, with reviewer names — the reviewer/admin
+// half of both admin.adminGetApplication and getApplication below. Never hand this to the
+// applicant: it carries scores, notes, and who reviewed.
+export const buildApplicationReviewSummary = async (
+	ctx: Ctx,
+	applicationId: Id<'clubApplications'>
 ) => {
-	if (application.applicantProfileId === profileId) {
-		return true;
-	}
-	const profile = await ctx.db.get(profileId);
-	if (profile?.globalRole === 'admin') {
-		return true;
-	}
-	if (await getApplicationReview(ctx, application._id, profileId)) {
-		return true;
-	}
-	return Boolean(await getAssignment(ctx, application._id, profileId));
+	const reviewRows = await ctx.db
+		.query('applicationReviews')
+		.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+		.collect();
+	const reviews = await Promise.all(
+		reviewRows.map(async (review) => {
+			const reviewerProfile = await ctx.db.get(review.reviewerProfileId);
+			return {
+				reviewId: review._id,
+				reviewerName: reviewerProfile ? profileDisplayName(reviewerProfile) : 'Unknown reviewer',
+				principlesScore: review.principlesScore ?? null,
+				safetyScore: review.safetyScore ?? null,
+				score: review.score,
+				note: review.note,
+				createdAt: review.createdAt
+			};
+		})
+	);
+
+	// Assigned reviewers/interviewers (PRD 6.11: they are the application chat's guide-side
+	// participants). hasReviewed distinguishes "assigned, scores pending" from "reviewed".
+	const assignmentRows = await ctx.db
+		.query('applicationReviewAssignments')
+		.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+		.collect();
+	const assignedReviewers = await Promise.all(
+		assignmentRows.map(async (assignment) => {
+			const reviewerProfile = await ctx.db.get(assignment.reviewerProfileId);
+			return {
+				profileId: assignment.reviewerProfileId,
+				name: reviewerProfile ? profileDisplayName(reviewerProfile) : 'Unknown user',
+				username: reviewerProfile?.username ?? null,
+				assignedAt: assignment.assignedAt,
+				hasReviewed: reviewRows.some(
+					(review) => review.reviewerProfileId === assignment.reviewerProfileId
+				)
+			};
+		})
+	);
+
+	return { reviews, assignedReviewers };
 };
 
 const trimOptional = (value?: string) => {
@@ -193,13 +255,11 @@ const normalizeDraft = (draft: ApplicationDraft) => ({
 	referralOther: trimOptional(draft.referralOther)
 });
 
-const profileDisplayName = (profile: {
-	firstName?: string;
-	lastName?: string;
-	username?: string;
-}) => {
-	const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim();
-	return fullName || profile.username || undefined;
+// Google Chat submission ping: omit the "Applicant:" line entirely when the profile has no name
+// yet (chatModel.profileDisplayName would say "Someone").
+const applicantNameForNotification = (profile: Doc<'profiles'>) => {
+	const name = profileDisplayName(profile);
+	return name === 'Someone' ? undefined : name;
 };
 
 const getLatestIncompleteApplication = async (ctx: Ctx, profileId: Id<'profiles'>) => {
@@ -323,7 +383,7 @@ export const submitApplication = mutation({
 				applicationId: existing._id,
 				name: payload.name,
 				location: payload.location,
-				applicantName: profileDisplayName(profile),
+				applicantName: applicantNameForNotification(profile),
 				applicantRole: payload.applicantRole,
 				referralSource: payload.referralSource
 			});
@@ -343,7 +403,7 @@ export const submitApplication = mutation({
 			applicationId,
 			name: payload.name,
 			location: payload.location,
-			applicantName: profileDisplayName(profile),
+			applicantName: applicantNameForNotification(profile),
 			applicantRole: payload.applicantRole,
 			referralSource: payload.referralSource
 		});
@@ -809,13 +869,17 @@ export const getApplicationForRoom = query({
 		if (!application) {
 			return null;
 		}
-		const isApplicant = application.applicantProfileId === profile._id;
-		const review = isApplicant
-			? null
-			: await getApplicationReview(ctx, application._id, profile._id);
-		if (!isApplicant && !review) {
+		// Same audience as the room itself (chatModel.getClubApplicationAccess): applicant, admin,
+		// reviewer, or assigned-but-not-yet-reviewed Guide. Previously only applicant/reviewer, so
+		// assigned Guides and staff got a silent error and saw neither the video nor the status
+		// banner in the chat they could otherwise read.
+		const viewer = await resolveApplicationViewer(ctx, application, profile);
+		if (!viewer) {
 			throw new ConvexError('You cannot access this chat');
 		}
+		const isApplicant = viewer.role === 'applicant';
+		// Deciding (move to interview / accept / reject / flag) still requires a review row.
+		const canDecide = viewer.role === 'reviewer' && viewer.hasReviewed;
 
 		return {
 			roomId: args.roomId,
@@ -823,8 +887,8 @@ export const getApplicationForRoom = query({
 			name: application.name,
 			status: application.status,
 			isApplicant,
-			canDecide: Boolean(review),
-			hasReviewed: Boolean(review),
+			canDecide,
+			hasReviewed: canDecide,
 			videoUrl: await resolveApplicationVideoUrl(ctx, application),
 			videoMediaAssetId: application.videoMediaAssetId,
 			adminFollowUpFlag: application.adminFollowUpFlag
@@ -833,6 +897,178 @@ export const getApplicationForRoom = query({
 						createdAt: application.adminFollowUpFlag.createdAt
 					}
 				: undefined
+		};
+	}
+});
+
+const applicationStatusValidator = v.union(
+	v.literal('incomplete'),
+	v.literal('pending'),
+	v.literal('interview'),
+	v.literal('accepted'),
+	v.literal('rejected')
+);
+
+const applicationReviewSummaryValidator = v.object({
+	decidedByName: v.union(v.string(), v.null()),
+	adminFollowUpFlag: v.union(
+		v.null(),
+		v.object({
+			reason: v.string(),
+			createdAt: v.number()
+		})
+	),
+	reviews: v.array(
+		v.object({
+			reviewId: v.id('applicationReviews'),
+			reviewerName: v.string(),
+			principlesScore: v.union(v.number(), v.null()),
+			safetyScore: v.union(v.number(), v.null()),
+			score: v.number(),
+			note: v.string(),
+			createdAt: v.number()
+		})
+	),
+	assignedReviewers: v.array(
+		v.object({
+			profileId: v.id('profiles'),
+			name: v.string(),
+			username: v.union(v.string(), v.null()),
+			assignedAt: v.number(),
+			hasReviewed: v.boolean()
+		})
+	)
+});
+
+// Application detail page (/applications/review/{id}) — the member-app counterpart of
+// admin.adminGetApplication. Same audience as the application chat (resolveApplicationViewer);
+// the applicant gets their own details and video but `review` is null for them: no scores, notes,
+// reviewer names, or who decided. Reviewers (assigned or reviewed) and admins get everything, plus
+// `myReview` so an assigned Guide can revisit/edit their own scores.
+export const getApplication = query({
+	args: {
+		applicationId: v.id('clubApplications')
+	},
+	returns: v.union(
+		v.null(),
+		v.object({
+			applicationId: v.id('clubApplications'),
+			status: applicationStatusValidator,
+			name: v.string(),
+			description: v.union(v.string(), v.null()),
+			location: v.union(v.string(), v.null()),
+			applicantRole: v.union(v.string(), v.null()),
+			referralSource: v.union(v.string(), v.null()),
+			referralOther: v.union(v.string(), v.null()),
+			createdAt: v.number(),
+			decidedAt: v.union(v.number(), v.null()),
+			// Already posted into the application chat on rejection, so applicant-visible.
+			rejectionNote: v.union(v.string(), v.null()),
+			createdClubId: v.union(v.id('clubs'), v.null()),
+			clubName: v.union(v.string(), v.null()),
+			roomId: v.union(v.id('rooms'), v.null()),
+			applicant: v.object({
+				profileId: v.id('profiles'),
+				name: v.string(),
+				username: v.union(v.string(), v.null())
+			}),
+			// Direct storage URL fallback (local dev); the client prefers a signed delivery URL via
+			// getApplicationVideoDeliveryAsset / api/media/refresh (see getApplicationForRoom).
+			videoUrl: v.union(v.string(), v.null()),
+			videoMediaAssetId: v.optional(v.id('mediaAssets')),
+			viewer: v.object({
+				role: v.union(v.literal('applicant'), v.literal('reviewer'), v.literal('admin')),
+				hasReviewed: v.boolean(),
+				isAssigned: v.boolean()
+			}),
+			myReview: v.union(
+				v.null(),
+				v.object({
+					principlesScore: v.union(v.number(), v.null()),
+					safetyScore: v.union(v.number(), v.null()),
+					note: v.string()
+				})
+			),
+			review: v.union(v.null(), applicationReviewSummaryValidator)
+		})
+	),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			return null;
+		}
+		const viewer = await resolveApplicationViewer(ctx, application, profile);
+		if (!viewer) {
+			throw new ConvexError('You cannot access this application');
+		}
+
+		const applicantProfile = await ctx.db.get(application.applicantProfileId);
+		const room = await ctx.db
+			.query('rooms')
+			.withIndex('by_club_application_id', (q) => q.eq('clubApplicationId', application._id))
+			.first();
+		const createdClub = application.createdClubId
+			? await ctx.db.get(application.createdClubId)
+			: null;
+
+		let review: (typeof applicationReviewSummaryValidator)['type'] | null = null;
+		if (viewer.role !== 'applicant') {
+			const decidedByProfile = application.decidedByProfileId
+				? await ctx.db.get(application.decidedByProfileId)
+				: null;
+			review = {
+				...(await buildApplicationReviewSummary(ctx, application._id)),
+				decidedByName: decidedByProfile ? profileDisplayName(decidedByProfile) : null,
+				adminFollowUpFlag: application.adminFollowUpFlag
+					? {
+							reason: application.adminFollowUpFlag.reason,
+							createdAt: application.adminFollowUpFlag.createdAt
+						}
+					: null
+			};
+		}
+		const ownReview =
+			viewer.role === 'reviewer' && viewer.hasReviewed
+				? await getApplicationReview(ctx, application._id, profile._id)
+				: null;
+
+		return {
+			applicationId: application._id,
+			status: application.status,
+			name: application.name,
+			description: application.description ?? null,
+			location: application.location ?? null,
+			applicantRole: application.applicantRole ?? null,
+			referralSource: application.referralSource ?? null,
+			referralOther: application.referralOther ?? null,
+			createdAt: application.createdAt,
+			decidedAt: application.decidedAt ?? null,
+			rejectionNote: application.rejectionNote ?? null,
+			createdClubId: application.createdClubId ?? null,
+			clubName: createdClub?.name ?? null,
+			roomId: room?._id ?? null,
+			applicant: {
+				profileId: application.applicantProfileId,
+				name: applicantProfile ? profileDisplayName(applicantProfile) : 'Applicant',
+				username: applicantProfile?.username ?? null
+			},
+			videoUrl: await resolveApplicationVideoUrl(ctx, application),
+			videoMediaAssetId: application.videoMediaAssetId,
+			viewer: {
+				role: viewer.role,
+				hasReviewed: viewer.hasReviewed,
+				isAssigned: viewer.isAssigned
+			},
+			myReview: ownReview
+				? {
+						principlesScore: ownReview.principlesScore ?? null,
+						safetyScore: ownReview.safetyScore ?? null,
+						note: ownReview.note
+					}
+				: null,
+			review
 		};
 	}
 });
@@ -853,7 +1089,7 @@ export const getApplicationVideoDeliveryAsset = query({
 		if (!application || !application.videoMediaAssetId) {
 			return null;
 		}
-		if (!(await canAccessApplicationVideo(ctx, application, profile._id))) {
+		if (!(await canAccessApplicationVideo(ctx, application, profile))) {
 			throw new ConvexError('Permission denied');
 		}
 
