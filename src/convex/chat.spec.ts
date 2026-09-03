@@ -109,6 +109,9 @@ describe('context room chat', () => {
 			lastMessagePreview: 'Welcome',
 			roomId,
 			roomName: 'Updated club',
+			// Chat context banner: the room links to its club.
+			contextId: clubId,
+			contextName: 'Updated club',
 			// CL-695/725 CEO review item E: the chat-list badge state.
 			actionState: 'open'
 		});
@@ -233,7 +236,11 @@ describe('context room chat', () => {
 			expect.objectContaining({ profileId: viewerProfileId, roleLabel: 'Guide' })
 		);
 		expect(result.participants).toContainEqual(
-			expect.objectContaining({ profileId: otherProfileId, name: 'Other Person', roleLabel: 'Guide' })
+			expect.objectContaining({
+				profileId: otherProfileId,
+				name: 'Other Person',
+				roleLabel: 'Guide'
+			})
 		);
 	});
 
@@ -279,7 +286,7 @@ describe('context room chat', () => {
 			const doneProjectId = await ctx.db.insert('projects', {
 				name: 'Done project',
 				dueDate: now,
-			visibility: 'clubs',
+				visibility: 'clubs',
 				createdByProfileId: viewerProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -287,7 +294,7 @@ describe('context room chat', () => {
 			const removedProjectId = await ctx.db.insert('projects', {
 				name: 'Removed project',
 				dueDate: now,
-			visibility: 'clubs',
+				visibility: 'clubs',
 				createdByProfileId: otherProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -387,7 +394,7 @@ describe('context room chat', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Left project',
 				dueDate: now,
-			visibility: 'clubs',
+				visibility: 'clubs',
 				createdByProfileId: otherProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -473,7 +480,7 @@ describe('context room chat', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Archived project',
 				dueDate: now,
-			visibility: 'clubs',
+				visibility: 'clubs',
 				createdByProfileId: memberProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -551,7 +558,7 @@ describe('context room chat', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Partially done project',
 				dueDate: now,
-			visibility: 'clubs',
+				visibility: 'clubs',
 				createdByProfileId: doneProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -632,7 +639,7 @@ describe('context room chat', () => {
 			const projectId = await ctx.db.insert('projects', {
 				name: 'Observed project',
 				dueDate: now,
-			visibility: 'clubs',
+				visibility: 'clubs',
 				createdByProfileId: otherProfileId,
 				createdAt: now,
 				updatedAt: now
@@ -720,7 +727,7 @@ describe('context room chat', () => {
 				clubApplicationId: applicationId
 			});
 
-			return { roomId };
+			return { roomId, applicationId };
 		});
 		const applicant = base.withIdentity({ subject: 'applicant-user' });
 		const reviewer = base.withIdentity({ subject: 'reviewer-user' });
@@ -736,7 +743,9 @@ describe('context room chat', () => {
 				contextType: 'clubApplication',
 				roomId: ids.roomId,
 				roomName: 'Application chat',
-				roomSubtitle: null
+				roomSubtitle: null,
+				contextId: ids.applicationId,
+				contextName: 'Application chat'
 			})
 		);
 		// The reviewer's counterpart IS the applicant, so the list title becomes the applicant's
@@ -746,7 +755,9 @@ describe('context room chat', () => {
 				contextType: 'clubApplication',
 				roomId: ids.roomId,
 				roomName: 'applicant',
-				roomSubtitle: 'Application chat'
+				roomSubtitle: 'Application chat',
+				contextId: ids.applicationId,
+				contextName: 'Application chat'
 			})
 		);
 	});
@@ -801,9 +812,7 @@ describe('context room chat', () => {
 		let participants = await applicant.query(api.chat.getRoomParticipants, {
 			roomId: ids.roomId
 		});
-		expect(
-			participants.participants.some((p) => p.profileId === ids.staffProfileId)
-		).toBe(false);
+		expect(participants.participants.some((p) => p.profileId === ids.staffProfileId)).toBe(false);
 		expect(await staff.query(api.chat.listRoomSummaries, {})).toEqual([]);
 
 		await staff.mutation(api.chat.sendMessage, { roomId: ids.roomId, content: 'Hello!' });
@@ -883,7 +892,7 @@ describe('context room chat', () => {
 				joinRequestId
 			});
 
-			return { roomId };
+			return { roomId, joinRequestId };
 		});
 		const guide = base.withIdentity({ subject: 'guide-user' });
 		const requester = base.withIdentity({ subject: 'requester-user' });
@@ -898,7 +907,10 @@ describe('context room chat', () => {
 				contextType: 'joinRequest',
 				roomId: ids.roomId,
 				roomName: 'Turtles Club join request',
-				roomSubtitle: null
+				roomSubtitle: null,
+				// Chat context banner: the join request's CLUB name, not the "join request" label.
+				contextId: ids.joinRequestId,
+				contextName: 'Turtles Club'
 			})
 		);
 		// A Guide's counterpart is the requester: title becomes the requester's name, with the club
@@ -908,7 +920,9 @@ describe('context room chat', () => {
 				contextType: 'joinRequest',
 				roomId: ids.roomId,
 				roomName: 'Req User',
-				roomSubtitle: 'Turtles Club join request'
+				roomSubtitle: 'Turtles Club join request',
+				contextId: ids.joinRequestId,
+				contextName: 'Turtles Club'
 			})
 		);
 	});

@@ -43,6 +43,8 @@
 		// no messages yet, for rooms with a 1:1 counterpart — see roomPreviewText below.
 		roomSubtitle: string | null;
 		contextType: 'club' | 'project' | 'clubApplication' | 'joinRequest';
+		contextId: string;
+		contextName: string;
 		lastMessagePreview: string | null;
 		lastMessageAt: number;
 		canSend: boolean;
