@@ -799,6 +799,7 @@ const en = {
 		title: 'Application',
 		notFoundTitle: 'Application not found',
 		notFoundDescription: 'This application no longer exists.',
+		noAccess: "You don't have access to this application.",
 		submittedOn: 'Submitted {date}',
 		openChat: 'Open chat',
 		openClub: 'Open club',

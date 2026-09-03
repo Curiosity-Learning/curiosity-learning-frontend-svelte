@@ -40,6 +40,15 @@
 		applicationResponse.data?.applicationId === data.applicationId ? applicationResponse.data : null
 	);
 	let headerTitle = $derived(application?.name ?? $_('applicationDetail.title'));
+	// The backend refuses outsiders with a ConvexError; show that one as plain copy rather than
+	// the raw "[CONVEX Q(...)] Server Error ..." string.
+	let errorMessage = $derived.by(() => {
+		const message = applicationResponse.error?.message ?? '';
+		if (!message) return '';
+		return message.includes('You cannot access this application')
+			? $_('applicationDetail.noAccess')
+			: message;
+	});
 
 	const statusLabel = (status: string) => $_(`applicationStatus.${status}Label`);
 	const scoreText = (score: number | null) => (score === null ? '–' : String(score));
@@ -125,7 +134,7 @@
 		<LoadingState label={$_('applicationDetail.title')} />
 	{:else if applicationResponse.error}
 		<Alert variant="destructive">
-			<AlertDescription>{applicationResponse.error.message}</AlertDescription>
+			<AlertDescription>{errorMessage}</AlertDescription>
 		</Alert>
 	{:else if !application}
 		<EmptyState

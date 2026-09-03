@@ -797,6 +797,7 @@ const nl = {
 		title: 'Aanvraag',
 		notFoundTitle: 'Aanvraag niet gevonden',
 		notFoundDescription: 'Deze aanvraag bestaat niet meer.',
+		noAccess: 'Je hebt geen toegang tot deze aanvraag.',
 		submittedOn: 'Ingediend op {date}',
 		openChat: 'Chat openen',
 		openClub: 'Club openen',
