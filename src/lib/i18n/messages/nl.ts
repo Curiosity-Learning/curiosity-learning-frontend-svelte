@@ -786,6 +786,53 @@ const nl = {
 			'Dit wijst de aanvraag niet af. Het markeert deze alleen voor aandacht van het Core Team (bijv. niet komen opdagen of planningsprobleem).',
 		followUpDialogPlaceholder: 'Reden, bijv. "Niet komen opdagen / niet gepland"'
 	},
+	applicationReviewList: {
+		title: 'Clubaanvragen',
+		subtitle: 'Aan jou toegewezen voor beoordeling.',
+		emptyTitle: 'Geen aanvragen toegewezen',
+		emptyDescription: 'Er wacht momenteel niets op jouw beoordeling.',
+		reviewLink: 'Beoordelen'
+	},
+	applicationDetail: {
+		title: 'Aanvraag',
+		notFoundTitle: 'Aanvraag niet gevonden',
+		notFoundDescription: 'Deze aanvraag bestaat niet meer.',
+		submittedOn: 'Ingediend op {date}',
+		openChat: 'Chat openen',
+		openClub: 'Club openen',
+		detailsTitle: 'Aanvraag',
+		descriptionLabel: 'Waarom ze een club willen starten',
+		locationLabel: 'Locatie',
+		applicantRoleLabel: 'Rol',
+		referralLabel: 'Van ons gehoord via',
+		applicantLabel: 'Aanvrager',
+		clubLabel: 'Club',
+		reviewFormTitle: 'Jouw beoordeling',
+		reviewFormDescription:
+			'Scoor hoe goed deze aanvrager aansluit bij de Guiding Principles en hoe veilig de club zou zijn. Je kunt je scores aanpassen totdat de aanvraag verdergaat.',
+		principlesScoreLabel: 'Aansluiting bij Guiding Principles (0-10)',
+		safetyScoreLabel: 'Veiligheid (0-10)',
+		noteLabel: 'Beoordelingsnotitie',
+		notePlaceholder: 'Wat opviel, en eventuele zorgen',
+		saveReview: 'Beoordeling opslaan',
+		savingReview: 'Opslaan...',
+		reviewSaved: 'Beoordeling opgeslagen',
+		reviewSaveFailure: 'Kan beoordeling niet opslaan',
+		reviewsTitle: 'Beoordelingen',
+		reviewsEmpty: 'Nog geen beoordelingen.',
+		averageScoreLabel: 'Gemiddelde',
+		principlesShort: 'Principles',
+		safetyShort: 'Veiligheid',
+		assignedReviewersTitle: 'Toegewezen beoordelaars',
+		assignedReviewersEmpty: 'Nog geen beoordelaars toegewezen.',
+		reviewedBadge: 'Beoordeeld',
+		pendingReviewBadge: 'Nog niet beoordeeld',
+		decisionTitle: 'Beslissing',
+		decidedByLabel: 'Beslist door',
+		decidedAtLabel: 'Beslist op',
+		rejectionNoteLabel: 'Notitie voor de aanvrager',
+		followUpFlagLabel: 'Gemarkeerd voor opvolging door Core Team'
+	},
 	publicClubPreview: {
 		notFoundTitle: 'Club niet gevonden',
 		notFoundDescription: 'Deze club is niet beschikbaar om te bekijken.',
@@ -800,6 +847,12 @@ const nl = {
 		readOnlyBannerTitle: 'Deze chat is alleen-lezen',
 		readOnlyBannerDescription:
 			'Je kunt de berichtgeschiedenis nog wel bekijken, maar je kunt hier geen berichten meer sturen.'
+	},
+	chatContext: {
+		openClub: 'Club openen',
+		openProject: 'Project openen',
+		viewApplication: 'Aanvraag bekijken',
+		viewClub: 'Club bekijken'
 	},
 	projectDetail: {
 		memberStateDone: 'Klaar',

@@ -788,6 +788,53 @@ const en = {
 			'This does not reject the application. It just marks it for Core Team attention (e.g. a no-show or scheduling issue).',
 		followUpDialogPlaceholder: 'Reason, e.g. "No-show / failed to schedule"'
 	},
+	applicationReviewList: {
+		title: 'Club applications',
+		subtitle: 'Assigned to you for peer review.',
+		emptyTitle: 'No applications assigned',
+		emptyDescription: 'Nothing is currently waiting on your review.',
+		reviewLink: 'Review'
+	},
+	applicationDetail: {
+		title: 'Application',
+		notFoundTitle: 'Application not found',
+		notFoundDescription: 'This application no longer exists.',
+		submittedOn: 'Submitted {date}',
+		openChat: 'Open chat',
+		openClub: 'Open club',
+		detailsTitle: 'Application',
+		descriptionLabel: 'Why they want to start a club',
+		locationLabel: 'Location',
+		applicantRoleLabel: 'Role',
+		referralLabel: 'Heard about us via',
+		applicantLabel: 'Applicant',
+		clubLabel: 'Club',
+		reviewFormTitle: 'Your review',
+		reviewFormDescription:
+			'Score how well this applicant aligns with the Guiding Principles and how safe the club would be. You can update your scores until the application moves on.',
+		principlesScoreLabel: 'Guiding Principles alignment (0-10)',
+		safetyScoreLabel: 'Safety (0-10)',
+		noteLabel: 'Review note',
+		notePlaceholder: 'What stood out, and any concerns',
+		saveReview: 'Save review',
+		savingReview: 'Saving...',
+		reviewSaved: 'Review saved',
+		reviewSaveFailure: 'Unable to save review',
+		reviewsTitle: 'Reviews',
+		reviewsEmpty: 'No reviews yet.',
+		averageScoreLabel: 'Average',
+		principlesShort: 'Principles',
+		safetyShort: 'Safety',
+		assignedReviewersTitle: 'Assigned reviewers',
+		assignedReviewersEmpty: 'No reviewers assigned yet.',
+		reviewedBadge: 'Reviewed',
+		pendingReviewBadge: 'Not yet reviewed',
+		decisionTitle: 'Decision',
+		decidedByLabel: 'Decided by',
+		decidedAtLabel: 'Decided on',
+		rejectionNoteLabel: 'Note to the applicant',
+		followUpFlagLabel: 'Flagged for Core Team follow-up'
+	},
 	publicClubPreview: {
 		notFoundTitle: 'Club not found',
 		notFoundDescription: "This club isn't available for preview.",
@@ -802,6 +849,12 @@ const en = {
 		readOnlyBannerTitle: 'This chat is read-only',
 		readOnlyBannerDescription:
 			'You can still view the message history, but you can no longer send messages here.'
+	},
+	chatContext: {
+		openClub: 'Open club',
+		openProject: 'Open project',
+		viewApplication: 'View application',
+		viewClub: 'View club'
 	},
 	projectDetail: {
 		memberStateDone: 'Done',

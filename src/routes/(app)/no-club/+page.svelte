@@ -27,6 +27,7 @@
 		location: string | null;
 		status: string;
 		createdAt: number;
+		applicationId: string | null;
 		roomId: Id<'rooms'> | null;
 	};
 
@@ -74,6 +75,7 @@
 				location: application.location ?? null,
 				status: application.status,
 				createdAt: application.createdAt,
+				applicationId: application._id,
 				roomId: application.roomId ?? null
 			})
 		);
@@ -85,6 +87,7 @@
 				location: null,
 				status: joinRequest.status,
 				createdAt: joinRequest.createdAt,
+				applicationId: null,
 				roomId: joinRequest.roomId
 			})
 		);
@@ -288,14 +291,27 @@
 											{$_('noClubApplications.messageUsFailure')}
 										</p>
 									{/if}
-								{:else if item.roomId}
-									<Button
-										href={`${routes.chat}?room=${item.roomId}`}
-										variant="outline"
-										class="mt-3 h-9 px-3"
-									>
-										{$_('noClubApplications.openChat')}
-									</Button>
+								{:else if item.roomId || item.applicationId}
+									<div class="mt-3 flex flex-wrap gap-2">
+										{#if item.applicationId}
+											<Button
+												href={routes.applicationReviewDetail(item.applicationId)}
+												variant="outline"
+												class="h-9 px-3"
+											>
+												{$_('chatContext.viewApplication')}
+											</Button>
+										{/if}
+										{#if item.roomId}
+											<Button
+												href={`${routes.chat}?room=${item.roomId}`}
+												variant="outline"
+												class="h-9 px-3"
+											>
+												{$_('noClubApplications.openChat')}
+											</Button>
+										{/if}
+									</div>
 								{/if}
 							</div>
 						{/each}
