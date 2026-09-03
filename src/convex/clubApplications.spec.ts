@@ -626,6 +626,7 @@ describe('getApplication', () => {
 			// No season with an open review window seeded → scoring is hidden.
 			reviewWindowOpen: false,
 			myReview: null,
+			decision: null,
 			review: null
 		});
 		// Nothing about who reviewed or what they wrote leaks through any field.
@@ -634,9 +635,21 @@ describe('getApplication', () => {
 		expect(serialized).not.toContain('Looks great');
 	});
 
-	it('gives a reviewer who reviewed the full review block plus their own review', async () => {
-		const { reviewer, reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+	it('gives a reviewer only their own review, never other reviewers scores or names', async () => {
+		const { reviewer, reviewerProfileId, otherReviewerProfileId, applicationId, t } =
+			await seedApplicationFixture();
 		await addReview(t, applicationId, reviewerProfileId);
+		// Someone else reviewed it too; that must stay invisible to `reviewer`.
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviews', {
+				applicationId,
+				reviewerProfileId: otherReviewerProfileId,
+				score: 3,
+				note: 'Secret second opinion',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			})
+		);
 
 		const result = await reviewer.query(api.clubApplications.getApplication, { applicationId });
 
@@ -646,12 +659,14 @@ describe('getApplication', () => {
 			safetyScore: null,
 			note: 'Looks great'
 		});
-		expect(result?.review?.reviews).toEqual([
-			expect.objectContaining({ reviewerName: 'Rev Iewer', score: 8, note: 'Looks great' })
-		]);
+		expect(result?.decision).toEqual({ decidedByName: null, adminFollowUpFlag: null });
+		expect(result?.review).toBeNull();
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('Secret second opinion');
+		expect(serialized).not.toContain('other-reviewer');
 	});
 
-	it('gives an assigned Guide who has not reviewed yet the review block, with no own review', async () => {
+	it('gives an assigned Guide who has not reviewed yet no review data at all', async () => {
 		const { otherReviewer, otherReviewerProfileId, reviewerProfileId, applicationId, t } =
 			await seedApplicationFixture();
 		await addReview(t, applicationId, reviewerProfileId);
@@ -665,10 +680,8 @@ describe('getApplication', () => {
 		// assignReviewer seeds a season whose review window contains now.
 		expect(result?.reviewWindowOpen).toBe(true);
 		expect(result?.myReview).toBeNull();
-		expect(result?.review?.reviews).toHaveLength(1);
-		expect(result?.review?.assignedReviewers).toEqual([
-			expect.objectContaining({ profileId: otherReviewerProfileId, hasReviewed: false })
-		]);
+		expect(result?.review).toBeNull();
+		expect(JSON.stringify(result)).not.toContain('Looks great');
 	});
 
 	it('gives a global admin everything', async () => {
@@ -679,7 +692,11 @@ describe('getApplication', () => {
 		const result = await admin.query(api.clubApplications.getApplication, { applicationId });
 
 		expect(result?.viewer).toEqual({ role: 'admin', hasReviewed: false, isAssigned: false });
-		expect(result?.review?.reviews).toHaveLength(1);
+		expect(result?.decision).toEqual({ decidedByName: null, adminFollowUpFlag: null });
+		expect(result?.review?.reviews).toEqual([
+			expect.objectContaining({ reviewerName: 'Rev Iewer', score: 8, note: 'Looks great' })
+		]);
+		expect(result?.review?.assignedReviewers).toEqual([]);
 	});
 
 	it('rejects a Guide with no assignment and no review', async () => {

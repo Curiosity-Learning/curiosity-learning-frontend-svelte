@@ -910,7 +910,7 @@ const applicationStatusValidator = v.union(
 	v.literal('rejected')
 );
 
-const applicationReviewSummaryValidator = v.object({
+const applicationDecisionValidator = v.object({
 	decidedByName: v.union(v.string(), v.null()),
 	adminFollowUpFlag: v.union(
 		v.null(),
@@ -918,7 +918,10 @@ const applicationReviewSummaryValidator = v.object({
 			reason: v.string(),
 			createdAt: v.number()
 		})
-	),
+	)
+});
+
+const applicationReviewSummaryValidator = v.object({
 	reviews: v.array(
 		v.object({
 			reviewId: v.id('applicationReviews'),
@@ -942,10 +945,14 @@ const applicationReviewSummaryValidator = v.object({
 });
 
 // Application detail page (/applications/review/{id}) — the member-app counterpart of
-// admin.adminGetApplication. Same audience as the application chat (resolveApplicationViewer);
-// the applicant gets their own details and video but `review` is null for them: no scores, notes,
-// reviewer names, or who decided. Reviewers (assigned or reviewed) and admins get everything, plus
-// `myReview` so an assigned Guide can revisit/edit their own scores.
+// admin.adminGetApplication. Same audience as the application chat (resolveApplicationViewer),
+// with strictly tiered visibility (Ron, 2026-09-03: "other reviews should never be seen by other
+// reviewers — you only see what YOU reviewed, not the average, nor the rating per person"):
+//   - applicant: own details and video only; `myReview`, `decision`, `review` are all null.
+//   - reviewer (assigned or reviewed): plus `myReview` (their own scores/note, editable while the
+//     window is open) and `decision`; `review` stays null — no other reviewer's scores, notes,
+//     names, or progress.
+//   - admin: everything, including `review` (all reviews + assigned reviewers).
 export const getApplication = query({
 	args: {
 		applicationId: v.id('clubApplications')
@@ -993,6 +1000,10 @@ export const getApplication = query({
 					note: v.string()
 				})
 			),
+			// Reviewer/admin: who decided and any Core Team follow-up flag. Null for the applicant.
+			decision: v.union(v.null(), applicationDecisionValidator),
+			// Admin only: every review and the assigned-reviewer roster. Null for reviewers and the
+			// applicant.
 			review: v.union(v.null(), applicationReviewSummaryValidator)
 		})
 	),
@@ -1017,13 +1028,12 @@ export const getApplication = query({
 			? await ctx.db.get(application.createdClubId)
 			: null;
 
-		let review: (typeof applicationReviewSummaryValidator)['type'] | null = null;
+		let decision: (typeof applicationDecisionValidator)['type'] | null = null;
 		if (viewer.role !== 'applicant') {
 			const decidedByProfile = application.decidedByProfileId
 				? await ctx.db.get(application.decidedByProfileId)
 				: null;
-			review = {
-				...(await buildApplicationReviewSummary(ctx, application._id)),
+			decision = {
 				decidedByName: decidedByProfile ? profileDisplayName(decidedByProfile) : null,
 				adminFollowUpFlag: application.adminFollowUpFlag
 					? {
@@ -1033,6 +1043,8 @@ export const getApplication = query({
 					: null
 			};
 		}
+		const review =
+			viewer.role === 'admin' ? await buildApplicationReviewSummary(ctx, application._id) : null;
 		const ownReview =
 			viewer.role === 'reviewer' && viewer.hasReviewed
 				? await getApplicationReview(ctx, application._id, profile._id)
@@ -1073,6 +1085,7 @@ export const getApplication = query({
 						note: ownReview.note
 					}
 				: null,
+			decision,
 			review
 		};
 	}

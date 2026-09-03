@@ -312,6 +312,25 @@
 			</Section>
 		{/if}
 
+		{#if !canScore && application.myReview}
+			<!-- Window closed (or application moved on): the reviewer's own scores, read-only. Only
+			their own — other reviewers' scores are never shown to reviewers (admin portal only). -->
+			<Section title={$_('applicationDetail.reviewFormTitle')} compact>
+				<p class="type-sm text-muted-foreground tabular-nums">
+					{$_('applicationDetail.principlesShort')}
+					<span class="type-sm-bold text-foreground">
+						{scoreText(application.myReview.principlesScore)}
+					</span>
+					· {$_('applicationDetail.safetyShort')}
+					<span class="type-sm-bold text-foreground">
+						{scoreText(application.myReview.safetyScore)}
+					</span>
+				</p>
+				<p class="type-body whitespace-pre-line text-foreground">{application.myReview.note}</p>
+			</Section>
+		{/if}
+
+		<!-- Admin only: getApplication returns `review` (all reviews + roster) to global admins alone. -->
 		{#if application.review}
 			<Section title={$_('applicationDetail.reviewsTitle')}>
 				{#if application.review.reviews.length === 0}
@@ -366,51 +385,51 @@
 					</ul>
 				{/if}
 			</Section>
+		{/if}
 
-			{#if application.decidedAt || application.review.adminFollowUpFlag}
-				<Section title={$_('applicationDetail.decisionTitle')} compact>
-					<dl class="grid gap-3 sm:grid-cols-2">
-						{#if application.decidedAt}
-							<div class="flex flex-col gap-0.5">
-								<dt class="type-sm text-muted-foreground">
-									{$_('applicationDetail.decidedAtLabel')}
-								</dt>
-								<dd class="type-body text-foreground">
-									{statusLabel(application.status)} · {formatShortDate(application.decidedAt)}
-								</dd>
-							</div>
-						{/if}
-						{#if application.review.decidedByName}
-							<div class="flex flex-col gap-0.5">
-								<dt class="type-sm text-muted-foreground">
-									{$_('applicationDetail.decidedByLabel')}
-								</dt>
-								<dd class="type-body text-foreground">{application.review.decidedByName}</dd>
-							</div>
-						{/if}
-						{#if application.rejectionNote}
-							<div class="flex flex-col gap-0.5 sm:col-span-2">
-								<dt class="type-sm text-muted-foreground">
-									{$_('applicationDetail.rejectionNoteLabel')}
-								</dt>
-								<dd class="type-body whitespace-pre-line text-foreground">
-									{application.rejectionNote}
-								</dd>
-							</div>
-						{/if}
-						{#if application.review.adminFollowUpFlag}
-							<div class="flex flex-col gap-0.5 sm:col-span-2">
-								<dt class="type-sm text-muted-foreground">
-									{$_('applicationDetail.followUpFlagLabel')}
-								</dt>
-								<dd class="type-body text-foreground">
-									{application.review.adminFollowUpFlag.reason}
-								</dd>
-							</div>
-						{/if}
-					</dl>
-				</Section>
-			{/if}
+		{#if application.decision && (application.decidedAt || application.decision.adminFollowUpFlag)}
+			<Section title={$_('applicationDetail.decisionTitle')} compact>
+				<dl class="grid gap-3 sm:grid-cols-2">
+					{#if application.decidedAt}
+						<div class="flex flex-col gap-0.5">
+							<dt class="type-sm text-muted-foreground">
+								{$_('applicationDetail.decidedAtLabel')}
+							</dt>
+							<dd class="type-body text-foreground">
+								{statusLabel(application.status)} · {formatShortDate(application.decidedAt)}
+							</dd>
+						</div>
+					{/if}
+					{#if application.decision.decidedByName}
+						<div class="flex flex-col gap-0.5">
+							<dt class="type-sm text-muted-foreground">
+								{$_('applicationDetail.decidedByLabel')}
+							</dt>
+							<dd class="type-body text-foreground">{application.decision.decidedByName}</dd>
+						</div>
+					{/if}
+					{#if application.rejectionNote}
+						<div class="flex flex-col gap-0.5 sm:col-span-2">
+							<dt class="type-sm text-muted-foreground">
+								{$_('applicationDetail.rejectionNoteLabel')}
+							</dt>
+							<dd class="type-body whitespace-pre-line text-foreground">
+								{application.rejectionNote}
+							</dd>
+						</div>
+					{/if}
+					{#if application.decision.adminFollowUpFlag}
+						<div class="flex flex-col gap-0.5 sm:col-span-2">
+							<dt class="type-sm text-muted-foreground">
+								{$_('applicationDetail.followUpFlagLabel')}
+							</dt>
+							<dd class="type-body text-foreground">
+								{application.decision.adminFollowUpFlag.reason}
+							</dd>
+						</div>
+					{/if}
+				</dl>
+			</Section>
 		{/if}
 	{/if}
 </div>
