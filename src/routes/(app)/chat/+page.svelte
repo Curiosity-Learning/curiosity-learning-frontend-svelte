@@ -896,7 +896,7 @@
 					</div>
 
 					{#if activeRoom && chatContextLink}
-						<div class={isDesktopViewport ? 'px-4 pt-4' : 'px-3 pt-3'}>
+						<div class={isDesktopViewport ? 'px-4 pt-4' : 'pt-3'}>
 							<ChatContextBanner
 								contextType={activeRoom.contextType}
 								contextId={activeRoom.contextId}

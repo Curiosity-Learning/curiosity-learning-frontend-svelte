@@ -400,8 +400,11 @@ export const getRoomActionState = async (
 			if (!review) {
 				return 'open';
 			}
-			const decided = application.status === 'accepted' || application.status === 'rejected';
-			return decided ? 'open' : 'action_needed';
+			// A reviewing Guide only has something to DO once the Core Team has put the application
+			// in the interview stage (run the interview, then accept/reject from this chat). While
+			// pending there is nothing to act on here — moving to interview is admin-portal only — and
+			// a decided application is just an open conversation.
+			return application.status === 'interview' ? 'action_needed' : 'open';
 		}
 	}
 };
