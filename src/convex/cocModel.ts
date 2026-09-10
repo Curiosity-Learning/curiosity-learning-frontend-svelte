@@ -21,9 +21,7 @@ const HOURS_PER_TIMEZONE_SLICE = 15;
 // Approximate UTC offset (in whole hours) from longitude: each 15 degrees of longitude is
 // roughly one timezone hour. Clubs without coordinates (no location set, or an application
 // that skipped it) get offset 0 rather than blocking assignment.
-export const approximateTimezoneOffsetFromLongitude = (
-	longitude: number | undefined
-): number => {
+export const approximateTimezoneOffsetFromLongitude = (longitude: number | undefined): number => {
 	if (longitude === undefined) {
 		return 0;
 	}
@@ -215,4 +213,120 @@ export const addNewGuideToClubsCocGroup = async (
 	}
 
 	await addGuideToCocGroup(ctx, cocGroup._id, profileId, guideRole._id);
+};
+
+// Ops-only: moves an already-launched Curiosity Club into a different CoC group (e.g. to merge a
+// singleton group into a fuller one when timezone-only matching left a Guide alone). Not exposed
+// to any UI; run via `npx convex run clubs:moveClubToCocGroup` (see clubs.ts).
+//
+// - The club's active Guides join the target group (idempotent, same helper as launch).
+// - Their membership in the source group is closed (leftAt) unless they still guide another club
+//   that remains in the source group. `activeClubId` pointing at the source group is repointed
+//   at the target so nobody is left "in" a group they no longer belong to.
+// - If the source group is left with no member clubs and no active members, it is marked
+//   abandoned (same semantics as an abandoned club: hidden from matching, history kept).
+export const moveClubToCocGroup = async (
+	ctx: MutationCtx,
+	clubId: Id<'clubs'>,
+	targetCocGroupId: Id<'clubs'>
+) => {
+	const club = await ctx.db.get(clubId);
+	if (!club || club.kind === 'coc') {
+		throw new Error('Club not found or is not a Curiosity Club');
+	}
+	const target = await ctx.db.get(targetCocGroupId);
+	if (!target || target.kind !== 'coc') {
+		throw new Error('Target is not a Club of Clubs group');
+	}
+	if (target.abandonedAt) {
+		throw new Error('Target Club of Clubs group is abandoned');
+	}
+	const sourceGroupId = club.cocGroupId;
+	if (sourceGroupId === target._id) {
+		throw new Error('Club is already in the target Club of Clubs group');
+	}
+	if ((await countMemberClubs(ctx, target._id)) >= COC_GROUP_CAPACITY) {
+		throw new Error('Target Club of Clubs group is full');
+	}
+
+	const guideRole = await getClubRoleByKey(ctx, 'guide');
+	if (!guideRole) {
+		throw new Error('Default role guide is not configured');
+	}
+
+	const now = Date.now();
+	await ctx.db.patch(club._id, { cocGroupId: target._id, updatedAt: now });
+	const movedClub = await ctx.db.get(club._id);
+	if (!movedClub) {
+		throw new Error('Club not found after CoC reassignment');
+	}
+	await addClubGuidesToCocGroup(ctx, movedClub, target);
+
+	const clubMembers = await ctx.db
+		.query('clubMembers')
+		.withIndex('by_club', (q) => q.eq('clubId', club._id))
+		.collect();
+	const guideProfileIds = clubMembers
+		.filter((member) => !member.leftAt && member.roleId === guideRole._id)
+		.map((member) => member.profileId);
+
+	let guidesRemovedFromSource = 0;
+	let sourceAbandoned = false;
+
+	if (sourceGroupId) {
+		const remainingSourceClubs = await ctx.db
+			.query('clubs')
+			.withIndex('by_coc_group', (q) => q.eq('cocGroupId', sourceGroupId))
+			.collect();
+
+		for (const profileId of guideProfileIds) {
+			const stillGuidesSourceClub = (
+				await Promise.all(
+					remainingSourceClubs.map(async (remaining) => {
+						const membership = await getMembershipByProfileId(ctx, remaining._id, profileId);
+						return membership?.roleId === guideRole._id;
+					})
+				)
+			).some(Boolean);
+			if (stillGuidesSourceClub) {
+				continue;
+			}
+
+			const sourceMembership = await getMembershipByProfileId(ctx, sourceGroupId, profileId);
+			if (sourceMembership) {
+				await ctx.db.patch(sourceMembership._id, { leftAt: now });
+				guidesRemovedFromSource += 1;
+			}
+			const profile = await ctx.db.get(profileId);
+			if (profile?.activeClubId === sourceGroupId) {
+				await ctx.db.patch(profile._id, { activeClubId: target._id, updatedAt: now });
+			}
+		}
+
+		if (remainingSourceClubs.length === 0) {
+			const sourceMembers = await ctx.db
+				.query('clubMembers')
+				.withIndex('by_club', (q) => q.eq('clubId', sourceGroupId))
+				.collect();
+			const hasActiveMembers = sourceMembers.some((member) => !member.leftAt);
+			if (!hasActiveMembers) {
+				await ctx.db.patch(sourceGroupId, {
+					abandonedAt: now,
+					discoverable: false,
+					updatedAt: now
+				});
+				sourceAbandoned = true;
+			}
+		}
+	}
+
+	return {
+		clubId: club._id,
+		clubName: club.name,
+		fromCocGroupId: sourceGroupId ?? null,
+		toCocGroupId: target._id,
+		guidesAddedToTarget: guideProfileIds.length,
+		guidesRemovedFromSource,
+		sourceAbandoned
+	};
 };

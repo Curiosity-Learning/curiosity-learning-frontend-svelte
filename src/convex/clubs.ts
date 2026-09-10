@@ -25,7 +25,11 @@ import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValida
 import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsModel';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
-import { addNewGuideToClubsCocGroup, assignClubToCocGroup } from './cocModel';
+import {
+	addNewGuideToClubsCocGroup,
+	assignClubToCocGroup,
+	moveClubToCocGroup as moveClubToCocGroupModel
+} from './cocModel';
 import { clearPendingClubJoinsForProfile } from './pendingClubJoinsModel';
 
 // Authenticated users get a per-user window; unauthenticated code-preview lookups have no
@@ -325,8 +329,11 @@ export const getMyClubs = query({
 		const items = await Promise.all(
 			activeMemberships
 				.map((membership, index) => ({ membership, club: clubs[index] }))
-				.filter((entry): entry is { membership: (typeof activeMemberships)[number]; club: Doc<'clubs'> } =>
-					Boolean(entry.club)
+				.filter(
+					(
+						entry
+					): entry is { membership: (typeof activeMemberships)[number]; club: Doc<'clubs'> } =>
+						Boolean(entry.club)
 				)
 				.map((entry) => mapClubListItem(ctx, entry.club, entry.membership))
 		);
@@ -554,10 +561,7 @@ export const listPublicClubs = query({
 		// structure, never a public/discoverable Curiosity Club (PRD 6.10).
 		const publicClubs = clubs.filter(
 			(club) =>
-				Boolean(club.clubCode) &&
-				club.discoverable &&
-				!club.abandonedAt &&
-				club.kind !== 'coc'
+				Boolean(club.clubCode) && club.discoverable && !club.abandonedAt && club.kind !== 'coc'
 		);
 
 		return await Promise.all(
@@ -1384,3 +1388,15 @@ export const backfillClubKind = internalMutation({
 	}
 });
 
+// Ops-only (CLI): move a launched Curiosity Club into another Club of Clubs group, e.g. to merge
+// a singleton group into a fuller one. See cocModel.moveClubToCocGroup for what it does.
+// `npx convex run clubs:moveClubToCocGroup '{"clubId": "...", "targetCocGroupId": "..."}' --prod`
+export const moveClubToCocGroup = internalMutation({
+	args: {
+		clubId: v.id('clubs'),
+		targetCocGroupId: v.id('clubs')
+	},
+	handler: async (ctx, args) => {
+		return await moveClubToCocGroupModel(ctx, args.clubId, args.targetCocGroupId);
+	}
+});
