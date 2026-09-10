@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import schema from './schema';
 import type { Id } from './_generated/dataModel';
+import type { MutationCtx } from './_generated/server';
 import { approximateTimezoneOffsetFromLongitude } from './cocModel';
 
 const modules = import.meta.glob('./**/*.ts');
@@ -64,13 +65,11 @@ describe('Club of Clubs auto-assignment on launch', () => {
 		await seedRoles(t);
 		await seedProfile(t, 'guide-a');
 
-		const result = await t
-			.withIdentity({ subject: 'guide-a' })
-			.mutation(api.clubs.createClub, {
-				name: 'Lisbon Club',
-				locationLongitude: -9.14,
-				locationLatitude: 38.7
-			});
+		const result = await t.withIdentity({ subject: 'guide-a' }).mutation(api.clubs.createClub, {
+			name: 'Lisbon Club',
+			locationLongitude: -9.14,
+			locationLatitude: 38.7
+		});
 
 		const club = await t.run((ctx) => ctx.db.get(result.clubId));
 		expect(club?.kind).toBe('curiosity');
@@ -107,21 +106,17 @@ describe('Club of Clubs auto-assignment on launch', () => {
 		await seedProfile(t, 'guide-a');
 		await seedProfile(t, 'guide-b');
 
-		const first = await t
-			.withIdentity({ subject: 'guide-a' })
-			.mutation(api.clubs.createClub, {
-				name: 'Lisbon Club',
-				locationLongitude: -9.14
-			});
+		const first = await t.withIdentity({ subject: 'guide-a' }).mutation(api.clubs.createClub, {
+			name: 'Lisbon Club',
+			locationLongitude: -9.14
+		});
 		const firstClub = await t.run((ctx) => ctx.db.get(first.clubId));
 
 		// Madrid: ~ -3.7 longitude -> offset 0, well within +/-3h of Lisbon's -1.
-		const second = await t
-			.withIdentity({ subject: 'guide-b' })
-			.mutation(api.clubs.createClub, {
-				name: 'Madrid Club',
-				locationLongitude: -3.7
-			});
+		const second = await t.withIdentity({ subject: 'guide-b' }).mutation(api.clubs.createClub, {
+			name: 'Madrid Club',
+			locationLongitude: -3.7
+		});
 		const secondClub = await t.run((ctx) => ctx.db.get(second.clubId));
 
 		expect(secondClub?.cocGroupId).toBe(firstClub?.cocGroupId);
@@ -141,20 +136,16 @@ describe('Club of Clubs auto-assignment on launch', () => {
 		await seedProfile(t, 'guide-a');
 		await seedProfile(t, 'guide-b');
 
-		const first = await t
-			.withIdentity({ subject: 'guide-a' })
-			.mutation(api.clubs.createClub, {
-				name: 'Lisbon Club',
-				locationLongitude: -9.14 // offset -1
-			});
+		const first = await t.withIdentity({ subject: 'guide-a' }).mutation(api.clubs.createClub, {
+			name: 'Lisbon Club',
+			locationLongitude: -9.14 // offset -1
+		});
 		const firstClub = await t.run((ctx) => ctx.db.get(first.clubId));
 
-		const second = await t
-			.withIdentity({ subject: 'guide-b' })
-			.mutation(api.clubs.createClub, {
-				name: 'Tokyo Club',
-				locationLongitude: 139 // offset 9, diff 10 > 3
-			});
+		const second = await t.withIdentity({ subject: 'guide-b' }).mutation(api.clubs.createClub, {
+			name: 'Tokyo Club',
+			locationLongitude: 139 // offset 9, diff 10 > 3
+		});
 		const secondClub = await t.run((ctx) => ctx.db.get(second.clubId));
 
 		expect(secondClub?.cocGroupId).not.toBe(firstClub?.cocGroupId);
@@ -169,12 +160,10 @@ describe('Club of Clubs auto-assignment on launch', () => {
 		for (let i = 0; i < 10; i += 1) {
 			const authUserId = `guide-cap-${i}`;
 			await seedProfile(t, authUserId);
-			const result = await t
-				.withIdentity({ subject: authUserId })
-				.mutation(api.clubs.createClub, {
-					name: `Club ${i}`,
-					locationLongitude: -9.14
-				});
+			const result = await t.withIdentity({ subject: authUserId }).mutation(api.clubs.createClub, {
+				name: `Club ${i}`,
+				locationLongitude: -9.14
+			});
 			if (i === 0) {
 				firstClubId = result.clubId;
 				const club = await t.run((ctx) => ctx.db.get(result.clubId));
@@ -318,5 +307,129 @@ describe('backfillClubKind', () => {
 
 		const cocClub = await t.run((ctx) => ctx.db.get(alreadyCocGroupId));
 		expect(cocClub?.kind).toBe('coc');
+	});
+});
+
+describe('clubs.moveClubToCocGroup (ops-only merge)', () => {
+	const listMembers = (ctx: MutationCtx, clubId: Id<'clubs'>) =>
+		ctx.db
+			.query('clubMembers')
+			.withIndex('by_club', (q) => q.eq('clubId', clubId))
+			.collect();
+	const activeMembers = (t: ReturnType<typeof convexTest>, clubId: Id<'clubs'>) =>
+		t.run((ctx: MutationCtx) => listMembers(ctx, clubId));
+
+	it('moves the club and its Guide into the target group and abandons the emptied source', async () => {
+		const t = convexTest(schema, modules);
+		await seedRoles(t);
+		const guideA = await seedProfile(t, 'guide-a');
+		const guideB = await seedProfile(t, 'guide-b');
+
+		const lisbon = await t
+			.withIdentity({ subject: 'guide-a' })
+			.mutation(api.clubs.createClub, { name: 'Lisbon Club', locationLongitude: -9.14 });
+		const tokyo = await t
+			.withIdentity({ subject: 'guide-b' })
+			.mutation(api.clubs.createClub, { name: 'Tokyo Club', locationLongitude: 139 });
+
+		const lisbonGroupId = (await t.run((ctx) => ctx.db.get(lisbon.clubId)))!.cocGroupId!;
+		const tokyoGroupId = (await t.run((ctx) => ctx.db.get(tokyo.clubId)))!.cocGroupId!;
+		expect(tokyoGroupId).not.toBe(lisbonGroupId);
+		await t.run((ctx) => ctx.db.patch(guideB, { activeClubId: tokyoGroupId }));
+
+		const result = await t.mutation(internal.clubs.moveClubToCocGroup, {
+			clubId: tokyo.clubId,
+			targetCocGroupId: lisbonGroupId
+		});
+		expect(result).toMatchObject({
+			fromCocGroupId: tokyoGroupId,
+			toCocGroupId: lisbonGroupId,
+			guidesAddedToTarget: 1,
+			guidesRemovedFromSource: 1,
+			sourceAbandoned: true
+		});
+
+		const movedClub = await t.run((ctx) => ctx.db.get(tokyo.clubId));
+		expect(movedClub?.cocGroupId).toBe(lisbonGroupId);
+
+		const targetMembers = await activeMembers(t, lisbonGroupId);
+		expect(
+			targetMembers
+				.filter((m) => !m.leftAt)
+				.map((m) => m.profileId)
+				.sort()
+		).toEqual([guideA, guideB].sort());
+
+		const sourceMembers = await activeMembers(t, tokyoGroupId);
+		expect(sourceMembers).toHaveLength(1);
+		expect(sourceMembers[0].leftAt).toBeDefined();
+
+		const sourceGroup = await t.run((ctx) => ctx.db.get(tokyoGroupId));
+		expect(sourceGroup?.abandonedAt).toBeDefined();
+
+		const profileB = await t.run((ctx) => ctx.db.get(guideB));
+		expect(profileB?.activeClubId).toBe(lisbonGroupId);
+
+		// Idempotent: a second move into the same group is rejected, nothing duplicated.
+		await expect(
+			t.mutation(internal.clubs.moveClubToCocGroup, {
+				clubId: tokyo.clubId,
+				targetCocGroupId: lisbonGroupId
+			})
+		).rejects.toThrow(/already in the target/);
+	});
+
+	it('keeps the Guide in the source group when they still guide another club there', async () => {
+		const t = convexTest(schema, modules);
+		await seedRoles(t);
+		await seedProfile(t, 'guide-a');
+		await seedProfile(t, 'guide-b');
+
+		const lisbon = await t
+			.withIdentity({ subject: 'guide-a' })
+			.mutation(api.clubs.createClub, { name: 'Lisbon Club', locationLongitude: -9.14 });
+		// guide-b founds two clubs in Tokyo: both land in the same (Tokyo) group.
+		const tokyoOne = await t
+			.withIdentity({ subject: 'guide-b' })
+			.mutation(api.clubs.createClub, { name: 'Tokyo One', locationLongitude: 139 });
+		const tokyoTwo = await t
+			.withIdentity({ subject: 'guide-b' })
+			.mutation(api.clubs.createClub, { name: 'Tokyo Two', locationLongitude: 139 });
+
+		const lisbonGroupId = (await t.run((ctx) => ctx.db.get(lisbon.clubId)))!.cocGroupId!;
+		const tokyoGroupId = (await t.run((ctx) => ctx.db.get(tokyoOne.clubId)))!.cocGroupId!;
+		expect((await t.run((ctx) => ctx.db.get(tokyoTwo.clubId)))!.cocGroupId).toBe(tokyoGroupId);
+
+		const result = await t.mutation(internal.clubs.moveClubToCocGroup, {
+			clubId: tokyoOne.clubId,
+			targetCocGroupId: lisbonGroupId
+		});
+		expect(result).toMatchObject({ guidesRemovedFromSource: 0, sourceAbandoned: false });
+
+		const sourceMembers = await activeMembers(t, tokyoGroupId);
+		expect(sourceMembers.filter((m) => !m.leftAt)).toHaveLength(1);
+		const sourceGroup = await t.run((ctx) => ctx.db.get(tokyoGroupId));
+		expect(sourceGroup?.abandonedAt).toBeUndefined();
+	});
+
+	it('rejects moving into a CoC group that is full or not a CoC group', async () => {
+		const t = convexTest(schema, modules);
+		await seedRoles(t);
+		await seedProfile(t, 'guide-a');
+		await seedProfile(t, 'guide-b');
+
+		const lisbon = await t
+			.withIdentity({ subject: 'guide-a' })
+			.mutation(api.clubs.createClub, { name: 'Lisbon Club', locationLongitude: -9.14 });
+		const tokyo = await t
+			.withIdentity({ subject: 'guide-b' })
+			.mutation(api.clubs.createClub, { name: 'Tokyo Club', locationLongitude: 139 });
+
+		await expect(
+			t.mutation(internal.clubs.moveClubToCocGroup, {
+				clubId: tokyo.clubId,
+				targetCocGroupId: lisbon.clubId
+			})
+		).rejects.toThrow(/not a Club of Clubs group/);
 	});
 });
