@@ -37,6 +37,12 @@ const UNREAD_COUNT_CAP = 100;
 // is still happening — deliberately NOT a debounce on room activity, which a long-running
 // conversation would postpone indefinitely.
 const CHAT_EMAIL_DELAY_MS = 10 * 60 * 1000;
+// A recipient already emailed about an unread batch is normally not emailed again until they
+// open the room — but one missed email must not mean permanent silence, so once the last email
+// is older than this, a NEW message re-arms the notification (by then it is likely a different
+// conversation). Message-driven on purpose: a room that goes quiet never re-emails, and even a
+// constantly active unopened room is bounded to one email per window.
+const CHAT_EMAIL_REPEAT_AFTER_MS = 12 * 60 * 60 * 1000;
 type Ctx = QueryCtx | MutationCtx;
 
 const requireRoomAccess = async (
@@ -100,8 +106,14 @@ const scheduleChatEmailNotifications = async (
 		if (emailMarker?.scheduledFor && emailMarker.scheduledFor > now) continue;
 		const unreadFloor = await getUnreadFloor(ctx, room, profileId);
 		// Already emailed about this unread batch; opening the room advances lastReadAt past
-		// lastEmailedAt, which re-arms the notification.
-		if (emailMarker?.lastEmailedAt && emailMarker.lastEmailedAt > unreadFloor) continue;
+		// lastEmailedAt, which re-arms the notification — as does new activity once the last
+		// email is older than CHAT_EMAIL_REPEAT_AFTER_MS.
+		if (
+			emailMarker?.lastEmailedAt &&
+			emailMarker.lastEmailedAt > unreadFloor &&
+			now - emailMarker.lastEmailedAt < CHAT_EMAIL_REPEAT_AFTER_MS
+		)
+			continue;
 		// Muted recipients never get a job scheduled; the delivery re-checks in case someone
 		// mutes during the grace window. Critical chat kinds (review_chat_activity) have no
 		// preference key and cannot be muted.
@@ -718,7 +730,8 @@ export const markRoomRead = mutation({
 // Chat email notifications (CL-764): the delayed delivery check, fired CHAT_EMAIL_DELAY_MS after
 // the first message of an unread batch. Sends at most ONE "new messages" email per (recipient,
 // room) per unread batch — a recipient who read the room during the grace window gets nothing,
-// and nothing is sent again until they open the room. Email-only by design: chat gets no in-app
+// and nothing is sent again until they open the room OR new activity arrives more than
+// CHAT_EMAIL_REPEAT_AFTER_MS after the last email. Email-only by design: chat gets no in-app
 // notification rows (the nav unread badge is the in-app signal), so this bypasses
 // dispatchNotification while reusing the kind config (chatModel.getChatEmailKind: muteable
 // chat_activity for club/project rooms, critical review_chat_activity for application and
@@ -753,8 +766,14 @@ export const deliverChatEmailNotification = internalMutation({
 			.first();
 		if (!firstUnread) return null;
 		// Another delivery already covered this batch (two jobs can race when a stale
-		// scheduledFor was rescheduled).
-		if (marker?.lastEmailedAt && marker.lastEmailedAt > unreadFloor) return null;
+		// scheduledFor was rescheduled) — unless that email is older than the repeat window, in
+		// which case the new activity that scheduled this check warrants another email.
+		if (
+			marker?.lastEmailedAt &&
+			marker.lastEmailedAt > unreadFloor &&
+			Date.now() - marker.lastEmailedAt < CHAT_EMAIL_REPEAT_AFTER_MS
+		)
+			return null;
 		const kindConfig = notificationKindConfig[getChatEmailKind(room)];
 		if (
 			kindConfig.preferenceKey &&

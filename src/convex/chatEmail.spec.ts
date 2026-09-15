@@ -253,6 +253,28 @@ describe('chat email notifications', () => {
 		expect(sendEmailMock).toHaveBeenCalledTimes(2);
 	});
 
+	// One missed email must not mean permanent silence: NEW activity more than 12h after the
+	// last email re-arms the notification even for a never-opened room. Message-driven — a room
+	// that goes quiet never re-emails on a timer.
+	it('new activity after the 12h repeat window re-emails an unopened room', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId } = await seedFixture();
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'First conversation' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+
+		vi.advanceTimersByTime(12 * 60 * 60 * 1000 + 1);
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Next-day follow-up' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(2);
+
+		// Silence alone never triggers a third email, no matter how long passes.
+		vi.advanceTimersByTime(72 * 60 * 60 * 1000);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(2);
+	});
+
 	it('respects the chatMessages mute preference', async () => {
 		vi.useFakeTimers();
 		const { t, guide, roomId, learnerProfileId } = await seedFixture();
