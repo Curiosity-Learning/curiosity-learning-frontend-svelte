@@ -47,7 +47,7 @@ const nl = {
 		blockedBySafetyScreening:
 			'Deze afbeelding/video kon niet worden geüpload. Als je denkt dat dit een fout is, probeer dan een ander bestand.',
 		videoTooLong:
-			"Video's mogen maximaal 2 minuten duren. Knip je video bij en probeer het opnieuw.",
+			"Video's mogen maximaal 3 minuten duren. Knip je video bij en probeer het opnieuw.",
 		fileTooLarge: 'Dit bestand is te groot. De maximale grootte is {maxSizeMb}MB.'
 	},
 	settings: {
@@ -527,7 +527,7 @@ const nl = {
 			uploading: 'Uploaden',
 			videoUploading: 'Je video wordt geüpload...',
 			videoDropPrompt: 'Sleep een video hierheen of kies er een',
-			videoRequirements: 'MP4, MOV, WEBM of M4V. Maximaal 2 minuten en 100 MB.',
+			videoRequirements: 'MP4, MOV, WEBM of M4V. Maximaal 3 minuten en 500 MB.',
 			needHelp: 'Lukt het niet met je aanvraag?',
 			messageUs: 'Stuur ons een bericht',
 			videoRequired: 'Upload een video voordat je je aanmelding verzendt.',

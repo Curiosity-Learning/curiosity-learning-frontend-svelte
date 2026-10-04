@@ -46,7 +46,7 @@ const en = {
 		missingStorageReference: 'Upload completed, but no storage reference was returned.',
 		blockedBySafetyScreening:
 			'This image/video could not be uploaded. If you believe this is an error, please try a different file.',
-		videoTooLong: 'Videos must be 2 minutes or shorter. Please trim your video and try again.',
+		videoTooLong: 'Videos must be 3 minutes or shorter. Please trim your video and try again.',
 		fileTooLarge: 'This file is too large. The maximum size is {maxSizeMb}MB.'
 	},
 	settings: {
@@ -530,7 +530,7 @@ const en = {
 			uploading: 'Uploading',
 			videoUploading: 'Uploading your video...',
 			videoDropPrompt: 'Drag and drop or choose a video',
-			videoRequirements: 'MP4, MOV, WEBM, or M4V. Up to 2 minutes and 100 MB.',
+			videoRequirements: 'MP4, MOV, WEBM, or M4V. Up to 3 minutes and 500 MB.',
 			needHelp: 'Having trouble with your application?',
 			messageUs: 'Message us',
 			videoRequired: 'Please upload a video before submitting your application.',

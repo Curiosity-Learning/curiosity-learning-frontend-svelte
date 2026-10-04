@@ -39,7 +39,11 @@ type MultiMediaFieldDefinition = {
 
 const TEN_MB = 10 * 1000 * 1000;
 const HUNDRED_MB = 100 * 1000 * 1000;
-const TWO_MINUTES_SECONDS = 2 * 60;
+// The club application video gets a higher cap than general uploads: raw phone footage runs
+// ~60-130MB per minute and nothing compresses it before upload, so 100MB turned applicants away.
+// Must stay <= the server's MAX_SUPPORTED_UPLOAD_BYTES (mediaPipeline.ts).
+const FIVE_HUNDRED_MB = 500 * 1000 * 1000;
+const THREE_MINUTES_SECONDS = 3 * 60;
 
 const mediaFieldDefinitions = {
 	profileImage: {
@@ -55,13 +59,13 @@ const mediaFieldDefinitions = {
 	clubVideo: {
 		constraints: {
 			acceptedContentTypes: [...VIDEO_CONTENT_TYPES],
-			maxBytes: HUNDRED_MB,
+			maxBytes: FIVE_HUNDRED_MB,
 			enableCompression: true,
 			enableSafetyScreening: true
 		},
 		expectedMediaKind: 'video',
 		requireReady: true,
-		maxDurationSeconds: TWO_MINUTES_SECONDS
+		maxDurationSeconds: THREE_MINUTES_SECONDS
 	},
 	sessionPhoto: {
 		constraints: {
@@ -104,7 +108,7 @@ const multiMediaFieldDefinitions = {
 			enableSafetyScreening: true
 		}
 		// CEO ruling (CL-685, 2026-07-11): general uploads are capped by file SIZE only; the
-		// 2-minute duration cap applies solely to the club application video (`clubVideo`).
+		// duration cap applies solely to the club application video (`clubVideo`).
 	}
 } as const satisfies Record<string, MultiMediaFieldDefinition>;
 

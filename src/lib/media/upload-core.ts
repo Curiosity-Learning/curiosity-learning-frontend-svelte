@@ -18,8 +18,9 @@ export const mediaUploadPresets = {
 	videos: {
 		label: 'Videos',
 		acceptedContentTypes: VIDEO_CONTENT_TYPES,
-		// Canonical 100MB video cap (CEO decision) — must match the server's
-		// MAX_SUPPORTED_UPLOAD_BYTES (mediaPipeline.ts) and HUNDRED_MB (media-field.svelte.ts).
+		// General 100MB video cap (CEO decision), matching HUNDRED_MB (media-field.svelte.ts).
+		// Only the club application video goes higher (500MB, the server's
+		// MAX_SUPPORTED_UPLOAD_BYTES in mediaPipeline.ts).
 		maxBytesMb: 100
 	},
 	mixed: {
