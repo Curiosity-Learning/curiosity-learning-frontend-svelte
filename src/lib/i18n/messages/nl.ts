@@ -527,7 +527,7 @@ const nl = {
 			uploading: 'Uploaden',
 			videoUploading: 'Je video wordt geüpload...',
 			videoDropPrompt: 'Sleep een video hierheen of kies er een',
-			videoRequirements: 'MP4, MOV, WEBM of M4V tot 100 MB.',
+			videoRequirements: 'MP4, MOV, WEBM of M4V. Maximaal 2 minuten en 100 MB.',
 			needHelp: 'Lukt het niet met je aanvraag?',
 			messageUs: 'Stuur ons een bericht',
 			videoRequired: 'Upload een video voordat je je aanmelding verzendt.',
