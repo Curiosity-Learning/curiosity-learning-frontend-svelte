@@ -40,6 +40,9 @@
 	// (chat.deliverChatEmailNotification) — it selects that room once the list has loaded, and
 	// falls back to the first room when absent or not one of this child's rooms.
 	let requestedRoomId = $derived(page.url.searchParams.get('room'));
+	// Initial tab only: a deep link opens on the chats tab, later tab changes are the user's.
+	// svelte-ignore state_referenced_locally
+	let activeTab = $state(requestedRoomId ? 'chats' : 'overview');
 	let selectedRoomId = $state<Id<'rooms'> | null>(null);
 	$effect(() => {
 		if (selectedRoomId && rooms.some((room) => room.roomId === selectedRoomId)) return;
@@ -105,7 +108,7 @@
 			</a>
 		</Alert>
 
-		<Tabs.Root value="overview" class="w-full">
+		<Tabs.Root bind:value={activeTab} class="w-full">
 			<Tabs.List>
 				<Tabs.Trigger value="overview">{t('parentAccounts.overviewTab')}</Tabs.Trigger>
 				<Tabs.Trigger value="chats">{t('parentAccounts.chatsTab')}</Tabs.Trigger>

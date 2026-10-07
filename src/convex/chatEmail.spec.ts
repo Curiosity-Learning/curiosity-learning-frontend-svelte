@@ -176,7 +176,6 @@ const emailMarkerFor = (
 				.first()
 	);
 
-
 const emailDeliveriesFor = (
 	t: Awaited<ReturnType<typeof seedFixture>>['t'],
 	profileId: Id<'profiles'>
@@ -635,8 +634,8 @@ describe('chat email notifications', () => {
 		vi.advanceTimersByTime(60 * 60 * 1000);
 		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Thanks, one more thing' });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		const learnerEmails = sendEmailMock.mock.calls.filter(
-			([call]) => (call as unknown as { to: string }).to === 'learner@example.com'
+		const learnerEmails = (sendEmailMock.mock.calls as unknown as Array<[{ to: string }]>).filter(
+			([call]) => call.to === 'learner@example.com'
 		);
 		expect(learnerEmails).toHaveLength(2);
 	});
