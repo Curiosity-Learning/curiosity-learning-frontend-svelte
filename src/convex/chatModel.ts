@@ -559,6 +559,38 @@ export const getChatEmailCopy = async (
 	}
 };
 
+// Parent-facing variant of getChatEmailCopy: a child account's critical chat email is delivered
+// to their approved parent (notifications.resolveNotificationEmailRecipient), who reads it as a
+// third party — "your club application" would be wrong, and the link goes to the parent's
+// read-only view of the child's chats. Exhaustive like getChatEmailCopy; club/project rooms are
+// high tier and never reach a parent, but a future tier change must not leave them wordless.
+export const getChatEmailCopyForParent = async (
+	ctx: Ctx,
+	room: Doc<'rooms'>,
+	childProfile: Doc<'profiles'>
+): Promise<ChatEmailCopy> => {
+	const childName = profileDisplayName(childProfile);
+	const genericName = await getRoomName(ctx, room);
+	switch (room.contextType) {
+		case 'club':
+		case 'project':
+			return {
+				title: `New messages for ${childName} in ${genericName}`,
+				chatLabel: `${childName}'s ${genericName} chat`
+			};
+		case 'clubApplication':
+			return {
+				title: `New messages regarding ${childName}'s club application`,
+				chatLabel: `${childName}'s club application chat`
+			};
+		case 'joinRequest':
+			return {
+				title: `New messages regarding ${childName}'s ${genericName}`,
+				chatLabel: `${childName}'s ${genericName} chat`
+			};
+	}
+};
+
 // Chat email notifications (CL-764): who should be told about new messages in a room. Mirrors
 // the participant model of chat.getRoomParticipants (PRD 6.8.1) but returns bare profile ids —
 // the email path needs no names/avatars. Left members are excluded on purpose: they keep READ

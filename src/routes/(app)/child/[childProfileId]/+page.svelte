@@ -36,10 +36,15 @@
 	let overview = $derived(overviewResponse.data ?? null);
 	let rooms = $derived(roomsResponse.data ?? []);
 
+	// `?room=` is the deep link from a child's chat email, which is delivered to the parent
+	// (chat.deliverChatEmailNotification) — it selects that room once the list has loaded, and
+	// falls back to the first room when absent or not one of this child's rooms.
+	let requestedRoomId = $derived(page.url.searchParams.get('room'));
 	let selectedRoomId = $state<Id<'rooms'> | null>(null);
 	$effect(() => {
 		if (selectedRoomId && rooms.some((room) => room.roomId === selectedRoomId)) return;
-		selectedRoomId = rooms[0]?.roomId ?? null;
+		const requested = rooms.find((room) => room.roomId === requestedRoomId);
+		selectedRoomId = requested?.roomId ?? rooms[0]?.roomId ?? null;
 	});
 
 	const messagesResponse = useStableQuery(api.parentAccounts.listChildMessages, () =>

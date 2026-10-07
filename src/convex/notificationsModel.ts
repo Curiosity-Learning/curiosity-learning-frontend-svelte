@@ -152,6 +152,7 @@ export const dispatchNotification = async (ctx: MutationCtx, args: DispatchNotif
 		await ctx.scheduler.runAfter(0, internal.notifications.sendNotificationEmail, {
 			recipientProfileId: args.recipientProfileId,
 			critical: config.tier === 'critical',
+			kind: args.kind,
 			title: args.title,
 			message: args.message,
 			url: args.url

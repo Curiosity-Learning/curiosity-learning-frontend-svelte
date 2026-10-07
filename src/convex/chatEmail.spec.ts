@@ -2,12 +2,13 @@
 
 // Chat email notifications (CL-764): the per-user delayed "new messages" email. One email per
 // (recipient, room) per unread batch, CHAT_EMAIL_DELAY_MS after the batch's first message;
-// reading the room during the grace window suppresses it, and nothing re-sends until the room
-// is opened again.
+// reading the room during the grace window suppresses it. Coverage (roomEmailMarkers
+// .coveredThroughAt) only advances once the provider accepted the email; reading the emailed
+// batch re-arms the next one immediately, an unread emailed batch is not nagged about for 12h.
 
 import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from './_generated/api';
+import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
@@ -16,7 +17,7 @@ const modules = import.meta.glob('./**/*.ts');
 const DAY = 24 * 60 * 60 * 1000;
 
 const { sendEmailMock, authEmailByUserId } = vi.hoisted(() => ({
-	sendEmailMock: vi.fn(async () => {}),
+	sendEmailMock: vi.fn(async () => ({ providerMessageId: 'resend-msg-1' })),
 	authEmailByUserId: new Map<string, string>([
 		['guide-user', 'guide@example.com'],
 		['learner-user', 'learner@example.com'],
@@ -34,7 +35,8 @@ vi.mock('./authEmail', () => ({
 }));
 
 beforeEach(() => {
-	sendEmailMock.mockClear();
+	sendEmailMock.mockReset();
+	sendEmailMock.mockResolvedValue({ providerMessageId: 'resend-msg-1' });
 });
 
 afterEach(() => {
@@ -173,6 +175,95 @@ const emailMarkerFor = (
 				.withIndex('by_profile_and_room', (q) => q.eq('profileId', profileId).eq('roomId', roomId))
 				.first()
 	);
+
+
+const emailDeliveriesFor = (
+	t: Awaited<ReturnType<typeof seedFixture>>['t'],
+	profileId: Id<'profiles'>
+) =>
+	t.run(
+		async (ctx) =>
+			await ctx.db
+				.query('emailDeliveries')
+				.withIndex('by_recipient', (q) => q.eq('recipientProfileId', profileId))
+				.collect()
+	);
+
+const seedJoinRequestFixture = async (options: { childRequester?: boolean } = {}) => {
+	const t = convexTest(schema, modules);
+	const ids = await t.run(async (ctx) => {
+		const now = Date.now();
+		const guideRoleId = await ctx.db.insert('clubRoles', {
+			key: 'guide',
+			name: 'Guide',
+			permissions: ['club:read', 'club_join_request:decide'],
+			order: 0,
+			createdAt: now - 30 * DAY
+		});
+		const guideProfileId = await ctx.db.insert('profiles', {
+			authUserId: 'guide-user',
+			firstName: 'Gina',
+			lastName: 'Guide',
+			isVerified: true,
+			firstLoginCompleted: true,
+			updatedAt: now
+		});
+		const requesterProfileId = options.childRequester
+			? await ctx.db.insert('profiles', {
+					authUserId: 'child-user',
+					username: 'kiddo',
+					isVerified: true,
+					firstLoginCompleted: true,
+					updatedAt: now
+				})
+			: await ctx.db.insert('profiles', {
+					authUserId: 'learner-user',
+					firstName: 'Lars',
+					lastName: 'Learner',
+					isVerified: true,
+					firstLoginCompleted: true,
+					updatedAt: now
+				});
+		if (options.childRequester) {
+			await ctx.db.insert('parentChildConsents', {
+				childProfileId: requesterProfileId,
+				parentEmail: 'parent@example.com',
+				status: 'approved',
+				token: 'token-1',
+				approvedAt: now,
+				createdAt: now,
+				updatedAt: now
+			});
+		}
+		const clubId = await ctx.db.insert('clubs', {
+			name: 'Porto Club',
+			discoverable: true,
+			createdByProfileId: guideProfileId,
+			createdAt: now - 30 * DAY,
+			updatedAt: now
+		});
+		await ctx.db.insert('clubMembers', {
+			clubId,
+			profileId: guideProfileId,
+			roleId: guideRoleId,
+			createdAt: now - 30 * DAY
+		});
+		const joinRequestId = await ctx.db.insert('joinRequests', {
+			clubId,
+			requesterProfileId,
+			status: 'pending',
+			createdAt: now - DAY
+		});
+		const roomId = await ctx.db.insert('rooms', { contextType: 'joinRequest', joinRequestId });
+		return { roomId, guideProfileId, requesterProfileId };
+	});
+	return {
+		t,
+		guide: t.withIdentity({ subject: 'guide-user' }),
+		requester: t.withIdentity({ subject: options.childRequester ? 'child-user' : 'learner-user' }),
+		...ids
+	};
+};
 
 describe('chat email notifications', () => {
 	it('emails a recipient once the grace window passes with the message still unread', async () => {
@@ -434,8 +525,9 @@ describe('chat email notifications', () => {
 
 	it('application room: a child applicant email routes to the approved parent', async () => {
 		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const t = convexTest(schema, modules);
-		const { roomId } = await t.run(async (ctx) => {
+		const { roomId, childProfileId } = await t.run(async (ctx) => {
 			const now = Date.now();
 			const childProfileId = await ctx.db.insert('profiles', {
 				authUserId: 'child-user',
@@ -473,7 +565,7 @@ describe('chat email notifications', () => {
 				contextType: 'clubApplication',
 				clubApplicationId: applicationId
 			});
-			return { roomId };
+			return { roomId, childProfileId };
 		});
 
 		await t
@@ -481,13 +573,17 @@ describe('chat email notifications', () => {
 			.mutation(api.chat.sendMessage, { roomId, content: 'Question for the applicant' });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 
+		// The parent reads this as a third party: child-named copy, and the link goes to the
+		// parent's read-only view of the child's chats (chat?room= would resolve to nothing).
 		expect(sendEmailMock).toHaveBeenCalledTimes(1);
 		expect(sendEmailMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				to: 'parent@example.com',
-				subject: 'New messages regarding your club application'
+				subject: "New messages regarding kiddo's club application"
 			})
 		);
+		const [{ html }] = sendEmailMock.mock.calls[0] as unknown as [{ html: string }];
+		expect(html).toContain(`https://app.example.com/child/${childProfileId}?room=${roomId}`);
 	});
 
 	it('tracks delivery state per (recipient, room) on roomEmailMarkers', async () => {
@@ -502,9 +598,257 @@ describe('chat email notifications', () => {
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 		const delivered = await emailMarkerFor(t, learnerProfileId, roomId);
 		expect(delivered?.scheduledFor).toBeUndefined();
+		expect(delivered?.sendingSince).toBeUndefined();
 		expect(delivered?.lastEmailedAt).toBeDefined();
+		// Coverage = the newest message the email was about, not the send time.
+		const newest = await t.run(
+			async (ctx) =>
+				await ctx.db
+					.query('messages')
+					.withIndex('by_room', (q) => q.eq('roomId', roomId))
+					.order('desc')
+					.first()
+		);
+		expect(delivered?.coveredThroughAt).toBe(newest?._creationTime);
 
 		// The sender never gets email state for their own messages.
 		expect(await emailMarkerFor(t, guideProfileId, roomId)).toBeNull();
+	});
+	// The Oct 2026 incident: the recipient had read AND replied to the emailed batch, yet a new
+	// message 9.5h later was dropped because "already emailed" was judged by send time instead of
+	// by which messages the email covered. Reading the emailed batch must re-arm immediately.
+	it('re-emails a new batch right away once the recipient has read the emailed one', async () => {
+		vi.useFakeTimers();
+		const { t, guide, learner, roomId } = await seedFixture();
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Evening question' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+
+		// Reads it two hours later (no newer messages, so lastReadAt lands BEFORE the send time).
+		vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+		await learner.mutation(api.chat.markRoomRead, { roomId });
+		await learner.mutation(api.chat.sendMessage, { roomId, content: 'Here is my answer' });
+
+		// A reply well inside the 12h window is a fresh batch and must email the learner again
+		// (the learner's own reply separately emails the guide, who never read anything).
+		vi.advanceTimersByTime(60 * 60 * 1000);
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Thanks, one more thing' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		const learnerEmails = sendEmailMock.mock.calls.filter(
+			([call]) => (call as unknown as { to: string }).to === 'learner@example.com'
+		);
+		expect(learnerEmails).toHaveLength(2);
+	});
+
+	it('a failed send leaves the batch owed and the next message retries it', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, learnerProfileId } = await seedFixture();
+		sendEmailMock.mockRejectedValueOnce(new Error('Resend send failed: 429 Too Many Requests'));
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Did this arrive?' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+
+		// Nothing was delivered, so nothing is covered and no 12h cap applies.
+		const afterFailure = await emailMarkerFor(t, learnerProfileId, roomId);
+		expect(afterFailure?.coveredThroughAt).toBeUndefined();
+		expect(afterFailure?.lastEmailedAt).toBeUndefined();
+		expect(afterFailure?.sendingSince).toBeUndefined();
+		const deliveries = await emailDeliveriesFor(t, learnerProfileId);
+		expect(deliveries).toHaveLength(1);
+		expect(deliveries[0]).toMatchObject({
+			status: 'failed',
+			to: 'learner@example.com',
+			kind: 'chat_activity',
+			roomId,
+			error: 'Resend send failed: 429 Too Many Requests'
+		});
+
+		vi.advanceTimersByTime(60 * 1000);
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Trying again' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(2);
+		const afterRetry = await emailMarkerFor(t, learnerProfileId, roomId);
+		expect(afterRetry?.coveredThroughAt).toBeDefined();
+	});
+
+	it('records every sent chat email on emailDeliveries with the batch it covered', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, learnerProfileId } = await seedFixture();
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Logged?' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		const deliveries = await emailDeliveriesFor(t, learnerProfileId);
+		expect(deliveries).toHaveLength(1);
+		expect(deliveries[0]).toMatchObject({
+			status: 'sent',
+			to: 'learner@example.com',
+			kind: 'chat_activity',
+			subject: 'New messages in Curiosity Club',
+			providerMessageId: 'resend-msg-1',
+			roomId
+		});
+		const marker = await emailMarkerFor(t, learnerProfileId, roomId);
+		expect(deliveries[0].coveredThroughAt).toBe(marker?.coveredThroughAt);
+	});
+
+	it('does not double-send while a delivery is in flight', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, learnerProfileId } = await seedFixture();
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Racing' });
+		// Simulate a stale-reschedule race: a second check fires while the first one's email is
+		// still with the provider.
+		await t.run(async (ctx) => {
+			const marker = await ctx.db
+				.query('roomEmailMarkers')
+				.withIndex('by_profile_and_room', (q) =>
+					q.eq('profileId', learnerProfileId).eq('roomId', roomId)
+				)
+				.first();
+			if (marker) await ctx.db.patch(marker._id, { sendingSince: Date.now() - 30 * 1000 });
+		});
+		await t.mutation(internal.chat.deliverChatEmailNotification, {
+			roomId,
+			profileId: learnerProfileId
+		});
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	// Markers written before coveredThroughAt existed only carry lastEmailedAt; they must keep
+	// behaving (no spam burst on deploy) and heal into the new shape on the next send.
+	it('upgrades a legacy marker (lastEmailedAt only) on its next successful email', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, learnerProfileId } = await seedFixture();
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Old batch' });
+		await t.run(async (ctx) => {
+			const marker = await ctx.db
+				.query('roomEmailMarkers')
+				.withIndex('by_profile_and_room', (q) =>
+					q.eq('profileId', learnerProfileId).eq('roomId', roomId)
+				)
+				.first();
+			// As written by the pre-coverage code: send time only, later than the message.
+			if (marker) await ctx.db.patch(marker._id, { lastEmailedAt: Date.now() + 60 * 1000 });
+		});
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		// Legacy semantics: the send time is the watermark, so the old batch counts as emailed.
+		expect(sendEmailMock).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(12 * 60 * 60 * 1000 + 1);
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'New batch' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		const marker = await emailMarkerFor(t, learnerProfileId, roomId);
+		expect(marker?.coveredThroughAt).toBeDefined();
+	});
+
+	it('join-request room: requester and Guide get role-specific subjects', async () => {
+		vi.useFakeTimers();
+		const { t, guide, requester, roomId } = await seedJoinRequestFixture();
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Tell us about yourself' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'learner@example.com',
+				subject: 'New messages in your Porto Club join request'
+			})
+		);
+
+		sendEmailMock.mockClear();
+		await requester.mutation(api.chat.markRoomRead, { roomId });
+		await requester.mutation(api.chat.sendMessage, { roomId, content: 'Sure!' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'guide@example.com',
+				subject: 'New messages from Lars Learner (Porto Club join request)'
+			})
+		);
+	});
+
+	it('join-request room: a child requester email goes to the parent with parent copy', async () => {
+		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const { t, guide, roomId, requesterProfileId } = await seedJoinRequestFixture({
+			childRequester: true
+		});
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hi there' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'parent@example.com',
+				subject: "New messages regarding kiddo's Porto Club join request"
+			})
+		);
+		const [{ html }] = sendEmailMock.mock.calls[0] as unknown as [{ html: string }];
+		expect(html).toContain(`https://app.example.com/child/${requesterProfileId}?room=${roomId}`);
+	});
+
+	// Application decisions post messages into the room but are announced through their own
+	// 'application_status' notification; the room posts must not add a second chat email.
+	it('decision messages do not trigger a chat email on top of the status notification', async () => {
+		vi.useFakeTimers();
+		const t = convexTest(schema, modules);
+		const { applicationId, applicantProfileId } = await t.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'learner-user',
+				firstName: 'Lars',
+				lastName: 'Learner',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			await ctx.db.insert('profiles', {
+				authUserId: 'guide-user',
+				firstName: 'Gina',
+				lastName: 'Guide',
+				globalRole: 'admin',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const applicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'Lisbon Curiosity Club',
+				createdAt: now - DAY,
+				updatedAt: now - DAY
+			});
+			return { applicationId, applicantProfileId };
+		});
+
+		await t.withIdentity({ subject: 'guide-user' }).mutation(api.admin.adminDecideApplication, {
+			applicationId,
+			decision: 'rejected',
+			rejectionNote: 'Not this season, sorry.'
+		});
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		// Exactly one email: the status notification. No chat marker was ever scheduled.
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({ to: 'learner@example.com', subject: 'Application update' })
+		);
+		const markers = await t.run(
+			async (ctx) =>
+				await ctx.db
+					.query('roomEmailMarkers')
+					.withIndex('by_profile_and_room', (q) => q.eq('profileId', applicantProfileId))
+					.collect()
+		);
+		expect(markers).toHaveLength(0);
+		// ...but the room does hold the note and the system notice.
+		const messages = await t.run(async (ctx) => await ctx.db.query('messages').collect());
+		expect(messages.map((m) => m.content)).toEqual([
+			'Not this season, sorry.',
+			'This application was not accepted.'
+		]);
 	});
 });

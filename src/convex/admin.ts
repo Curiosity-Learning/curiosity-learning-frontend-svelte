@@ -3,6 +3,7 @@ import { mutation, query } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import type { QueryCtx } from './_generated/server';
 import { getClubRoleByKey, requireGlobalAdmin, requireProfile } from './permissions';
+import { postRoomMessage } from './chatEmail';
 import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
 import {
@@ -808,18 +809,26 @@ export const adminDecideApplication = mutation({
 		});
 
 		const roomId = await ensureClubApplicationRoom(ctx, application._id);
+		const room = await ctx.db.get(roomId);
+		if (!room) {
+			throw new ConvexError('Room not found');
+		}
 
 		if (args.decision === 'rejected') {
 			if (rejectionNote) {
-				await ctx.db.insert('messages', {
-					roomId,
+				// Decision notices are announced by the 'application_status' notification below;
+				// emailing the room on top would double up, so these posts do not notify.
+				await postRoomMessage(ctx, {
+					room,
 					profileId: adminProfile._id,
-					content: rejectionNote
+					content: rejectionNote,
+					notify: false
 				});
 			}
-			await ctx.db.insert('messages', {
-				roomId,
-				content: 'This application was not accepted.'
+			await postRoomMessage(ctx, {
+				room,
+				content: 'This application was not accepted.',
+				notify: false
 			});
 			await dispatchNotification(ctx, {
 				recipientProfileId: application.applicantProfileId,
@@ -834,9 +843,10 @@ export const adminDecideApplication = mutation({
 			}
 			await createClubFromApplication(ctx, patchedApplication);
 
-			await ctx.db.insert('messages', {
-				roomId,
-				content: 'This application was accepted — the club is live!'
+			await postRoomMessage(ctx, {
+				room,
+				content: 'This application was accepted — the club is live!',
+				notify: false
 			});
 			await dispatchNotification(ctx, {
 				recipientProfileId: application.applicantProfileId,
