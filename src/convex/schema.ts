@@ -850,18 +850,49 @@ export default defineSchema({
 	}).index('by_profile_and_room', ['profileId', 'roomId']),
 
 	// Chat email notifications (CL-764): per-(profile, room) email-delivery state, kept separate
-	// from roomReadMarkers so the read watermark stays single-purpose. `lastEmailedAt` is when the
-	// last "new messages" email for this room went out to this profile — no further email is sent
-	// until their lastReadAt passes it (opening the room re-arms the notification).
-	// `scheduledFor` marks a pending grace-period delivery check (chat.sendMessage schedules one
-	// per recipient per unread batch); a value in the past is treated as stale, so a crashed
-	// delivery job self-heals on the next message instead of silencing the room forever.
+	// from roomReadMarkers so the read watermark stays single-purpose.
+	// - `coveredThroughAt`: _creationTime of the newest message the last SUCCESSFULLY sent
+	//   "new messages" email told this profile about. Written only once Resend accepted the
+	//   email, so a failed send never silences the room. Unread messages at/under this watermark
+	//   are "already emailed"; anything newer is a fresh batch. Opening the room moves lastReadAt
+	//   to at least this value, which is what re-arms the notification.
+	// - `lastEmailedAt`: wall-clock time of that successful send — the 12h anti-nag cap for a
+	//   recipient who still hasn't read the emailed batch. Rows from before coveredThroughAt
+	//   existed carry only this field; chatEmail.ts falls back to it as the coverage watermark.
+	// - `scheduledFor`: a pending grace-period delivery check (postRoomMessage schedules one per
+	//   recipient per unread batch); a value in the past is treated as stale, so a crashed delivery
+	//   job self-heals on the next message instead of silencing the room forever.
+	// - `sendingSince`: a delivery check has handed an email to the send action and is waiting
+	//   for its result; a second check inside CHAT_EMAIL_SEND_TIMEOUT_MS skips instead of
+	//   double-sending. Cleared by the result callback; stale values are ignored.
 	roomEmailMarkers: defineTable({
 		roomId: v.id('rooms'),
 		profileId: v.id('profiles'),
 		lastEmailedAt: v.optional(v.number()),
-		scheduledFor: v.optional(v.number())
+		coveredThroughAt: v.optional(v.number()),
+		scheduledFor: v.optional(v.number()),
+		sendingSince: v.optional(v.number())
 	}).index('by_profile_and_room', ['profileId', 'roomId']),
+
+	// One row per notification email handed to the provider (notifications.sendNotificationEmail
+	// and chat.sendChatEmail), sent or failed. Support/debugging only — "was this person emailed
+	// about this room, when, and did it go through?" — nothing reads it on the hot path. `to` is
+	// the resolved address (the approved parent's for child accounts). For chat emails, `roomId`
+	// and `coveredThroughAt` say which batch the email covered.
+	emailDeliveries: defineTable({
+		recipientProfileId: v.id('profiles'),
+		to: v.string(),
+		kind: v.string(),
+		subject: v.string(),
+		status: v.union(v.literal('sent'), v.literal('failed')),
+		error: v.optional(v.string()),
+		providerMessageId: v.optional(v.string()),
+		roomId: v.optional(v.id('rooms')),
+		coveredThroughAt: v.optional(v.number()),
+		createdAt: v.number()
+	})
+		.index('by_recipient', ['recipientProfileId', 'createdAt'])
+		.index('by_room', ['roomId', 'createdAt']),
 
 	rateLimits: defineTable({
 		key: v.string(),

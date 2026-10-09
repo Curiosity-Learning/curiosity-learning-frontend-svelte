@@ -1,6 +1,8 @@
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import { internalAction, internalQuery, mutation, query } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import type { ActionCtx, MutationCtx } from './_generated/server';
+import { internalAction, internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { sendEmail } from './email/resend';
@@ -115,42 +117,131 @@ export const resolveNotificationEmailRecipient = internalQuery({
 	}
 });
 
+export type NotificationEmailArgs = {
+	recipientProfileId: Id<'profiles'>;
+	critical: boolean;
+	kind: string;
+	title: string;
+	message: string;
+	url?: string;
+};
+
+export type NotificationEmailResult =
+	| { status: 'skipped' }
+	| { status: 'sent'; to: string; providerMessageId: string | null }
+	| { status: 'failed'; to: string; error: string };
+
+// The email channel shared by dispatched notifications and chat emails: resolves the deliverable
+// address (none for a child account on a non-critical kind → 'skipped'), renders the template and
+// hands it to Resend. Never throws — a provider failure is already reported to monitoring inside
+// sendEmail and comes back as 'failed' so the caller can record it (and, for chat, NOT mark the
+// batch as covered). Only the recipient address is resolved here on purpose: the caller owns the
+// wording and the link, because those depend on who the email is really going to (a parent
+// reading about their child's chat gets different copy and a different page).
+export const deliverNotificationEmail = async (
+	ctx: ActionCtx,
+	args: NotificationEmailArgs
+): Promise<NotificationEmailResult> => {
+	const to = await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
+		recipientProfileId: args.recipientProfileId,
+		critical: args.critical
+	});
+	if (!to) return { status: 'skipped' };
+
+	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
+	const ctaUrl = args.url
+		? args.url.startsWith('/')
+			? baseUrl
+				? `${baseUrl.replace(/\/+$/, '')}${args.url}`
+				: undefined
+			: args.url
+		: baseUrl;
+
+	try {
+		const { providerMessageId } = await sendEmail({
+			to,
+			type: 'notification',
+			...notificationEmail({ title: args.title, message: args.message, ctaUrl })
+		});
+		return { status: 'sent', to, providerMessageId };
+	} catch (error) {
+		return { status: 'failed', to, error: error instanceof Error ? error.message : String(error) };
+	}
+};
+
+export const emailDeliveryResultValidator = v.union(
+	v.object({ status: v.literal('skipped') }),
+	v.object({
+		status: v.literal('sent'),
+		to: v.string(),
+		providerMessageId: v.union(v.string(), v.null())
+	}),
+	v.object({ status: v.literal('failed'), to: v.string(), error: v.string() })
+);
+
+// Appends the emailDeliveries audit row for a sent/failed email. Skipped deliveries (no
+// deliverable address) leave no row: nothing was attempted.
+export const recordEmailDelivery = async (
+	ctx: MutationCtx,
+	args: {
+		recipientProfileId: Id<'profiles'>;
+		kind: string;
+		subject: string;
+		result: NotificationEmailResult;
+		roomId?: Id<'rooms'>;
+		coveredThroughAt?: number;
+	}
+) => {
+	if (args.result.status === 'skipped') return;
+	await ctx.db.insert('emailDeliveries', {
+		recipientProfileId: args.recipientProfileId,
+		to: args.result.to,
+		kind: args.kind,
+		subject: args.subject,
+		status: args.result.status,
+		error: args.result.status === 'failed' ? args.result.error : undefined,
+		providerMessageId:
+			args.result.status === 'sent' ? (args.result.providerMessageId ?? undefined) : undefined,
+		roomId: args.roomId,
+		coveredThroughAt: args.coveredThroughAt,
+		createdAt: Date.now()
+	});
+};
+
+export const logEmailDelivery = internalMutation({
+	args: {
+		recipientProfileId: v.id('profiles'),
+		kind: v.string(),
+		subject: v.string(),
+		result: emailDeliveryResultValidator
+	},
+	handler: async (ctx, args) => {
+		await recordEmailDelivery(ctx, args);
+		return null;
+	}
+});
+
 // Sends the email channel of a dispatched notification (scheduled by dispatchNotification
 // in notificationsModel.ts for critical/high tiers). Failures are already reported to
-// monitoring inside sendEmail; they are swallowed here so a delivery hiccup never surfaces
-// as a scheduler error loop.
+// monitoring inside sendEmail and recorded on emailDeliveries; they never surface as a
+// scheduler error loop.
 export const sendNotificationEmail = internalAction({
 	args: {
 		recipientProfileId: v.id('profiles'),
 		critical: v.boolean(),
+		kind: v.optional(v.string()),
 		title: v.string(),
 		message: v.string(),
 		url: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
-		const to = await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
+		const kind = args.kind ?? 'notification';
+		const result = await deliverNotificationEmail(ctx, { ...args, kind });
+		await ctx.runMutation(internal.notifications.logEmailDelivery, {
 			recipientProfileId: args.recipientProfileId,
-			critical: args.critical
+			kind,
+			subject: args.title,
+			result
 		});
-		if (!to) return;
-
-		const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
-		const ctaUrl = args.url
-			? args.url.startsWith('/')
-				? baseUrl
-					? `${baseUrl.replace(/\/+$/, '')}${args.url}`
-					: undefined
-				: args.url
-			: baseUrl;
-
-		try {
-			await sendEmail({
-				to,
-				type: 'notification',
-				...notificationEmail({ title: args.title, message: args.message, ctaUrl })
-			});
-		} catch {
-			// Already reported inside sendEmail.
-		}
 	}
 });

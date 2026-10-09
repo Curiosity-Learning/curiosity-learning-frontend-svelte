@@ -228,14 +228,34 @@
 		isSelectedRoomMessagesFresh ? Boolean(messagesResponse.data?.hasMore) : false
 	);
 
-	// Last-read feature: while the viewer has a room open, keep their read watermark current.
-	// Fires on room open and again whenever the live summaries subscription reports unread
-	// messages in the open room (i.e. a new inbound message arrives while it's on screen). Gated
-	// on the staleness check so a room is only marked read once its own messages are actually
-	// rendered — not while keepPreviousData is still showing the previous room's page.
+	// Last-read feature: while the viewer has a room open AND is actually looking at it, keep
+	// their read watermark current. Fires on room open and again whenever the live summaries
+	// subscription reports unread messages in the open room (i.e. a new inbound message arrives
+	// while it's on screen). Gated on the staleness check so a room is only marked read once its
+	// own messages are actually rendered — not while keepPreviousData is still showing the
+	// previous room's page — and on page attention: a chat tab left open in the background (or a
+	// visible-but-unfocused window on a second screen) must not consume unread batches, because
+	// "read" is what suppresses the new-messages email (chatEmail.ts). The watermark catches up
+	// the moment the tab becomes visible and focused again.
+	let isPageAttended = $state(true);
+	$effect(() => {
+		if (!browser) return;
+		const sync = () => {
+			isPageAttended = document.visibilityState === 'visible' && document.hasFocus();
+		};
+		sync();
+		document.addEventListener('visibilitychange', sync);
+		window.addEventListener('focus', sync);
+		window.addEventListener('blur', sync);
+		return () => {
+			document.removeEventListener('visibilitychange', sync);
+			window.removeEventListener('focus', sync);
+			window.removeEventListener('blur', sync);
+		};
+	});
 	$effect(() => {
 		const roomId = selectedRoomId;
-		if (!roomId || !isSelectedRoomMessagesFresh) return;
+		if (!roomId || !isSelectedRoomMessagesFresh || !isPageAttended) return;
 		if ((activeRoom?.unreadCount ?? 0) === 0) return;
 		convexClient.mutation(api.chat.markRoomRead, { roomId }).catch(() => {
 			// Best-effort: a failed watermark write just leaves the badge in place; the effect
