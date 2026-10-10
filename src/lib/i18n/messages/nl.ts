@@ -272,7 +272,20 @@ const nl = {
 			linkMismatch:
 				'Dit Google-account kon hier niet worden gekoppeld. Log eerst in met je bestaande account of gebruik hetzelfde e-mailadres.',
 			providerNotConfigured: 'Google-inloggen is nog niet ingesteld.',
-			googleUnavailable: 'Kan nu niet doorgaan met Google. Probeer het opnieuw.'
+			googleUnavailable: 'Kan nu niet doorgaan met Google. Probeer het opnieuw.',
+			magicLink: {
+				expiredTitle: 'Inloglink verlopen',
+				expiredDescription:
+					'Deze inloglink is verlopen of al gebruikt. Voer je e-mailadres in en we sturen je een nieuwe.',
+				emailLabel: 'E-mail',
+				emailPlaceholder: 'Voer je e-mailadres in',
+				submit: 'Stuur me een nieuwe link',
+				submitting: 'Verzenden...',
+				sentDescription:
+					'Als er een account is voor {email}, is er een nieuwe inloglink onderweg. De link werkt één keer.',
+				invalidEmail: 'Voer een geldig e-mailadres in.',
+				failure: 'Kon geen nieuwe link verzenden. Probeer het opnieuw.'
+			}
 		},
 		resetPassword: {
 			backToSignIn: 'Terug naar inloggen',
@@ -423,6 +436,15 @@ const nl = {
 		}
 	},
 	onboarding: {
+		parentConsent: {
+			childFallback: 'je kind',
+			approvedTitle: 'Account goedgekeurd',
+			approvedDescription: 'Het account van {child} is nu actief.',
+			signInButton: 'Log in en bekijk het account van {child}',
+			signInAs: 'Hiermee log je op dit apparaat in als {email}.',
+			signOutWarning: 'Het account dat nu op dit apparaat is ingelogd, wordt dan uitgelogd.',
+			signInLink: 'Log in om het account van {child} te bekijken'
+		},
 		getStarted: {
 			illustrationAlt: 'Curiosity Learning illustratie',
 			welcome: 'Welkom bij Curiosity Learning!',

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { LoadingState } from '$lib/components/app';
@@ -7,6 +6,8 @@
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 	import { api } from '$convex/_generated/api';
+	import { authClient } from '$lib/auth-client';
+	import { _, formatT } from '$lib/i18n';
 	import { useConvexClient } from 'convex-svelte';
 	import type { PageProps } from './$types';
 
@@ -18,6 +19,27 @@
 	let pending = $state(false);
 	let errorMessage = $state('');
 	let acceptedPolicies = $state(false);
+	// Set once THIS visit approved the request. Takes precedence over the (reactively updated)
+	// "already approved" status, and carries the one-time sign-in link approveConsent returns
+	// only for the approval itself.
+	let approval = $state<{ signInUrl?: string } | null>(null);
+	// Following the sign-in link replaces whatever session this browser has.
+	const session = authClient.useSession();
+
+	let childName = $derived(
+		consentResponse.data?.childUsername ?? $_('onboarding.parentConsent.childFallback')
+	);
+	let childSignInHref = $derived(
+		consentResponse.data
+			? `/auth/sign-in?next=${encodeURIComponent(`/child/${consentResponse.data.childProfileId}`)}`
+			: '/auth/sign-in'
+	);
+	let signsOutOtherAccount = $derived(
+		Boolean(
+			$session.data?.user &&
+			$session.data.user.email.toLowerCase() !== consentResponse.data?.parentEmail?.toLowerCase()
+		)
+	);
 
 	const approve = async () => {
 		if (!acceptedPolicies) {
@@ -27,12 +49,11 @@
 		pending = true;
 		errorMessage = '';
 		try {
-			await convexClient.mutation(api.childSignup.approveConsent, {
+			approval = await convexClient.mutation(api.childSignup.approveConsent, {
 				token: data.token,
 				acceptedTerms: true,
 				acceptedPrivacyPolicy: true
 			});
-			await goto('/auth/sign-in');
 		} catch (error) {
 			captureUnexpectedOperationalError(error, {
 				area: 'auth',
@@ -69,11 +90,42 @@
 				</p>
 			</div>
 
-			{#if consentResponse.data.status === 'approved'}
+			{#if approval}
+				<Alert>
+					<AlertTitle>{$_('onboarding.parentConsent.approvedTitle')}</AlertTitle>
+					<AlertDescription>
+						{formatT('onboarding.parentConsent.approvedDescription', { child: childName })}
+					</AlertDescription>
+				</Alert>
+				<div class="mt-auto flex flex-col gap-3 pb-2 sm:pb-6">
+					{#if approval.signInUrl}
+						<!-- A full page load: the link is Better Auth's verify endpoint, which sets the
+						session cookie and redirects to the child's overview. -->
+						<Button class="h-12 w-full" size="xl" href={approval.signInUrl}>
+							{formatT('onboarding.parentConsent.signInButton', { child: childName })}
+						</Button>
+						<p class="text-sm leading-6 text-gray-600">
+							{formatT('onboarding.parentConsent.signInAs', {
+								email: consentResponse.data.parentEmail
+							})}
+							{#if signsOutOtherAccount}
+								{$_('onboarding.parentConsent.signOutWarning')}
+							{/if}
+						</p>
+					{:else}
+						<Button class="h-12 w-full" size="xl" href={childSignInHref}>
+							{formatT('onboarding.parentConsent.signInLink', { child: childName })}
+						</Button>
+					{/if}
+				</div>
+			{:else if consentResponse.data.status === 'approved'}
 				<Alert>
 					<AlertTitle>Already approved</AlertTitle>
 					<AlertDescription>This learner account has already been approved.</AlertDescription>
 				</Alert>
+				<a class="text-sm font-semibold text-primary underline" href={childSignInHref}>
+					{formatT('onboarding.parentConsent.signInLink', { child: childName })}
+				</a>
 			{:else}
 				{#if errorMessage}
 					<Alert variant="destructive">

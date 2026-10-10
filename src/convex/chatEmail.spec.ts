@@ -6,9 +6,10 @@
 // .coveredThroughAt) only advances once the provider accepted the email; reading the emailed
 // batch re-arms the next one immediately, an unread emailed batch is not nagged about for 12h.
 
+import betterAuthTest from '@convex-dev/better-auth/test';
 import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, internal } from './_generated/api';
+import { api, components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
@@ -44,8 +45,47 @@ afterEach(() => {
 	vi.unstubAllEnvs();
 });
 
-const seedFixture = async (options: { withChild?: boolean; learnerLeftAt?: number } = {}) => {
+// Parent emails carry one-time sign-in links minted through the betterAuth component
+// (magicLinks.ts), so every test mounts the real component and the parent has an account there —
+// consent approval creates one (childSignup.approveConsent).
+const createTest = async () => {
 	const t = convexTest(schema, modules);
+	betterAuthTest.register(t);
+	const now = Date.now();
+	await t.mutation(components.betterAuth.adapter.create, {
+		input: {
+			model: 'user',
+			data: {
+				email: 'parent@example.com',
+				emailVerified: true,
+				name: 'parent',
+				createdAt: now,
+				updatedAt: now
+			}
+		}
+	});
+	return t;
+};
+
+// The magic sign-in links in an email's plain-text body, with the paths the verify endpoint will
+// redirect to (it decodes the callback params once more, see lib/auth/magic-link.ts).
+const magicLinksIn = (text: string) =>
+	(text.match(/https:\/\/app\.example\.com\/api\/auth\/magic-link\/verify\?\S+/g) ?? []).map(
+		(raw) => {
+			const url = new URL(raw);
+			return {
+				token: url.searchParams.get('token'),
+				callbackURL: decodeURIComponent(url.searchParams.get('callbackURL') ?? ''),
+				errorCallbackURL: decodeURIComponent(url.searchParams.get('errorCallbackURL') ?? '')
+			};
+		}
+	);
+
+const expiredLinkPath = (next: string) =>
+	`/auth/sign-in?next=${encodeURIComponent(next)}&link=expired`;
+
+const seedFixture = async (options: { withChild?: boolean; learnerLeftAt?: number } = {}) => {
+	const t = await createTest();
 	const ids = await t.run(async (ctx) => {
 		const now = Date.now();
 		const memberJoinedAt = now - 30 * DAY;
@@ -189,7 +229,7 @@ const emailDeliveriesFor = (
 	);
 
 const seedJoinRequestFixture = async (options: { childRequester?: boolean } = {}) => {
-	const t = convexTest(schema, modules);
+	const t = await createTest();
 	const ids = await t.run(async (ctx) => {
 		const now = Date.now();
 		const guideRoleId = await ctx.db.insert('clubRoles', {
@@ -416,22 +456,67 @@ describe('chat email notifications', () => {
 			sendEmailMock.mock.calls as unknown as Array<[{ to: string; html: string; text: string }]>
 		)
 			.map(([call]) => call)
-			.find((call) => call.to === 'parent@example.com');
-		expect(parentCall?.html).toContain(
-			`https://app.example.com/child/${childProfileId}?room=${roomId}`
+			.find((call) => call.to === 'parent@example.com')!;
+		// The parent's account has no password (created at consent approval), so both links are
+		// one-time sign-in links: the button continues to the child's chats in this room, the
+		// note's link to the child's overview. Each token works once, so they differ.
+		const childChatPath = `/child/${childProfileId}?room=${roomId}`;
+		const [cta, noteLink] = magicLinksIn(parentCall.text);
+		expect(cta).toEqual({
+			token: expect.stringMatching(/^[a-zA-Z]{32}$/),
+			callbackURL: childChatPath,
+			errorCallbackURL: expiredLinkPath(childChatPath)
+		});
+		expect(noteLink).toEqual({
+			token: expect.stringMatching(/^[a-zA-Z]{32}$/),
+			callbackURL: `/child/${childProfileId}`,
+			errorCallbackURL: expiredLinkPath(`/child/${childProfileId}`)
+		});
+		expect(noteLink.token).not.toBe(cta.token);
+		// No plain app links left that would strand the parent on a password form.
+		expect(parentCall.html).not.toContain(`https://app.example.com/child/`);
+		expect(parentCall.html).toContain('Open kiddo&#39;s chats');
+		expect(parentCall.html).toContain('Add an email address for kiddo');
+		expect(parentCall.text).toContain(
+			'You get these emails because kiddo has a child account. The button signs you in — no password needed. Add an email address for kiddo and chat notifications like this one will go to them directly.'
 		);
-		expect(parentCall?.html).toContain('Add an email address for kiddo');
-		expect(parentCall?.html).toContain(`https://app.example.com/child/${childProfileId}"`);
-		expect(parentCall?.text).toContain(
-			'You already have an account under this email address. To sign in, use "Continue with Google" if it is a Google address, or "Forgot password?" on the sign-in page if you have not set a password yet.'
-		);
-		expect(parentCall?.html).toContain('You already have an account under this email address.');
-		expect(parentCall?.html).toContain('&quot;Forgot password?&quot;');
-		expect(parentCall?.text).toContain('chat notifications like this one will go to them directly');
+		expect(parentCall.text).not.toContain('Forgot password');
+		// Adults get plain links into their own chat.
+		const learnerCall = (
+			sendEmailMock.mock.calls as unknown as Array<[{ to: string; text: string }]>
+		)
+			.map(([call]) => call)
+			.find((call) => call.to === 'learner@example.com')!;
+		expect(magicLinksIn(learnerCall.text)).toEqual([]);
 		// Audit row names the resolved address, not the child's synthetic one.
 		const deliveries = await emailDeliveriesFor(t, childProfileId!);
 		expect(deliveries).toHaveLength(1);
 		expect(deliveries[0].to).toBe('parent@example.com');
+	});
+
+	// Consents approved before parent accounts were created at approval time have no account to
+	// sign in to; a sign-in link could only fail (disableSignUp), so they keep the plain links.
+	it('a parent without an account gets plain links instead of sign-in links', async () => {
+		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const { t, guide, roomId, childProfileId } = await seedFixture({ withChild: true });
+		await t.mutation(components.betterAuth.adapter.deleteOne, {
+			input: { model: 'user', where: [{ field: 'email', value: 'parent@example.com' }] }
+		});
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		const parentCall = (
+			sendEmailMock.mock.calls as unknown as Array<[{ to: string; text: string }]>
+		)
+			.map(([call]) => call)
+			.find((call) => call.to === 'parent@example.com')!;
+		expect(magicLinksIn(parentCall.text)).toEqual([]);
+		expect(parentCall.text).toContain(
+			`https://app.example.com/child/${childProfileId}?room=${roomId}`
+		);
+		expect(parentCall.text).not.toContain('signs you in');
 	});
 
 	it('club chat for a child account stops going to a parent the child has unlinked', async () => {
@@ -481,6 +566,9 @@ describe('chat email notifications', () => {
 			.find((call) => call.to === 'kiddo@example.com');
 		expect(childCall?.html).toContain(`https://app.example.com/chat?room=${roomId}`);
 		expect(childCall?.html).not.toContain('Add an email address');
+		// The child gets a plain link: sign-in links are only for the parent's own address.
+		expect(childCall?.html).not.toContain('magic-link');
+		expect(childCall?.html).toContain('Open Curiosity Learning');
 	});
 
 	it("the child's notification email still respects their chatMessages mute preference", async () => {
@@ -506,7 +594,7 @@ describe('chat email notifications', () => {
 	// name, making the bare name ambiguous with the club's group chat).
 	it('application room: applicant and staff get context-specific subjects', async () => {
 		vi.useFakeTimers();
-		const t = convexTest(schema, modules);
+		const t = await createTest();
 		const { roomId } = await t.run(async (ctx) => {
 			const now = Date.now();
 			const applicantProfileId = await ctx.db.insert('profiles', {
@@ -573,7 +661,7 @@ describe('chat email notifications', () => {
 	// (covered above) and never email children.
 	it('application room: emails ignore the chatMessages mute preference', async () => {
 		vi.useFakeTimers();
-		const t = convexTest(schema, modules);
+		const t = await createTest();
 		const { roomId, applicantProfileId } = await t.run(async (ctx) => {
 			const now = Date.now();
 			const applicantProfileId = await ctx.db.insert('profiles', {
@@ -624,7 +712,7 @@ describe('chat email notifications', () => {
 	it('application room: a child applicant email routes to the approved parent', async () => {
 		vi.useFakeTimers();
 		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
-		const t = convexTest(schema, modules);
+		const t = await createTest();
 		const { roomId, childProfileId } = await t.run(async (ctx) => {
 			const now = Date.now();
 			const childProfileId = await ctx.db.insert('profiles', {
@@ -685,8 +773,14 @@ describe('chat email notifications', () => {
 				subject: "New messages regarding kiddo's club application"
 			})
 		);
-		const [{ html }] = sendEmailMock.mock.calls[0] as unknown as [{ html: string }];
-		expect(html).toContain(`https://app.example.com/child/${childProfileId}?room=${roomId}`);
+		const [{ html, text }] = sendEmailMock.mock.calls[0] as unknown as [
+			{ html: string; text: string }
+		];
+		// Signed in by the link itself (one link: there is no note on critical chats).
+		const links = magicLinksIn(text);
+		expect(links).toHaveLength(1);
+		expect(links[0].callbackURL).toBe(`/child/${childProfileId}?room=${roomId}`);
+		expect(html).toContain('Open kiddo&#39;s chats');
 		expect(html).not.toContain('Add an email address');
 	});
 
@@ -890,15 +984,17 @@ describe('chat email notifications', () => {
 				subject: "New messages regarding kiddo's Porto Club join request"
 			})
 		);
-		const [{ html }] = sendEmailMock.mock.calls[0] as unknown as [{ html: string }];
-		expect(html).toContain(`https://app.example.com/child/${requesterProfileId}?room=${roomId}`);
+		const [{ text }] = sendEmailMock.mock.calls[0] as unknown as [{ text: string }];
+		const links = magicLinksIn(text);
+		expect(links).toHaveLength(1);
+		expect(links[0].callbackURL).toBe(`/child/${requesterProfileId}?room=${roomId}`);
 	});
 
 	// Application decisions post messages into the room but are announced through their own
 	// 'application_status' notification; the room posts must not add a second chat email.
 	it('decision messages do not trigger a chat email on top of the status notification', async () => {
 		vi.useFakeTimers();
-		const t = convexTest(schema, modules);
+		const t = await createTest();
 		const { applicationId, applicantProfileId } = await t.run(async (ctx) => {
 			const now = Date.now();
 			const applicantProfileId = await ctx.db.insert('profiles', {

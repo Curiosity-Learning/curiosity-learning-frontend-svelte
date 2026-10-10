@@ -2,7 +2,13 @@ import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server';
-import { internalAction, internalMutation, internalQuery, mutation, query } from './_generated/server';
+import {
+	internalAction,
+	internalMutation,
+	internalQuery,
+	mutation,
+	query
+} from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { sendEmail } from './email/resend';
@@ -158,6 +164,8 @@ export type NotificationEmailArgs = {
 	title: string;
 	message: string;
 	url?: string;
+	// Button text override (chat emails to a parent name the child); template default otherwise.
+	ctaLabel?: string;
 	// Pre-resolved address: the caller already ran resolveEmailRecipient (chat does, because the
 	// wording depends on the audience) and the result must not be re-derived differently here.
 	to?: string;
@@ -189,7 +197,8 @@ export const deliverNotificationEmail = async (
 	if (!to) return { status: 'skipped' };
 
 	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
-	// Relative app paths only become links when a base url is configured.
+	// Relative app paths only become links when a base url is configured. Absolute urls (the
+	// magic sign-in links in parent chat emails, see magicLinks.ts) pass through unchanged.
 	const toAbsoluteUrl = (url: string | undefined) =>
 		url
 			? url.startsWith('/')
@@ -207,7 +216,13 @@ export const deliverNotificationEmail = async (
 		const { providerMessageId } = await sendEmail({
 			to,
 			type: 'notification',
-			...notificationEmail({ title: args.title, message: args.message, ctaUrl, note })
+			...notificationEmail({
+				title: args.title,
+				message: args.message,
+				ctaUrl,
+				ctaLabel: args.ctaLabel,
+				note
+			})
 		});
 		return { status: 'sent', to, providerMessageId };
 	} catch (error) {

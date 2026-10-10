@@ -280,7 +280,21 @@ const en = {
 			linkMismatch:
 				'This Google account could not be linked here. Sign in with your existing account first or use the same email address.',
 			providerNotConfigured: 'Google sign-in is not configured yet.',
-			googleUnavailable: 'Unable to continue with Google right now. Please try again.'
+			googleUnavailable: 'Unable to continue with Google right now. Please try again.',
+			// Expired/used magic sign-in link fallback (lib/auth/magic-link.ts).
+			magicLink: {
+				expiredTitle: 'Sign-in link expired',
+				expiredDescription:
+					"This sign-in link has expired or was already used. Enter your email and we'll send you a new one.",
+				emailLabel: 'Email',
+				emailPlaceholder: 'Enter your email',
+				submit: 'Send me a new link',
+				submitting: 'Sending...',
+				sentDescription:
+					'If there is an account for {email}, a new sign-in link is on its way. It works once.',
+				invalidEmail: 'Enter a valid email address.',
+				failure: 'Could not send a new link. Please try again.'
+			}
 		},
 		resetPassword: {
 			backToSignIn: 'Return to account log in',
@@ -427,6 +441,15 @@ const en = {
 		}
 	},
 	onboarding: {
+		parentConsent: {
+			childFallback: 'your child',
+			approvedTitle: 'Account approved',
+			approvedDescription: "{child}'s account is now active.",
+			signInButton: "Sign in and see {child}'s account",
+			signInAs: 'Signs you in as {email} on this device.',
+			signOutWarning: 'This will sign out the current account on this device.',
+			signInLink: "Sign in to see {child}'s account"
+		},
 		getStarted: {
 			illustrationAlt: 'Curiosity Learning illustration',
 			welcome: 'Welcome to Curiosity Learning!',

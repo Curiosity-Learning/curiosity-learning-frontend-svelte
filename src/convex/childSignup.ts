@@ -28,6 +28,8 @@ import {
 	setPendingClubJoin
 } from './pendingClubJoinsModel';
 import { autoCreateJoinRequestFromNextPath } from './joinRequests';
+import { mintMagicLink } from './magicLinks';
+import { buildMagicLinkErrorPath } from '../lib/auth/magic-link';
 
 // PRD 6.1.6/8.5: parental consent must be obtained within 90 days of account creation, or the
 // child account and all associated data are automatically purged. See `purgeExpiredChildConsents`
@@ -274,7 +276,9 @@ export const approveConsent = mutation({
 		acceptedPrivacyPolicy: v.boolean()
 	},
 	returns: v.object({
-		success: v.boolean()
+		success: v.boolean(),
+		// One-time sign-in link for the parent, only on the approval itself (see below).
+		signInUrl: v.optional(v.string())
 	}),
 	handler: async (ctx, args) => {
 		if (!args.acceptedTerms || !args.acceptedPrivacyPolicy) {
@@ -287,6 +291,8 @@ export const approveConsent = mutation({
 		if (!consent) {
 			throw new ConvexError('Consent request not found');
 		}
+		// No sign-in link on a revisit: the consent token never expires once approved, and handing
+		// out a fresh session for it would turn the consent email into a permanent login link.
 		if (consent.status === 'approved') {
 			return { success: true };
 		}
@@ -425,7 +431,17 @@ export const approveConsent = mutation({
 				}
 			}
 		});
-		return { success: true };
+		// Lets the consent page sign the parent straight in to the child's overview — their
+		// account was just created without credentials. Safe to mint here because the consent
+		// token was only ever sent to parentEmail, so holding it already proves possession of
+		// that address (the same proof a magic-link email would give).
+		const childOverviewPath = `/child/${consent.childProfileId}`;
+		const signInUrl = await mintMagicLink(ctx, {
+			email: consent.parentEmail,
+			callbackURL: childOverviewPath,
+			errorCallbackURL: buildMagicLinkErrorPath(childOverviewPath)
+		});
+		return { success: true, ...(signInUrl ? { signInUrl } : {}) };
 	}
 });
 

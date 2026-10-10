@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth';
-import { emailOTP, username } from 'better-auth/plugins';
+import { emailOTP, magicLink, username } from 'better-auth/plugins';
 import { createClient } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
 import type { GenericCtx } from '@convex-dev/better-auth';
@@ -10,7 +10,8 @@ import { mutation, query } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
 import authConfig from './auth.config';
 import { sendEmail } from './email/resend';
-import { passwordResetEmail, verificationOtpEmail } from './email/templates';
+import { magicLinkEmail, passwordResetEmail, verificationOtpEmail } from './email/templates';
+import { MAGIC_LINK_EXPIRES_IN_SECONDS } from '../lib/auth/magic-link';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 import { setPendingClubJoin } from './pendingClubJoinsModel';
 import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
@@ -189,6 +190,28 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 						type: 'verification-otp',
 						to: email,
 						...verificationOtpEmail({ otp, type })
+					});
+				}
+			}),
+			// One-time sign-in links. Parent-facing emails carry links minted server-side by
+			// magicLinks.mintMagicLink, which writes the plugin's verification rows directly — keep
+			// `storeToken` and `expiresIn` in sync with it. The plugin's own POST
+			// /sign-in/magic-link is the "send me a new link" fallback on the sign-in page.
+			magicLink({
+				expiresIn: MAGIC_LINK_EXPIRES_IN_SECONDS,
+				// Links only sign in existing users; account creation keeps its own flows.
+				disableSignUp: true,
+				// Hashed at rest: a link stays valid for days, so a leaked verification table
+				// must not hand out sessions.
+				storeToken: 'hashed',
+				sendMagicLink: async ({ email, url }, ctx) => {
+					// disableSignUp makes a link for an unknown address useless; don't email strangers
+					// (the endpoint answers the same either way, so nothing is revealed).
+					if (ctx && !(await ctx.context.internalAdapter.findUserByEmail(email))) return;
+					await sendEmail({
+						type: 'magic-link',
+						to: email,
+						...magicLinkEmail({ url })
 					});
 				}
 			}),

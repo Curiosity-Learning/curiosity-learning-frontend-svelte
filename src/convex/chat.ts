@@ -44,6 +44,8 @@ import {
 	requireProfile
 } from './permissions';
 import { listAttributedClubIds } from './projectsModel';
+import { mintMagicLink } from './magicLinks';
+import { buildMagicLinkErrorPath } from '../lib/auth/magic-link';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -712,7 +714,8 @@ export const deliverChatEmailNotification = internalMutation({
 		if (!newestUnread) return null;
 		// Everything unread was already in the last email: nothing new to say.
 		const coveredThroughAt = getCoveredThroughAt(marker);
-		if (coveredThroughAt !== undefined && newestUnread._creationTime <= coveredThroughAt) return null;
+		if (coveredThroughAt !== undefined && newestUnread._creationTime <= coveredThroughAt)
+			return null;
 		// Newer messages exist, but the recipient hasn't read the batch they were last emailed
 		// about and that email is recent: don't nag. Reading the room lifts this immediately;
 		// otherwise new activity past the window re-emails.
@@ -753,26 +756,43 @@ export const deliverChatEmailNotification = internalMutation({
 		const { title, chatLabel } = parentAudience
 			? await getChatEmailCopyForParent(ctx, room, recipientProfile)
 			: await getChatEmailCopy(ctx, room, args.profileId);
-		const url = parentAudience
+		const childName = parentAudience ? profileDisplayName(recipientProfile) : undefined;
+		const appUrl = parentAudience
 			? `/child/${args.profileId}?room=${args.roomId}`
 			: `/chat?room=${args.roomId}`;
+		// The parent's account was created password-less at consent approval
+		// (childSignup.approveConsent), so a plain link would strand them on a sign-in form they
+		// cannot complete. Parent emails carry one-time sign-in links instead: the address already
+		// proved itself by approving consent, and the email goes to that same address. A failed or
+		// expired link lands on the sign-in page, which offers to email a fresh one and then
+		// continues to the same page. Falls back to the plain link when no link can be minted
+		// (no BETTER_AUTH_URL, or no account under the address).
+		const url = parentAudience
+			? ((await mintMagicLink(ctx, {
+					email: recipient.to,
+					callbackURL: appUrl,
+					errorCallbackURL: buildMagicLinkErrorPath(appUrl)
+				})) ?? appUrl)
+			: appUrl;
 		// A parent reading a club/project chat email is told they can hand these over to the
 		// child by adding an email address for them (the child cannot consent to that themselves;
-		// the parent does it from the child's overview page), and how to sign in: consent approval
-		// created a password-less account for this address (childSignup.approveConsent), which a
-		// Google sign-in links to, or "Forgot password?" gives a password. Not on critical chats:
-		// those keep going to the parent either way, so the promise would be false.
-		const note =
-			parentAudience && !critical
-				? (() => {
-						const childName = profileDisplayName(recipientProfile);
-						return {
-							text: `You get these emails because ${childName} has a child account. You already have an account under this email address. To sign in, use "Continue with Google" if it is a Google address, or "Forgot password?" on the sign-in page if you have not set a password yet. Add an email address for ${childName} and chat notifications like this one will go to them directly.`,
-							url: `/child/${args.profileId}`,
-							linkLabel: `Add an email address for ${childName}`
-						};
-					})()
-				: undefined;
+		// the parent does it from the child's overview page). Its link is a second sign-in link:
+		// each one works once. Not on critical chats: those keep going to the parent either way,
+		// so the promise would be false.
+		let note: { text: string; url: string; linkLabel: string } | undefined;
+		if (parentAudience && !critical) {
+			const overviewPath = `/child/${args.profileId}`;
+			note = {
+				text: `You get these emails because ${childName} has a child account.${url === appUrl ? '' : ' The button signs you in — no password needed.'} Add an email address for ${childName} and chat notifications like this one will go to them directly.`,
+				url:
+					(await mintMagicLink(ctx, {
+						email: recipient.to,
+						callbackURL: overviewPath,
+						errorCallbackURL: buildMagicLinkErrorPath(overviewPath)
+					})) ?? overviewPath,
+				linkLabel: `Add an email address for ${childName}`
+			};
+		}
 
 		if (marker) {
 			await ctx.db.patch(marker._id, { sendingSince: now });
@@ -792,6 +812,7 @@ export const deliverChatEmailNotification = internalMutation({
 			title,
 			message: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
 			url,
+			ctaLabel: parentAudience ? `Open ${childName}'s chats` : undefined,
 			to: recipient.to,
 			note
 		});
@@ -813,6 +834,7 @@ export const sendChatEmail = internalAction({
 		title: v.string(),
 		message: v.string(),
 		url: v.string(),
+		ctaLabel: v.optional(v.string()),
 		to: v.string(),
 		note: v.optional(notificationEmailNoteValidator)
 	},

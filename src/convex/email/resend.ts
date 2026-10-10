@@ -4,6 +4,7 @@ import { reportConvexError } from '../monitoring';
 export type TransactionalEmailType =
 	| 'parent-consent'
 	| 'password-reset'
+	| 'magic-link'
 	| 'verification-otp'
 	| 'notification'
 	| 'admin-invite'

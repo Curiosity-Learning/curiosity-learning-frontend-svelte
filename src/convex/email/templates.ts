@@ -25,7 +25,8 @@ const escapeHtml = (value: string) =>
 
 const absoluteUrl = (url: string) => url;
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
-const isLocalUrl = (value: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value);
+const isLocalUrl = (value: string) =>
+	/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value);
 
 const getEmailLogoUrl = () => {
 	const explicitLogoUrl = process.env.EMAIL_LOGO_URL?.trim();
@@ -72,12 +73,7 @@ const rawLink = (url: string) => `
 	</p>
 `;
 
-const layout = (args: {
-	preheader: string;
-	title: string;
-	children: string;
-	footer?: string;
-}) => {
+const layout = (args: { preheader: string; title: string; children: string; footer?: string }) => {
 	const preheader = escapeHtml(args.preheader);
 	const title = escapeHtml(args.title);
 	const footer =
@@ -182,6 +178,26 @@ export const passwordResetEmail = (args: { url: string; token: string }): EmailC
 	};
 };
 
+// "Send me a new link" from the sign-in page (the magic-link plugin's sendMagicLink in auth.ts).
+// Links minted into other emails (parent chat emails) are not sent with this template.
+export const magicLinkEmail = (args: { url: string }): EmailContent => {
+	const url = absoluteUrl(args.url);
+	return {
+		subject: 'Your sign-in link',
+		text: `Sign in to Curiosity Learning:\n\n${url}\n\nThis link works once and expires in 7 days. If you did not ask for it, you can ignore this email.`,
+		html: layout({
+			preheader: 'Your link to sign in to Curiosity Learning.',
+			title: 'Your sign-in link',
+			children: `
+				${paragraph('Use the button below to sign in to Curiosity Learning. No password needed.')}
+				${button(url, 'Sign in')}
+				${rawLink(url)}
+				${paragraph('This link works once and expires in 7 days. If you did not ask for it, you can ignore this email.')}
+			`
+		})
+	};
+};
+
 export const parentConsentEmail = (args: {
 	childUsername: string;
 	consentUrl: string;
@@ -281,6 +297,8 @@ export const notificationEmail = (args: {
 	title: string;
 	message: string;
 	ctaUrl?: string;
+	// Button text; defaults to the generic "Open Curiosity Learning".
+	ctaLabel?: string;
 	note?: { text: string; url?: string; linkLabel?: string };
 }): EmailContent => {
 	const message = escapeHtml(args.message);
@@ -306,7 +324,7 @@ export const notificationEmail = (args: {
 			title: args.title,
 			children: `
 				${paragraph(message)}
-				${args.ctaUrl ? `${button(args.ctaUrl, 'Open Curiosity Learning')}${rawLink(args.ctaUrl)}` : ''}
+				${args.ctaUrl ? `${button(args.ctaUrl, args.ctaLabel ?? 'Open Curiosity Learning')}${rawLink(args.ctaUrl)}` : ''}
 				${noteHtml}
 			`,
 			footer:

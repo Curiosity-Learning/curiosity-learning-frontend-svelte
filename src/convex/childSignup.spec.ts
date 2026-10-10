@@ -2,7 +2,7 @@
 
 import betterAuthTest from '@convex-dev/better-auth/test';
 import { convexTest } from 'convex-test';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, components, internal } from './_generated/api';
 import type { MutationCtx } from './_generated/server';
 import schema from './schema';
@@ -188,6 +188,10 @@ describe('listExpiredPendingConsents', () => {
 	});
 });
 
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
+
 describe('approveConsent', () => {
 	// approveConsent finds-or-creates the parent's Better Auth user through the component adapter,
 	// so this one mounts the real betterAuth component (its shipped test helper) instead of mocking.
@@ -245,5 +249,60 @@ describe('approveConsent', () => {
 			.withIdentity({ subject: parentAuthUserId! })
 			.query(api.parentAccounts.getChildOverview, { childProfileId });
 		expect(overview.childProfileId).toBe(childProfileId);
+	});
+
+	// The consent page offers to sign the parent straight in: their account was just created
+	// without credentials. Only the approval itself gets a link — the consent token stays valid,
+	// so a link on every revisit would make the consent email a permanent login link.
+	it('returns a one-time sign-in link to the child overview on the first approval only', async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const t = convexTest(schema, modules);
+		betterAuthTest.register(t);
+		const now = Date.now();
+		const childAuthUser = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'kid@children.curiosity.local',
+					emailVerified: false,
+					name: 'Kid',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		const { profileId: childProfileId } = await t.run(async (ctx) => {
+			const seeded = await seedPendingChild(ctx, { createdAt: now });
+			await ctx.db.patch(seeded.profileId, { authUserId: childAuthUser._id });
+			return seeded;
+		});
+		const approve = () =>
+			t.mutation(api.childSignup.approveConsent, {
+				token: `token-${now}`,
+				acceptedTerms: true,
+				acceptedPrivacyPolicy: true
+			});
+
+		const first = await approve();
+		expect(first.success).toBe(true);
+		const signInUrl = new URL(first.signInUrl!);
+		expect(`${signInUrl.origin}${signInUrl.pathname}`).toBe(
+			'https://app.example.com/api/auth/magic-link/verify'
+		);
+		expect(decodeURIComponent(signInUrl.searchParams.get('callbackURL')!)).toBe(
+			`/child/${childProfileId}`
+		);
+		// For the parent account approveConsent just created.
+		const verification = (await t.query(components.betterAuth.adapter.findMany, {
+			model: 'verification',
+			where: [],
+			paginationOpts: { cursor: null, numItems: 10 }
+		})) as { page: Array<{ value: string }> };
+		expect(verification.page.map((row) => JSON.parse(row.value))).toEqual([
+			{ email: 'parent@example.com' }
+		]);
+
+		const revisit = await approve();
+		expect(revisit).toEqual({ success: true });
 	});
 });
