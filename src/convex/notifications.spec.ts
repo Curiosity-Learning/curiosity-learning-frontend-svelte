@@ -1,6 +1,7 @@
+import betterAuthTest from '@convex-dev/better-auth/test';
 import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from './_generated/api';
+import { api, components } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
@@ -35,10 +36,39 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.useRealTimers();
+	vi.unstubAllEnvs();
 });
+
+// The magic sign-in links in an email's plain-text body (same helper as chatEmail.spec.ts).
+const magicLinksIn = (text: string) =>
+	(text.match(/https:\/\/app\.example\.com\/api\/auth\/magic-link\/verify\?\S+/g) ?? []).map(
+		(raw) => {
+			const url = new URL(raw);
+			return {
+				token: url.searchParams.get('token'),
+				callbackURL: decodeURIComponent(url.searchParams.get('callbackURL') ?? '')
+			};
+		}
+	);
 
 const seedFixture = async () => {
 	const t = convexTest(schema, modules);
+	// Parent emails carry one-time sign-in links minted through the betterAuth component
+	// (magicLinks.ts), so the real component is mounted and the parent has an account there, as
+	// consent approval would have created.
+	betterAuthTest.register(t);
+	await t.mutation(components.betterAuth.adapter.create, {
+		input: {
+			model: 'user',
+			data: {
+				email: 'parent@example.com',
+				emailVerified: true,
+				name: 'parent',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			}
+		}
+	});
 	const ids = await t.run(async (ctx) => {
 		const now = Date.now();
 		const memberJoinedAt = now - 30 * 24 * HOUR;
@@ -260,8 +290,9 @@ describe('notification tier routing', () => {
 });
 
 describe('child account email routing', () => {
-	it('routes CRITICAL emails to the approved parent email', async () => {
+	it('routes CRITICAL emails to the approved parent, worded for them, with a sign-in link to the child view', async () => {
 		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const { t, clubId, childProfileId } = await seedFixture();
 
 		const memberId = await memberIdFor(t, clubId, childProfileId);
@@ -276,6 +307,35 @@ describe('child account email routing', () => {
 		expect(sendEmailMock).toHaveBeenCalledWith(
 			expect.objectContaining({ to: 'parent@example.com', subject: 'Removed from club' })
 		);
+		// The parent cannot open the child-facing link and has no password: the email says whose
+		// account it is about, and the button is a one-time sign-in link into /child/[id].
+		const [{ text, html }] = sendEmailMock.mock.calls[0] as unknown as [
+			{ text: string; html: string }
+		];
+		expect(text).toContain("This is about kiddo's Curiosity Learning account.");
+		expect(html).toContain('Open kiddo&#39;s account');
+		const links = magicLinksIn(text);
+		expect(links).toHaveLength(1);
+		expect(links[0].callbackURL).toBe(`/child/${childProfileId}`);
+		expect(text).not.toContain('/notifications');
+	});
+
+	it('adult emails keep their own link and wording (no sign-in link)', async () => {
+		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const { t, clubId, learnerProfileId } = await seedFixture();
+
+		const memberId = await memberIdFor(t, clubId, learnerProfileId);
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.clubs.kickMember, { clubMemberId: memberId, reason: 'Testing' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		const [{ text, to }] = sendEmailMock.mock.calls[0] as unknown as [{ text: string; to: string }];
+		expect(to).toBe('learner@example.com');
+		expect(magicLinksIn(text)).toHaveLength(0);
+		expect(text).not.toContain('This is about');
 	});
 
 	it('sends no email at all to child accounts for high kinds (in-app only)', async () => {

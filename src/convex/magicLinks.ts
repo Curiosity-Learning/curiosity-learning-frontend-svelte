@@ -1,5 +1,5 @@
 import { components } from './_generated/api';
-import type { MutationCtx } from './_generated/server';
+import type { ActionCtx, MutationCtx } from './_generated/server';
 import { MAGIC_LINK_EXPIRES_IN_SECONDS, toMagicLinkCallbackParam } from '../lib/auth/magic-link';
 
 // Server-side minting of Better Auth magic sign-in links, for emails WE send (parent chat emails,
@@ -72,7 +72,9 @@ const getAuthBaseUrl = () => {
  * Only call this where the recipient has proven they own `email`: the link IS a session.
  */
 export const mintMagicLink = async (
-	ctx: MutationCtx,
+	// Only the component calls are needed, so both mutations (chat, consent) and actions
+	// (notifications.deliverNotificationEmail) can mint.
+	ctx: Pick<MutationCtx, 'runQuery' | 'runMutation'> | Pick<ActionCtx, 'runQuery' | 'runMutation'>,
 	args: { email: string; callbackURL: string; errorCallbackURL?: string }
 ): Promise<string | null> => {
 	const authBaseUrl = getAuthBaseUrl();

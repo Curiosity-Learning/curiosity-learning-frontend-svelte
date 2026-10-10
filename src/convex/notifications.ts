@@ -10,6 +10,9 @@ import {
 	query
 } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
+import { profileDisplayName } from './chatModel';
+import { mintMagicLink } from './magicLinks';
+import { buildMagicLinkErrorPath } from '../lib/auth/magic-link';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { notificationEmail } from './email/templates';
@@ -138,12 +141,20 @@ export const resolveNotificationEmailRecipient = internalQuery({
 		recipientProfileId: v.id('profiles'),
 		critical: v.boolean()
 	},
-	returns: v.union(v.string(), v.null()),
+	returns: v.union(
+		v.object({
+			to: v.string(),
+			audience: v.union(v.literal('self'), v.literal('parent')),
+			// The child's display name, for parent-facing wording.
+			childName: v.string()
+		}),
+		v.null()
+	),
 	handler: async (ctx, args) => {
 		const profile = await ctx.db.get(args.recipientProfileId);
 		if (!profile) return null;
 		const recipient = await resolveEmailRecipient(ctx, { profile, critical: args.critical });
-		return recipient?.to ?? null;
+		return recipient ? { ...recipient, childName: profileDisplayName(profile) } : null;
 	}
 });
 
@@ -188,13 +199,33 @@ export const deliverNotificationEmail = async (
 	ctx: ActionCtx,
 	args: NotificationEmailArgs
 ): Promise<NotificationEmailResult> => {
-	const to =
-		args.to ??
-		(await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
-			recipientProfileId: args.recipientProfileId,
-			critical: args.critical
-		}));
-	if (!to) return { status: 'skipped' };
+	const recipient = args.to
+		? { to: args.to, audience: 'self' as const, childName: '' }
+		: await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
+				recipientProfileId: args.recipientProfileId,
+				critical: args.critical
+			});
+	if (!recipient) return { status: 'skipped' };
+	const to = recipient.to;
+
+	// A parent reading about their child's account (critical notices for a child account route
+	// to the approved parent) cannot use the child-facing link — it leads to the child's own
+	// pages — and has no credentials to sign in with (childSignup.approveConsent creates the
+	// account password-less). So, like chat emails (chat.deliverChatEmailNotification), the
+	// email says who it is about, and the button is a one-time sign-in link into the parent's
+	// read-only view of the child (/child/[id]); plain overview link when none can be minted.
+	let { url, ctaLabel, message } = args;
+	if (recipient.audience === 'parent') {
+		const overviewPath = `/child/${args.recipientProfileId}`;
+		url =
+			(await mintMagicLink(ctx, {
+				email: to,
+				callbackURL: overviewPath,
+				errorCallbackURL: buildMagicLinkErrorPath(overviewPath)
+			})) ?? overviewPath;
+		ctaLabel = `Open ${recipient.childName}'s account`;
+		message = `This is about ${recipient.childName}'s Curiosity Learning account. ${args.message}`;
+	}
 
 	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
 	// Relative app paths only become links when a base url is configured. Absolute urls (the
@@ -207,7 +238,7 @@ export const deliverNotificationEmail = async (
 					: undefined
 				: url
 			: baseUrl;
-	const ctaUrl = toAbsoluteUrl(args.url);
+	const ctaUrl = toAbsoluteUrl(url);
 	const note = args.note
 		? { ...args.note, url: args.note.url ? toAbsoluteUrl(args.note.url) : undefined }
 		: undefined;
@@ -218,9 +249,9 @@ export const deliverNotificationEmail = async (
 			type: 'notification',
 			...notificationEmail({
 				title: args.title,
-				message: args.message,
+				message,
 				ctaUrl,
-				ctaLabel: args.ctaLabel,
+				ctaLabel,
 				note
 			})
 		});
