@@ -422,11 +422,36 @@ describe('chat email notifications', () => {
 		);
 		expect(parentCall?.html).toContain('Add an email address for kiddo');
 		expect(parentCall?.html).toContain(`https://app.example.com/child/${childProfileId}"`);
+		expect(parentCall?.text).toContain(
+			'You already have an account under this email address. To sign in, use "Continue with Google" if it is a Google address, or "Forgot password?" on the sign-in page if you have not set a password yet.'
+		);
+		expect(parentCall?.html).toContain('You already have an account under this email address.');
+		expect(parentCall?.html).toContain('&quot;Forgot password?&quot;');
 		expect(parentCall?.text).toContain('chat notifications like this one will go to them directly');
 		// Audit row names the resolved address, not the child's synthetic one.
 		const deliveries = await emailDeliveriesFor(t, childProfileId!);
 		expect(deliveries).toHaveLength(1);
 		expect(deliveries[0].to).toBe('parent@example.com');
+	});
+
+	it('club chat for a child account stops going to a parent the child has unlinked', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, childProfileId } = await seedFixture({ withChild: true });
+		await t.run(async (ctx) => {
+			const consent = await ctx.db
+				.query('parentChildConsents')
+				.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', childProfileId!))
+				.unique();
+			await ctx.db.patch(consent!._id, { unlinkedAt: Date.now() });
+		});
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ to: 'parent@example.com' })
+		);
 	});
 
 	it('club chat goes straight to the child once the parent has set their notification email', async () => {

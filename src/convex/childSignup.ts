@@ -15,6 +15,7 @@ import { syntheticEmailForUsername } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { parentConsentEmail } from './email/templates';
 import { reportConvexError } from './monitoring';
+import { ensureParentLink } from './parentAccounts';
 import {
 	getClubRoleByKey,
 	getMembershipByProfileId,
@@ -399,6 +400,9 @@ export const approveConsent = mutation({
 			approvedAt: now,
 			updatedAt: now
 		});
+		// Link the parent now so emails about the child (e.g. club chat notifications) can deep
+		// link straight to /child/[id]. See the parentAccounts.ts module header.
+		await ensureParentLink(ctx, parentProfileId, consent.childProfileId);
 		await ctx.db.patch(consent.childProfileId, {
 			isVerified: true,
 			parentProfileId,

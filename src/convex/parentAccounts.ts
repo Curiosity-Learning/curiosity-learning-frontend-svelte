@@ -25,15 +25,22 @@ const normalizeEmail = (value: string) => value.trim().toLowerCase();
 // explicit "no, not even for a viewing parent" check) for no PRD-required benefit.
 //
 // Linking: a `parentLinks` row is the source of truth for "can this parent read this child's
-// data". Links are NOT created at consent-approval time (parentChildConsents.approvedAt) because
-// the consent flow's optional "create a parent account with this email" step may not run, or the
-// resulting Better Auth user may not match the CURRENT caller (e.g. they sign in with a
-// different provider under the same email later). Instead, links are *claimed* lazily: whenever
-// an authenticated user loads Settings, `syncParentLinks` looks up every APPROVED consent row
-// whose `parentEmail` matches the caller's own Better Auth email (via `getAuthUserEmail`, the
-// same adapter helper `notificationsModel`/`notifications.ts` use) and materializes any missing
-// `parentLinks` row. This makes the mechanism resilient to re-signups/account recovery and keeps
-// it a pure derivation from `parentChildConsents`, which remains the legal record of consent.
+// data". Links are created at consent-approval time: `childSignup.approveConsent` finds or
+// creates the Better Auth user + profile for `parentEmail` and inserts the link (via
+// `ensureParentLink`) in the same mutation, so a parent can open /child/[id] straight from an
+// email. That account is the one the parent later signs in to: an email+password sign-in uses it
+// directly (after "Forgot password?" sets a password), and Better Auth's default account linking
+// attaches a Google sign-in with the same verified email to the existing user rather than
+// creating a new one (we never disable account linking in auth.ts).
+//
+// `syncParentLinks` remains as a lazy *claim* fallback, run on Settings and /child/[id] loads: it
+// looks up every APPROVED consent row (skipping any a 16+ child has unlinked, see
+// `unlinkParent` / `unlinkedAt`) whose `parentEmail` matches the caller's own Better Auth
+// email (via `getAuthUserEmail`, the same adapter helper `notificationsModel`/`notifications.ts`
+// use) and materializes any missing `parentLinks` row. It covers consents approved before links
+// were created at approval time, and re-signup/account-recovery edge cases where the caller's
+// current auth user is not the one created at approval. Both paths are pure derivations from
+// `parentChildConsents`, which remains the legal record of consent.
 // ---------------------------------------------------------------------------------------------
 
 // DOB precision note: `profiles.dateOfBirth` only ever stores "YYYY-MM" (month/year; the signup
@@ -84,10 +91,32 @@ const requireParentLink = async (
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * Inserts the `parentLinks` row for (parent, child) unless one already exists. Returns true when
+ * a row was created. Shared by consent approval (`childSignup.approveConsent`) and the lazy claim
+ * below, so both write the same shape.
+ */
+export const ensureParentLink = async (
+	ctx: MutationCtx,
+	parentProfileId: Id<'profiles'>,
+	childProfileId: Id<'profiles'>
+): Promise<boolean> => {
+	const existing = await ctx.db
+		.query('parentLinks')
+		.withIndex('by_parent_and_child', (q) =>
+			q.eq('parentProfileId', parentProfileId).eq('childProfileId', childProfileId)
+		)
+		.unique();
+	if (existing) return false;
+	await ctx.db.insert('parentLinks', { parentProfileId, childProfileId, createdAt: Date.now() });
+	return true;
+};
+
+/**
  * Lazily materializes `parentLinks` rows for the CURRENT authenticated user, one per APPROVED
  * `parentChildConsents` row whose `parentEmail` matches the caller's own Better Auth email
- * (case-insensitive). Idempotent — safe to call on every Settings page load (see
- * `getMyLinkedChildren`'s caller in the settings page, which fires this once per mount).
+ * (case-insensitive). Idempotent — safe to call on every Settings and /child/[id] page load
+ * (each fires this once per mount). Links are normally created at consent approval; this is the
+ * fallback for older consents (see the module header).
  */
 export const syncParentLinks = mutation({
 	args: {},
@@ -110,24 +139,13 @@ export const syncParentLinks = mutation({
 				.query('parentChildConsents')
 				.withIndex('by_parent_email', (q) => q.eq('parentEmail', normalizedEmail))
 				.collect()
-		).filter((consent) => consent.status === 'approved');
+		).filter((consent) => consent.status === 'approved' && consent.unlinkedAt === undefined);
 
 		let linkedCount = 0;
 		for (const consent of approvedConsents) {
-			const existing = await ctx.db
-				.query('parentLinks')
-				.withIndex('by_parent_and_child', (q) =>
-					q.eq('parentProfileId', profile._id).eq('childProfileId', consent.childProfileId)
-				)
-				.unique();
-			if (existing) continue;
-
-			await ctx.db.insert('parentLinks', {
-				parentProfileId: profile._id,
-				childProfileId: consent.childProfileId,
-				createdAt: Date.now()
-			});
-			linkedCount += 1;
+			if (await ensureParentLink(ctx, profile._id, consent.childProfileId)) {
+				linkedCount += 1;
+			}
 		}
 
 		return { linkedCount };
@@ -210,6 +228,7 @@ export const getMyParentLink = query({
  * parent), and only once they are >=16 by stored DOB (PRD: "restrictions auto-lift at 16, child
  * GAINS the option to unlink; access doesn't auto-sever until they unlink" — so under-16 child
  * accounts cannot call this at all, and turning 16 does not auto-sever anything by itself).
+ * Also stamps `unlinkedAt` on the consent behind the link so `syncParentLinks` never re-creates it.
  */
 export const unlinkParent = mutation({
 	args: {
@@ -230,11 +249,34 @@ export const unlinkParent = mutation({
 				q.eq('parentProfileId', args.parentProfileId).eq('childProfileId', profile._id)
 			)
 			.unique();
-		if (!link) {
-			return { success: true };
+		if (link) {
+			await ctx.db.delete(link._id);
 		}
 
-		await ctx.db.delete(link._id);
+		// Mark the consent(s) behind this link as unlinked, or the parent's next syncParentLinks
+		// (Settings, /child/[id]) would claim the link straight back. Older consents may predate
+		// `parentProfileId`, so a row without one is matched on the parent's auth email instead.
+		// Runs even when no link row was found, so a link that was never claimed yet can't be
+		// claimed later either.
+		const parentProfile = await ctx.db.get(args.parentProfileId);
+		const parentAuthEmail = parentProfile
+			? await getAuthUserEmail(ctx, parentProfile.authUserId)
+			: null;
+		const normalizedParentEmail = parentAuthEmail ? normalizeEmail(parentAuthEmail) : null;
+		const consents = await ctx.db
+			.query('parentChildConsents')
+			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', profile._id))
+			.collect();
+		const now = Date.now();
+		for (const consent of consents) {
+			if (consent.unlinkedAt !== undefined) continue;
+			const isThisParent = consent.parentProfileId
+				? consent.parentProfileId === args.parentProfileId
+				: normalizedParentEmail !== null &&
+					normalizeEmail(consent.parentEmail) === normalizedParentEmail;
+			if (!isThisParent) continue;
+			await ctx.db.patch(consent._id, { unlinkedAt: now, updatedAt: now });
+		}
 		return { success: true };
 	}
 });

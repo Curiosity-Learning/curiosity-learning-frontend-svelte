@@ -338,6 +338,12 @@ export default defineSchema({
 		termsAcceptedAt: v.optional(v.number()),
 		privacyPolicyAcceptedAt: v.optional(v.number()),
 		approvedAt: v.optional(v.number()),
+		// Set by `parentAccounts.unlinkParent` when a 16+ child severs the link to this parent.
+		// A consent with it set must never be claimed into a `parentLinks` row again by
+		// `syncParentLinks`, and no longer routes the child's non-critical chat emails to the
+		// parent (notifications.resolveEmailRecipient). The consent itself stays `approved`: it
+		// is the legal record that consent was given.
+		unlinkedAt: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
@@ -346,14 +352,16 @@ export default defineSchema({
 		.index('by_token', ['token'])
 		.index('by_status_and_created_at', ['status', 'createdAt']),
 
-	// PRD 2.4/6.1.10 (CL-703): materialized parent<->child link, derived lazily from an approved
+	// PRD 2.4/6.1.10 (CL-703): materialized parent<->child link, created when the parent approves
+	// consent (`childSignup.approveConsent`), or claimed later from an approved, not-unlinked
 	// `parentChildConsents` row whose `parentEmail` matches the CURRENT authenticated user's auth
-	// email (see `parentAccounts.claimParentLinks`). One row per (parentProfileId, childProfileId)
+	// email (see `parentAccounts.syncParentLinks`). One row per (parentProfileId, childProfileId)
 	// pair — enforced app-side via `by_parent_and_child` before insert (no native unique
 	// constraint). A parent can have many children; v1 has no reverse case (a child has exactly
 	// one linked parent via `parentChildConsents.parentProfileId`, but the link row is still keyed
 	// both ways so child-side queries — e.g. `unlinkParent` — can look it up without scanning by
-	// parent). Severed only by the CHILD once they turn 16 (see `unlinkParent`); parent-side reads
+	// parent). Severed only by the CHILD once they turn 16 (see `unlinkParent`, which also stamps
+	// the consent's `unlinkedAt` so the link is never claimed back); parent-side reads
 	// keep working until then even past the child's 16th birthday, per PRD "access doesn't
 	// auto-sever until they unlink".
 	parentLinks: defineTable({

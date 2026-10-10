@@ -758,14 +758,16 @@ export const deliverChatEmailNotification = internalMutation({
 			: `/chat?room=${args.roomId}`;
 		// A parent reading a club/project chat email is told they can hand these over to the
 		// child by adding an email address for them (the child cannot consent to that themselves;
-		// the parent does it from the child's overview page). Not on critical chats: those keep
-		// going to the parent either way, so the promise would be false.
+		// the parent does it from the child's overview page), and how to sign in: consent approval
+		// created a password-less account for this address (childSignup.approveConsent), which a
+		// Google sign-in links to, or "Forgot password?" gives a password. Not on critical chats:
+		// those keep going to the parent either way, so the promise would be false.
 		const note =
 			parentAudience && !critical
 				? (() => {
 						const childName = profileDisplayName(recipientProfile);
 						return {
-							text: `You get these emails because ${childName} has a child account. Add an email address for ${childName} and chat notifications like this one will go to them directly.`,
+							text: `You get these emails because ${childName} has a child account. You already have an account under this email address. To sign in, use "Continue with Google" if it is a Google address, or "Forgot password?" on the sign-in page if you have not set a password yet. Add an email address for ${childName} and chat notifications like this one will go to them directly.`,
 							url: `/child/${args.profileId}`,
 							linkLabel: `Add an email address for ${childName}`
 						};

@@ -315,6 +315,103 @@ describe('parentAccounts.unlinkParent', () => {
 	});
 });
 
+describe('parentAccounts.unlinkParent: an unlinked parent cannot claim the link back', () => {
+	const over16DateOfBirth = () => {
+		const birth = new Date(Date.now());
+		birth.setUTCFullYear(birth.getUTCFullYear() - 17);
+		return `${birth.getUTCFullYear()}-${String(birth.getUTCMonth() + 1).padStart(2, '0')}`;
+	};
+
+	it('stops syncParentLinks re-creating the link, and the child sees no linked parent', async () => {
+		const t = convexTest(schema, modules);
+		const childProfileId = await insertProfile(t, 'child-user', {
+			dateOfBirth: over16DateOfBirth()
+		});
+		const parentProfileId = await insertProfile(t, 'parent-user');
+		await insertApprovedConsent(t, {
+			childProfileId,
+			parentEmail: 'parent@example.com',
+			parentProfileId
+		});
+		const parent = t.withIdentity({ subject: 'parent-user' });
+		const child = t.withIdentity({ subject: 'child-user' });
+		expect((await parent.mutation(api.parentAccounts.syncParentLinks, {})).linkedCount).toBe(1);
+
+		await child.mutation(api.parentAccounts.unlinkParent, { parentProfileId });
+
+		expect((await parent.mutation(api.parentAccounts.syncParentLinks, {})).linkedCount).toBe(0);
+		await expect(
+			parent.query(api.parentAccounts.getChildOverview, { childProfileId })
+		).rejects.toThrow('You do not have access to this child account');
+		expect(await child.query(api.parentAccounts.getMyParentLink, {})).toBeNull();
+		await t.run(async (ctx) => {
+			const consents = await ctx.db
+				.query('parentChildConsents')
+				.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', childProfileId))
+				.collect();
+			expect(consents).toHaveLength(1);
+			// Still the legal record of consent; only marked unlinked.
+			expect(consents[0].status).toBe('approved');
+			expect(consents[0].unlinkedAt).toBeTypeOf('number');
+		});
+	});
+
+	it('also covers an older consent without parentProfileId, matched on the parent email', async () => {
+		const t = convexTest(schema, modules);
+		const childProfileId = await insertProfile(t, 'child-user', {
+			dateOfBirth: over16DateOfBirth()
+		});
+		const parentProfileId = await insertProfile(t, 'parent-user');
+		await insertApprovedConsent(t, { childProfileId, parentEmail: 'parent@example.com' });
+		const parent = t.withIdentity({ subject: 'parent-user' });
+		const child = t.withIdentity({ subject: 'child-user' });
+		expect((await parent.mutation(api.parentAccounts.syncParentLinks, {})).linkedCount).toBe(1);
+
+		await child.mutation(api.parentAccounts.unlinkParent, { parentProfileId });
+
+		expect((await parent.mutation(api.parentAccounts.syncParentLinks, {})).linkedCount).toBe(0);
+		await expect(
+			parent.query(api.parentAccounts.getChildOverview, { childProfileId })
+		).rejects.toThrow('You do not have access to this child account');
+		expect(await child.query(api.parentAccounts.getMyParentLink, {})).toBeNull();
+	});
+
+	it("leaves another parent's consent alone", async () => {
+		const t = convexTest(schema, modules);
+		const childProfileId = await insertProfile(t, 'child-user', {
+			dateOfBirth: over16DateOfBirth()
+		});
+		const parentProfileId = await insertProfile(t, 'parent-user');
+		await insertProfile(t, 'other-parent-user');
+		await insertApprovedConsent(t, {
+			childProfileId,
+			parentEmail: 'parent@example.com',
+			parentProfileId
+		});
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			await ctx.db.insert('parentChildConsents', {
+				childProfileId,
+				parentEmail: 'other-parent@example.com',
+				status: 'approved',
+				token: 'token-other',
+				approvedAt: now,
+				createdAt: now,
+				updatedAt: now
+			});
+		});
+
+		await t
+			.withIdentity({ subject: 'child-user' })
+			.mutation(api.parentAccounts.unlinkParent, { parentProfileId });
+
+		const otherParent = t.withIdentity({ subject: 'other-parent-user' });
+		expect((await otherParent.mutation(api.parentAccounts.syncParentLinks, {})).linkedCount).toBe(
+			1
+		);
+	});
+});
+
 describe('parentAccounts structural guarantee: no mutation accepts a childProfileId', () => {
 	it('has no `mutation({...})` block whose args include a childProfileId field', () => {
 		// Structural assertion (PRD requirement: "no mutations accept a childProfileId — nothing

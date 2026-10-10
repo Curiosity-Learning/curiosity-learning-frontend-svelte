@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
 
+import betterAuthTest from '@convex-dev/better-auth/test';
 import { convexTest } from 'convex-test';
 import { describe, expect, it } from 'vitest';
-import { internal } from './_generated/api';
+import { api, components, internal } from './_generated/api';
 import type { MutationCtx } from './_generated/server';
 import schema from './schema';
 
@@ -184,5 +185,65 @@ describe('listExpiredPendingConsents', () => {
 
 		expect(results).toHaveLength(1);
 		expect(results[0].consentId).toBe(expiredId);
+	});
+});
+
+describe('approveConsent', () => {
+	// approveConsent finds-or-creates the parent's Better Auth user through the component adapter,
+	// so this one mounts the real betterAuth component (its shipped test helper) instead of mocking.
+	it('links the parent to the child, so the parent can read the child overview straight away', async () => {
+		const t = convexTest(schema, modules);
+		betterAuthTest.register(t);
+		const now = Date.now();
+		const childAuthUser = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'kid@children.curiosity.local',
+					emailVerified: false,
+					name: 'Kid',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		const { profileId: childProfileId } = await t.run(async (ctx) => {
+			const seeded = await seedPendingChild(ctx, { createdAt: now });
+			await ctx.db.patch(seeded.profileId, { authUserId: childAuthUser._id });
+			return seeded;
+		});
+
+		await t.mutation(api.childSignup.approveConsent, {
+			token: `token-${now}`,
+			acceptedTerms: true,
+			acceptedPrivacyPolicy: true
+		});
+
+		const { parentProfileId, parentAuthUserId, links } = await t.run(async (ctx) => {
+			const consent = await ctx.db
+				.query('parentChildConsents')
+				.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', childProfileId))
+				.unique();
+			const parentProfile = consent?.parentProfileId
+				? await ctx.db.get(consent.parentProfileId)
+				: null;
+			return {
+				parentProfileId: parentProfile?._id,
+				parentAuthUserId: parentProfile?.authUserId,
+				links: await ctx.db
+					.query('parentLinks')
+					.withIndex('by_child', (q) => q.eq('childProfileId', childProfileId))
+					.collect()
+			};
+		});
+		expect(parentProfileId).toBeDefined();
+		expect(parentAuthUserId).toBeDefined();
+		expect(links).toHaveLength(1);
+		expect(links[0].parentProfileId).toBe(parentProfileId);
+
+		const overview = await t
+			.withIdentity({ subject: parentAuthUserId! })
+			.query(api.parentAccounts.getChildOverview, { childProfileId });
+		expect(overview.childProfileId).toBe(childProfileId);
 	});
 });

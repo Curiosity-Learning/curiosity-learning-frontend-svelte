@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -31,6 +32,26 @@
 	let childProfileId = $derived(
 		(page.params as Record<string, string | undefined>).childProfileId as Id<'profiles'>
 	);
+
+	const convexClient = useConvexClient();
+
+	// Fallback claim: parent links are created at consent approval (childSignup.approveConsent),
+	// but a parent whose consent predates that has none until syncParentLinks runs — and they can
+	// land here straight from a chat email without ever opening Settings. Claim once per mount,
+	// alongside the queries below. Once the link row exists, getChildOverview's subscription
+	// re-runs by itself (Convex re-runs a failed query when the data it read changes), so the only
+	// thing to hold back is the "not linked" alert, until the claim has settled.
+	let parentLinksClaimSettled = $state(false);
+	onMount(() => {
+		void convexClient
+			.mutation(api.parentAccounts.syncParentLinks, {})
+			.catch(() => {
+				// Best-effort: without a claim the overview shows the "not linked" alert as before.
+			})
+			.finally(() => {
+				parentLinksClaimSettled = true;
+			});
+	});
 
 	const overviewResponse = useStableQuery(api.parentAccounts.getChildOverview, () => ({
 		childProfileId
@@ -83,7 +104,6 @@
 	// Notification email: where the child's club/project chat (and other non-critical) emails
 	// go. Unset, they come to the parent — the chat email itself links here with a nudge to set
 	// one (chat.deliverChatEmailNotification). Critical notices keep going to the parent.
-	const convexClient = useConvexClient();
 	let notificationEmail = $derived(overview?.notificationEmail ?? null);
 	let editingNotificationEmail = $state(false);
 	let notificationEmailDraft = $state('');
@@ -126,7 +146,7 @@
 <PageHeaderTitle title={displayName || 'Child overview'} />
 
 <div class="flex w-full flex-col gap-4 py-4">
-	{#if overviewResponse.error}
+	{#if overviewResponse.error && parentLinksClaimSettled}
 		{#if isNotFoundError(overviewResponse.error)}
 			<Alert variant="destructive">
 				<AlertTitle>{t('parentAccounts.notFoundTitle')}</AlertTitle>
@@ -138,7 +158,7 @@
 				<AlertDescription>{overviewResponse.error.message}</AlertDescription>
 			</Alert>
 		{/if}
-	{:else if overviewResponse.isLoading && !overview}
+	{:else if !overview}
 		<LoadingState class="min-h-48" label="Loading child overview" />
 	{:else if overview}
 		<Alert class="flex flex-wrap items-center justify-between gap-3 border-orange-200 bg-orange-50">

@@ -92,7 +92,8 @@ export const unreadCount = query({
 //   one (parentAccounts.setChildNotificationEmail), read by the child as themselves;
 // - with no such address, `parentFallback` decides: chat emails ask for it (the parent has a
 //   read-only view of the child's chats and parent-facing copy exists), other high-tier kinds
-//   do not (their links lead to pages a parent cannot open) and resolve to no email.
+//   do not (their links lead to pages a parent cannot open) and resolve to no email. A parent
+//   the child has unlinked (consent `unlinkedAt`) gets no parentFallback email.
 // `audience` tells the caller whether to word the email for the recipient themselves or for a
 // parent reading about their child.
 export type EmailRecipient = { to: string; audience: 'self' | 'parent' };
@@ -117,7 +118,12 @@ export const resolveEmailRecipient = async (
 		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.profile._id))
 		.order('desc')
 		.collect();
-	const approved = consent.find((row) => row.status === 'approved');
+	// Once a 16+ child has unlinked this parent (parentAccounts.unlinkParent sets unlinkedAt),
+	// non-critical chat no longer goes to them: it describes chats the parent can no longer
+	// read. Critical notices still go to the parent who gave consent.
+	const approved = consent.find(
+		(row) => row.status === 'approved' && (args.critical || row.unlinkedAt === undefined)
+	);
 	return approved?.parentEmail ? { to: approved.parentEmail, audience: 'parent' } : null;
 };
 
