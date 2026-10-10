@@ -1038,7 +1038,25 @@ const nl = {
 		loadErrorTitle: 'Kan dit kindaccount niet laden',
 		notFoundTitle: 'Niet toegankelijk',
 		notFoundDescription: 'Dit kindaccount is niet gekoppeld aan je account.',
-		selectChatPrompt: 'Selecteer een chat om de berichten te bekijken.'
+		selectChatPrompt: 'Selecteer een chat om de berichten te bekijken.',
+		notificationEmailTitle: 'E-mailmeldingen',
+		notificationEmailDescription:
+			'E-mails over de club- en projectchats van {name} komen nu bij jou terecht. Voeg een e-mailadres voor {name} toe en die e-mails gaan rechtstreeks naar {name}.',
+		notificationEmailCurrent: 'E-mails over de club- en projectchats van {name} gaan naar',
+		notificationEmailCriticalNote:
+			'Belangrijke berichten, zoals updates over aanmeldingen en accountacties, sturen we altijd naar jou.',
+		notificationEmailLabel: 'E-mailadres van {name}',
+		notificationEmailPlaceholder: 'naam@voorbeeld.nl',
+		notificationEmailConsent:
+			'Door dit adres op te slaan bevestig je als ouder of voogd van {name} dat {name} daar meldingen van Curiosity Learning mag ontvangen.',
+		notificationEmailSave: 'E-mailadres opslaan',
+		notificationEmailCancel: 'Annuleren',
+		notificationEmailChange: 'Wijzigen',
+		notificationEmailRemove: 'Verwijderen en weer naar mij sturen',
+		notificationEmailSaved: 'Opgeslagen. Chat-e-mails gaan nu rechtstreeks naar {name}.',
+		notificationEmailRemoved: 'Verwijderd. Chat-e-mails komen weer bij jou terecht.',
+		notificationEmailInvalid: 'Vul een geldig e-mailadres in.',
+		notificationEmailFailure: 'Het e-mailadres kon niet worden opgeslagen. Probeer het opnieuw.'
 	},
 	feedback: {
 		entryPointTitle: 'Feedbackformulieren',

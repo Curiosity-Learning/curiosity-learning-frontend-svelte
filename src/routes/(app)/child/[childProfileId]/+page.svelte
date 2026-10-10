@@ -6,9 +6,13 @@
 	import { Avatar, AvatarFallback } from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
+	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
+	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
 	import { t } from '$lib/i18n';
@@ -18,9 +22,11 @@
 	// PRD 2.4/6.1.10 (CL-703): "View as Child" — a DEDICATED READ-ONLY SURFACE, not full app
 	// impersonation (see parentAccounts.ts module header for the full design note). Every query
 	// this page calls is server-verified against a `parentLinks` row between the caller and this
-	// child, and computes visibility AS THE CHILD would see it. There is no composer, no mutation
-	// affordance anywhere on this page — reporting uses the normal ReportIssueDialog, which
-	// submits under the PARENT's own identity (not "as" the child).
+	// child, and computes visibility AS THE CHILD would see it. There is no composer and nothing
+	// here acts "as" the child — reporting uses the normal ReportIssueDialog, which submits under
+	// the PARENT's own identity. The one write on this page is the parent's own setting for the
+	// child (notification email below), which is parent-owned by design: a child cannot consent
+	// to receiving email, so the parent does it for them here.
 
 	let childProfileId = $derived(
 		(page.params as Record<string, string | undefined>).childProfileId as Id<'profiles'>
@@ -73,6 +79,47 @@
 
 	const isNotFoundError = (error: unknown) =>
 		error instanceof Error && /access|not found|not accessible/i.test(error.message);
+
+	// Notification email: where the child's club/project chat (and other non-critical) emails
+	// go. Unset, they come to the parent — the chat email itself links here with a nudge to set
+	// one (chat.deliverChatEmailNotification). Critical notices keep going to the parent.
+	const convexClient = useConvexClient();
+	let notificationEmail = $derived(overview?.notificationEmail ?? null);
+	let editingNotificationEmail = $state(false);
+	let notificationEmailDraft = $state('');
+	let notificationEmailError = $state<string | null>(null);
+	let savingNotificationEmail = $state(false);
+
+	const startEditingNotificationEmail = () => {
+		notificationEmailDraft = notificationEmail ?? '';
+		notificationEmailError = null;
+		editingNotificationEmail = true;
+	};
+
+	const submitNotificationEmail = async (email: string | null) => {
+		if (savingNotificationEmail) return;
+		notificationEmailError = null;
+		savingNotificationEmail = true;
+		try {
+			await convexClient.mutation(api.parentAccounts.setChildNotificationEmail, {
+				childProfileId,
+				email
+			});
+			editingNotificationEmail = false;
+			showGlobalSnackbar({
+				title: email
+					? t('parentAccounts.notificationEmailSaved').replace('{name}', displayName)
+					: t('parentAccounts.notificationEmailRemoved')
+			});
+		} catch (error) {
+			notificationEmailError =
+				error instanceof Error && /valid email/i.test(error.message)
+					? t('parentAccounts.notificationEmailInvalid')
+					: t('parentAccounts.notificationEmailFailure');
+		} finally {
+			savingNotificationEmail = false;
+		}
+	};
 </script>
 
 <PageHeaderBackButton fallbackHref={routes.settings} />
@@ -115,6 +162,89 @@
 			</Tabs.List>
 
 			<Tabs.Content value="overview" class="flex flex-col gap-4">
+				<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
+					<div class="flex flex-col gap-1">
+						<p class="type-body-bold text-foreground">
+							{t('parentAccounts.notificationEmailTitle')}
+						</p>
+						{#if notificationEmail && !editingNotificationEmail}
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.notificationEmailCurrent').replace('{name}', displayName)}
+								<span class="type-sm-bold text-foreground">{notificationEmail}</span>
+							</p>
+						{:else}
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.notificationEmailDescription').replace(/\{name\}/g, displayName)}
+							</p>
+						{/if}
+						<p class="type-sm text-muted-foreground">
+							{t('parentAccounts.notificationEmailCriticalNote')}
+						</p>
+					</div>
+					{#if editingNotificationEmail || !notificationEmail}
+						<form
+							class="flex flex-col gap-3"
+							onsubmit={(event) => {
+								event.preventDefault();
+								void submitNotificationEmail(notificationEmailDraft);
+							}}
+						>
+							<div class="flex flex-col gap-1.5">
+								<Label for="child-notification-email">
+									{t('parentAccounts.notificationEmailLabel').replace('{name}', displayName)}
+								</Label>
+								<Input
+									id="child-notification-email"
+									type="email"
+									autocomplete="off"
+									placeholder={t('parentAccounts.notificationEmailPlaceholder')}
+									bind:value={notificationEmailDraft}
+									disabled={savingNotificationEmail}
+									aria-invalid={notificationEmailError ? true : undefined}
+								/>
+								{#if notificationEmailError}
+									<p class="type-sm text-destructive">{notificationEmailError}</p>
+								{/if}
+							</div>
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.notificationEmailConsent').replace('{name}', displayName)}
+							</p>
+							<div class="flex flex-wrap gap-2">
+								<Button
+									type="submit"
+									disabled={savingNotificationEmail || notificationEmailDraft.trim() === ''}
+								>
+									{t('parentAccounts.notificationEmailSave')}
+								</Button>
+								{#if editingNotificationEmail}
+									<Button
+										type="button"
+										variant="outline"
+										disabled={savingNotificationEmail}
+										onclick={() => (editingNotificationEmail = false)}
+									>
+										{t('parentAccounts.notificationEmailCancel')}
+									</Button>
+								{/if}
+							</div>
+						</form>
+					{:else}
+						<div class="flex flex-wrap gap-2">
+							<Button type="button" variant="outline" onclick={startEditingNotificationEmail}>
+								{t('parentAccounts.notificationEmailChange')}
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={savingNotificationEmail}
+								onclick={() => void submitNotificationEmail(null)}
+							>
+								{t('parentAccounts.notificationEmailRemove')}
+							</Button>
+						</div>
+					{/if}
+				</section>
+
 				<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
 					<p class="type-body-bold text-foreground">{t('parentAccounts.clubsTitle')}</p>
 					{#if overview.clubs.length === 0}
@@ -231,7 +361,7 @@
 						{#if roomsResponse.isLoading}
 							<LoadingState variant="inline" size="sm" label="Loading chats" />
 						{:else if rooms.length === 0}
-							<p class="p-3 type-sm text-muted-foreground">{t('parentAccounts.roomsEmpty')}</p>
+							<p class="type-sm p-3 text-muted-foreground">{t('parentAccounts.roomsEmpty')}</p>
 						{:else}
 							{#each rooms as room (room.roomId)}
 								<button

@@ -27,6 +27,17 @@ export default defineSchema({
 		videoUrl: v.optional(v.string()),
 		signUpWith: v.optional(v.union(v.literal('email'), v.literal('google'))),
 		parentProfileId: v.optional(v.id('profiles')),
+		// Child accounts only (synthetic @children.curiosity.local auth email, which is never
+		// emailed). A real address the LINKED PARENT entered on the child's behalf
+		// (parentAccounts.setChildNotificationEmail) so non-critical notifications — club/project
+		// chat activity and other high-tier kinds — reach the child directly instead of the
+		// parent. The child cannot consent to this themselves, so only a parent with a parentLinks
+		// row can set or clear it; who and when is kept for the record. Critical notices (account
+		// actions, application/join-request chats) keep going to the approved parent regardless.
+		// Resolution lives in notifications.resolveEmailRecipient.
+		notificationEmail: v.optional(v.string()),
+		notificationEmailSetAt: v.optional(v.number()),
+		notificationEmailSetByProfileId: v.optional(v.id('profiles')),
 		// PRD 5.10: platform-wide capability, orthogonal to club/project roles. Grants access to
 		// the separate /admin route group (CL-693) only — must never be branched on inside normal
 		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).

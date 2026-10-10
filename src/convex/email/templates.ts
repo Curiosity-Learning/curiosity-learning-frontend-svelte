@@ -275,21 +275,39 @@ export const clubLeaderInviteEmail = (args: {
 
 // Generic template for tiered notification emails (CL-715). Renders the same title/message
 // pair that is stored on the in-app `notifications` row, plus an optional CTA link into the app.
+// `note` is an optional secondary paragraph under the CTA, with its own link (e.g. telling a
+// parent they can redirect their child's chat emails — chat.deliverChatEmailNotification).
 export const notificationEmail = (args: {
 	title: string;
 	message: string;
 	ctaUrl?: string;
+	note?: { text: string; url?: string; linkLabel?: string };
 }): EmailContent => {
 	const message = escapeHtml(args.message);
+	const noteText = args.note
+		? [args.note.text, args.note.url].filter(Boolean).join('\n')
+		: undefined;
+	const noteHtml = args.note
+		? `
+				<div style="margin:24px 0 0;padding:14px 16px;border-radius:10px;background:${colors.background};border:1px solid ${colors.border};">
+					<p style="margin:0;font-size:14px;line-height:21px;color:${colors.muted};">${escapeHtml(args.note.text)}</p>
+					${
+						args.note.url
+							? `<p style="margin:8px 0 0;font-size:14px;line-height:21px;"><a href="${escapeHtml(args.note.url)}" style="color:${colors.primaryDark};font-weight:700;">${escapeHtml(args.note.linkLabel ?? args.note.url)}</a></p>`
+							: ''
+					}
+				</div>`
+		: '';
 	return {
 		subject: args.title,
-		text: args.ctaUrl ? `${args.message}\n\n${args.ctaUrl}` : args.message,
+		text: [args.message, args.ctaUrl, noteText].filter(Boolean).join('\n\n'),
 		html: layout({
 			preheader: args.message,
 			title: args.title,
 			children: `
 				${paragraph(message)}
 				${args.ctaUrl ? `${button(args.ctaUrl, 'Open Curiosity Learning')}${rawLink(args.ctaUrl)}` : ''}
+				${noteHtml}
 			`,
 			footer:
 				'You received this email because of activity on your Curiosity Learning account. You can adjust which notifications you receive in Settings.'

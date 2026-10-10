@@ -307,6 +307,56 @@ describe('child account email routing', () => {
 		expect(notifications[0].title).toBe('Session cancelled');
 		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
+
+	it("emails high kinds to the child's notification email once a parent has set one", async () => {
+		vi.useFakeTimers();
+		const { t, clubId, childProfileId } = await seedFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId, { notificationEmail: 'kiddo@example.com' });
+		});
+
+		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
+			clubId,
+			location: 'Club HQ',
+			startTime: Date.now() + 2 * HOUR,
+			endTime: Date.now() + 3 * HOUR
+		});
+		if (!session) throw new Error('session not created');
+		await t
+			.withIdentity({ subject: 'child-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'going' });
+		await t
+			.withIdentity({ subject: 'learner-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'not_going' });
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.cancel, { sessionId: session._id });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({ to: 'kiddo@example.com', subject: 'Session cancelled' })
+		);
+	});
+
+	it('critical kinds keep going to the parent even with a child notification email set', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, childProfileId } = await seedFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId, { notificationEmail: 'kiddo@example.com' });
+		});
+
+		const memberId = await memberIdFor(t, clubId, childProfileId);
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.clubs.kickMember, { clubMemberId: memberId, reason: 'Testing' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({ to: 'parent@example.com', subject: 'Removed from club' })
+		);
+	});
 });
 
 describe('new member joined producer', () => {
@@ -436,9 +486,7 @@ describe('session reminder scheduling (24h before start)', () => {
 
 		let jobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect());
 		const originalReminder = jobs.find((job) => job.scheduledTime === startTime - 24 * HOUR);
-		const rescheduledReminder = jobs.find(
-			(job) => job.scheduledTime === newStartTime - 24 * HOUR
-		);
+		const rescheduledReminder = jobs.find((job) => job.scheduledTime === newStartTime - 24 * HOUR);
 		expect(originalReminder?.state.kind).toBe('canceled');
 		expect(rescheduledReminder?.state.kind).toBe('pending');
 

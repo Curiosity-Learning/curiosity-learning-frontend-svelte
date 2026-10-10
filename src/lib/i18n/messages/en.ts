@@ -1040,7 +1040,25 @@ const en = {
 		loadErrorTitle: 'Could not load this child account',
 		notFoundTitle: 'Not accessible',
 		notFoundDescription: "This child account isn't linked to your account.",
-		selectChatPrompt: 'Select a chat to view its messages.'
+		selectChatPrompt: 'Select a chat to view its messages.',
+		notificationEmailTitle: 'Email notifications',
+		notificationEmailDescription:
+			"Emails about {name}'s club and project chats currently come to you. Add an email address for {name} and those emails will go to them directly.",
+		notificationEmailCurrent: "Emails about {name}'s club and project chats go to",
+		notificationEmailCriticalNote:
+			'Important notices, such as application updates and account actions, will always be sent to you.',
+		notificationEmailLabel: "{name}'s email address",
+		notificationEmailPlaceholder: 'name@example.com',
+		notificationEmailConsent:
+			"By saving this address you confirm, as {name}'s parent or guardian, that they may receive Curiosity Learning notification emails there.",
+		notificationEmailSave: 'Save email address',
+		notificationEmailCancel: 'Cancel',
+		notificationEmailChange: 'Change',
+		notificationEmailRemove: 'Remove and send to me instead',
+		notificationEmailSaved: 'Saved. Chat emails will now go to {name} directly.',
+		notificationEmailRemoved: 'Removed. Chat emails will come to you again.',
+		notificationEmailInvalid: 'Please enter a valid email address.',
+		notificationEmailFailure: 'Could not save the email address. Please try again.'
 	},
 	feedback: {
 		entryPointTitle: 'Feedback forms',

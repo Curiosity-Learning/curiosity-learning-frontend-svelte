@@ -386,15 +386,89 @@ describe('chat email notifications', () => {
 		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
 
-	it('sends no email at all to child accounts (adult members still get theirs)', async () => {
+	// Child accounts have no real address of their own. Club/project chat (high tier) goes to
+	// the approved parent — worded for a parent, linking to their read-only view of the child's
+	// chats, and telling them they can hand these emails over to the child by setting an email
+	// address for them — unless the parent already did, in which case the child is emailed like
+	// any other member. Critical (application/join-request) chat always goes to the parent.
+	it('club chat for a child account goes to the parent, with a nudge to set the child an email', async () => {
 		vi.useFakeTimers();
-		const { t, guide, roomId } = await seedFixture({ withChild: true });
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const { t, guide, roomId, childProfileId } = await seedFixture({ withChild: true });
 
 		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-		// chat_activity is high tier, and non-critical emails never route to a child account's
-		// parent address — the child gets nothing while the adult learner is emailed normally.
+		expect(sendEmailMock).toHaveBeenCalledTimes(2);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'learner@example.com',
+				subject: 'New messages in Curiosity Club'
+			})
+		);
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'parent@example.com',
+				subject: 'New messages for kiddo in Curiosity Club'
+			})
+		);
+		const parentCall = (
+			sendEmailMock.mock.calls as unknown as Array<[{ to: string; html: string; text: string }]>
+		)
+			.map(([call]) => call)
+			.find((call) => call.to === 'parent@example.com');
+		expect(parentCall?.html).toContain(
+			`https://app.example.com/child/${childProfileId}?room=${roomId}`
+		);
+		expect(parentCall?.html).toContain('Add an email address for kiddo');
+		expect(parentCall?.html).toContain(`https://app.example.com/child/${childProfileId}"`);
+		expect(parentCall?.text).toContain('chat notifications like this one will go to them directly');
+		// Audit row names the resolved address, not the child's synthetic one.
+		const deliveries = await emailDeliveriesFor(t, childProfileId!);
+		expect(deliveries).toHaveLength(1);
+		expect(deliveries[0].to).toBe('parent@example.com');
+	});
+
+	it('club chat goes straight to the child once the parent has set their notification email', async () => {
+		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const { t, guide, roomId, childProfileId } = await seedFixture({ withChild: true });
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId!, { notificationEmail: 'kiddo@example.com' });
+		});
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(2);
+		expect(sendEmailMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ to: 'parent@example.com' })
+		);
+		// Worded for the child themselves, linking to their own chat, and no parent nudge.
+		expect(sendEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: 'kiddo@example.com',
+				subject: 'New messages in Curiosity Club'
+			})
+		);
+		const childCall = (sendEmailMock.mock.calls as unknown as Array<[{ to: string; html: string }]>)
+			.map(([call]) => call)
+			.find((call) => call.to === 'kiddo@example.com');
+		expect(childCall?.html).toContain(`https://app.example.com/chat?room=${roomId}`);
+		expect(childCall?.html).not.toContain('Add an email address');
+	});
+
+	it("the child's notification email still respects their chatMessages mute preference", async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, childProfileId } = await seedFixture({ withChild: true });
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId!, { notificationEmail: 'kiddo@example.com' });
+		});
+		await muteChatMessagesFor(t, childProfileId!);
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
 		expect(sendEmailMock).toHaveBeenCalledTimes(1);
 		expect(sendEmailMock).toHaveBeenCalledWith(
 			expect.objectContaining({ to: 'learner@example.com' })
@@ -567,6 +641,11 @@ describe('chat email notifications', () => {
 			return { roomId, childProfileId };
 		});
 
+		// Critical chat goes to the parent even when the child has their own notification email —
+		// so the "goes to them directly" nudge, which would be untrue here, is left out too.
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId, { notificationEmail: 'kiddo@example.com' });
+		});
 		await t
 			.withIdentity({ subject: 'guide-user' })
 			.mutation(api.chat.sendMessage, { roomId, content: 'Question for the applicant' });
@@ -583,6 +662,7 @@ describe('chat email notifications', () => {
 		);
 		const [{ html }] = sendEmailMock.mock.calls[0] as unknown as [{ html: string }];
 		expect(html).toContain(`https://app.example.com/child/${childProfileId}?room=${roomId}`);
+		expect(html).not.toContain('Add an email address');
 	});
 
 	it('tracks delivery state per (recipient, room) on roomEmailMarkers', async () => {

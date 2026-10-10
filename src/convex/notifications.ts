@@ -1,7 +1,7 @@
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import type { Id } from './_generated/dataModel';
-import type { ActionCtx, MutationCtx } from './_generated/server';
+import type { Doc, Id } from './_generated/dataModel';
+import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server';
 import { internalAction, internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
@@ -84,10 +84,43 @@ export const unreadCount = query({
 	}
 });
 
-// Resolves the deliverable email address for a notification recipient.
-// - Adult accounts: their Better Auth email.
-// - Child accounts (synthetic @children.curiosity.local auth email): the approved parent
-//   email from parentChildConsents for CRITICAL notices, otherwise null (no email).
+// Who a notification email really goes to. Adult accounts: their Better Auth email, read as
+// themselves. Child accounts (synthetic @children.curiosity.local auth email, never emailed):
+// - critical notices always go to the approved parent (parentChildConsents.parentEmail) — the
+//   parent is the accountable adult for account actions and review conversations;
+// - everything else goes to the child's own `notificationEmail` when the linked parent has set
+//   one (parentAccounts.setChildNotificationEmail), read by the child as themselves;
+// - with no such address, `parentFallback` decides: chat emails ask for it (the parent has a
+//   read-only view of the child's chats and parent-facing copy exists), other high-tier kinds
+//   do not (their links lead to pages a parent cannot open) and resolve to no email.
+// `audience` tells the caller whether to word the email for the recipient themselves or for a
+// parent reading about their child.
+export type EmailRecipient = { to: string; audience: 'self' | 'parent' };
+
+export const resolveEmailRecipient = async (
+	ctx: QueryCtx | MutationCtx,
+	args: { profile: Doc<'profiles'>; critical: boolean; parentFallback?: boolean }
+): Promise<EmailRecipient | null> => {
+	const email = await getAuthUserEmail(ctx, args.profile.authUserId);
+	if (!email) return null;
+	if (!email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
+		return { to: email, audience: 'self' };
+	}
+
+	// Child account: never email the synthetic address.
+	if (!args.critical && args.profile.notificationEmail) {
+		return { to: args.profile.notificationEmail, audience: 'self' };
+	}
+	if (!args.critical && !args.parentFallback) return null;
+	const consent = await ctx.db
+		.query('parentChildConsents')
+		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.profile._id))
+		.order('desc')
+		.collect();
+	const approved = consent.find((row) => row.status === 'approved');
+	return approved?.parentEmail ? { to: approved.parentEmail, audience: 'parent' } : null;
+};
+
 export const resolveNotificationEmailRecipient = internalQuery({
 	args: {
 		recipientProfileId: v.id('profiles'),
@@ -97,24 +130,19 @@ export const resolveNotificationEmailRecipient = internalQuery({
 	handler: async (ctx, args) => {
 		const profile = await ctx.db.get(args.recipientProfileId);
 		if (!profile) return null;
-
-		const email = await getAuthUserEmail(ctx, profile.authUserId);
-		if (!email) return null;
-
-		if (!email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
-			return email;
-		}
-
-		// Child account: never email the synthetic address.
-		if (!args.critical) return null;
-		const consent = await ctx.db
-			.query('parentChildConsents')
-			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.recipientProfileId))
-			.order('desc')
-			.collect();
-		const approved = consent.find((row) => row.status === 'approved');
-		return approved?.parentEmail ?? null;
+		const recipient = await resolveEmailRecipient(ctx, { profile, critical: args.critical });
+		return recipient?.to ?? null;
 	}
+});
+
+// A secondary, lower-emphasis paragraph under the CTA — used to tell a parent reading about
+// their child's chat that they can hand these emails over to the child (see chat.ts).
+export type NotificationEmailNote = { text: string; url?: string; linkLabel?: string };
+
+export const notificationEmailNoteValidator = v.object({
+	text: v.string(),
+	url: v.optional(v.string()),
+	linkLabel: v.optional(v.string())
 });
 
 export type NotificationEmailArgs = {
@@ -124,6 +152,10 @@ export type NotificationEmailArgs = {
 	title: string;
 	message: string;
 	url?: string;
+	// Pre-resolved address: the caller already ran resolveEmailRecipient (chat does, because the
+	// wording depends on the audience) and the result must not be re-derived differently here.
+	to?: string;
+	note?: NotificationEmailNote;
 };
 
 export type NotificationEmailResult =
@@ -142,26 +174,34 @@ export const deliverNotificationEmail = async (
 	ctx: ActionCtx,
 	args: NotificationEmailArgs
 ): Promise<NotificationEmailResult> => {
-	const to = await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
-		recipientProfileId: args.recipientProfileId,
-		critical: args.critical
-	});
+	const to =
+		args.to ??
+		(await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
+			recipientProfileId: args.recipientProfileId,
+			critical: args.critical
+		}));
 	if (!to) return { status: 'skipped' };
 
 	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
-	const ctaUrl = args.url
-		? args.url.startsWith('/')
-			? baseUrl
-				? `${baseUrl.replace(/\/+$/, '')}${args.url}`
-				: undefined
-			: args.url
-		: baseUrl;
+	// Relative app paths only become links when a base url is configured.
+	const toAbsoluteUrl = (url: string | undefined) =>
+		url
+			? url.startsWith('/')
+				? baseUrl
+					? `${baseUrl.replace(/\/+$/, '')}${url}`
+					: undefined
+				: url
+			: baseUrl;
+	const ctaUrl = toAbsoluteUrl(args.url);
+	const note = args.note
+		? { ...args.note, url: args.note.url ? toAbsoluteUrl(args.note.url) : undefined }
+		: undefined;
 
 	try {
 		const { providerMessageId } = await sendEmail({
 			to,
 			type: 'notification',
-			...notificationEmail({ title: args.title, message: args.message, ctaUrl })
+			...notificationEmail({ title: args.title, message: args.message, ctaUrl, note })
 		});
 		return { status: 'sent', to, providerMessageId };
 	} catch (error) {

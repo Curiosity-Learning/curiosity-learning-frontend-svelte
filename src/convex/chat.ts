@@ -3,7 +3,6 @@ import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalAction, internalMutation, mutation, query } from './_generated/server';
-import { getAuthUserEmail } from './authEmail';
 import {
 	CHAT_EMAIL_REPEAT_AFTER_MS,
 	CHAT_EMAIL_SEND_TIMEOUT_MS,
@@ -13,7 +12,6 @@ import {
 	getUnreadFloor,
 	postRoomMessage
 } from './chatEmail';
-import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import {
 	getChatEmailCopy,
 	getChatEmailCopyForParent,
@@ -25,12 +23,19 @@ import {
 	getRoomContext,
 	getRoomName,
 	listRoomRecipientProfileIds,
+	profileDisplayName,
 	summarizeProfileForChat,
 	type ChatParticipantSummary,
 	type RoomActionState,
 	type SendBlockedReason
 } from './chatModel';
-import { deliverNotificationEmail, emailDeliveryResultValidator, recordEmailDelivery } from './notifications';
+import {
+	deliverNotificationEmail,
+	emailDeliveryResultValidator,
+	notificationEmailNoteValidator,
+	recordEmailDelivery,
+	resolveEmailRecipient
+} from './notifications';
 import { isKindMuted, notificationKindConfig } from './notificationsModel';
 import {
 	getProfileByAuthUserId,
@@ -671,8 +676,8 @@ export const markRoomRead = mutation({
 // dispatchNotification while reusing the kind config (chatModel.getChatEmailKind: muteable
 // chat_activity for club/project rooms, critical review_chat_activity for application and
 // join-request rooms) and the same email channel — the tier is also what decides child-account
-// routing: critical chat email goes to the approved parent, high resolves to no deliverable
-// address for children.
+// routing: critical chat email goes to the approved parent; high goes to the child's own
+// notificationEmail when the parent has set one, else to the parent (with a nudge to set one).
 export const deliverChatEmailNotification = internalMutation({
 	args: {
 		roomId: v.id('rooms'),
@@ -733,18 +738,39 @@ export const deliverChatEmailNotification = internalMutation({
 		// read-only view of the child's chats (chat?room= would resolve to nothing for them).
 		const recipientProfile = await ctx.db.get(args.profileId);
 		if (!recipientProfile) return null;
-		const recipientEmail = await getAuthUserEmail(ctx, recipientProfile.authUserId);
-		const isChildAccount = Boolean(
-			recipientEmail?.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)
-		);
 		const critical = kindConfig.tier === 'critical';
-		if (isChildAccount && !critical) return null;
-		const { title, chatLabel } = isChildAccount
+		// Resolved here, not in the send action, because the wording and the link depend on who
+		// reads it. A child account's email goes to the parent — unless the parent has set a
+		// notificationEmail for the child, in which case non-critical chat (club/project rooms)
+		// goes to the child directly, worded for them (see notifications.resolveEmailRecipient).
+		const recipient = await resolveEmailRecipient(ctx, {
+			profile: recipientProfile,
+			critical,
+			parentFallback: true
+		});
+		if (!recipient) return null;
+		const parentAudience = recipient.audience === 'parent';
+		const { title, chatLabel } = parentAudience
 			? await getChatEmailCopyForParent(ctx, room, recipientProfile)
 			: await getChatEmailCopy(ctx, room, args.profileId);
-		const url = isChildAccount
+		const url = parentAudience
 			? `/child/${args.profileId}?room=${args.roomId}`
 			: `/chat?room=${args.roomId}`;
+		// A parent reading a club/project chat email is told they can hand these over to the
+		// child by adding an email address for them (the child cannot consent to that themselves;
+		// the parent does it from the child's overview page). Not on critical chats: those keep
+		// going to the parent either way, so the promise would be false.
+		const note =
+			parentAudience && !critical
+				? (() => {
+						const childName = profileDisplayName(recipientProfile);
+						return {
+							text: `You get these emails because ${childName} has a child account. Add an email address for ${childName} and chat notifications like this one will go to them directly.`,
+							url: `/child/${args.profileId}`,
+							linkLabel: `Add an email address for ${childName}`
+						};
+					})()
+				: undefined;
 
 		if (marker) {
 			await ctx.db.patch(marker._id, { sendingSince: now });
@@ -763,7 +789,9 @@ export const deliverChatEmailNotification = internalMutation({
 			kind,
 			title,
 			message: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
-			url
+			url,
+			to: recipient.to,
+			note
 		});
 		return null;
 	}
@@ -782,7 +810,9 @@ export const sendChatEmail = internalAction({
 		kind: v.string(),
 		title: v.string(),
 		message: v.string(),
-		url: v.string()
+		url: v.string(),
+		to: v.string(),
+		note: v.optional(notificationEmailNoteValidator)
 	},
 	handler: async (ctx, args) => {
 		const result = await deliverNotificationEmail(ctx, args);

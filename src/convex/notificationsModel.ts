@@ -42,7 +42,8 @@ export type NotificationKind =
 	// unread badge is the in-app signal); chat.ts delivers the email directly and uses these
 	// kinds' config for the tier/preference wiring (chatModel.getChatEmailKind maps room type →
 	// kind).
-	// high: club and project group chats — muteable, and child accounts get no email.
+	// high: club and project group chats — muteable. A child account's goes to the email their
+	// parent set for them, else to the parent (notifications.resolveEmailRecipient).
 	| 'chat_activity'
 	// critical: application and join-request chats — 1:1 review conversations that stall if the
 	// applicant/requester never hears about a reply, so they always email and route to the

@@ -559,11 +559,11 @@ export const getChatEmailCopy = async (
 	}
 };
 
-// Parent-facing variant of getChatEmailCopy: a child account's critical chat email is delivered
-// to their approved parent (notifications.resolveNotificationEmailRecipient), who reads it as a
-// third party — "your club application" would be wrong, and the link goes to the parent's
-// read-only view of the child's chats. Exhaustive like getChatEmailCopy; club/project rooms are
-// high tier and never reach a parent, but a future tier change must not leave them wordless.
+// Parent-facing variant of getChatEmailCopy: a child account's chat email is delivered to their
+// approved parent (notifications.resolveEmailRecipient) unless the parent has set a
+// notificationEmail for the child, so the parent reads it as a third party — "your club
+// application" would be wrong, and the link goes to the parent's read-only view of the child's
+// chats. Exhaustive like getChatEmailCopy.
 export const getChatEmailCopyForParent = async (
 	ctx: Ctx,
 	room: Doc<'rooms'>,

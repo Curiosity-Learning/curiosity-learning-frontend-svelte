@@ -16,7 +16,9 @@ const { authEmailByUserId } = vi.hoisted(() => ({
 	authEmailByUserId: new Map<string, string>([
 		['parent-user', 'parent@example.com'],
 		['other-parent-user', 'other-parent@example.com'],
-		['stranger-user', 'stranger@example.com']
+		['stranger-user', 'stranger@example.com'],
+		['child-user', 'child-user@children.curiosity.local'],
+		['adult-child-user', 'grown@example.com']
 	])
 }));
 
@@ -323,6 +325,10 @@ describe('parentAccounts structural guarantee: no mutation accepts a childProfil
 		// this test greps the mutation()/internalMutation() call sites in source text instead of
 		// eager-importing modules. `unlinkParent`/`syncParentLinks` (this module's own mutations)
 		// intentionally take no childProfileId — they always act on the CALLER's own profile.
+		// The one allowed exception is `setChildNotificationEmail`: it writes a parent-owned
+		// setting (profiles.notificationEmail) onto the child's profile after verifying the
+		// parentLinks row, and runs nothing as the child — covered by its own tests below.
+		const allowedMutationBlocks = ['setChildNotificationEmail = mutation({'];
 		const convexDir = new URL('.', import.meta.url).pathname;
 		const offenders: string[] = [];
 
@@ -336,12 +342,92 @@ describe('parentAccounts structural guarantee: no mutation accepts a childProfil
 			let match: RegExpExecArray | null;
 			while ((match = mutationBlockPattern.exec(source))) {
 				const argsBlock = match[1];
-				if (/childProfileId\s*:/.test(argsBlock)) {
-					offenders.push(fileName);
-				}
+				if (!/childProfileId\s*:/.test(argsBlock)) continue;
+				const preamble = source.slice(Math.max(0, match.index - 60), match.index + 12);
+				if (allowedMutationBlocks.some((allowed) => preamble.includes(allowed))) continue;
+				offenders.push(fileName);
 			}
 		}
 
 		expect(offenders).toEqual([]);
+	});
+});
+
+describe('parentAccounts.setChildNotificationEmail', () => {
+	const seedLinkedChild = async (childAuthUserId = 'child-user') => {
+		const t = convexTest(schema, modules);
+		const parentProfileId = await insertProfile(t, 'parent-user');
+		const childProfileId = await insertProfile(t, childAuthUserId);
+		await insertApprovedConsent(t, { childProfileId, parentEmail: 'parent@example.com' });
+		await t
+			.withIdentity({ subject: 'parent-user' })
+			.mutation(api.parentAccounts.syncParentLinks, {});
+		return {
+			t,
+			parentProfileId,
+			childProfileId,
+			parent: t.withIdentity({ subject: 'parent-user' })
+		};
+	};
+
+	it('lets the linked parent set and clear the address, recording who did it', async () => {
+		const { t, parent, parentProfileId, childProfileId } = await seedLinkedChild();
+
+		const result = await parent.mutation(api.parentAccounts.setChildNotificationEmail, {
+			childProfileId,
+			email: '  Kid.Mail@Example.com '
+		});
+		expect(result).toEqual({ notificationEmail: 'kid.mail@example.com' });
+		let child = await t.run(async (ctx) => await ctx.db.get(childProfileId));
+		expect(child?.notificationEmail).toBe('kid.mail@example.com');
+		expect(child?.notificationEmailSetByProfileId).toBe(parentProfileId);
+		expect(child?.notificationEmailSetAt).toEqual(expect.any(Number));
+		const overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		expect(overview.notificationEmail).toBe('kid.mail@example.com');
+
+		await parent.mutation(api.parentAccounts.setChildNotificationEmail, {
+			childProfileId,
+			email: null
+		});
+		child = await t.run(async (ctx) => await ctx.db.get(childProfileId));
+		expect(child?.notificationEmail).toBeUndefined();
+		expect(child?.notificationEmailSetByProfileId).toBeUndefined();
+	});
+
+	it('rejects anyone without a parentLinks row for that child', async () => {
+		const { t, childProfileId } = await seedLinkedChild();
+		await insertProfile(t, 'stranger-user');
+		await expect(
+			t
+				.withIdentity({ subject: 'stranger-user' })
+				.mutation(api.parentAccounts.setChildNotificationEmail, {
+					childProfileId,
+					email: 'kid@example.com'
+				})
+		).rejects.toThrow(/do not have access/);
+	});
+
+	it('rejects malformed addresses and the synthetic child domain', async () => {
+		const { parent, childProfileId } = await seedLinkedChild();
+		for (const email of [
+			'not-an-email',
+			'kid@nodot',
+			'kid @example.com',
+			'kid@children.curiosity.local'
+		]) {
+			await expect(
+				parent.mutation(api.parentAccounts.setChildNotificationEmail, { childProfileId, email })
+			).rejects.toThrow(/valid email/);
+		}
+	});
+
+	it('refuses to set one on an account that already has a real email', async () => {
+		const { parent, childProfileId } = await seedLinkedChild('adult-child-user');
+		await expect(
+			parent.mutation(api.parentAccounts.setChildNotificationEmail, {
+				childProfileId,
+				email: 'kid@example.com'
+			})
+		).rejects.toThrow(/only be set for a child account/);
 	});
 });

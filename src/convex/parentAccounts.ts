@@ -3,6 +3,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
+import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { getRoomAccess, getRoomName } from './chatModel';
 import { requireIdentity, requireProfile } from './permissions';
 import { canViewProject } from './projectsModel';
@@ -44,7 +45,10 @@ const normalizeEmail = (value: string) => value.trim().toLowerCase();
 // resolve in favor of the child gaining the unlink option as early as plausible, per PRD "child
 // gains the option to unlink" at 16 — the two helpers intentionally round in opposite directions
 // for their respective purposes.
-export const isAtLeast16FromDateOfBirth = (dateOfBirth: string | undefined, now: number): boolean => {
+export const isAtLeast16FromDateOfBirth = (
+	dateOfBirth: string | undefined,
+	now: number
+): boolean => {
 	if (!dateOfBirth) return false;
 	const match = /^(\d{4})-(\d{2})$/.exec(dateOfBirth);
 	if (!match) return false;
@@ -346,9 +350,7 @@ export const getChildOverview = query({
 		// set (same shape as profiles.getById).
 		const authoredUpdates = await ctx.db
 			.query('updates')
-			.withIndex('by_created_by_profile_and_created', (q) =>
-				q.eq('createdByProfileId', child._id)
-			)
+			.withIndex('by_created_by_profile_and_created', (q) => q.eq('createdByProfileId', child._id))
 			.order('desc')
 			.take(UPDATES_PREVIEW_LIMIT * 4);
 
@@ -393,6 +395,7 @@ export const getChildOverview = query({
 			lastName: child.lastName ?? null,
 			username: child.username ?? null,
 			profileImageMediaAssetId: child.profileImageMediaAssetId ?? null,
+			notificationEmail: child.notificationEmail ?? null,
 			clubs,
 			projects: {
 				current: projectEntries.filter((entry) => entry.section === 'current'),
@@ -584,5 +587,64 @@ export const listChildMessages = query({
 			messages: records.slice(0, limit).reverse(),
 			hasMore
 		};
+	}
+});
+
+// ---------------------------------------------------------------------------------------------
+// Child notification email
+// ---------------------------------------------------------------------------------------------
+
+// Deliberately strict-but-simple: one "@", no whitespace, a dot in the domain. The address is
+// only ever used as a Resend recipient, so a false negative costs a retry, a false positive an
+// undeliverable email — neither is a security concern.
+const isPlausibleEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+/**
+ * Sets (or clears, with `email: null`) the real address a child's NON-critical notification
+ * emails go to — club/project chat activity and other high-tier kinds — instead of the parent
+ * (see profiles.notificationEmail in schema.ts and notifications.resolveEmailRecipient).
+ *
+ * This is the one parentAccounts mutation that names a childProfileId, and it is NOT an "act as
+ * the child" path (see the module header and the structural test in parentAccounts.spec.ts):
+ * it writes a parent-owned setting onto the child's profile and runs nothing under the child's
+ * identity. Only the linked parent may call it, because a child cannot consent to receiving
+ * email on their own — the parent does so on their behalf, and who/when is recorded.
+ */
+export const setChildNotificationEmail = mutation({
+	args: {
+		childProfileId: v.id('profiles'),
+		email: v.union(v.string(), v.null())
+	},
+	returns: v.object({ notificationEmail: v.union(v.string(), v.null()) }),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const parentProfile = await requireProfile(ctx, identity.subject);
+		await requireParentLink(ctx, parentProfile._id, args.childProfileId);
+
+		const child = await ctx.db.get(args.childProfileId);
+		if (!child) {
+			throw new ConvexError('Child profile not found');
+		}
+		const childAuthEmail = await getAuthUserEmail(ctx, child.authUserId);
+		if (!childAuthEmail?.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
+			// An adult account already has a real, verified email of its own.
+			throw new ConvexError('Notification email can only be set for a child account');
+		}
+
+		const email = args.email === null ? null : normalizeEmail(args.email);
+		if (email !== null) {
+			if (!isPlausibleEmail(email) || email.endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
+				throw new ConvexError('Please enter a valid email address');
+			}
+		}
+
+		const now = Date.now();
+		await ctx.db.patch(child._id, {
+			notificationEmail: email ?? undefined,
+			notificationEmailSetAt: email ? now : undefined,
+			notificationEmailSetByProfileId: email ? parentProfile._id : undefined,
+			updatedAt: now
+		});
+		return { notificationEmail: email };
 	}
 });
