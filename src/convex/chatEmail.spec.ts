@@ -198,13 +198,16 @@ const muteChatMessagesFor = async (
 const emailMarkerFor = (
 	t: Awaited<ReturnType<typeof seedFixture>>['t'],
 	profileId: Id<'profiles'>,
-	roomId: Id<'rooms'>
+	roomId: Id<'rooms'>,
+	audience: 'self' | 'parent' = 'self'
 ) =>
 	t.run(
 		async (ctx) =>
 			await ctx.db
 				.query('roomEmailMarkers')
-				.withIndex('by_profile_and_room', (q) => q.eq('profileId', profileId).eq('roomId', roomId))
+				.withIndex('by_profile_room_audience', (q) =>
+					q.eq('profileId', profileId).eq('roomId', roomId).eq('audience', audience)
+				)
 				.first()
 	);
 
@@ -799,16 +802,22 @@ describe('chat email notifications', () => {
 
 		// The parent reads this as a third party: child-named copy, and the link goes to the
 		// parent's read-only view of the child's chats (chat?room= would resolve to nothing).
-		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		// Critical: the child, whose address is confirmed, gets their own separate email too
+		// (CL-768/CL-769, review D3/D7) — two emails, never one with two recipients.
+		expect(sendEmailMock).toHaveBeenCalledTimes(2);
 		expect(sendEmailMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				to: 'parent@example.com',
 				subject: "New messages regarding kiddo's club application"
 			})
 		);
-		const [{ html, text }] = sendEmailMock.mock.calls[0] as unknown as [
-			{ html: string; text: string }
-		];
+		const calls = (
+			sendEmailMock.mock.calls as unknown as Array<[{ to: string; html: string; text: string }]>
+		).map(([call]) => call);
+		const childCall = calls.find((call) => call.to === 'kiddo@example.com')!;
+		expect(childCall.html).toContain(`https://app.example.com/chat?room=${roomId}`);
+		expect(magicLinksIn(childCall.text)).toEqual([]);
+		const { html, text } = calls.find((call) => call.to === 'parent@example.com')!;
 		// Signed in by the link itself (one link: there is no note on critical chats).
 		const links = magicLinksIn(text);
 		expect(links).toHaveLength(1);
@@ -1083,5 +1092,295 @@ describe('chat email notifications', () => {
 			'Not this season, sorry.',
 			'This application was not accepted.'
 		]);
+	});
+});
+
+// CL-768/CL-769 (review S6/D3/D7, edge cases 5 and 7): a child account's club/project chat email
+// is owed per audience — the parent until the child has a confirmed address, then the child plus
+// a parent copy only when the parent turned on chatCopies. Each audience has its own marker row,
+// so the two copies are scheduled, capped, retried and recorded independently.
+describe('chat email audiences for child accounts', () => {
+	const seedChild = async (options: {
+		confirmed: boolean;
+		chatCopies?: boolean;
+		childMuted?: boolean;
+	}) => {
+		const fixture = await seedFixture({ withChild: true });
+		const { t } = fixture;
+		const childProfileId = fixture.childProfileId!;
+		await t.run(async (ctx) => {
+			if (options.confirmed) {
+				await ctx.db.patch(childProfileId, {
+					notificationEmail: 'kiddo@example.com',
+					notificationEmailVerifiedAt: Date.now()
+				});
+			}
+			if (options.chatCopies !== undefined) {
+				// The fixture's consent predates parentProfileId: the child's settings row is the
+				// parent's.
+				const parentProfileId = await ctx.db.insert('profiles', {
+					authUserId: 'parent-user',
+					isVerified: true,
+					firstLoginCompleted: true,
+					updatedAt: Date.now()
+				});
+				await ctx.db.insert('parentNotificationSettings', {
+					parentProfileId,
+					childProfileId,
+					chatCopies: options.chatCopies,
+					activityCopies: false,
+					updatedAt: Date.now()
+				});
+			}
+		});
+		if (options.childMuted) await muteChatMessagesFor(t, childProfileId);
+		return { ...fixture, childProfileId };
+	};
+
+	const sentTo = () =>
+		(sendEmailMock.mock.calls as unknown as Array<[{ to: string }]>).map(([call]) => call.to);
+
+	it('no confirmed child email: the parent still gets club chat when the child muted chat (S6)', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, childProfileId } = await seedChild({
+			confirmed: false,
+			childMuted: true
+		});
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sentTo().sort()).toEqual(['learner@example.com', 'parent@example.com']);
+		expect(await emailMarkerFor(t, childProfileId, roomId, 'self')).toBeNull();
+		expect((await emailMarkerFor(t, childProfileId, roomId, 'parent'))?.coveredThroughAt).toEqual(
+			expect.any(Number)
+		);
+	});
+
+	it('no confirmed child email: chatCopies off does not stop the parent emails (mandatory)', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId } = await seedChild({ confirmed: false, chatCopies: false });
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sentTo()).toContain('parent@example.com');
+	});
+
+	it('confirmed child email, chatCopies on: two separate emails tracked on two markers', async () => {
+		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const { t, guide, roomId, childProfileId } = await seedChild({
+			confirmed: true,
+			chatCopies: true
+		});
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sentTo().sort()).toEqual([
+			'kiddo@example.com',
+			'learner@example.com',
+			'parent@example.com'
+		]);
+		const calls = (
+			sendEmailMock.mock.calls as unknown as Array<[{ to: string; text: string }]>
+		).map(([call]) => call);
+		// Every email has exactly one recipient (sendEmail takes a single `to`).
+		for (const call of calls) expect(typeof call.to).toBe('string');
+		const parentCall = calls.find((call) => call.to === 'parent@example.com')!;
+		expect(parentCall.text).toContain(
+			"You're getting a copy because you chose to receive kiddo's chat emails too. You can turn this off on kiddo's page."
+		);
+		expect(magicLinksIn(parentCall.text)).toHaveLength(1);
+		const childCall = calls.find((call) => call.to === 'kiddo@example.com')!;
+		expect(magicLinksIn(childCall.text)).toHaveLength(0);
+
+		const selfMarker = await emailMarkerFor(t, childProfileId, roomId, 'self');
+		const parentMarker = await emailMarkerFor(t, childProfileId, roomId, 'parent');
+		expect(selfMarker?._id).not.toBe(parentMarker?._id);
+		expect(selfMarker?.coveredThroughAt).toEqual(expect.any(Number));
+		expect(parentMarker?.coveredThroughAt).toBe(selfMarker?.coveredThroughAt);
+		const deliveries = await emailDeliveriesFor(t, childProfileId);
+		expect(deliveries.map((row) => [row.audience, row.to]).sort()).toEqual([
+			['parent', 'parent@example.com'],
+			['self', 'kiddo@example.com']
+		]);
+	});
+
+	it('confirmed child email, chatCopies on, child muted: the parent copy only', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId } = await seedChild({
+			confirmed: true,
+			chatCopies: true,
+			childMuted: true
+		});
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sentTo().sort()).toEqual(['learner@example.com', 'parent@example.com']);
+	});
+
+	it('a failed parent copy does not advance or block the child copy, and only the parent retries', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, childProfileId } = await seedChild({
+			confirmed: true,
+			chatCopies: true
+		});
+		sendEmailMock.mockImplementation((async (email: { to: string }) => {
+			if (email.to === 'parent@example.com') throw new Error('Resend send failed: 500');
+			return { providerMessageId: 'resend-msg-1' };
+		}) as never);
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'First' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		const parentAfterFailure = await emailMarkerFor(t, childProfileId, roomId, 'parent');
+		expect(parentAfterFailure?.coveredThroughAt).toBeUndefined();
+		expect(parentAfterFailure?.sendingSince).toBeUndefined();
+		expect((await emailMarkerFor(t, childProfileId, roomId, 'self'))?.coveredThroughAt).toEqual(
+			expect.any(Number)
+		);
+		const deliveries = await emailDeliveriesFor(t, childProfileId);
+		expect(deliveries.map((row) => [row.audience, row.status]).sort()).toEqual([
+			['parent', 'failed'],
+			['self', 'sent']
+		]);
+
+		// The next message: the parent's batch is still owed, the child's is inside the 12h cap
+		// (the child has not read the emailed batch), so only the parent is emailed — once.
+		sendEmailMock.mockReset();
+		sendEmailMock.mockResolvedValue({ providerMessageId: 'resend-msg-2' });
+		vi.advanceTimersByTime(60 * 1000);
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Second' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sentTo().filter((to) => to !== 'learner@example.com')).toEqual(['parent@example.com']);
+		expect((await emailMarkerFor(t, childProfileId, roomId, 'parent'))?.coveredThroughAt).toEqual(
+			expect.any(Number)
+		);
+	});
+
+	it('applies the 12h repeat cap per audience, and the parent copy repeats until the CHILD reads (edge case 7)', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, childProfileId } = await seedChild({
+			confirmed: true,
+			chatCopies: true
+		});
+		const parent = t.withIdentity({ subject: 'parent-user' });
+		await t.run(async (ctx) => {
+			await ctx.db.insert('parentLinks', {
+				parentProfileId: (await ctx.db
+					.query('profiles')
+					.withIndex('by_auth_user_id', (q) => q.eq('authUserId', 'parent-user'))
+					.unique())!._id,
+				childProfileId,
+				createdAt: Date.now()
+			});
+		});
+		const childEmailsCount = () =>
+			sentTo().filter((to) => to === 'kiddo@example.com' || to === 'parent@example.com').length;
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'One' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(childEmailsCount()).toBe(2);
+
+		// Inside the window, unread: no new email to either audience. The parent reading the
+		// child's chats on /child does not count as reading.
+		await parent.query(api.parentAccounts.listChildMessages, { childProfileId, roomId });
+		vi.advanceTimersByTime(60 * 60 * 1000);
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Two' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(childEmailsCount()).toBe(2);
+
+		// Past the window: new activity re-emails both, still one email per audience.
+		vi.advanceTimersByTime(12 * 60 * 60 * 1000);
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Three' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(childEmailsCount()).toBe(4);
+	});
+
+	it('never double-sends one audience while its send is in flight; the other audience is unaffected', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, childProfileId } = await seedChild({
+			confirmed: true,
+			chatCopies: true
+		});
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Racing' });
+		const parentMarker = await emailMarkerFor(t, childProfileId, roomId, 'parent');
+		await t.run(async (ctx) => {
+			await ctx.db.patch(parentMarker!._id, { sendingSince: Date.now() - 30 * 1000 });
+		});
+		await t.mutation(internal.chat.deliverChatEmailNotification, {
+			roomId,
+			profileId: childProfileId,
+			audience: 'parent'
+		});
+		await t.mutation(internal.chat.deliverChatEmailNotification, {
+			roomId,
+			profileId: childProfileId,
+			audience: 'self'
+		});
+		// Exactly one send was handed off, for the child's own copy.
+		const sends = await t.run(async (ctx) =>
+			(await ctx.db.system.query('_scheduled_functions').collect()).filter((job) =>
+				job.name.includes('sendChatEmail')
+			)
+		);
+		expect(sends.map((job) => (job.args[0] as { audience: string; to: string }).to)).toEqual([
+			'kiddo@example.com'
+		]);
+	});
+
+	it('a parent turning chatCopies off during the grace window cancels the copy at delivery', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, childProfileId } = await seedChild({
+			confirmed: true,
+			chatCopies: true
+		});
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello' });
+		await t.run(async (ctx) => {
+			const row = await ctx.db
+				.query('parentNotificationSettings')
+				.withIndex('by_child', (q) => q.eq('childProfileId', childProfileId))
+				.first();
+			await ctx.db.patch(row!._id, { chatCopies: false });
+		});
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sentTo().sort()).toEqual(['kiddo@example.com', 'learner@example.com']);
+	});
+
+	it('reads a legacy marker without an audience as the self row', async () => {
+		vi.useFakeTimers();
+		const { t, guide, roomId, learnerProfileId } = await seedFixture();
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Old batch' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		// Strip the audience, as rows written before the field look.
+		await t.run(async (ctx) => {
+			const marker = await ctx.db
+				.query('roomEmailMarkers')
+				.withIndex('by_profile_and_room', (q) =>
+					q.eq('profileId', learnerProfileId).eq('roomId', roomId)
+				)
+				.unique();
+			await ctx.db.replace(marker!._id, {
+				roomId: marker!.roomId,
+				profileId: marker!.profileId,
+				lastEmailedAt: marker!.lastEmailedAt,
+				coveredThroughAt: marker!.coveredThroughAt
+			});
+		});
+		// Inside the 12h cap the legacy row's coverage still applies: no second email, no
+		// second row.
+		vi.advanceTimersByTime(60 * 1000);
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'New batch' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		const rows = await t.run(
+			async (ctx) =>
+				await ctx.db
+					.query('roomEmailMarkers')
+					.withIndex('by_profile_and_room', (q) =>
+						q.eq('profileId', learnerProfileId).eq('roomId', roomId)
+					)
+					.collect()
+		);
+		expect(rows).toHaveLength(1);
 	});
 });

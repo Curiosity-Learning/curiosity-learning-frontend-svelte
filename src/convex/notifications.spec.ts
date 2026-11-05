@@ -286,6 +286,21 @@ describe('notification tier routing', () => {
 	});
 });
 
+type SentEmail = { to: string; subject: string; text: string; html: string };
+const emailCalls = () =>
+	(sendEmailMock.mock.calls as unknown as Array<[SentEmail]>).map(([call]) => call);
+
+const deliveriesFor = (
+	t: Awaited<ReturnType<typeof seedFixture>>['t'],
+	profileId: Id<'profiles'>
+) =>
+	t.run((ctx) =>
+		ctx.db
+			.query('emailDeliveries')
+			.withIndex('by_recipient', (q) => q.eq('recipientProfileId', profileId))
+			.collect()
+	);
+
 describe('child account email routing', () => {
 	it('routes CRITICAL emails to the approved parent, worded for them, with a sign-in link to the child view', async () => {
 		vi.useFakeTimers();
@@ -431,8 +446,12 @@ describe('child account email routing', () => {
 		);
 	});
 
-	it('critical kinds keep going to the parent even with a child notification email set', async () => {
+	// CL-768/CL-769 (review D3/D7): once the child has confirmed an address, a critical notice
+	// goes to BOTH, as two separate emails — never one email with two recipients, because the
+	// parent copy carries a one-time sign-in link.
+	it('critical kinds go to the parent AND the confirmed child address, as two separate emails', async () => {
 		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const { t, clubId, childProfileId } = await seedFixture();
 		await t.run(async (ctx) => {
 			await ctx.db.patch(childProfileId, {
@@ -447,10 +466,217 @@ describe('child account email routing', () => {
 			.mutation(api.clubs.kickMember, { clubMemberId: memberId, reason: 'Testing' });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-		expect(sendEmailMock).toHaveBeenCalledTimes(1);
-		expect(sendEmailMock).toHaveBeenCalledWith(
-			expect.objectContaining({ to: 'parent@example.com', subject: 'Removed from club' })
+		const calls = emailCalls();
+		expect(calls).toHaveLength(2);
+		for (const call of calls) expect(typeof call.to).toBe('string');
+		const parentCall = calls.find((call) => call.to === 'parent@example.com')!;
+		const childCall = calls.find((call) => call.to === 'kiddo@example.com')!;
+		expect(parentCall.subject).toBe('Removed from club');
+		expect(childCall.subject).toBe('Removed from club');
+		// Parent copy: parent wording and the sign-in link; child copy: plain, child wording.
+		expect(magicLinksIn(parentCall.text)).toHaveLength(1);
+		expect(parentCall.text).toContain("This is about kiddo's Curiosity Learning account.");
+		expect(magicLinksIn(childCall.text)).toHaveLength(0);
+		expect(childCall.text).not.toContain('This is about');
+		expect(childCall.text).not.toContain('signs you in');
+		// One audit row per email, each naming its audience.
+		const deliveries = await deliveriesFor(t, childProfileId);
+		expect(deliveries.map((row) => [row.to, row.audience]).sort()).toEqual([
+			['kiddo@example.com', 'self'],
+			['parent@example.com', 'parent']
+		]);
+	});
+
+	it('critical kinds ignore the child mute and the parent settings', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, childProfileId } = await seedFixture();
+		await setAllPreferencesOff(t, childProfileId);
+		const memberId = await memberIdFor(t, clubId, childProfileId);
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.clubs.kickMember, { clubMemberId: memberId, reason: 'Testing' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(emailCalls().map((call) => call.to)).toEqual(['parent@example.com']);
+		expect(await notificationsFor(t, childProfileId)).toHaveLength(1);
+	});
+});
+
+// The matrix for the non-critical, non-chat high kinds (notificationRouting.ts), driven through
+// a real producer: a cancelled session the child RSVP'd to (session_cancelled, preference key
+// sessionActivityChanges).
+describe('child account routing for other high kinds (CL-768/CL-769)', () => {
+	const cancelSessionForChild = async (
+		t: Awaited<ReturnType<typeof seedFixture>>['t'],
+		clubId: Id<'clubs'>
+	) => {
+		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
+			clubId,
+			location: 'Club HQ',
+			startTime: Date.now() + 2 * HOUR,
+			endTime: Date.now() + 3 * HOUR
+		});
+		if (!session) throw new Error('session not created');
+		await t
+			.withIdentity({ subject: 'child-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'going' });
+		await t
+			.withIdentity({ subject: 'learner-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'not_going' });
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.cancel, { sessionId: session._id });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	};
+
+	const seed = async (options: {
+		confirmed: boolean;
+		activityCopies?: boolean;
+		childMuted?: boolean;
+		unlinked?: boolean;
+	}) => {
+		const fixture = await seedFixture();
+		const { t, childProfileId } = fixture;
+		await t.run(async (ctx) => {
+			const parentProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'parent-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			const consent = await ctx.db
+				.query('parentChildConsents')
+				.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', childProfileId))
+				.unique();
+			await ctx.db.patch(consent!._id, {
+				parentProfileId,
+				...(options.unlinked ? { unlinkedAt: Date.now() } : {})
+			});
+			if (options.confirmed) {
+				await ctx.db.patch(childProfileId, {
+					notificationEmail: 'kiddo@example.com',
+					notificationEmailVerifiedAt: Date.now()
+				});
+			}
+			if (options.activityCopies !== undefined) {
+				await ctx.db.insert('parentNotificationSettings', {
+					parentProfileId,
+					childProfileId,
+					chatCopies: false,
+					activityCopies: options.activityCopies,
+					updatedAt: Date.now()
+				});
+			}
+		});
+		if (options.childMuted) {
+			await setAllPreferencesOff(t, childProfileId, { notificationsEnabled: true });
+		}
+		return fixture;
+	};
+
+	it('no confirmed child email: nobody is emailed, even with the parent opted into copies', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, childProfileId } = await seed({ confirmed: false, activityCopies: true });
+		await cancelSessionForChild(t, clubId);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+		expect(await notificationsFor(t, childProfileId)).toHaveLength(1);
+	});
+
+	it('confirmed child email, copies off (the default): the child only', async () => {
+		vi.useFakeTimers();
+		const { t, clubId } = await seed({ confirmed: true, activityCopies: false });
+		await cancelSessionForChild(t, clubId);
+		expect(emailCalls().map((call) => call.to)).toEqual(['kiddo@example.com']);
+	});
+
+	it('confirmed child email, copies on: the child and a separate parent copy saying why', async () => {
+		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const { t, clubId, childProfileId } = await seed({ confirmed: true, activityCopies: true });
+		await cancelSessionForChild(t, clubId);
+
+		const calls = emailCalls();
+		expect(calls.map((call) => call.to).sort()).toEqual([
+			'kiddo@example.com',
+			'parent@example.com'
+		]);
+		const parentCall = calls.find((call) => call.to === 'parent@example.com')!;
+		expect(parentCall.subject).toBe('Session cancelled');
+		expect(parentCall.text).toContain("This is about kiddo's Curiosity Learning account.");
+		expect(parentCall.text).toContain(
+			"You're getting a copy because you chose to receive kiddo's activity emails too."
 		);
+		expect(magicLinksIn(parentCall.text).map((link) => link.next)).toEqual([
+			`/child/${childProfileId}`
+		]);
+		const childCall = calls.find((call) => call.to === 'kiddo@example.com')!;
+		expect(childCall.text).not.toContain('getting a copy');
+		expect(magicLinksIn(childCall.text)).toHaveLength(0);
+		const deliveries = await deliveriesFor(t, childProfileId);
+		expect(deliveries.map((row) => row.audience).sort()).toEqual(['parent', 'self']);
+	});
+
+	it("the child's mute removes only the child's own copy and the in-app row", async () => {
+		vi.useFakeTimers();
+		const { t, clubId, childProfileId } = await seed({
+			confirmed: true,
+			activityCopies: true,
+			childMuted: true
+		});
+		await cancelSessionForChild(t, clubId);
+		// Review S6: a child cannot silence what goes to the parent.
+		expect(emailCalls().map((call) => call.to)).toEqual(['parent@example.com']);
+		expect(await notificationsFor(t, childProfileId)).toHaveLength(0);
+	});
+
+	it('child muted and copies off: no email at all', async () => {
+		vi.useFakeTimers();
+		const { t, clubId } = await seed({ confirmed: true, activityCopies: false, childMuted: true });
+		await cancelSessionForChild(t, clubId);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	it('a parent the child has unlinked gets no copies, whatever the settings say', async () => {
+		vi.useFakeTimers();
+		const { t, clubId } = await seed({ confirmed: true, activityCopies: true, unlinked: true });
+		await cancelSessionForChild(t, clubId);
+		expect(emailCalls().map((call) => call.to)).toEqual(['kiddo@example.com']);
+	});
+
+	// Unlink semantics are step 7 (review S7/D4): until then a critical notice still reaches the
+	// parent the child unlinked, and the confirmed child address gets its own copy.
+	it('critical notices still reach an unlinked parent (unchanged until step 7), plus the child', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, childProfileId } = await seed({ confirmed: true, unlinked: true });
+		const memberId = await memberIdFor(t, clubId, childProfileId);
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.clubs.kickMember, { clubMemberId: memberId, reason: 'Testing' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(
+			emailCalls()
+				.map((call) => call.to)
+				.sort()
+		).toEqual(['kiddo@example.com', 'parent@example.com']);
+	});
+
+	it('a parent copy that fails does not stop the child copy, and both are recorded', async () => {
+		vi.useFakeTimers();
+		const { t, clubId, childProfileId } = await seed({ confirmed: true, activityCopies: true });
+		sendEmailMock.mockImplementation((async (email: { to: string }) => {
+			if (email.to === 'parent@example.com') throw new Error('Resend send failed: 500');
+			return { providerMessageId: 'resend-msg-1' };
+		}) as never);
+		await cancelSessionForChild(t, clubId);
+		sendEmailMock.mockImplementation(async () => {});
+
+		const deliveries = await deliveriesFor(t, childProfileId);
+		expect(
+			deliveries.map((row) => [row.audience, row.status]).sort((a, b) => a[0]!.localeCompare(b[0]!))
+		).toEqual([
+			['parent', 'failed'],
+			['self', 'sent']
+		]);
 	});
 });
 

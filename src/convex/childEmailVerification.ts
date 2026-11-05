@@ -28,7 +28,7 @@ import { VERIFY_EMAIL_PATH_PREFIX } from '../lib/domain/child-notification-email
 // .setChildNotificationEmail) or on the consent screen (childSignup.approveConsent, same issue
 // path below). Until the CHILD
 // confirms it, the address is pending and nothing is routed to it
-// (notifications.resolveEmailRecipient): the only email it ever gets is the generic confirmation
+// (notificationRouting.resolveEmailRecipients): the only email it ever gets is the generic confirmation
 // email below. Confirming requires the child's own session, not just the link: clicking a link
 // proves control of an inbox, not that the inbox is the child's — a typo, a classmate or another
 // adult would otherwise end up receiving a minor's club activity and session times, and the

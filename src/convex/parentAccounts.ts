@@ -12,6 +12,7 @@ import {
 	issueChildEmailVerification,
 	scheduleRoutingChangedNotice
 } from './childEmailVerification';
+import { getParentNotificationSettings } from './notificationRouting';
 import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { ROUTING_CHANGE_MAX_SESSION_AGE_MS, requireFreshSession } from './sessionFreshness';
@@ -328,8 +329,10 @@ export const unlinkParent = mutation({
 //      these do not simply delegate to `profiles.getById`/`chat.listRoomSummaries` (which are
 //      viewer-scoped to whoever is calling) — visibility here must be computed against the
 //      CHILD's own memberships/authUserId, then handed to the parent as a read-only projection.
-// No mutation in this module (or anywhere else in the codebase) accepts a `childProfileId` — see
-// the structural test in parentAccounts.spec.ts asserting no mutation validator has that field.
+// The parent-side WRITES that name a child (setChildNotificationEmail,
+// setParentNotificationSettings) write parent-owned settings, never act as the child, and call
+// requireParentLink first. The structural test at the bottom of parentAccounts.spec.ts enforces
+// that rule for every public mutation that takes a profile id (review S13).
 // ---------------------------------------------------------------------------------------------
 
 const UPDATES_PREVIEW_LIMIT = 30;
@@ -478,6 +481,14 @@ export const getChildOverview = query({
 			notificationEmail: child.notificationEmail ?? null,
 			notificationEmailVerifiedAt: child.notificationEmailVerifiedAt ?? null,
 			notificationEmailSetAt: child.notificationEmailSetAt ?? null,
+			notificationEmailVerified:
+				Boolean(child.notificationEmail) && child.notificationEmailVerifiedAt !== undefined,
+			// The CALLER's own per-child email choices (setParentNotificationSettings).
+			parentNotificationSettings: await getParentNotificationSettings(
+				ctx,
+				parentProfile._id,
+				child._id
+			),
 			clubs,
 			projects: {
 				current: projectEntries.filter((entry) => entry.section === 'current'),
@@ -722,10 +733,11 @@ const getParentOwnAddresses = async (
 /**
  * Sets, changes, re-sends or clears (`email: null`) the real address a child's NON-critical
  * notification emails go to — club/project chat activity and other high-tier kinds — instead of
- * the parent (see profiles.notificationEmail in schema.ts and notifications.resolveEmailRecipient).
+ * the parent (see profiles.notificationEmail in schema.ts and notificationRouting.resolveEmailRecipients).
  *
- * This is the one parentAccounts mutation that names a childProfileId, and it is NOT an "act as
- * the child" path (see the module header and the structural test in parentAccounts.spec.ts):
+ * One of the two parentAccounts mutations that name a childProfileId (with
+ * setParentNotificationSettings), and NOT an "act as the child" path (see the module header and
+ * the structural test in parentAccounts.spec.ts):
  * it writes a parent-owned setting onto the child's profile and runs nothing under the child's
  * identity. Only the linked parent may call it, because a child cannot consent to receiving
  * email on their own — the parent does so on their behalf, and who/when is recorded. "Resend"
@@ -844,5 +856,70 @@ export const setChildNotificationEmail = mutation({
 			});
 		}
 		return { notificationEmail: email, status: 'pending' as const, verificationSent: true };
+	}
+});
+
+/**
+ * The linked parent's own choices about the emails they get for this child (CL-768/CL-769,
+ * review S6/D3/D7; parentNotificationSettings in schema.ts): `chatCopies` (club/project chat
+ * emails) and `activityCopies` (the other high-tier kinds). Both default to off: once the child
+ * has confirmed their own address those emails go to the child only, and the parent can opt back
+ * in. They change nothing before the child has a confirmed address (chat emails come to the
+ * parent anyway, other kinds go nowhere) and nothing about critical notices, which always come to
+ * the parent. Omitted fields keep their current value.
+ *
+ * Like setChildNotificationEmail this names a childProfileId, writes a parent-owned row and runs
+ * nothing as the child: linked parent only (requireParentLink), and only from a session created
+ * in the last 15 minutes (review S5: on a shared computer, a child using the parent's leftover
+ * session must not be able to switch the parent's copies off — or on). A no-op needs no fresh
+ * sign-in.
+ */
+export const setParentNotificationSettings = mutation({
+	args: {
+		childProfileId: v.id('profiles'),
+		chatCopies: v.optional(v.boolean()),
+		activityCopies: v.optional(v.boolean())
+	},
+	returns: v.object({ chatCopies: v.boolean(), activityCopies: v.boolean() }),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const parentProfile = await requireProfile(ctx, identity.subject);
+		await requireParentLink(ctx, parentProfile._id, args.childProfileId);
+
+		const child = await ctx.db.get(args.childProfileId);
+		if (!child) {
+			throw new ConvexError('Child profile not found');
+		}
+		const existing = await ctx.db
+			.query('parentNotificationSettings')
+			.withIndex('by_parent_and_child', (q) =>
+				q.eq('parentProfileId', parentProfile._id).eq('childProfileId', child._id)
+			)
+			.unique();
+		const current = {
+			chatCopies: existing?.chatCopies ?? false,
+			activityCopies: existing?.activityCopies ?? false
+		};
+		const next = {
+			chatCopies: args.chatCopies ?? current.chatCopies,
+			activityCopies: args.activityCopies ?? current.activityCopies
+		};
+		if (next.chatCopies === current.chatCopies && next.activityCopies === current.activityCopies) {
+			return next;
+		}
+
+		await requireFreshSession(ctx, ROUTING_CHANGE_MAX_SESSION_AGE_MS);
+		const now = Date.now();
+		if (existing) {
+			await ctx.db.patch(existing._id, { ...next, updatedAt: now });
+		} else {
+			await ctx.db.insert('parentNotificationSettings', {
+				parentProfileId: parentProfile._id,
+				childProfileId: child._id,
+				...next,
+				updatedAt: now
+			});
+		}
+		return next;
 	}
 });

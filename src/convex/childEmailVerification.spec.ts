@@ -472,6 +472,65 @@ describe('setChildNotificationEmail: fresh sign-in (review S5)', () => {
 	});
 });
 
+// Review S5 covers the parent's per-child settings too: a child on the parent's leftover session
+// must not be able to switch the parent's copies off (or on).
+describe('setParentNotificationSettings: fresh sign-in (review S5)', () => {
+	it('works from a session created within 15 minutes and is refused from an older one', async () => {
+		const { t, parent, sessionId, childProfileId, parentProfileId } = await setup();
+		await ageSession(t, sessionId, 14 * MINUTE);
+		await expect(
+			parent.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				chatCopies: true
+			})
+		).resolves.toEqual({ chatCopies: true, activityCopies: false });
+
+		await ageSession(t, sessionId, 16 * MINUTE);
+		await expect(
+			parent.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				chatCopies: false
+			})
+		).rejects.toThrow(/FRESH_SESSION_REQUIRED/);
+		await expect(
+			parent.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				activityCopies: true
+			})
+		).rejects.toThrow(/FRESH_SESSION_REQUIRED/);
+		// A no-op needs no fresh sign-in.
+		await expect(
+			parent.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				chatCopies: true
+			})
+		).resolves.toEqual({ chatCopies: true, activityCopies: false });
+
+		const row = await t.run((ctx) =>
+			ctx.db
+				.query('parentNotificationSettings')
+				.withIndex('by_parent_and_child', (q) =>
+					q.eq('parentProfileId', parentProfileId).eq('childProfileId', childProfileId)
+				)
+				.unique()
+		);
+		expect(row).toMatchObject({ chatCopies: true, activityCopies: false });
+	});
+
+	it('is refused when the identity names no live session of this user', async () => {
+		const { t, parentProfileId, childProfileId } = await setup();
+		const parentUserId = (await t.run((ctx) => ctx.db.get(parentProfileId)))!.authUserId;
+		await expect(
+			t
+				.withIdentity({ subject: parentUserId })
+				.mutation(api.parentAccounts.setParentNotificationSettings, {
+					childProfileId,
+					activityCopies: true
+				})
+		).rejects.toThrow(/FRESH_SESSION_REQUIRED/);
+	});
+});
+
 describe('confirmChildEmail / getChildEmailVerification', () => {
 	const setPending = async () => {
 		const fixture = await setup();

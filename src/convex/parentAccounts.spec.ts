@@ -424,41 +424,256 @@ describe('parentAccounts.unlinkParent: an unlinked parent cannot claim the link 
 	});
 });
 
-describe('parentAccounts structural guarantee: no mutation accepts a childProfileId', () => {
-	it('has no `mutation({...})` block whose args include a childProfileId field', () => {
-		// Structural assertion (PRD requirement: "no mutations accept a childProfileId — nothing
-		// can be done as the child"). A static source scan rather than a runtime import of every
-		// module: eagerly importing every convex module (including convex.config.ts) outside the
-		// Convex runtime fails because the betterAuth component isn't mountable in convex-test
-		// (see notifications.spec.ts/authEmail.ts's own workaround for the same limitation), so
-		// this test greps the mutation()/internalMutation() call sites in source text instead of
-		// eager-importing modules. `unlinkParent`/`syncParentLinks` (this module's own mutations)
-		// intentionally take no childProfileId — they always act on the CALLER's own profile.
-		// The one allowed exception is `setChildNotificationEmail`: it writes a parent-owned
-		// setting (profiles.notificationEmail) onto the child's profile after verifying the
-		// parentLinks row, and runs nothing as the child — covered by its own tests below.
-		const allowedMutationBlocks = ['setChildNotificationEmail = mutation({'];
-		const convexDir = new URL('.', import.meta.url).pathname;
-		const offenders: string[] = [];
+// Review S13: the old guard grepped top-level files for the literal arg name `childProfileId:`,
+// so a mutation taking `childId` or `profileId` slipped through. The rule now:
+//
+//   Every PUBLIC `mutation({...})` in src/convex/**/*.ts (specs and _generated excluded) whose
+//   args contain a `v.id('profiles')` — under any arg name, nested or not, inline or through a
+//   validator constant declared in the same file — must call `requireParentLink(` in its
+//   handler, UNLESS it is listed below with the guard it calls instead and why it is not a
+//   parent-acting-on-a-child path. An allowlisted mutation must still call its named guard, may
+//   not name its arg `childProfileId` (a child-named arg is always a parent path), and every
+//   allowlist entry must still exist (no stale exemptions).
+//
+// A static source scan rather than eager-importing every module: importing convex.config.ts
+// outside the Convex runtime fails (the betterAuth component is not mountable that way). Relies
+// on two conventions this codebase follows everywhere (asserted below so a change breaks the
+// test, not the guard): public mutations are declared `export const name = mutation({`, and
+// `args` precedes `handler` in the object. Internal mutations are not client-callable and are
+// out of scope. Behaviour tests for each parent mutation follow the scan.
+describe('structural guard: public mutations taking a profile id (review S13)', () => {
+	const allowlist: Record<string, { guard: string; reason: string }> = {
+		'parentAccounts.ts:unlinkParent': {
+			guard: 'requireProfile(',
+			reason:
+				"Called by the CHILD (16+): the id names the parent to unlink from the caller's own links."
+		},
+		'projects.ts:addMember': {
+			guard: 'isProjectPermissionAllowed(',
+			reason: 'Project staff adding a member, gated on project:update.'
+		},
+		'projectInvites.ts:inviteMember': {
+			guard: 'isProjectPermissionAllowed(',
+			reason: 'Project staff inviting someone, gated on project:update.'
+		},
+		'admin.ts:adminAssignReviewer': {
+			guard: 'requireGlobalAdmin(',
+			reason: 'Platform admin assigning an application reviewer.'
+		},
+		'admin.ts:adminUnassignReviewer': {
+			guard: 'requireGlobalAdmin(',
+			reason: 'Platform admin removing an application reviewer.'
+		},
+		'moderation.ts:suspendUser': {
+			guard: 'requireAdminProfile(',
+			reason: 'Platform admin moderation of the target account.'
+		},
+		'moderation.ts:unsuspendUser': {
+			guard: 'requireAdminProfile(',
+			reason: 'Platform admin moderation of the target account.'
+		},
+		'adminInvites.ts:removeAdmin': {
+			guard: 'requireGlobalAdmin(',
+			reason: 'Platform admin demoting another admin.'
+		},
+		'sessions.ts:setAttendance': {
+			guard: 'requirePermission(',
+			reason: "Club staff marking a member's attendance, gated on attendance:create."
+		}
+	};
 
-		for (const fileName of readdirSync(convexDir)) {
-			if (!fileName.endsWith('.ts') || fileName.endsWith('.spec.ts')) continue;
-			const source = readFileSync(join(convexDir, fileName), 'utf8');
-			// Match each `mutation({` / `internalMutation({` block up to its matching closing
-			// `handler:` keyword (args always precede handler in this codebase's convention), then
-			// check that slice for a childProfileId arg declaration.
-			const mutationBlockPattern = /\b(?:internal)?[Mm]utation\(\{([\s\S]*?)handler:/g;
+	const convexDir = new URL('.', import.meta.url).pathname;
+	const listSourceFiles = (dir: string, prefix = ''): string[] =>
+		readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+			if (entry.isDirectory()) {
+				return entry.name === '_generated'
+					? []
+					: listSourceFiles(join(dir, entry.name), `${prefix}${entry.name}/`);
+			}
+			return entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')
+				? [`${prefix}${entry.name}`]
+				: [];
+		});
+	const PROFILE_ID = /v\.id\(\s*['"`]profiles['"`]\s*\)/;
+
+	type ScannedMutation = { key: string; args: string; handler: string };
+	const scanPublicMutations = (): ScannedMutation[] =>
+		listSourceFiles(convexDir).flatMap((relativePath) => {
+			const source = readFileSync(join(convexDir, relativePath), 'utf8');
+			// Any `mutation({` that is not the conventional declaration would escape the scan.
+			const conventional = source.match(/export const \w+ = mutation\(\{/g)?.length ?? 0;
+			const all = source.match(/(?<![\w.])mutation\(\{/g)?.length ?? 0;
+			expect(all, `${relativePath}: unconventional mutation declaration`).toBe(conventional);
+
+			const found: ScannedMutation[] = [];
+			const pattern = /export const (\w+) = mutation\(\{([\s\S]*?)\bhandler:/g;
 			let match: RegExpExecArray | null;
-			while ((match = mutationBlockPattern.exec(source))) {
-				const argsBlock = match[1];
-				if (!/childProfileId\s*:/.test(argsBlock)) continue;
-				const preamble = source.slice(Math.max(0, match.index - 60), match.index + 12);
-				if (allowedMutationBlocks.some((allowed) => preamble.includes(allowed))) continue;
-				offenders.push(fileName);
+			while ((match = pattern.exec(source))) {
+				let args = match[2];
+				// `args: someValidator` — inline the same-file declaration it names.
+				const named = /args:\s*([A-Za-z_$][\w$]*)\s*[,}]/.exec(args);
+				if (named) {
+					const declaration = new RegExp(
+						`const ${named[1]}\\b[^=]*=([\\s\\S]*?)(?:\\n\\n|\\nexport )`
+					).exec(source);
+					expect(declaration, `${relativePath}:${match[1]} args ${named[1]}`).not.toBeNull();
+					args += declaration![1];
+				}
+				const handlerStart = match.index + match[0].length;
+				const next = source.indexOf('\nexport ', handlerStart);
+				found.push({
+					key: `${relativePath}:${match[1]}`,
+					args,
+					handler: source.slice(handlerStart, next === -1 ? undefined : next)
+				});
+			}
+			return found;
+		});
+
+	it('every public mutation with a profile-id arg calls requireParentLink or is a justified exception', () => {
+		const mutations = scanPublicMutations();
+		// Sanity: the scan sees the codebase (and the parent mutations in particular).
+		expect(mutations.length).toBeGreaterThan(50);
+		const offenders: string[] = [];
+		const takingProfileIds = mutations.filter((mutation) => PROFILE_ID.test(mutation.args));
+		for (const mutation of takingProfileIds) {
+			if (mutation.handler.includes('requireParentLink(')) continue;
+			const exception = allowlist[mutation.key];
+			if (!exception) {
+				offenders.push(`${mutation.key}: no requireParentLink( and not allowlisted`);
+				continue;
+			}
+			if (!mutation.handler.includes(exception.guard)) {
+				offenders.push(`${mutation.key}: allowlisted guard ${exception.guard} not called`);
+			}
+			if (/\bchildProfileId\s*:/.test(mutation.args)) {
+				offenders.push(`${mutation.key}: a childProfileId arg must use requireParentLink(`);
 			}
 		}
-
 		expect(offenders).toEqual([]);
+
+		// No stale exemptions, and the parent mutations are covered by the rule itself.
+		const keys = new Set(takingProfileIds.map((mutation) => mutation.key));
+		expect(Object.keys(allowlist).filter((key) => !keys.has(key))).toEqual([]);
+		for (const key of [
+			'parentAccounts.ts:setChildNotificationEmail',
+			'parentAccounts.ts:setParentNotificationSettings'
+		]) {
+			expect(keys.has(key), key).toBe(true);
+			expect(takingProfileIds.find((mutation) => mutation.key === key)!.handler).toContain(
+				'requireParentLink('
+			);
+		}
+	});
+
+	it('refuses an adult without a link to the child on every parent mutation', async () => {
+		const t = convexTest(schema, modules);
+		const childProfileId = await insertProfile(t, 'child-user');
+		await insertProfile(t, 'parent-user');
+		await insertProfile(t, 'stranger-user');
+		await insertApprovedConsent(t, { childProfileId, parentEmail: 'parent@example.com' });
+		await t
+			.withIdentity({ subject: 'parent-user' })
+			.mutation(api.parentAccounts.syncParentLinks, {});
+		const stranger = t.withIdentity({ subject: 'stranger-user' });
+
+		await expect(
+			stranger.mutation(api.parentAccounts.setChildNotificationEmail, {
+				childProfileId,
+				email: 'kid@example.com'
+			})
+		).rejects.toThrow('You do not have access to this child account');
+		await expect(
+			stranger.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				chatCopies: true
+			})
+		).rejects.toThrow('You do not have access to this child account');
+		// Not even a no-op call gets past the link check.
+		await expect(
+			stranger.mutation(api.parentAccounts.setParentNotificationSettings, { childProfileId })
+		).rejects.toThrow('You do not have access to this child account');
+		const rows = await t.run((ctx) => ctx.db.query('parentNotificationSettings').collect());
+		expect(rows).toEqual([]);
+	});
+});
+
+describe('parentAccounts.setParentNotificationSettings', () => {
+	const seedLinked = async () => {
+		const t = convexTest(schema, modules);
+		const parentProfileId = await insertProfile(t, 'parent-user');
+		const childProfileId = await insertProfile(t, 'child-user');
+		await insertApprovedConsent(t, {
+			childProfileId,
+			parentEmail: 'parent@example.com',
+			parentProfileId
+		});
+		const parent = t.withIdentity({ subject: 'parent-user' });
+		await parent.mutation(api.parentAccounts.syncParentLinks, {});
+		return { t, parent, parentProfileId, childProfileId };
+	};
+
+	it('defaults to no copies and reports whether the child email is confirmed', async () => {
+		const { t, parent, childProfileId } = await seedLinked();
+		let overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		expect(overview.parentNotificationSettings).toEqual({
+			chatCopies: false,
+			activityCopies: false
+		});
+		expect(overview.notificationEmailVerified).toBe(false);
+
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId, { notificationEmail: 'kiddo@example.com' });
+		});
+		overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		expect(overview.notificationEmailVerified).toBe(false);
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId, { notificationEmailVerifiedAt: Date.now() });
+		});
+		overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		expect(overview.notificationEmailVerified).toBe(true);
+	});
+
+	it('updates only the fields given, one row per (parent, child)', async () => {
+		const { t, parent, parentProfileId, childProfileId } = await seedLinked();
+		expect(
+			await parent.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				chatCopies: true
+			})
+		).toEqual({ chatCopies: true, activityCopies: false });
+		expect(
+			await parent.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				activityCopies: true
+			})
+		).toEqual({ chatCopies: true, activityCopies: true });
+		const rows = await t.run((ctx) =>
+			ctx.db
+				.query('parentNotificationSettings')
+				.withIndex('by_child', (q) => q.eq('childProfileId', childProfileId))
+				.collect()
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ parentProfileId, chatCopies: true, activityCopies: true });
+		const overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		expect(overview.parentNotificationSettings).toEqual({
+			chatCopies: true,
+			activityCopies: true
+		});
+	});
+
+	it('is refused to the child themselves', async () => {
+		const { t, childProfileId } = await seedLinked();
+		await expect(
+			t
+				.withIdentity({ subject: 'child-user' })
+				.mutation(api.parentAccounts.setParentNotificationSettings, {
+					childProfileId,
+					chatCopies: false
+				})
+		).rejects.toThrow('You do not have access to this child account');
+		expect(await t.run((ctx) => ctx.db.query('parentNotificationSettings').collect())).toEqual([]);
 	});
 });
 

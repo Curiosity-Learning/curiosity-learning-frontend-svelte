@@ -33,8 +33,10 @@ export default defineSchema({
 		// chat activity and other high-tier kinds — reach the child directly instead of the
 		// parent. The child cannot consent to this themselves, so only a parent with a parentLinks
 		// row can set or clear it; who and when is kept for the record. Critical notices (account
-		// actions, application/join-request chats) keep going to the approved parent regardless.
-		// Resolution lives in notifications.resolveEmailRecipient.
+		// actions, application/join-request chats) keep going to the approved parent regardless,
+		// and once the address is confirmed also to the child as a separate email; the parent can
+		// opt back into copies of the rest (parentNotificationSettings). Routing lives in
+		// notificationRouting.ts / notifications.resolveEmailRecipients.
 		//
 		// PENDING until `notificationEmailVerifiedAt` is set (CL-768, review B2/B3): the child
 		// confirms it while signed in as themselves (childEmailVerification.confirmChildEmail),
@@ -368,8 +370,8 @@ export default defineSchema({
 		coversParentAccount: v.optional(v.boolean()),
 		// Set by `parentAccounts.unlinkParent` when a 16+ child severs the link to this parent.
 		// A consent with it set must never be claimed into a `parentLinks` row again by
-		// `syncParentLinks`, and no longer routes the child's non-critical chat emails to the
-		// parent (notifications.resolveEmailRecipient). The consent itself stays `approved`: it
+		// `syncParentLinks`, and no longer routes the child's non-critical emails (or copies) to
+		// the parent (notificationRouting.planEmailAudiences). The consent itself stays `approved`: it
 		// is the legal record that consent was given.
 		unlinkedAt: v.optional(v.number()),
 		createdAt: v.number(),
@@ -400,6 +402,29 @@ export default defineSchema({
 		.index('by_parent', ['parentProfileId'])
 		.index('by_child', ['childProfileId'])
 		.index('by_parent_and_child', ['parentProfileId', 'childProfileId']),
+
+	// A linked parent's own choices about the emails they get for ONE child (CL-768/CL-769,
+	// review S6/D3/D7). Only meaningful once the child has a confirmed notificationEmail: until
+	// then chat emails about the child are the parent's (mandatory, or nobody would hear) and
+	// other high-tier kinds email nobody. Once confirmed, those go to the child by default and
+	// the parent gets a copy only when they opted in here:
+	// - `chatCopies`: club/project chat emails (chat_activity);
+	// - `activityCopies`: the other high-tier kinds (session reminders/cancellations, join and
+	//   project requests, feedback reminders, ...).
+	// No row = both false. Critical notices ignore this table: they always go to the parent (and
+	// also to the child once confirmed). Keyed (parent, child) because one parent can have
+	// several children (edge case 9). Written only by parentAccounts.setParentNotificationSettings
+	// (linked parent, fresh sign-in); read by notificationRouting.ts. The CHILD's own mutes never
+	// touch the parent's copies (S6).
+	parentNotificationSettings: defineTable({
+		parentProfileId: v.id('profiles'),
+		childProfileId: v.id('profiles'),
+		chatCopies: v.boolean(),
+		activityCopies: v.boolean(),
+		updatedAt: v.number()
+	})
+		.index('by_parent_and_child', ['parentProfileId', 'childProfileId'])
+		.index('by_child', ['childProfileId']),
 
 	sessions: defineTable({
 		clubId: v.id('clubs'),
@@ -896,8 +921,17 @@ export default defineSchema({
 		lastReadAt: v.number()
 	}).index('by_profile_and_room', ['profileId', 'roomId']),
 
-	// Chat email notifications (CL-764): per-(profile, room) email-delivery state, kept separate
-	// from roomReadMarkers so the read watermark stays single-purpose.
+	// Chat email notifications (CL-764): per-(profile, room, audience) email-delivery state, kept
+	// separate from roomReadMarkers so the read watermark stays single-purpose.
+	// - `audience` (CL-768/CL-769, review edge case 5): whose copy this row tracks. 'self' is the
+	//   recipient's own address (an adult, or a child's confirmed notificationEmail); 'parent' is
+	//   the approved parent's copy about a child account. A child account can be owed both (a
+	//   critical review chat, or a club chat whose parent opted into copies), and each copy has
+	//   its own grace job, in-flight flag, coverage and 12h cap, so one failing never advances or
+	//   blocks the other. Unset on rows written before the field existed: read as 'self'
+	//   (chatEmail.getEmailMarker). The unread floor is still the RECIPIENT's read watermark for
+	//   every audience — a parent reading the child's chats never marks anything read (edge
+	//   case 7, accepted: the parent copy repeats at most every 12h until the child reads).
 	// - `coveredThroughAt`: _creationTime of the newest message the last SUCCESSFULLY sent
 	//   "new messages" email told this profile about. Written only once Resend accepted the
 	//   email, so a failed send never silences the room. Unread messages at/under this watermark
@@ -918,14 +952,24 @@ export default defineSchema({
 		lastEmailedAt: v.optional(v.number()),
 		coveredThroughAt: v.optional(v.number()),
 		scheduledFor: v.optional(v.number()),
-		sendingSince: v.optional(v.number())
-	}).index('by_profile_and_room', ['profileId', 'roomId']),
+		sendingSince: v.optional(v.number()),
+		audience: v.optional(v.union(v.literal('self'), v.literal('parent')))
+	})
+		// All of a recipient's rows for a room (every audience, legacy rows included): the one
+		// range read scheduleChatEmailNotifications does per recipient per message.
+		.index('by_profile_and_room', ['profileId', 'roomId'])
+		// Exactly one audience's row (getEmailMarker).
+		.index('by_profile_room_audience', ['profileId', 'roomId', 'audience']),
 
 	// One row per notification email handed to the provider (notifications.sendNotificationEmail
 	// and chat.sendChatEmail), sent or failed. Support/debugging only — "was this person emailed
 	// about this room, when, and did it go through?" — nothing reads it on the hot path. `to` is
 	// the resolved address (the approved parent's for child accounts). For chat emails, `roomId`
-	// and `coveredThroughAt` say which batch the email covered.
+	// and `coveredThroughAt` say which batch the email covered. `audience` says whose copy it was
+	// ('self' = the recipient's own address, 'parent' = the parent's copy about a child account;
+	// a notice that goes to both leaves two rows, one per email). Unset on rows from before the
+	// field and on account emails that are not routed notifications (child-email confirmation,
+	// routing-changed notices).
 	emailDeliveries: defineTable({
 		recipientProfileId: v.id('profiles'),
 		to: v.string(),
@@ -936,6 +980,7 @@ export default defineSchema({
 		providerMessageId: v.optional(v.string()),
 		roomId: v.optional(v.id('rooms')),
 		coveredThroughAt: v.optional(v.number()),
+		audience: v.optional(v.union(v.literal('self'), v.literal('parent'))),
 		createdAt: v.number()
 	})
 		.index('by_recipient', ['recipientProfileId', 'createdAt'])

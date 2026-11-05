@@ -21,6 +21,12 @@ Consent records (review S12/D9, consent screen v2): on approval, `parentChildCon
 
 A new request deletes the child's unconsumed rows; a daily cron deletes expired rows. `emailDeliveries` also logs `child_email_verification` and `child_routing_changed` emails (`recipientProfileId` is the child).
 
+| Table                        | Purpose                                                                            | Key Fields                                                                       | Indexes                           |
+| ---------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------- |
+| `parentNotificationSettings` | A linked parent's own email choices for one child (CL-768/CL-769, review S6/D3/D7) | `parentProfileId`, `childProfileId`, `chatCopies`, `activityCopies`, `updatedAt` | `by_parent_and_child`, `by_child` |
+
+No row means both `false`. Only meaningful once the child has a confirmed notification email: then club/project chat (`chatCopies`) and the other high-tier kinds (`activityCopies`) go to the child, and the parent gets a copy only when the flag is on. Critical notices ignore it. Written only by `parentAccounts.setParentNotificationSettings`; read by `notificationRouting.ts`.
+
 ## Clubs / Membership / Permissions
 
 | Table                 | Purpose                                                                   | Key Fields                                                                                                                                                                                                                                                 | Indexes                                                                                    |
@@ -66,18 +72,23 @@ A new request deletes the child's unconsumed rows; a daily cron deletes expired 
 
 ## Notifications / Privacy
 
-| Table            | Purpose                                     | Key Fields                                                           | Indexes                                                                        |
-| ---------------- | ------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `notifications`  | Per-profile notifications                   | `profileId`, `clubId?`, `title`, `message`, `url?`, `isRead`         | `by_profile`, `by_profile_and_created`                                         |
-| `legalDocuments` | Versioned legal docs (privacy/terms/cookie) | `documentKey`, `fullName`, `title`, `content`, `version`, `isActive` | `by_document_key`, `by_document_key_and_active`, `by_document_key_and_updated` |
-| `privacyPolicy`  | Legacy compatibility wrapper source table   | `title`, `content`, `version`, `isActive`                            | `by_active`                                                                    |
-| `pledges`        | Onboarding pledge content                   | `key`, `title`, `description`, `bullets[]`, `order`, `isActive`      | `by_key`, `by_active_and_order`                                                |
+| Table             | Purpose                                                | Key Fields                                                                                                                                                               | Indexes                                                                        |
+| ----------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `notifications`   | Per-profile notifications                              | `profileId`, `clubId?`, `title`, `message`, `url?`, `isRead`                                                                                                             | `by_profile`, `by_profile_and_created`                                         |
+| `emailDeliveries` | Audit row per notification/chat email handed to Resend | `recipientProfileId`, `to`, `kind`, `subject`, `status` (`sent`/`failed`), `error?`, `providerMessageId?`, `roomId?`, `coveredThroughAt?`, `audience?` (`self`/`parent`) | `by_recipient`, `by_room`                                                      |
+| `legalDocuments`  | Versioned legal docs (privacy/terms/cookie)            | `documentKey`, `fullName`, `title`, `content`, `version`, `isActive`                                                                                                     | `by_document_key`, `by_document_key_and_active`, `by_document_key_and_updated` |
+| `privacyPolicy`   | Legacy compatibility wrapper source table              | `title`, `content`, `version`, `isActive`                                                                                                                                | `by_active`                                                                    |
+| `pledges`         | Onboarding pledge content                              | `key`, `title`, `description`, `bullets[]`, `order`, `isActive`                                                                                                          | `by_key`, `by_active_and_order`                                                |
 
 ## Chat
 
-| Table      | Purpose                  | Key Fields                                                   | Indexes                                                 |
-| ---------- | ------------------------ | ------------------------------------------------------------ | ------------------------------------------------------- |
-| `rooms`    | Context-backed chat room | `contextType`, `clubId?`, `projectId?`, `clubApplicationId?` | `by_club_id`, `by_project_id`, `by_club_application_id` |
-| `messages` | Text messages            | `roomId`, `profileId`, `content`                             | `by_room`                                               |
+| Table              | Purpose                                                   | Key Fields                                                                                                                                           | Indexes                                                 |
+| ------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `rooms`            | Context-backed chat room                                  | `contextType`, `clubId?`, `projectId?`, `clubApplicationId?`                                                                                         | `by_club_id`, `by_project_id`, `by_club_application_id` |
+| `messages`         | Text messages                                             | `roomId`, `profileId`, `content`                                                                                                                     | `by_room`                                               |
+| `roomReadMarkers`  | Per-viewer read watermark                                 | `roomId`, `profileId`, `lastReadAt`                                                                                                                  | `by_profile_and_room`                                   |
+| `roomEmailMarkers` | Chat email delivery state per (recipient, room, audience) | `roomId`, `profileId`, `audience?` (`self`/`parent`; unset = legacy `self`), `coveredThroughAt?`, `lastEmailedAt?`, `scheduledFor?`, `sendingSince?` | `by_profile_and_room`, `by_profile_room_audience`       |
+
+Chat emails (`chatEmail.ts`): a child account can be owed two copies of the same batch, its own (`self`, to a confirmed notification email) and the parent's (`parent`); each has its own `roomEmailMarkers` row, so the grace job, in-flight flag, coverage and 12 h repeat cap are tracked per audience. The read watermark stays the recipient's (a parent reading `/child` never marks read). `emailDeliveries.audience` records which copy a row was; a notice sent to both leaves two rows. Unset on older rows and on account emails (confirmation, routing notices).
 
 Chat uses Convex system fields `_id` and `_creationTime` instead of storing duplicate IDs or timestamps. Room access is derived from the source context tables (`clubMembers`, `projectMembers`, `projectClubs`, `clubApplications`, and `applicationReviews`) instead of a separate participants table. Profile-owned relationships use `profiles._id` columns. Auth-user strings remain only at auth and media ownership boundaries such as `profiles.authUserId` and `mediaAssets.ownerUserId`.

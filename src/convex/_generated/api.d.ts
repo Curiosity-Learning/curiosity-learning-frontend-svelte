@@ -47,6 +47,7 @@ import type * as mediaStorage from "../mediaStorage.js";
 import type * as moderation from "../moderation.js";
 import type * as moderationNode from "../moderationNode.js";
 import type * as monitoring from "../monitoring.js";
+import type * as notificationRouting from "../notificationRouting.js";
 import type * as notifications from "../notifications.js";
 import type * as notificationsModel from "../notificationsModel.js";
 import type * as parentAccounts from "../parentAccounts.js";
@@ -119,6 +120,7 @@ declare const fullApi: ApiFromModules<{
   moderation: typeof moderation;
   moderationNode: typeof moderationNode;
   monitoring: typeof monitoring;
+  notificationRouting: typeof notificationRouting;
   notifications: typeof notifications;
   notificationsModel: typeof notificationsModel;
   parentAccounts: typeof parentAccounts;

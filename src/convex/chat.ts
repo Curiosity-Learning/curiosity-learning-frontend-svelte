@@ -10,6 +10,7 @@ import {
 	getEmailMarker,
 	getReadMarker,
 	getUnreadFloor,
+	isChatEmailSelfMuted,
 	postRoomMessage
 } from './chatEmail';
 import {
@@ -34,9 +35,10 @@ import {
 	emailDeliveryResultValidator,
 	notificationEmailNoteValidator,
 	recordEmailDelivery,
-	resolveEmailRecipient
+	resolveEmailRecipients,
+	type EmailAudience
 } from './notifications';
-import { isKindMuted, notificationKindConfig } from './notificationsModel';
+import { notificationKindConfig } from './notificationsModel';
 import {
 	getProfileByAuthUserId,
 	getRelatedProfile,
@@ -669,148 +671,166 @@ export const markRoomRead = mutation({
 });
 
 // Chat email notifications (CL-764): the delayed delivery check, fired CHAT_EMAIL_DELAY_MS after
-// the first message of an unread batch (see chatEmail.ts for the invariant). Decides whether an
-// email is owed and, if so, hands it to sendChatEmail; coverage is only advanced by that
-// action's result callback once Resend accepted the email. Email-only by design: chat gets no
-// in-app notification rows (the nav unread badge is the in-app signal), so this bypasses
-// dispatchNotification while reusing the kind config (chatModel.getChatEmailKind: muteable
-// chat_activity for club/project rooms, critical review_chat_activity for application and
-// join-request rooms) and the same email channel — the tier is also what decides child-account
-// routing: critical chat email goes to the approved parent; high goes to the child's own
-// notificationEmail once the child has confirmed it, else to the parent (with a nudge to set
-// one). Routing flips mid-batch (the child confirms, or the parent removes the address) are
-// deliberately not special-cased (review edge case 6): roomEmailMarkers are keyed by (child
-// profile, room), not by address, so a batch the parent was already emailed about counts as
-// covered for the child too, and the 12h repeat window applies across the flip; the next new
-// batch goes to the new address.
+// the first message of an unread batch, once per (recipient, audience) (see chatEmail.ts for the
+// invariant and the audiences). Decides whether an email is owed to that audience and, if so,
+// hands it to sendChatEmail; coverage is only advanced by that action's result callback once
+// Resend accepted the email. Email-only by design: chat gets no in-app notification rows (the nav
+// unread badge is the in-app signal), so this bypasses dispatchNotification while reusing the
+// kind config (chatModel.getChatEmailKind: muteable chat_activity for club/project rooms,
+// critical review_chat_activity for application and join-request rooms) and the same routing
+// (notificationRouting.ts): the tier, the child's confirmed address, the parent's chatCopies
+// setting and the child's own mute decide which audiences are owed. The child's mute only ever
+// removes the child's own copy (review S6).
+const deliverChatEmailToAudience = async (
+	ctx: MutationCtx,
+	args: { roomId: Id<'rooms'>; profileId: Id<'profiles'>; audience: EmailAudience }
+) => {
+	const now = Date.now();
+	const marker = await getEmailMarker(ctx, args.profileId, args.roomId, args.audience);
+	// Clear the pending flag no matter what happens below, so future sends can schedule again.
+	if (marker?.scheduledFor) {
+		await ctx.db.patch(marker._id, { scheduledFor: undefined });
+	}
+	// A send for this recipient/room/audience is in flight (two checks can race when a stale
+	// scheduledFor was rescheduled): let it finish rather than double-email.
+	if (marker?.sendingSince && now - marker.sendingSince < CHAT_EMAIL_SEND_TIMEOUT_MS) return;
+
+	const room = await ctx.db.get(args.roomId);
+	if (!room) return;
+	// Re-derive recipients: someone who left the context during the grace window keeps read
+	// access to history but is no longer part of the conversation.
+	const recipients = await listRoomRecipientProfileIds(ctx, room);
+	if (!recipients.has(args.profileId)) return;
+
+	// The RECIPIENT's read watermark, for every audience (a parent never marks read).
+	const unreadFloor = await getUnreadFloor(ctx, room, args.profileId);
+	// Read during the grace window: they saw it in-app, no email.
+	const newestUnread = await ctx.db
+		.query('messages')
+		.withIndex('by_room', (q) => q.eq('roomId', args.roomId).gt('_creationTime', unreadFloor))
+		.order('desc')
+		.filter((q) => q.neq(q.field('profileId'), args.profileId))
+		.first();
+	if (!newestUnread) return;
+	// Everything unread was already in this audience's last email: nothing new to say.
+	const coveredThroughAt = getCoveredThroughAt(marker);
+	if (coveredThroughAt !== undefined && newestUnread._creationTime <= coveredThroughAt) return;
+	// Newer messages exist, but the recipient hasn't read the batch this audience was last
+	// emailed about and that email is recent: don't nag. Reading the room lifts this
+	// immediately; otherwise new activity past the window re-emails.
+	if (
+		coveredThroughAt !== undefined &&
+		marker?.lastEmailedAt &&
+		unreadFloor < coveredThroughAt &&
+		now - marker.lastEmailedAt < CHAT_EMAIL_REPEAT_AFTER_MS
+	)
+		return;
+	const kind = getChatEmailKind(room);
+	const kindConfig = notificationKindConfig[kind];
+	const critical = kindConfig.tier === 'critical';
+
+	const recipientProfile = await ctx.db.get(args.profileId);
+	if (!recipientProfile) return;
+	// Resolved here, not in the send action, because the wording and the link depend on who
+	// reads it. Re-resolved at delivery: a mute, a confirmed address or a parent setting that
+	// changed during the grace window wins.
+	const recipient = (
+		await resolveEmailRecipients(ctx, {
+			profile: recipientProfile,
+			tier: kindConfig.tier,
+			chat: true,
+			selfMuted: await isChatEmailSelfMuted(ctx, args.profileId, kind)
+		})
+	).find((candidate) => candidate.audience === args.audience);
+	if (!recipient) return;
+
+	// Wording lives in chatModel.getChatEmailCopy — an exhaustive per-contextType switch, so a
+	// future room type is a compile error there rather than a silently-wrong subject. No
+	// message bodies in the email, deliberately. The parent's copy about a child account is read
+	// as a third party, so it gets parent-facing copy and links to the parent's read-only view of
+	// the child's chats (chat?room= would resolve to nothing for them).
+	const parentAudience = args.audience === 'parent';
+	const { title, chatLabel } = parentAudience
+		? await getChatEmailCopyForParent(ctx, room, recipientProfile)
+		: await getChatEmailCopy(ctx, room, args.profileId);
+	const childName = parentAudience ? profileDisplayName(recipientProfile) : undefined;
+	// For a parent this is the page the sign-in link continues to: sendChatEmail (via
+	// notifications.deliverNotificationEmail) mints that link right before sending, so no
+	// plaintext token passes through the scheduler args below (review S2).
+	const appUrl = parentAudience
+		? `/child/${args.profileId}?room=${args.roomId}`
+		: `/chat?room=${args.roomId}`;
+	// The parent's copy of a club/project chat says where these emails could go instead: until
+	// the child has a confirmed address, to the child once they confirm one (the parent adds it
+	// from the child's overview page — CL-768); after that, the parent only gets this as an
+	// opted-in copy, which they can turn off on the same page. A plain path, not a second sign-in
+	// link: one token per email (review S3), and the button's session covers it. Not on critical
+	// chats: those keep going to the parent either way.
+	let note: { text: string; url: string; linkLabel: string } | undefined;
+	if (parentAudience && !critical) {
+		const childEmailConfirmed =
+			Boolean(recipientProfile.notificationEmail) &&
+			recipientProfile.notificationEmailVerifiedAt !== undefined;
+		const pendingConfirmation = Boolean(recipientProfile.notificationEmail);
+		note = {
+			text: childEmailConfirmed
+				? `You're getting a copy because you chose to receive ${childName}'s chat emails too. You can turn this off on ${childName}'s page.`
+				: pendingConfirmation
+					? `Waiting for ${childName} to confirm their email address. Once they do, chat notifications like this one will go to them directly.`
+					: `Add an email address for ${childName}. Once they confirm it, chat notifications like this one will go to them directly.`,
+			url: `/child/${args.profileId}`,
+			linkLabel: `Open ${childName}'s page`
+		};
+	}
+
+	if (marker) {
+		await ctx.db.patch(marker._id, { sendingSince: now, audience: args.audience });
+	} else {
+		await ctx.db.insert('roomEmailMarkers', {
+			roomId: args.roomId,
+			profileId: args.profileId,
+			audience: args.audience,
+			sendingSince: now
+		});
+	}
+	await ctx.scheduler.runAfter(0, internal.chat.sendChatEmail, {
+		recipientProfileId: args.profileId,
+		roomId: args.roomId,
+		coveredThroughAt: newestUnread._creationTime,
+		critical,
+		kind,
+		title,
+		// A parent reads about the child's chat as a third party: the messages wait for the
+		// child, not for them (siblings may share a parent, so the child is named).
+		message: parentAudience
+			? `There are new messages in ${chatLabel} waiting for ${childName}. Open the chat to catch up.`
+			: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
+		url: appUrl,
+		ctaLabel: parentAudience ? `Open ${childName}'s chats` : undefined,
+		to: recipient.to,
+		audience: args.audience,
+		note
+	});
+};
+
 export const deliverChatEmailNotification = internalMutation({
 	args: {
 		roomId: v.id('rooms'),
-		profileId: v.id('profiles')
+		profileId: v.id('profiles'),
+		// Optional only for grace jobs scheduled before per-audience markers existed: those
+		// check every audience the recipient is owed today.
+		audience: v.optional(v.union(v.literal('self'), v.literal('parent')))
 	},
+	returns: v.null(),
 	handler: async (ctx, args) => {
-		const now = Date.now();
-		const marker = await getEmailMarker(ctx, args.profileId, args.roomId);
-		// Clear the pending flag no matter what happens below, so future sends can schedule again.
-		if (marker?.scheduledFor) {
-			await ctx.db.patch(marker._id, { scheduledFor: undefined });
-		}
-		// A send for this recipient/room is in flight (two checks can race when a stale
-		// scheduledFor was rescheduled): let it finish rather than double-email.
-		if (marker?.sendingSince && now - marker.sendingSince < CHAT_EMAIL_SEND_TIMEOUT_MS) return null;
-
-		const room = await ctx.db.get(args.roomId);
-		if (!room) return null;
-		// Re-derive recipients: someone who left the context during the grace window keeps read
-		// access to history but is no longer part of the conversation.
-		const recipients = await listRoomRecipientProfileIds(ctx, room);
-		if (!recipients.has(args.profileId)) return null;
-
-		const unreadFloor = await getUnreadFloor(ctx, room, args.profileId);
-		// Read during the grace window: they saw it in-app, no email.
-		const newestUnread = await ctx.db
-			.query('messages')
-			.withIndex('by_room', (q) => q.eq('roomId', args.roomId).gt('_creationTime', unreadFloor))
-			.order('desc')
-			.filter((q) => q.neq(q.field('profileId'), args.profileId))
-			.first();
-		if (!newestUnread) return null;
-		// Everything unread was already in the last email: nothing new to say.
-		const coveredThroughAt = getCoveredThroughAt(marker);
-		if (coveredThroughAt !== undefined && newestUnread._creationTime <= coveredThroughAt)
-			return null;
-		// Newer messages exist, but the recipient hasn't read the batch they were last emailed
-		// about and that email is recent: don't nag. Reading the room lifts this immediately;
-		// otherwise new activity past the window re-emails.
-		if (
-			coveredThroughAt !== undefined &&
-			marker?.lastEmailedAt &&
-			unreadFloor < coveredThroughAt &&
-			now - marker.lastEmailedAt < CHAT_EMAIL_REPEAT_AFTER_MS
-		)
-			return null;
-		const kind = getChatEmailKind(room);
-		const kindConfig = notificationKindConfig[kind];
-		if (
-			kindConfig.preferenceKey &&
-			(await isKindMuted(ctx, args.profileId, kindConfig.preferenceKey))
-		)
-			return null;
-
-		// Wording lives in chatModel.getChatEmailCopy — an exhaustive per-contextType switch, so a
-		// future room type is a compile error there rather than a silently-wrong subject. No
-		// message bodies in the email, deliberately. A child account's critical chat email is read
-		// by their approved parent, so it gets parent-facing copy and links to the parent's
-		// read-only view of the child's chats (chat?room= would resolve to nothing for them).
-		const recipientProfile = await ctx.db.get(args.profileId);
-		if (!recipientProfile) return null;
-		const critical = kindConfig.tier === 'critical';
-		// Resolved here, not in the send action, because the wording and the link depend on who
-		// reads it. A child account's email goes to the parent — unless the child has a confirmed
-		// notificationEmail, in which case non-critical chat (club/project rooms) goes to the child
-		// directly, worded for them (see notifications.resolveEmailRecipient).
-		const recipient = await resolveEmailRecipient(ctx, {
-			profile: recipientProfile,
-			critical,
-			parentFallback: true
-		});
-		if (!recipient) return null;
-		const parentAudience = recipient.audience === 'parent';
-		const { title, chatLabel } = parentAudience
-			? await getChatEmailCopyForParent(ctx, room, recipientProfile)
-			: await getChatEmailCopy(ctx, room, args.profileId);
-		const childName = parentAudience ? profileDisplayName(recipientProfile) : undefined;
-		// For a parent this is the page the sign-in link continues to: sendChatEmail (via
-		// notifications.deliverNotificationEmail) mints that link right before sending, so no
-		// plaintext token passes through the scheduler args below (review S2).
-		const appUrl = parentAudience
-			? `/child/${args.profileId}?room=${args.roomId}`
-			: `/chat?room=${args.roomId}`;
-		// A parent reading a club/project chat email is told they can hand these over to the
-		// child by adding an email address for them (the child cannot consent to that themselves;
-		// the parent does it from the child's overview page, and the child confirms it before
-		// anything is routed there — CL-768). A plain path, not a second sign-in link: one token
-		// per email (review S3), and the button's session covers it. Not on critical chats: those
-		// keep going to the parent either way, so the promise would be false.
-		let note: { text: string; url: string; linkLabel: string } | undefined;
-		if (parentAudience && !critical) {
-			const pendingConfirmation = Boolean(recipientProfile.notificationEmail);
-			note = {
-				text: pendingConfirmation
-					? `Waiting for ${childName} to confirm their email address. Once they do, chat notifications like this one will go to them directly.`
-					: `Add an email address for ${childName}. Once they confirm it, chat notifications like this one will go to them directly.`,
-				url: `/child/${args.profileId}`,
-				linkLabel: `Open ${childName}'s page`
-			};
-		}
-
-		if (marker) {
-			await ctx.db.patch(marker._id, { sendingSince: now });
-		} else {
-			await ctx.db.insert('roomEmailMarkers', {
+		const audiences: EmailAudience[] = args.audience ? [args.audience] : ['self', 'parent'];
+		for (const audience of audiences) {
+			await deliverChatEmailToAudience(ctx, {
 				roomId: args.roomId,
 				profileId: args.profileId,
-				sendingSince: now
+				audience
 			});
 		}
-		await ctx.scheduler.runAfter(0, internal.chat.sendChatEmail, {
-			recipientProfileId: args.profileId,
-			roomId: args.roomId,
-			coveredThroughAt: newestUnread._creationTime,
-			critical,
-			kind,
-			title,
-			// A parent reads about the child's chat as a third party: the messages wait for the
-			// child, not for them (siblings may share a parent, so the child is named).
-			message: parentAudience
-				? `There are new messages in ${chatLabel} waiting for ${childName}. Open the chat to catch up.`
-				: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
-			url: appUrl,
-			ctaLabel: parentAudience ? `Open ${childName}'s chats` : undefined,
-			to: recipient.to,
-			audience: recipient.audience,
-			note
-		});
 		return null;
 	}
 });
@@ -836,10 +856,16 @@ export const sendChatEmail = internalAction({
 		note: v.optional(notificationEmailNoteValidator)
 	},
 	handler: async (ctx, args) => {
-		const result = await deliverNotificationEmail(ctx, args);
+		const audience = args.audience ?? 'self';
+		const result = await deliverNotificationEmail(ctx, {
+			...args,
+			audience,
+			wordedByCaller: true
+		});
 		await ctx.runMutation(internal.chat.recordChatEmailResult, {
 			recipientProfileId: args.recipientProfileId,
 			roomId: args.roomId,
+			audience,
 			coveredThroughAt: args.coveredThroughAt,
 			kind: args.kind,
 			subject: args.title,
@@ -848,20 +874,26 @@ export const sendChatEmail = internalAction({
 	}
 });
 
-// Result callback of sendChatEmail: always releases the in-flight flag; advances coverage only
-// on success. After a failure the marker is unchanged, so the batch stays owed and the next
-// message in the room schedules a fresh attempt. Both outcomes land on emailDeliveries.
+// Result callback of sendChatEmail: always releases this audience's in-flight flag; advances
+// this audience's coverage only on success (the other audience's row is never touched, review
+// edge case 5). After a failure the row is unchanged, so the batch stays owed to that audience
+// and the next message in the room schedules a fresh attempt. Both outcomes land on
+// emailDeliveries, with the audience.
 export const recordChatEmailResult = internalMutation({
 	args: {
 		recipientProfileId: v.id('profiles'),
 		roomId: v.id('rooms'),
+		// Optional for results of sends started before per-audience markers existed.
+		audience: v.optional(v.union(v.literal('self'), v.literal('parent'))),
 		coveredThroughAt: v.number(),
 		kind: v.string(),
 		subject: v.string(),
 		result: emailDeliveryResultValidator
 	},
+	returns: v.null(),
 	handler: async (ctx, args) => {
-		const marker = await getEmailMarker(ctx, args.recipientProfileId, args.roomId);
+		const audience = args.audience ?? 'self';
+		const marker = await getEmailMarker(ctx, args.recipientProfileId, args.roomId, audience);
 		if (marker) {
 			await ctx.db.patch(
 				marker._id,
@@ -881,7 +913,8 @@ export const recordChatEmailResult = internalMutation({
 			subject: args.subject,
 			result: args.result,
 			roomId: args.roomId,
-			coveredThroughAt: args.coveredThroughAt
+			coveredThroughAt: args.coveredThroughAt,
+			audience
 		});
 		return null;
 	}
