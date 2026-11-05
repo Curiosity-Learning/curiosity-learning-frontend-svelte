@@ -110,6 +110,45 @@
 		}
 	};
 
+	// Review S8/D8: parent accounts are created without a password at consent approval and sign
+	// in with emailed links. "Set a password" is Better Auth's reset flow (it creates the
+	// credential account when there is none), sent to the caller's own address.
+	const signInMethodsResponse = useStableQuery(api.auth.getMySignInMethods, () =>
+		$session.data ? {} : 'skip'
+	);
+	let showSetPassword = $derived(
+		signInMethodsResponse.data !== undefined &&
+			!signInMethodsResponse.data.hasPassword &&
+			!signInMethodsResponse.data.isChildAccount
+	);
+	let setPasswordPending = $state(false);
+	let setPasswordSent = $state(false);
+	let setPasswordError = $state('');
+
+	const requestSetPasswordLink = async () => {
+		const email = $session.data?.user.email;
+		if (!email) return;
+		setPasswordPending = true;
+		setPasswordError = '';
+		try {
+			const redirectTo = new URL('/auth/reset-password', window.location.origin);
+			redirectTo.searchParams.set('next', routes.settings);
+			const { error } = await authClient.requestPasswordReset({
+				email,
+				redirectTo: redirectTo.toString()
+			});
+			if (error) {
+				setPasswordError = t('settingsPage.passwordFailure');
+				return;
+			}
+			setPasswordSent = true;
+		} catch {
+			setPasswordError = t('settingsPage.passwordFailure');
+		} finally {
+			setPasswordPending = false;
+		}
+	};
+
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
 		mode: 'immediate'
 	});
@@ -560,6 +599,45 @@
 						</Button>
 					{/if}
 				</div>
+			</CardContent>
+		</Card>
+	{/if}
+
+	{#if showSetPassword}
+		<Card>
+			<CardHeader class="flex flex-col gap-2">
+				<CardTitle>{$_('settingsPage.passwordTitle')}</CardTitle>
+				<CardDescription>{$_('settingsPage.passwordDescription')}</CardDescription>
+			</CardHeader>
+			<CardContent class="flex flex-col gap-3">
+				{#if setPasswordSent}
+					<Alert>
+						<AlertTitle>{$_('settingsPage.passwordSentTitle')}</AlertTitle>
+						<AlertDescription>
+							{$_('settingsPage.passwordSentDescription').replace(
+								'{email}',
+								$session.data?.user.email ?? ''
+							)}
+						</AlertDescription>
+					</Alert>
+				{:else}
+					{#if setPasswordError}
+						<Alert variant="destructive">
+							<AlertDescription>{setPasswordError}</AlertDescription>
+						</Alert>
+					{/if}
+					<Button
+						variant="outline"
+						class="justify-start"
+						disabled={setPasswordPending}
+						onclick={() => void requestSetPasswordLink()}
+					>
+						{setPasswordPending
+							? $_('settingsPage.passwordSending')
+							: $_('settingsPage.passwordSendLink')}
+					</Button>
+				{/if}
+				<p class="text-sm text-muted-foreground">{$_('settingsPage.passwordLinksStillWork')}</p>
 			</CardContent>
 		</Card>
 	{/if}

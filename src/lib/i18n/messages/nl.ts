@@ -58,6 +58,16 @@ const nl = {
 		}
 	},
 	settingsPage: {
+		passwordTitle: 'Wachtwoord',
+		passwordDescription:
+			'Je bent ingelogd zonder wachtwoord. Stel er een in om met je e-mailadres en wachtwoord in te loggen.',
+		passwordSendLink: 'Mail me een link om een wachtwoord in te stellen',
+		passwordSending: 'Bezig met verzenden...',
+		passwordSentTitle: 'Controleer je e-mail',
+		passwordSentDescription:
+			'We hebben een link gestuurd naar {email}. Open die om je wachtwoord te kiezen.',
+		passwordFailure: 'Kon de link niet versturen. Probeer het opnieuw.',
+		passwordLinksStillWork: 'Je kunt ook blijven inloggen met de links die we je mailen.',
 		devicesTitle: 'Ingelogde apparaten',
 		devicesDescription:
 			'Ingelogd op een gedeeld of kwijtgeraakt apparaat? Log overal uit, ook op dit apparaat.',
@@ -466,11 +476,45 @@ const nl = {
 	onboarding: {
 		parentConsent: {
 			childFallback: 'je kind',
-			approvedTitle: 'Account goedgekeurd',
-			approvedDescription: 'Het account van {child} is nu actief.',
-			signInButton: 'Log in en bekijk het account van {child}',
-			signInAs: 'Hiermee log je op dit apparaat in als {email}.',
-			signOutWarning: 'Het account dat nu op dit apparaat is ingelogd, wordt dan uitgelogd.',
+			loading: 'Toestemmingsverzoek laden',
+			notFoundTitle: 'Toestemmingslink niet gevonden',
+			notFoundDescription: 'Deze toestemmingslink is ongeldig of verlopen.',
+			title: 'Account van {child} goedkeuren',
+			subtitle: '{child} wil Curiosity Learning gebruiken. Jij bent opgegeven als ouder of voogd.',
+			// Vastgelegd als wordingKey 'parentConsent.v2.combined' (childSignup.approveConsent).
+			agreement:
+				'Ik ben de ouder of voogd van {child}. Ik ga akkoord met de {terms} en het {privacy} voor het account van {child} en voor mijn eigen ouderaccount onder {parentEmail}.',
+			termsLink: 'Voorwaarden',
+			privacyLink: 'Privacybeleid',
+			routingQuestion: 'Waar moeten e-mails over de clubs en chats van {child} naartoe?',
+			routingParent: 'Naar mij, op {parentEmail}',
+			routingChild: 'Naar het eigen e-mailadres van {child}',
+			childEmailLabel: 'E-mailadres van {child}',
+			childEmailPlaceholder: 'naam@voorbeeld.nl',
+			childEmailIsParent: "Dat is jouw adres — kies 'Naar mij'.",
+			childEmailInvalid: 'Voer een geldig e-mailadres in.',
+			routingFinePrint:
+				'Belangrijke berichten over het account van {child}, zoals besluiten over aanmeldingen, komen altijd naar jou. Je kunt dit later wijzigen op de pagina van {child}.',
+			approveButton: 'Account van {child} goedkeuren',
+			approving: 'Bezig met goedkeuren...',
+			acceptRequired: 'Ga akkoord met de Voorwaarden en het Privacybeleid voordat je goedkeurt.',
+			errorTitle: 'Goedkeuren is niet gelukt',
+			genericError: 'Dit account kon niet worden goedgekeurd. Probeer het opnieuw.',
+			doneTitle: 'Het account van {child} is actief',
+			doneParentAccountCreated:
+				'We hebben een ouderaccount aangemaakt voor {parentEmail}, zodat je de clubs en chats van {child} kunt zien.',
+			doneParentAccountLinked:
+				'{child} is nu gekoppeld aan je account {parentEmail}, zodat je de clubs en chats van {child} kunt zien.',
+			doneChildEmail:
+				'We hebben {childEmail} een e-mail gestuurd zodat {child} het adres kan bevestigen. Tot die tijd komen e-mails over {child} naar jou.',
+			signInButton: 'Bekijk het account van {child}',
+			signInFinePrint:
+				'Hiermee log je op dit apparaat in als {parentEmail}. Als hier iemand anders is ingelogd, wordt die uitgelogd.',
+			otherSessionWarning: 'Er is op dit apparaat nu iemand anders ingelogd.',
+			closePage:
+				'Of sluit deze pagina. Elke e-mail die we je over {child} sturen, heeft een knop waarmee je inlogt. Je kunt altijd een wachtwoord instellen via Instellingen.',
+			alreadyTitle: 'Al goedgekeurd',
+			alreadyDescription: 'Het account van {child} is al goedgekeurd.',
 			signInLink: 'Log in om het account van {child} te bekijken'
 		},
 		getStarted: {

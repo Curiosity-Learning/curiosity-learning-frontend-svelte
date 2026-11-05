@@ -32,3 +32,11 @@ export const isNoClubAllowedPath = (pathname: string) =>
 	noClubAllowedPaths.some(
 		(allowedPath) => pathname === allowedPath || pathname.startsWith(`${allowedPath}/`)
 	);
+
+// Edge case 14: where a club-less account goes instead of a club. A parent account exists to
+// follow a child, not to start a club, so an account linked to a child (parentAccounts
+// .getMyFirstLinkedChildId) lands on that child's page; everyone else on /new-club. Shared by
+// `/`, `/club` and both (app) layout gates. /child, /verify-email and /settings stay reachable
+// without a club through `noClubAllowedPaths` above.
+export const clubLessLandingPath = (firstLinkedChildId: string | null | undefined) =>
+	firstLinkedChildId ? routes.childOverview(firstLinkedChildId) : routes.newClub;

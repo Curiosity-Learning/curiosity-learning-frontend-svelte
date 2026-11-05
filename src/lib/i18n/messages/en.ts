@@ -57,6 +57,15 @@ const en = {
 		}
 	},
 	settingsPage: {
+		passwordTitle: 'Password',
+		passwordDescription:
+			'You signed in without a password. Set one to sign in with your email and password.',
+		passwordSendLink: 'Email me a link to set a password',
+		passwordSending: 'Sending...',
+		passwordSentTitle: 'Check your email',
+		passwordSentDescription: 'We sent a link to {email}. Open it to choose your password.',
+		passwordFailure: 'Could not send the link. Please try again.',
+		passwordLinksStillWork: 'You can also keep signing in with the links we email you.',
 		devicesTitle: 'Signed-in devices',
 		devicesDescription:
 			'Signed in on a shared or lost device? Sign out everywhere, including this device.',
@@ -471,11 +480,47 @@ const en = {
 	onboarding: {
 		parentConsent: {
 			childFallback: 'your child',
-			approvedTitle: 'Account approved',
-			approvedDescription: "{child}'s account is now active.",
-			signInButton: "Sign in and see {child}'s account",
-			signInAs: 'Signs you in as {email} on this device.',
-			signOutWarning: 'This will sign out the current account on this device.',
+			loading: 'Loading consent request',
+			notFoundTitle: 'Consent link not found',
+			notFoundDescription: 'This consent link is invalid or has expired.',
+			title: "Approve {child}'s account",
+			subtitle:
+				'{child} wants to use Curiosity Learning. You were named as their parent or guardian.',
+			// Recorded as wordingKey 'parentConsent.v2.combined' (childSignup.approveConsent): change
+			// the meaning of this sentence only together with that key, in both languages.
+			agreement:
+				"I am {child}'s parent or guardian. I agree to the {terms} and {privacy} for {child}'s account and for my own parent account under {parentEmail}.",
+			termsLink: 'Terms',
+			privacyLink: 'Privacy Policy',
+			routingQuestion: "Where should emails about {child}'s clubs and chats go?",
+			routingParent: 'To me, at {parentEmail}',
+			routingChild: "To {child}'s own email address",
+			childEmailLabel: "{child}'s email address",
+			childEmailPlaceholder: 'name@example.com',
+			childEmailIsParent: "That's your address — choose 'To me'.",
+			childEmailInvalid: 'Enter a valid email address.',
+			routingFinePrint:
+				"Important notices about {child}'s account, such as application decisions, always come to you. You can change this later from {child}'s page.",
+			approveButton: "Approve {child}'s account",
+			approving: 'Approving...',
+			acceptRequired: 'Please agree to the Terms and Privacy Policy before approving.',
+			errorTitle: 'Unable to approve',
+			genericError: 'Unable to approve this account. Please try again.',
+			doneTitle: "{child}'s account is active",
+			doneParentAccountCreated:
+				"We created a parent account for {parentEmail} so you can see {child}'s clubs and chats.",
+			doneParentAccountLinked:
+				"{child} is now linked to your account {parentEmail} so you can see {child}'s clubs and chats.",
+			doneChildEmail:
+				'We emailed {childEmail} so {child} can confirm it. Until then, emails about {child} come to you.',
+			signInButton: "See {child}'s account",
+			signInFinePrint:
+				'Signs you in as {parentEmail} on this device. If someone else is signed in here, they will be signed out.',
+			otherSessionWarning: 'Someone else is signed in on this device right now.',
+			closePage:
+				'Or close this page. Every email we send you about {child} has a button that signs you in. You can set a password any time from Settings.',
+			alreadyTitle: 'Already approved',
+			alreadyDescription: "{child}'s account has already been approved.",
 			signInLink: "Sign in to see {child}'s account"
 		},
 		getStarted: {
