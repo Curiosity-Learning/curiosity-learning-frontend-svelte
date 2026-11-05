@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import {
 	getProfileByAuthUserId,
+	getViewerIdentity,
 	listMembershipsForProfile,
 	requireIdentity,
 	requireProfile
@@ -532,7 +533,7 @@ export const countReviewableApplications = query({
 	args: {},
 	returns: v.union(v.number(), v.null()),
 	handler: async (ctx) => {
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getViewerIdentity(ctx);
 		if (!identity) return null;
 		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) return null;

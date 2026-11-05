@@ -373,6 +373,17 @@ export default defineSchema({
 		.index('by_child', ['childProfileId'])
 		.index('by_parent_and_child', ['parentProfileId', 'childProfileId']),
 
+	// CL-734 "View as Child": a parent's login session currently viewing the app as one of their
+	// linked children. Keyed by Better Auth session id so each device switches independently. See
+	// permissions.ts (`resolveViewingAsChild`) for how queries swap identity and writes are refused.
+	parentViewSessions: defineTable({
+		parentAuthUserId: v.string(),
+		sessionId: v.string(),
+		parentProfileId: v.id('profiles'),
+		childProfileId: v.id('profiles'),
+		startedAt: v.number()
+	}).index('by_parent_auth_user_and_session', ['parentAuthUserId', 'sessionId']),
+
 	sessions: defineTable({
 		clubId: v.id('clubs'),
 		description: v.optional(v.string()),

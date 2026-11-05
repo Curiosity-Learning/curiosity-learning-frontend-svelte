@@ -70,6 +70,7 @@ import type * as sessions from "../sessions.js";
 import type * as updateComments from "../updateComments.js";
 import type * as updates from "../updates.js";
 import type * as usernameValidator from "../usernameValidator.js";
+import type * as viewAs from "../viewAs.js";
 
 import type {
   ApiFromModules,
@@ -140,6 +141,7 @@ declare const fullApi: ApiFromModules<{
   updateComments: typeof updateComments;
   updates: typeof updates;
   usernameValidator: typeof usernameValidator;
+  viewAs: typeof viewAs;
 }>;
 
 /**

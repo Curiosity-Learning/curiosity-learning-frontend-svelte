@@ -46,6 +46,8 @@
 		sidebarProfileImageUrl?: string | null;
 		sidebarProfileInitials?: string | null;
 		banner?: import('svelte').Snippet;
+		/** Full-width bar above the whole shell (sidebar included), e.g. the parent "View as" bar. */
+		topBar?: import('svelte').Snippet;
 		children: import('svelte').Snippet;
 	};
 
@@ -64,8 +66,12 @@
 		sidebarProfileImageUrl = null,
 		sidebarProfileInitials = null,
 		banner,
+		topBar,
 		children
 	}: Props = $props();
+
+	// The sticky sidebar and header sit below the top bar, so they offset by its height.
+	let topBarHeight = $state(0);
 
 	const topNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'top'));
 	const bottomNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'bottom'));
@@ -211,17 +217,19 @@
 		isViewportContent ? 'h-[100dvh] overflow-hidden' : 'min-h-screen',
 		hideBottomNav ? 'pb-0' : 'pb-[var(--bottom-nav-h)]'
 	)}
-	style="--bottom-nav-h: 4.5rem;"
+	style="--bottom-nav-h: 4.5rem; --top-bar-h: {topBar ? topBarHeight : 0}px;"
 >
 	<ConnectivityOverlay />
+	{#if topBar}
+		<div class="sticky top-0 z-30 shrink-0" bind:clientHeight={topBarHeight}>
+			{@render topBar()}
+		</div>
+	{/if}
 	<div
-		class={cn(
-			'flex flex-1 flex-col lg:flex-row',
-			isViewportContent ? 'min-h-0' : 'min-h-screen'
-		)}
+		class={cn('flex flex-1 flex-col lg:flex-row', isViewportContent ? 'min-h-0' : 'min-h-screen')}
 	>
 		<aside
-			class="hidden w-60 flex-col border-r border-border bg-gray-50 lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
+			class="hidden w-60 flex-col border-r border-border bg-gray-50 lg:sticky lg:top-[var(--top-bar-h)] lg:flex lg:h-[calc(100vh-var(--top-bar-h))] lg:self-start"
 		>
 			<div class="border-b border-border px-5 py-6">
 				<div class="flex items-center gap-3">
@@ -355,7 +363,9 @@
 				isViewportContent ? 'min-h-0' : 'min-h-screen'
 			)}
 		>
-			<header class="sticky top-0 z-20 flex shrink-0 justify-center border-b border-border bg-white">
+			<header
+				class="sticky top-[var(--top-bar-h)] z-20 flex shrink-0 justify-center border-b border-border bg-white"
+			>
 				<div
 					class={cn(
 						'flex w-full max-w-6xl flex-col gap-3 px-4 sm:px-6 lg:px-8',

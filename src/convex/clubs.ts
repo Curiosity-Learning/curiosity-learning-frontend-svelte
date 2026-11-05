@@ -7,12 +7,13 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
-	hasPermission,
 	getClubRoleByKey,
-	getProfileByAuthUserId,
-	getProfileAuthUserId,
-	getRelatedProfile,
 	getMembership,
+	getProfileAuthUserId,
+	getProfileByAuthUserId,
+	getRelatedProfile,
+	getViewerIdentity,
+	hasPermission,
 	listMembershipsForProfile,
 	requireIdentity,
 	requirePermission,
@@ -444,7 +445,7 @@ export const getClubPreviewById = query({
 			.withIndex('by_club', (q) => q.eq('clubId', club._id))
 			.collect();
 
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getViewerIdentity(ctx);
 		let viewerIsMember = false;
 		let viewerPendingJoinRequestId: Id<'joinRequests'> | null = null;
 		if (identity) {

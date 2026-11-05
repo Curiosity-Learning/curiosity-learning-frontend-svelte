@@ -16,7 +16,12 @@ import { EMAIL_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { notificationEmail } from './email/templates';
-import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
+import {
+	getProfileByAuthUserId,
+	getViewerIdentity,
+	requireIdentity,
+	requireProfile
+} from './permissions';
 
 export const list = query({
 	args: {},
@@ -79,7 +84,7 @@ export const unreadCount = query({
 		// this is one of the two intentional exemptions): an unread-count badge should degrade to
 		// 0 rather than throw for an unauthenticated caller or a profile that doesn't exist yet,
 		// and there's no reason to hide it from a suspended account either.
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getViewerIdentity(ctx);
 		if (!identity) return 0;
 		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) return 0;

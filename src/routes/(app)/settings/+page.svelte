@@ -24,6 +24,7 @@
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { authClient } from '$lib/auth-client';
 	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
+	import ChildNotificationEmailForm from '$lib/components/app/child-notification-email-form.svelte';
 	import { routes } from '$lib/routes';
 	import type { PageProps } from './$types';
 
@@ -37,20 +38,9 @@
 		$session.data ? {} : 'skip'
 	);
 
-	// PRD 2.4/6.1.10 (CL-703): "View as Child". Parent side: lazily claim any approved
-	// parentChildConsents rows into parentLinks once per settings page load, then list them.
-	// Child side: whether this account has a linked parent, and whether they're old enough (>=16)
-	// to unlink it themselves.
-	let parentLinksSynced = $state(false);
-	$effect(() => {
-		if (parentLinksSynced) return;
-		if (!$session.data) return;
-		parentLinksSynced = true;
-		void convexClient.mutation(api.parentAccounts.syncParentLinks, {}).catch(() => {
-			// Best-effort: if this fails, getMyLinkedChildren just returns whatever was already
-			// claimed on a prior visit.
-		});
-	});
+	// Parent side: per-child email settings (viewing as a child lives in the bar above the app,
+	// CL-734; links are claimed by the app layout). Child side: whether this account has a linked
+	// parent, and whether they're old enough (>=16) to unlink it themselves.
 	const linkedChildrenResponse = useStableQuery(api.parentAccounts.getMyLinkedChildren, () =>
 		$session.data ? {} : 'skip'
 	);
@@ -60,7 +50,11 @@
 	let linkedChildren = $derived(linkedChildrenResponse.data ?? []);
 	let myParentLink = $derived(myParentLinkResponse.data ?? null);
 
-	const childDisplayName = (child: { firstName: string | null; lastName: string | null; username: string | null }) =>
+	const childDisplayName = (child: {
+		firstName: string | null;
+		lastName: string | null;
+		username: string | null;
+	}) =>
 		[child.firstName, child.lastName].filter(Boolean).join(' ').trim() ||
 		child.username ||
 		t('profileDetail.fallbackName');
@@ -509,26 +503,18 @@
 	</Card>
 
 	{#if linkedChildren.length > 0}
-		<Card>
+		<Card id="child-notifications">
 			<CardHeader class="flex flex-col gap-2">
-				<CardTitle>{$_('parentAccounts.linkedChildrenTitle')}</CardTitle>
-				<CardDescription>{$_('parentAccounts.linkedChildrenDescription')}</CardDescription>
+				<CardTitle>{$_('viewAs.childEmailsTitle')}</CardTitle>
+				<CardDescription>{$_('parentAccounts.notificationEmailCriticalNote')}</CardDescription>
 			</CardHeader>
 			<CardContent class="flex flex-col gap-2">
 				{#each linkedChildren as child (child.childProfileId)}
-					<div
-						class="flex items-center justify-between gap-4 rounded-lg border border-border/70 p-3"
-					>
-						<div class="flex flex-col">
-							<p class="type-sm-bold text-foreground">{childDisplayName(child)}</p>
-							{#if child.username}
-								<p class="type-body-compact text-muted-foreground">@{child.username}</p>
-							{/if}
-						</div>
-						<Button href={routes.childOverview(child.childProfileId)} variant="outline">
-							{t('parentAccounts.viewAsAction').replace('{name}', childDisplayName(child))}
-						</Button>
-					</div>
+					<ChildNotificationEmailForm
+						childProfileId={child.childProfileId}
+						displayName={childDisplayName(child)}
+						notificationEmail={child.notificationEmail}
+					/>
 				{/each}
 			</CardContent>
 		</Card>
@@ -611,7 +597,11 @@
 			<Button variant="outline" onclick={() => (unlinkDialogOpen = false)} disabled={unlinkPending}>
 				{$_('parentAccounts.unlinkCancel')}
 			</Button>
-			<Button variant="destructive" disabled={unlinkPending} onclick={() => void confirmUnlinkParent()}>
+			<Button
+				variant="destructive"
+				disabled={unlinkPending}
+				onclick={() => void confirmUnlinkParent()}
+			>
 				{$_('parentAccounts.unlinkConfirmAction')}
 			</Button>
 		</Dialog.Footer>

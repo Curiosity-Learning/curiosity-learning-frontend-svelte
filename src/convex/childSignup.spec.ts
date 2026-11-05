@@ -250,10 +250,10 @@ describe('approveConsent', () => {
 		expect(links).toHaveLength(1);
 		expect(links[0].parentProfileId).toBe(parentProfileId);
 
-		const overview = await t
+		const linkedChildren = await t
 			.withIdentity({ subject: parentAuthUserId! })
-			.query(api.parentAccounts.getChildOverview, { childProfileId });
-		expect(overview.childProfileId).toBe(childProfileId);
+			.query(api.parentAccounts.getMyLinkedChildren, {});
+		expect(linkedChildren.map((child) => child.childProfileId)).toEqual([childProfileId]);
 	});
 
 	// The consent page offers to sign the parent straight in: their account was just created

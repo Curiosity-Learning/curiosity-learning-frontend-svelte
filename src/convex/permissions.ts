@@ -1,4 +1,6 @@
 import { ConvexError } from 'convex/values';
+import type { UserIdentity } from 'convex/server';
+import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { ActionCtx, QueryCtx, MutationCtx } from './_generated/server';
 import type { ClubRoleKey, ProjectRoleKey } from './roles';
@@ -6,12 +8,121 @@ import type { ClubRoleKey, ProjectRoleKey } from './roles';
 type AuthCtx = QueryCtx | MutationCtx | ActionCtx;
 type DbCtx = QueryCtx | MutationCtx;
 
-export const requireIdentity = async (ctx: AuthCtx) => {
-	const identity = await ctx.auth.getUserIdentity();
+// ---------------------------------------------------------------------------------------------
+// Parent "View as Child" (CL-734). A parent session can switch into viewing the app exactly as
+// one of their linked children: a `parentViewSessions` row keyed by (parent auth user, Better
+// Auth session id) records which child. While that row exists and the parent link still holds:
+//   - QUERIES see the child's identity (`subject` swapped to the child's auth user id), so every
+//     screen — clubs, feed, chat, profile, sidebar — renders the child's interface without any
+//     per-query changes.
+//   - MUTATIONS and ACTIONS are refused (read-only), so nothing can ever be written as the
+//     child. Parent-scoped functions that must keep working (start/stop viewing, Report Issue,
+//     parent-link sync) read the real identity via `requireRealIdentity`.
+// Queries and mutations are told apart by the database handle: Convex gives queries a reader
+// with no `insert`, mutations a writer.
+// ---------------------------------------------------------------------------------------------
+
+export const VIEW_AS_READ_ONLY_CODE = 'VIEW_AS_READ_ONLY';
+
+export type ViewingAsChild = {
+	parentAuthUserId: string;
+	parentProfileId: Id<'profiles'>;
+	childProfileId: Id<'profiles'>;
+	childAuthUserId: string;
+};
+
+const readOnlyError = () =>
+	new ConvexError({
+		code: VIEW_AS_READ_ONLY_CODE,
+		message: "You're viewing as your child. Switch back to your account to make changes."
+	});
+
+const isWriterCtx = (ctx: DbCtx) => typeof (ctx.db as { insert?: unknown }).insert === 'function';
+
+export const getIdentitySessionId = (identity: UserIdentity): string | null => {
+	const sessionId = (identity as { sessionId?: unknown }).sessionId;
+	return typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : null;
+};
+
+/**
+ * The child this (real, un-swapped) identity is currently viewing as, or null. Re-checks the
+ * parent link and the child profile every time, so unlinking ends the view immediately.
+ */
+export const resolveViewingAsChild = async (
+	ctx: DbCtx,
+	realIdentity: UserIdentity
+): Promise<ViewingAsChild | null> => {
+	const sessionId = getIdentitySessionId(realIdentity);
+	if (!sessionId) return null;
+	const viewSession = await ctx.db
+		.query('parentViewSessions')
+		.withIndex('by_parent_auth_user_and_session', (q) =>
+			q.eq('parentAuthUserId', realIdentity.subject).eq('sessionId', sessionId)
+		)
+		.first();
+	if (!viewSession) return null;
+	const link = await ctx.db
+		.query('parentLinks')
+		.withIndex('by_parent_and_child', (q) =>
+			q
+				.eq('parentProfileId', viewSession.parentProfileId)
+				.eq('childProfileId', viewSession.childProfileId)
+		)
+		.first();
+	if (!link) return null;
+	const child = await ctx.db.get(viewSession.childProfileId);
+	if (!child?.authUserId) return null;
+	return {
+		parentAuthUserId: realIdentity.subject,
+		parentProfileId: viewSession.parentProfileId,
+		childProfileId: child._id,
+		childAuthUserId: child.authUserId
+	};
+};
+
+/** The caller's own identity, never swapped. Only for parent-scoped functions (see above). */
+export const getRealIdentity = async (ctx: AuthCtx) => await ctx.auth.getUserIdentity();
+
+export const requireRealIdentity = async (ctx: AuthCtx) => {
+	const identity = await getRealIdentity(ctx);
 	if (!identity) {
 		throw new ConvexError('Unauthenticated');
 	}
 	return identity;
+};
+
+/**
+ * The identity every app function should act as: the caller, or — while a parent is viewing as
+ * a child — the child (queries only; mutations and actions throw a read-only error).
+ */
+export const getViewerIdentity = async (ctx: AuthCtx): Promise<UserIdentity | null> => {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) return null;
+	if (!('db' in ctx)) {
+		// Actions have no database; ask a query. Any active view makes the action read-only.
+		const viewing = await ctx.runQuery(internal.viewAs.getViewingAsForCaller, {});
+		if (viewing) throw readOnlyError();
+		return identity;
+	}
+	const viewing = await resolveViewingAsChild(ctx, identity);
+	if (!viewing) return identity;
+	if (isWriterCtx(ctx)) throw readOnlyError();
+	return { ...identity, subject: viewing.childAuthUserId };
+};
+
+export const requireIdentity = async (ctx: AuthCtx) => {
+	const identity = await getViewerIdentity(ctx);
+	if (!identity) {
+		throw new ConvexError('Unauthenticated');
+	}
+	return identity;
+};
+
+/** For background-style mutations that should quietly do nothing while a parent is viewing. */
+export const isViewingAsChild = async (ctx: DbCtx) => {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) return false;
+	return (await resolveViewingAsChild(ctx, identity)) !== null;
 };
 
 export const getProfileAuthUserId = (profile: Doc<'profiles'>) => profile.authUserId;

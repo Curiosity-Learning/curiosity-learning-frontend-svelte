@@ -3,7 +3,12 @@ import { internalAction, internalMutation, mutation, query } from './_generated/
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
-import { getProfileByAuthUserId, requireGlobalAdmin, requireIdentity } from './permissions';
+import {
+	getProfileByAuthUserId,
+	isViewingAsChild,
+	requireGlobalAdmin,
+	requireIdentity
+} from './permissions';
 import { getAuthUserEmailInfo } from './authEmail';
 import { createClubForFounder } from './clubCreationModel';
 import { ensureClubApplicationRoom } from './chatModel';
@@ -178,6 +183,11 @@ export const revokeLeaderInvite = mutation({
 export const claimMyLeaderInvite = mutation({
 	args: {},
 	handler: async (ctx) => {
+		// Fired automatically for club-less users (layout gate); a parent viewing as a club-less
+		// child must not hit the read-only error here, and never claims anything as the child.
+		if (await isViewingAsChild(ctx)) {
+			return { status: 'no_invite' as const };
+		}
 		const identity = await requireIdentity(ctx);
 
 		const emailInfo = await getAuthUserEmailInfo(ctx, identity.subject);

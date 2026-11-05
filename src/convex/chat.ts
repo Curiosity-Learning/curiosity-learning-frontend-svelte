@@ -40,6 +40,7 @@ import { isKindMuted, notificationKindConfig } from './notificationsModel';
 import {
 	getProfileByAuthUserId,
 	getRelatedProfile,
+	getViewerIdentity,
 	requireIdentity,
 	requireProfile
 } from './permissions';
@@ -332,7 +333,7 @@ export const listRoomSummaries = query({
 export const getTotalUnreadCount = query({
 	args: {},
 	handler: async (ctx) => {
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getViewerIdentity(ctx);
 		if (!identity) return 0;
 		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) return 0;
@@ -763,14 +764,16 @@ export const deliverChatEmailNotification = internalMutation({
 			: `/chat?room=${args.roomId}`;
 		// A parent reading a club/project chat email is told they can hand these over to the
 		// child by adding an email address for them (the child cannot consent to that themselves;
-		// the parent does it from the child's overview page). A plain path, not a second sign-in
-		// link: one token per email (review S3), and the button's session covers it. Not on
-		// critical chats: those keep going to the parent either way, so the promise would be false.
+		// the parent does it from their own Settings, CL-734). A plain path, not a second sign-in
+		// link: one token per email (review S3), and the button's session covers it. The path goes
+		// through /child/[id], which switches the session back to the parent and opens that card.
+		// Not on critical chats: those keep going to the parent either way, so the promise would be
+		// false.
 		let note: { text: string; url: string; linkLabel: string } | undefined;
 		if (parentAudience && !critical) {
 			note = {
-				text: `You get these emails because ${childName} has a child account. Chat notifications like this one can go to ${childName} directly: after opening the chats with the button above, add an email address for them on ${childName}'s page.`,
-				url: `/child/${args.profileId}`,
+				text: `You get these emails because ${childName} has a child account. Chat notifications like this one can go to ${childName} directly: after opening the chats with the button above, add an email address for them in your settings.`,
+				url: `/child/${args.profileId}?settings=emails`,
 				linkLabel: `Add an email address for ${childName}`
 			};
 		}

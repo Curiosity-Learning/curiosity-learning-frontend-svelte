@@ -456,16 +456,17 @@ describe('chat email notifications', () => {
 		expect(magicLinksIn(parentCall.text)).toEqual([
 			{ token: expect.stringMatching(/^[a-zA-Z]{32}$/), next: childChatPath }
 		]);
-		expect(parentCall.text.endsWith(`\nhttps://app.example.com/child/${childProfileId}`)).toBe(
-			true
-		);
+		// CL-734: the note opens the child's email card in the parent's own Settings.
+		expect(
+			parentCall.text.endsWith(`\nhttps://app.example.com/child/${childProfileId}?settings=emails`)
+		).toBe(true);
 		expect(parentCall.html).toContain('Open kiddo&#39;s chats');
 		expect(parentCall.html).toContain('Add an email address for kiddo');
 		expect(parentCall.text).toContain(
 			"This button signs you in — please don't forward this email."
 		);
 		expect(parentCall.text).toContain(
-			"You get these emails because kiddo has a child account. Chat notifications like this one can go to kiddo directly: after opening the chats with the button above, add an email address for them on kiddo's page."
+			'You get these emails because kiddo has a child account. Chat notifications like this one can go to kiddo directly: after opening the chats with the button above, add an email address for them in your settings.'
 		);
 		expect(parentCall.text).not.toContain('Forgot password');
 		// Review S2: the link is minted in the send action, so no scheduled function's stored
