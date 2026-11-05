@@ -1171,7 +1171,14 @@ const nl = {
 		notificationEmailSignInAgain: 'Opnieuw inloggen',
 		notificationEmailRemoved: 'Verwijderd. Chat-e-mails komen weer bij jou terecht.',
 		notificationEmailInvalid: 'Vul een geldig e-mailadres in.',
-		notificationEmailFailure: 'Het e-mailadres kon niet worden opgeslagen. Probeer het opnieuw.'
+		notificationEmailFailure: 'Het e-mailadres kon niet worden opgeslagen. Probeer het opnieuw.',
+		parentEmailsTitle: 'Jouw e-mails over {name}',
+		parentEmailsChatCopies: 'Stuur mij ook de chat-e-mails van {name}',
+		parentEmailsActivityCopies: 'Stuur mij ook de activiteitenherinneringen van {name}',
+		parentEmailsCriticalNote: 'Belangrijke berichten over het account van {name} krijg jij altijd.',
+		parentEmailsUnconfirmed:
+			'Tot {name} het e-mailadres heeft bevestigd, krijg jij de chat-e-mails over {name}.',
+		parentEmailsSaveFailure: 'Deze instelling kon niet worden opgeslagen. Probeer het opnieuw.'
 	},
 	verifyEmail: {
 		title: 'Bevestig je e-mailadres',

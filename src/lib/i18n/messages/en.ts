@@ -1174,7 +1174,14 @@ const en = {
 		notificationEmailSignInAgain: 'Sign in again',
 		notificationEmailRemoved: 'Removed. Chat emails will come to you again.',
 		notificationEmailInvalid: 'Please enter a valid email address.',
-		notificationEmailFailure: 'Could not save the email address. Please try again.'
+		notificationEmailFailure: 'Could not save the email address. Please try again.',
+		parentEmailsTitle: 'Your emails about {name}',
+		parentEmailsChatCopies: "Also send me {name}'s chat emails",
+		parentEmailsActivityCopies: "Also send me {name}'s activity reminders",
+		parentEmailsCriticalNote: "Important notices about {name}'s account always come to you.",
+		parentEmailsUnconfirmed:
+			'Until {name} confirms their email address, chat emails about {name} come to you.',
+		parentEmailsSaveFailure: 'Could not save this setting. Please try again.'
 	},
 	verifyEmail: {
 		title: 'Confirm your email',

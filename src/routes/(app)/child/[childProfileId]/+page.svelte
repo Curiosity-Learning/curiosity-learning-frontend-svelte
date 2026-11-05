@@ -10,6 +10,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { Switch } from '$lib/components/ui/switch';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
@@ -35,9 +36,9 @@
 	// this page calls is server-verified against a `parentLinks` row between the caller and this
 	// child, and computes visibility AS THE CHILD would see it. There is no composer and nothing
 	// here acts "as" the child — reporting uses the normal ReportIssueDialog, which submits under
-	// the PARENT's own identity. The one write on this page is the parent's own setting for the
-	// child (notification email below), which is parent-owned by design: a child cannot consent
-	// to receiving email, so the parent does it for them here.
+	// the PARENT's own identity. The writes on this page are the parent's own settings for the
+	// child (notification email and the parent's own email copies below), which are parent-owned
+	// by design: a child cannot consent to receiving email, so the parent does it for them here.
 
 	let childProfileId = $derived(
 		(page.params as Record<string, string | undefined>).childProfileId as Id<'profiles'>
@@ -228,6 +229,44 @@
 		}
 	};
 
+	// The parent's own copies (CL-768/CL-769, review D7): once the child has confirmed their
+	// address, chat and activity emails go to the child only, and the parent can opt back into a
+	// copy of each. Critical notices always come to the parent. Same fresh-sign-in rule as the
+	// address above (review S5). The switch shows the new value while saving and falls back to the
+	// server's value when the save fails.
+	type ParentSettingKey = 'chatCopies' | 'activityCopies';
+	let pendingParentSettings = $state<Partial<Record<ParentSettingKey, boolean>>>({});
+	let parentSettings = $derived({
+		chatCopies: overview?.parentNotificationSettings.chatCopies ?? false,
+		activityCopies: overview?.parentNotificationSettings.activityCopies ?? false,
+		...pendingParentSettings
+	});
+	let parentSettingsError = $state<string | null>(null);
+	let parentSettingsFreshSignInRequired = $state(false);
+	const setParentSetting = async (key: ParentSettingKey, value: boolean) => {
+		parentSettingsError = null;
+		parentSettingsFreshSignInRequired = false;
+		pendingParentSettings[key] = value;
+		try {
+			await convexClient.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				[key]: value
+			});
+		} catch (error) {
+			if (hasErrorCode(error, FRESH_SESSION_REQUIRED)) {
+				parentSettingsFreshSignInRequired = true;
+			} else {
+				parentSettingsError = t('parentAccounts.parentEmailsSaveFailure');
+			}
+		} finally {
+			delete pendingParentSettings[key];
+		}
+	};
+	const parentSettingItems: Array<{ key: ParentSettingKey; labelKey: string }> = [
+		{ key: 'chatCopies', labelKey: 'parentAccounts.parentEmailsChatCopies' },
+		{ key: 'activityCopies', labelKey: 'parentAccounts.parentEmailsActivityCopies' }
+	];
+
 	let signingInAgain = $state(false);
 	const signInAgain = async () => {
 		signingInAgain = true;
@@ -238,6 +277,25 @@
 		}
 	};
 </script>
+
+{#snippet freshSignInAlert()}
+	<Alert class="flex flex-wrap items-center justify-between gap-3">
+		<div class="flex flex-col gap-1">
+			<AlertTitle>{t('parentAccounts.notificationEmailFreshSessionTitle')}</AlertTitle>
+			<AlertDescription>
+				{t('parentAccounts.notificationEmailFreshSession')}
+			</AlertDescription>
+		</div>
+		<Button
+			type="button"
+			variant="outline"
+			disabled={signingInAgain}
+			onclick={() => void signInAgain()}
+		>
+			{t('parentAccounts.notificationEmailSignInAgain')}
+		</Button>
+	</Alert>
+{/snippet}
 
 <PageHeaderBackButton fallbackHref={routes.settings} />
 <PageHeaderTitle title={displayName || 'Child overview'} />
@@ -336,27 +394,17 @@
 								{t('parentAccounts.notificationEmailDescription').replace(/\{name\}/g, displayName)}
 							</p>
 						{/if}
-						<p class="type-sm text-muted-foreground">
-							{t('parentAccounts.notificationEmailCriticalNote')}
-						</p>
+						{#if !overview.notificationEmailVerified}
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.parentEmailsUnconfirmed').replace(/\{name\}/g, displayName)}
+							</p>
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.notificationEmailCriticalNote')}
+							</p>
+						{/if}
 					</div>
 					{#if freshSignInRequired}
-						<Alert class="flex flex-wrap items-center justify-between gap-3">
-							<div class="flex flex-col gap-1">
-								<AlertTitle>{t('parentAccounts.notificationEmailFreshSessionTitle')}</AlertTitle>
-								<AlertDescription>
-									{t('parentAccounts.notificationEmailFreshSession')}
-								</AlertDescription>
-							</div>
-							<Button
-								type="button"
-								variant="outline"
-								disabled={signingInAgain}
-								onclick={() => void signInAgain()}
-							>
-								{t('parentAccounts.notificationEmailSignInAgain')}
-							</Button>
-						</Alert>
+						{@render freshSignInAlert()}
 					{/if}
 					{#if editingNotificationEmail || !notificationEmail}
 						<form
@@ -438,6 +486,41 @@
 						</div>
 					{/if}
 				</section>
+
+				{#if overview.notificationEmailVerified}
+					<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
+						<div class="flex flex-col gap-1">
+							<p class="type-body-bold text-foreground">
+								{t('parentAccounts.parentEmailsTitle').replace('{name}', displayName)}
+							</p>
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.parentEmailsCriticalNote').replace('{name}', displayName)}
+							</p>
+						</div>
+						<div class="flex flex-col gap-3">
+							{#each parentSettingItems as item (item.key)}
+								<div class="flex items-center justify-between gap-4">
+									<Label for={`parent-email-${item.key}`} class="type-sm">
+										{t(item.labelKey).replace('{name}', displayName)}
+									</Label>
+									<Switch
+										id={`parent-email-${item.key}`}
+										checked={parentSettings[item.key]}
+										disabled={pendingParentSettings[item.key] !== undefined}
+										onCheckedChange={(value) => void setParentSetting(item.key, value)}
+										class="shrink-0"
+									/>
+								</div>
+							{/each}
+						</div>
+						{#if parentSettingsError}
+							<p class="type-sm text-destructive">{parentSettingsError}</p>
+						{/if}
+						{#if parentSettingsFreshSignInRequired}
+							{@render freshSignInAlert()}
+						{/if}
+					</section>
+				{/if}
 
 				<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
 					<p class="type-body-bold text-foreground">{t('parentAccounts.clubsTitle')}</p>
