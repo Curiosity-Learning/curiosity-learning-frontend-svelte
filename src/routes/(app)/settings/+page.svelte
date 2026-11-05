@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
@@ -48,6 +48,18 @@
 		$session.data ? {} : 'skip'
 	);
 	let linkedChildren = $derived(linkedChildrenResponse.data ?? []);
+	// The chat email's "add an email address" note lands on #child-notifications (via
+	// /child/[id]?settings=emails); the card only renders once the query loads, so the browser's
+	// own jump to the anchor misses it. Scroll once it exists.
+	let scrolledToChildNotifications = false;
+	$effect(() => {
+		if (scrolledToChildNotifications || linkedChildren.length === 0) return;
+		if (window.location.hash !== '#child-notifications') return;
+		scrolledToChildNotifications = true;
+		void tick().then(() =>
+			document.getElementById('child-notifications')?.scrollIntoView({ block: 'start' })
+		);
+	});
 	let myParentLink = $derived(myParentLinkResponse.data ?? null);
 
 	const childDisplayName = (child: {
@@ -503,7 +515,7 @@
 	</Card>
 
 	{#if linkedChildren.length > 0}
-		<Card id="child-notifications">
+		<Card id="child-notifications" class="scroll-mt-40">
 			<CardHeader class="flex flex-col gap-2">
 				<CardTitle>{$_('viewAs.childEmailsTitle')}</CardTitle>
 				<CardDescription>{$_('parentAccounts.notificationEmailCriticalNote')}</CardDescription>

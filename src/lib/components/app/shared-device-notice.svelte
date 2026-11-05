@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { replaceState } from '$app/navigation';
-	import { page } from '$app/state';
+	import { afterNavigate, replaceState } from '$app/navigation';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { SIGNED_IN_VIA_LINK_PARAM, SIGNED_IN_VIA_LINK_VALUE } from '$lib/auth/magic-link';
@@ -18,19 +17,26 @@
 
 	let signedInViaLink = $state(false);
 	onMount(() => {
-		const viaLink =
-			page.url.searchParams.get(SIGNED_IN_VIA_LINK_PARAM) === SIGNED_IN_VIA_LINK_VALUE;
 		try {
-			if (viaLink) window.sessionStorage.setItem(SIGNED_IN_VIA_LINK_STORAGE_KEY, '1');
 			signedInViaLink = window.sessionStorage.getItem(SIGNED_IN_VIA_LINK_STORAGE_KEY) === '1';
 		} catch {
-			signedInViaLink = viaLink;
+			// Storage unavailable: only a `via=link` arrival (below) shows the notice.
 		}
-		if (viaLink) {
-			const url = new URL(page.url);
-			url.searchParams.delete(SIGNED_IN_VIA_LINK_PARAM);
-			replaceState(`${url.pathname}${url.search}${url.hash}`, {});
+	});
+	// afterNavigate, not onMount: this sits in the app layout, which mounts before the router is
+	// initialised on a fresh load, and replaceState throws until it is.
+	afterNavigate(({ to }) => {
+		const url = to?.url;
+		if (url?.searchParams.get(SIGNED_IN_VIA_LINK_PARAM) !== SIGNED_IN_VIA_LINK_VALUE) return;
+		signedInViaLink = true;
+		try {
+			window.sessionStorage.setItem(SIGNED_IN_VIA_LINK_STORAGE_KEY, '1');
+		} catch {
+			// The notice still shows for this page view.
 		}
+		const cleaned = new URL(url);
+		cleaned.searchParams.delete(SIGNED_IN_VIA_LINK_PARAM);
+		replaceState(`${cleaned.pathname}${cleaned.search}${cleaned.hash}`, {});
 	});
 
 	const dismiss = () => {
