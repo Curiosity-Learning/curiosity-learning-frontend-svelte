@@ -340,3 +340,77 @@ export const notificationEmail = (args: {
 		})
 	};
 };
+
+// Confirmation email to the address a parent entered for their child (CL-768, review B2). It
+// goes to an address nobody has confirmed yet — possibly a typo or a stranger's inbox — so it
+// says as little as possible: the username (the child needs it to sign in), no club names, no
+// dates, no sign-in link and no other links. The button opens an app page that only works when
+// signed in AS that child (childEmailVerification.confirmChildEmail), so clicking it proves
+// nothing on its own.
+export const childEmailVerificationEmail = (args: {
+	username: string;
+	url: string;
+}): EmailContent => {
+	const url = absoluteUrl(args.url);
+	const intro = `Your parent or guardian added this address for Curiosity Learning notifications for the account ${args.username}.`;
+	const instruction = `Sign in as ${args.username} to confirm it.`;
+	const ignore = "If you don't know what this is, you can ignore this email.";
+	const strong = `<strong style="color:${colors.foreground};">${escapeHtml(args.username)}</strong>`;
+	return {
+		subject: 'Confirm your email for Curiosity Learning',
+		text: `${intro} ${instruction}\n\n${url}\n\n${ignore}`,
+		html: layout({
+			preheader: intro,
+			title: 'Confirm your email',
+			children: `
+				${paragraph(`Your parent or guardian added this address for Curiosity Learning notifications for the account ${strong}. Sign in as ${strong} to confirm it.`)}
+				${button(url, 'Confirm this email')}
+				${rawLink(url)}
+				${paragraph(escapeHtml(ignore))}
+			`,
+			footer: 'Nothing is sent to this address until it is confirmed.'
+		})
+	};
+};
+
+export type ChildRoutingChange = 'pending' | 'confirmed' | 'removed';
+
+// Notice to the PARENT (the approved consent address) whenever their child's email routing
+// changes (CL-768, review S5): the change may have been made by someone else on a signed-in
+// device. A plain link to the child's page — never a sign-in link: undoing a change needs a fresh
+// sign-in anyway (sessionFreshness.ts), and this email must not hand out a session.
+export const childRoutingChangedEmail = (args: {
+	childName: string;
+	change: ChildRoutingChange;
+	maskedEmail?: string;
+	childPageUrl?: string;
+}): EmailContent => {
+	const { childName, maskedEmail } = args;
+	const subject =
+		args.change === 'removed'
+			? `${childName}'s notification emails come to you again`
+			: args.change === 'confirmed'
+				? `${childName}'s notification emails now go to ${maskedEmail}`
+				: `${childName}'s notification emails are changing`;
+	const message =
+		args.change === 'removed'
+			? `${childName}'s notification emails now come to you again.`
+			: args.change === 'confirmed'
+				? `${childName}'s notification emails now go to ${maskedEmail}.`
+				: `${childName}'s notification emails will go to ${maskedEmail} once ${childName} confirms it.`;
+	const undo = `Not you? Open ${childName}'s page to undo.`;
+	return {
+		subject,
+		text: [message, undo, args.childPageUrl].filter(Boolean).join('\n\n'),
+		html: layout({
+			preheader: message,
+			title: subject,
+			children: `
+				${paragraph(escapeHtml(message))}
+				${paragraph(escapeHtml(undo))}
+				${args.childPageUrl ? `${button(args.childPageUrl, `Open ${childName}'s page`)}${rawLink(args.childPageUrl)}` : ''}
+			`,
+			footer: `You received this email because you are the parent or guardian on ${childName}'s Curiosity Learning account.`
+		})
+	};
+};

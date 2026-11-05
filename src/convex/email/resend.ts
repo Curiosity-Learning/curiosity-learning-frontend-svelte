@@ -8,6 +8,7 @@ export type TransactionalEmailType =
 	| 'magic-link'
 	| 'verification-otp'
 	| 'notification'
+	| 'child-email-verification'
 	| 'admin-invite'
 	| 'club-leader-invite';
 

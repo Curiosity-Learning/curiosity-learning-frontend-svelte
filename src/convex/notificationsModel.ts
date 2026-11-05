@@ -14,9 +14,12 @@ import { internal } from './_generated/api';
 //   `notificationsEnabled` switch mutes all non-critical kinds the same way.
 // - medium: delivered in-app only (no email), muteable with the same semantics as high.
 //
-// Child accounts have synthetic `username@children.curiosity.local` auth emails that are
-// undeliverable. Emails for CRITICAL kinds are rerouted to the approved parent email from
-// `parentChildConsents`; for high kinds no email is sent to child accounts.
+// Child accounts have synthetic `username@children.curiosity.local` auth emails that are never
+// emailed. Routing (notifications.resolveEmailRecipient): CRITICAL kinds go to the approved
+// parent email from `parentChildConsents`; HIGH kinds go to the child's own
+// `profiles.notificationEmail` once the child has confirmed it (`notificationEmailVerifiedAt`)
+// and are otherwise not emailed at all (in-app only) — their links lead to the child's own pages,
+// which the parent cannot open. Chat emails (chat.ts) additionally fall back to the parent.
 export type NotificationKind =
 	// critical
 	| 'application_status' // club application moved to interview / accepted / rejected

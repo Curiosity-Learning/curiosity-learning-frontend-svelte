@@ -677,7 +677,12 @@ export const markRoomRead = mutation({
 // chat_activity for club/project rooms, critical review_chat_activity for application and
 // join-request rooms) and the same email channel — the tier is also what decides child-account
 // routing: critical chat email goes to the approved parent; high goes to the child's own
-// notificationEmail when the parent has set one, else to the parent (with a nudge to set one).
+// notificationEmail once the child has confirmed it, else to the parent (with a nudge to set
+// one). Routing flips mid-batch (the child confirms, or the parent removes the address) are
+// deliberately not special-cased (review edge case 6): roomEmailMarkers are keyed by (child
+// profile, room), not by address, so a batch the parent was already emailed about counts as
+// covered for the child too, and the 12h repeat window applies across the flip; the next new
+// batch goes to the new address.
 export const deliverChatEmailNotification = internalMutation({
 	args: {
 		roomId: v.id('rooms'),
@@ -741,9 +746,9 @@ export const deliverChatEmailNotification = internalMutation({
 		if (!recipientProfile) return null;
 		const critical = kindConfig.tier === 'critical';
 		// Resolved here, not in the send action, because the wording and the link depend on who
-		// reads it. A child account's email goes to the parent — unless the parent has set a
-		// notificationEmail for the child, in which case non-critical chat (club/project rooms)
-		// goes to the child directly, worded for them (see notifications.resolveEmailRecipient).
+		// reads it. A child account's email goes to the parent — unless the child has a confirmed
+		// notificationEmail, in which case non-critical chat (club/project rooms) goes to the child
+		// directly, worded for them (see notifications.resolveEmailRecipient).
 		const recipient = await resolveEmailRecipient(ctx, {
 			profile: recipientProfile,
 			critical,
@@ -763,15 +768,19 @@ export const deliverChatEmailNotification = internalMutation({
 			: `/chat?room=${args.roomId}`;
 		// A parent reading a club/project chat email is told they can hand these over to the
 		// child by adding an email address for them (the child cannot consent to that themselves;
-		// the parent does it from the child's overview page). A plain path, not a second sign-in
-		// link: one token per email (review S3), and the button's session covers it. Not on
-		// critical chats: those keep going to the parent either way, so the promise would be false.
+		// the parent does it from the child's overview page, and the child confirms it before
+		// anything is routed there — CL-768). A plain path, not a second sign-in link: one token
+		// per email (review S3), and the button's session covers it. Not on critical chats: those
+		// keep going to the parent either way, so the promise would be false.
 		let note: { text: string; url: string; linkLabel: string } | undefined;
 		if (parentAudience && !critical) {
+			const pendingConfirmation = Boolean(recipientProfile.notificationEmail);
 			note = {
-				text: `You get these emails because ${childName} has a child account. Chat notifications like this one can go to ${childName} directly: after opening the chats with the button above, add an email address for them on ${childName}'s page.`,
+				text: pendingConfirmation
+					? `Waiting for ${childName} to confirm their email address. Once they do, chat notifications like this one will go to them directly.`
+					: `Add an email address for ${childName}. Once they confirm it, chat notifications like this one will go to them directly.`,
 				url: `/child/${args.profileId}`,
-				linkLabel: `Add an email address for ${childName}`
+				linkLabel: `Open ${childName}'s page`
 			};
 		}
 
@@ -791,7 +800,11 @@ export const deliverChatEmailNotification = internalMutation({
 			critical,
 			kind,
 			title,
-			message: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
+			// A parent reads about the child's chat as a third party: the messages wait for the
+			// child, not for them (siblings may share a parent, so the child is named).
+			message: parentAudience
+				? `There are new messages in ${chatLabel} waiting for ${childName}. Open the chat to catch up.`
+				: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
 			url: appUrl,
 			ctaLabel: parentAudience ? `Open ${childName}'s chats` : undefined,
 			to: recipient.to,

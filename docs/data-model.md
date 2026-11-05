@@ -11,6 +11,14 @@ Schema source: `src/convex/schema.ts`
 | `profiles`        | Per-user profile and onboarding state | `authUserId`, `username?`, `profileImageMediaAssetId?`, `activeClubId?`, `isVerified`, `firstLoginCompleted`, `parentProfileId?`, `pendingClubCode?`, `pendingRole?` | `by_auth_user_id`, `by_username`, `by_profile_image_media_asset` |
 | `userPreferences` | Theme + notification settings         | `profileId`, `activeClubId?`                                                                                                                                         | `by_profile`                                                     |
 
+Child notification email (child accounts only, CL-768): `profiles.notificationEmail?` is the real address the linked parent entered; `notificationEmailSetAt?` / `notificationEmailSetByProfileId?` record who and when; `notificationEmailSource?` (`childPage` / `consent`) where it was entered; `notificationEmailVerifiedAt?` is set when the child confirmed it while signed in as themselves. An address without `notificationEmailVerifiedAt` is **pending** and routes everywhere as if unset. Changing the address clears the verification; removing it clears all five fields.
+
+| Table                     | Purpose                                                     | Key Fields                                                                                                                                                  | Indexes                                                 |
+| ------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `childEmailVerifications` | Confirmation links for a child's pending notification email | `childProfileId`, `email`, `tokenHash?` (sha-256 base64url, set by the send action), `expiresAt` (72 h), `createdAt`, `requestedByProfileId`, `consumedAt?` | `by_token_hash`, `by_child_profile_id`, `by_expires_at` |
+
+A new request deletes the child's unconsumed rows; a daily cron deletes expired rows. `emailDeliveries` also logs `child_email_verification` and `child_routing_changed` emails (`recipientProfileId` is the child).
+
 ## Clubs / Membership / Permissions
 
 | Table                 | Purpose                                                                   | Key Fields                                                                                                                                                                | Indexes                                                                                    |

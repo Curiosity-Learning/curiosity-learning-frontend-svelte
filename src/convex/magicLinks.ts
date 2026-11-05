@@ -46,7 +46,7 @@ import {
 const TOKEN_LENGTH = 32;
 const TOKEN_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
-const generateMagicLinkToken = () => {
+export const generateMagicLinkToken = () => {
 	// Rejection sampling keeps the letters uniform: 208 = 4 * 52 is the largest multiple of the
 	// alphabet size that fits in a byte.
 	const limit = 256 - (256 % TOKEN_ALPHABET.length);

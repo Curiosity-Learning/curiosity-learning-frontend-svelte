@@ -5,7 +5,20 @@ import { mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { getRoomAccess, getRoomName } from './chatModel';
+import {
+	CHILD_EMAIL_VERIFICATION_RATE_LIMIT,
+	childEmailVerificationRateLimitKey,
+	invalidateChildEmailVerifications,
+	issueChildEmailVerification,
+	scheduleRoutingChangedNotice
+} from './childEmailVerification';
 import { requireIdentity, requireProfile } from './permissions';
+import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
+import { ROUTING_CHANGE_MAX_SESSION_AGE_MS, requireFreshSession } from './sessionFreshness';
+import {
+	NOTIFICATION_EMAIL_IS_PARENT,
+	RESEND_LIMIT_REACHED
+} from '../lib/domain/child-notification-email';
 import { canViewProject } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
@@ -437,7 +450,10 @@ export const getChildOverview = query({
 			lastName: child.lastName ?? null,
 			username: child.username ?? null,
 			profileImageMediaAssetId: child.profileImageMediaAssetId ?? null,
+			// Pending until notificationEmailVerifiedAt is set (see setChildNotificationEmail).
 			notificationEmail: child.notificationEmail ?? null,
+			notificationEmailVerifiedAt: child.notificationEmailVerifiedAt ?? null,
+			notificationEmailSetAt: child.notificationEmailSetAt ?? null,
 			clubs,
 			projects: {
 				current: projectEntries.filter((entry) => entry.section === 'current'),
@@ -641,23 +657,62 @@ export const listChildMessages = query({
 // undeliverable email — neither is a security concern.
 const isPlausibleEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
+// The parent's own sign-in email, or the approved consent address for this child (the two can
+// differ, review S9).
+const isParentOwnAddress = async (
+	ctx: MutationCtx,
+	args: { parentAuthUserId: string; child: Doc<'profiles'>; email: string }
+) => {
+	const parentAuthEmail = await getAuthUserEmail(ctx, args.parentAuthUserId);
+	if (parentAuthEmail && normalizeEmail(parentAuthEmail) === args.email) return true;
+	const consents = await ctx.db
+		.query('parentChildConsents')
+		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.child._id))
+		.collect();
+	return consents.some(
+		(consent) => consent.status === 'approved' && normalizeEmail(consent.parentEmail) === args.email
+	);
+};
+
 /**
- * Sets (or clears, with `email: null`) the real address a child's NON-critical notification
- * emails go to — club/project chat activity and other high-tier kinds — instead of the parent
- * (see profiles.notificationEmail in schema.ts and notifications.resolveEmailRecipient).
+ * Sets, changes, re-sends or clears (`email: null`) the real address a child's NON-critical
+ * notification emails go to — club/project chat activity and other high-tier kinds — instead of
+ * the parent (see profiles.notificationEmail in schema.ts and notifications.resolveEmailRecipient).
  *
  * This is the one parentAccounts mutation that names a childProfileId, and it is NOT an "act as
  * the child" path (see the module header and the structural test in parentAccounts.spec.ts):
  * it writes a parent-owned setting onto the child's profile and runs nothing under the child's
  * identity. Only the linked parent may call it, because a child cannot consent to receiving
- * email on their own — the parent does so on their behalf, and who/when is recorded.
+ * email on their own — the parent does so on their behalf, and who/when is recorded. "Resend"
+ * is this same call with the current pending address, so no second childProfileId mutation
+ * exists.
+ *
+ * CL-768 (review B2/B3/S5):
+ * - A new address is PENDING until the child confirms it while signed in as themselves
+ *   (childEmailVerification.ts); until then everything routes as if no address were set.
+ *   Changing the address resets the verification and issues a new link; removing it clears the
+ *   address, its verification and source, and invalidates outstanding links.
+ * - Only from a session created in the last 15 minutes (sessionFreshness.ts): on a shared
+ *   computer, a parent session left signed in must not let someone else redirect the child's
+ *   emails. The UI asks the parent to sign in again.
+ * - Every routing change emails the parent (the approved consent address) a plain notice.
+ * - The parent's own addresses are refused (edge case 1): child-worded email with child links
+ *   would reach the parent. Addresses that belong to other accounts are NOT refused (edge cases
+ *   2-3): siblings may share one inbox, "send it to dad" is legitimate, and refusing would reveal
+ *   which addresses have accounts. Verification is per child profile.
+ * - At most 3 confirmation emails per child per 24 h (set, change and resend all count).
  */
 export const setChildNotificationEmail = mutation({
 	args: {
 		childProfileId: v.id('profiles'),
 		email: v.union(v.string(), v.null())
 	},
-	returns: v.object({ notificationEmail: v.union(v.string(), v.null()) }),
+	returns: v.object({
+		notificationEmail: v.union(v.string(), v.null()),
+		status: v.union(v.literal('none'), v.literal('pending'), v.literal('verified')),
+		// True when a confirmation email was (re)sent by this call.
+		verificationSent: v.boolean()
+	}),
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const parentProfile = await requireProfile(ctx, identity.subject);
@@ -678,15 +733,75 @@ export const setChildNotificationEmail = mutation({
 			if (!isPlausibleEmail(email) || email.endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
 				throw new ConvexError('Please enter a valid email address');
 			}
+			if (await isParentOwnAddress(ctx, { parentAuthUserId: identity.subject, child, email })) {
+				throw new ConvexError(
+					`${NOTIFICATION_EMAIL_IS_PARENT}: That's your own address. Leave it empty to get these emails yourself.`
+				);
+			}
 		}
 
+		const current = child.notificationEmail ?? null;
+		const currentlyVerified = current !== null && child.notificationEmailVerifiedAt !== undefined;
+		// Nothing to do (no fresh sign-in needed for a no-op).
+		if (email === current && (email === null || currentlyVerified)) {
+			return {
+				notificationEmail: email,
+				status: email === null ? ('none' as const) : ('verified' as const),
+				verificationSent: false
+			};
+		}
+
+		await requireFreshSession(ctx, ROUTING_CHANGE_MAX_SESSION_AGE_MS);
 		const now = Date.now();
-		await ctx.db.patch(child._id, {
-			notificationEmail: email ?? undefined,
-			notificationEmailSetAt: email ? now : undefined,
-			notificationEmailSetByProfileId: email ? parentProfile._id : undefined,
-			updatedAt: now
+
+		if (email === null) {
+			await ctx.db.patch(child._id, {
+				notificationEmail: undefined,
+				notificationEmailSetAt: undefined,
+				notificationEmailSetByProfileId: undefined,
+				notificationEmailVerifiedAt: undefined,
+				notificationEmailSource: undefined,
+				updatedAt: now
+			});
+			await invalidateChildEmailVerifications(ctx, child._id);
+			await scheduleRoutingChangedNotice(ctx, { childProfileId: child._id, change: 'removed' });
+			return { notificationEmail: null, status: 'none' as const, verificationSent: false };
+		}
+
+		// A new address, or the same pending one again ("Resend"). Checked before any write: the
+		// throw rolls nothing back that matters, and the attempt is only recorded when it is sent.
+		const rateLimitKey = childEmailVerificationRateLimitKey(child._id);
+		if (await isRateLimited(ctx, rateLimitKey, CHILD_EMAIL_VERIFICATION_RATE_LIMIT)) {
+			throw new ConvexError(
+				`${RESEND_LIMIT_REACHED}: Too many confirmation emails for this account today. Please try again tomorrow.`
+			);
+		}
+		await recordRateLimitAttempt(ctx, rateLimitKey, CHILD_EMAIL_VERIFICATION_RATE_LIMIT);
+
+		const isResend = email === current;
+		if (!isResend) {
+			await ctx.db.patch(child._id, {
+				notificationEmail: email,
+				notificationEmailSetAt: now,
+				notificationEmailSetByProfileId: parentProfile._id,
+				notificationEmailVerifiedAt: undefined,
+				notificationEmailSource: 'childPage',
+				updatedAt: now
+			});
+		}
+		await issueChildEmailVerification(ctx, {
+			childProfileId: child._id,
+			email,
+			requestedByProfileId: parentProfile._id
 		});
-		return { notificationEmail: email };
+		// A resend changes no routing, so the parent is only told about new addresses.
+		if (!isResend) {
+			await scheduleRoutingChangedNotice(ctx, {
+				childProfileId: child._id,
+				change: 'pending',
+				email
+			});
+		}
+		return { notificationEmail: email, status: 'pending' as const, verificationSent: true };
 	}
 });

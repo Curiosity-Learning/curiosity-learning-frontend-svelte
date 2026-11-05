@@ -98,7 +98,11 @@ export const unreadCount = query({
 // - critical notices always go to the approved parent (parentChildConsents.parentEmail) — the
 //   parent is the accountable adult for account actions and review conversations;
 // - everything else goes to the child's own `notificationEmail` when the linked parent has set
-//   one (parentAccounts.setChildNotificationEmail), read by the child as themselves;
+//   one (parentAccounts.setChildNotificationEmail) AND the child has confirmed it
+//   (`notificationEmailVerifiedAt`, childEmailVerification.confirmChildEmail), read by the child
+//   as themselves. A pending (unconfirmed) address is treated exactly as no address (CL-768,
+//   review B3): a typo or someone else's inbox never receives club activity or session times;
+//   the only email a pending address ever gets is the generic confirmation email;
 // - with no such address, `parentFallback` decides: chat emails ask for it (the parent has a
 //   read-only view of the child's chats and parent-facing copy exists), other high-tier kinds
 //   do not (their links lead to pages a parent cannot open) and resolve to no email. A parent
@@ -118,7 +122,11 @@ export const resolveEmailRecipient = async (
 	}
 
 	// Child account: never email the synthetic address.
-	if (!args.critical && args.profile.notificationEmail) {
+	if (
+		!args.critical &&
+		args.profile.notificationEmail &&
+		args.profile.notificationEmailVerifiedAt !== undefined
+	) {
 		return { to: args.profile.notificationEmail, audience: 'self' };
 	}
 	if (!args.critical && !args.parentFallback) return null;

@@ -68,7 +68,10 @@ export const runDailyMaintenance = internalAction({
 			// is currently open. Also covers rolling distribution for applications submitted
 			// mid-window (submitApplication triggers this inline too, see clubApplications.ts, so
 			// mid-window applicants don't wait for the next day's run).
-			const summary = await ctx.runMutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+			const summary = await ctx.runMutation(
+				internal.reviewAssignmentModel.assignReviewsForOpenWindow,
+				{}
+			);
 			console.log('cron:runDailyMaintenance:assignReviewsForOpenWindow', summary);
 		} catch (error) {
 			await reportConvexError(error, {
@@ -91,6 +94,25 @@ export const runDailyMaintenance = internalAction({
 			await reportConvexError(error, {
 				area: 'auth',
 				operation: 'crons:runDailyMaintenance:deleteExpiredVerifications'
+			});
+		}
+
+		try {
+			// Expired child email confirmation links (childEmailVerification.ts, CL-768).
+			let deleted = 0;
+			for (let page = 0; page < MAX_EXPIRED_VERIFICATION_PAGES; page++) {
+				const result = await ctx.runMutation(
+					internal.childEmailVerification.deleteExpiredChildEmailVerifications,
+					{}
+				);
+				deleted += result.deleted;
+				if (!result.hasMore) break;
+			}
+			console.log('cron:runDailyMaintenance:deleteExpiredChildEmailVerifications', { deleted });
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'auth',
+				operation: 'crons:runDailyMaintenance:deleteExpiredChildEmailVerifications'
 			});
 		}
 

@@ -460,13 +460,18 @@ describe('chat email notifications', () => {
 			true
 		);
 		expect(parentCall.html).toContain('Open kiddo&#39;s chats');
-		expect(parentCall.html).toContain('Add an email address for kiddo');
+		expect(parentCall.html).toContain('Open kiddo&#39;s page');
 		expect(parentCall.text).toContain(
 			"This button signs you in — please don't forward this email."
 		);
 		expect(parentCall.text).toContain(
-			"You get these emails because kiddo has a child account. Chat notifications like this one can go to kiddo directly: after opening the chats with the button above, add an email address for them on kiddo's page."
+			'Add an email address for kiddo. Once they confirm it, chat notifications like this one will go to them directly.'
 		);
+		// The messages wait for the child, not for the parent reading about them.
+		expect(parentCall.text).toContain(
+			"There are new messages in kiddo's Curiosity Club chat waiting for kiddo."
+		);
+		expect(parentCall.text).not.toContain('waiting for you');
 		expect(parentCall.text).not.toContain('Forgot password');
 		// Review S2: the link is minted in the send action, so no scheduled function's stored
 		// args ever held a token.
@@ -531,12 +536,42 @@ describe('chat email notifications', () => {
 		);
 	});
 
-	it('club chat goes straight to the child once the parent has set their notification email', async () => {
+	// CL-768 (review B3): until the child confirms the address, chat keeps going to the parent,
+	// and the pending address receives nothing.
+	it('club chat keeps going to the parent while the child notification email is pending', async () => {
 		vi.useFakeTimers();
 		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const { t, guide, roomId, childProfileId } = await seedFixture({ withChild: true });
 		await t.run(async (ctx) => {
 			await ctx.db.patch(childProfileId!, { notificationEmail: 'kiddo@example.com' });
+		});
+
+		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(2);
+		expect(sendEmailMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ to: 'kiddo@example.com' })
+		);
+		const parentCall = (
+			sendEmailMock.mock.calls as unknown as Array<[{ to: string; text: string }]>
+		)
+			.map(([call]) => call)
+			.find((call) => call.to === 'parent@example.com')!;
+		expect(parentCall.text).toContain(
+			'Waiting for kiddo to confirm their email address. Once they do, chat notifications like this one will go to them directly.'
+		);
+	});
+
+	it('club chat goes straight to the child once the child has confirmed their notification email', async () => {
+		vi.useFakeTimers();
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const { t, guide, roomId, childProfileId } = await seedFixture({ withChild: true });
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId!, {
+				notificationEmail: 'kiddo@example.com',
+				notificationEmailVerifiedAt: Date.now()
+			});
 		});
 
 		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Hello everyone' });
@@ -567,7 +602,10 @@ describe('chat email notifications', () => {
 		vi.useFakeTimers();
 		const { t, guide, roomId, childProfileId } = await seedFixture({ withChild: true });
 		await t.run(async (ctx) => {
-			await ctx.db.patch(childProfileId!, { notificationEmail: 'kiddo@example.com' });
+			await ctx.db.patch(childProfileId!, {
+				notificationEmail: 'kiddo@example.com',
+				notificationEmailVerifiedAt: Date.now()
+			});
 		});
 		await muteChatMessagesFor(t, childProfileId!);
 
@@ -749,7 +787,10 @@ describe('chat email notifications', () => {
 		// Critical chat goes to the parent even when the child has their own notification email —
 		// so the "goes to them directly" nudge, which would be untrue here, is left out too.
 		await t.run(async (ctx) => {
-			await ctx.db.patch(childProfileId, { notificationEmail: 'kiddo@example.com' });
+			await ctx.db.patch(childProfileId, {
+				notificationEmail: 'kiddo@example.com',
+				notificationEmailVerifiedAt: Date.now()
+			});
 		});
 		await t
 			.withIdentity({ subject: 'guide-user' })

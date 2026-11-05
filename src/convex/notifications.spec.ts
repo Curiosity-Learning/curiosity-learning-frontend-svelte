@@ -367,11 +367,44 @@ describe('child account email routing', () => {
 		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
 
-	it("emails high kinds to the child's notification email once a parent has set one", async () => {
+	// CL-768 (review B3): an address the child has not confirmed yet routes as if unset.
+	it("sends high kinds nowhere while the child's notification email is still pending", async () => {
 		vi.useFakeTimers();
 		const { t, clubId, childProfileId } = await seedFixture();
 		await t.run(async (ctx) => {
 			await ctx.db.patch(childProfileId, { notificationEmail: 'kiddo@example.com' });
+		});
+
+		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
+			clubId,
+			location: 'Club HQ',
+			startTime: Date.now() + 2 * HOUR,
+			endTime: Date.now() + 3 * HOUR
+		});
+		if (!session) throw new Error('session not created');
+		await t
+			.withIdentity({ subject: 'child-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'going' });
+		await t
+			.withIdentity({ subject: 'learner-user' })
+			.mutation(api.sessions.setRsvp, { sessionId: session._id, status: 'not_going' });
+		await t
+			.withIdentity({ subject: 'guide-user' })
+			.mutation(api.sessions.cancel, { sessionId: session._id });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+		expect(await notificationsFor(t, childProfileId)).toHaveLength(1);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	it("emails high kinds to the child's notification email once the child has confirmed it", async () => {
+		vi.useFakeTimers();
+		const { t, clubId, childProfileId } = await seedFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.patch(childProfileId, {
+				notificationEmail: 'kiddo@example.com',
+				notificationEmailVerifiedAt: Date.now()
+			});
 		});
 
 		const session = await t.withIdentity({ subject: 'guide-user' }).mutation(api.sessions.create, {
@@ -402,7 +435,10 @@ describe('child account email routing', () => {
 		vi.useFakeTimers();
 		const { t, clubId, childProfileId } = await seedFixture();
 		await t.run(async (ctx) => {
-			await ctx.db.patch(childProfileId, { notificationEmail: 'kiddo@example.com' });
+			await ctx.db.patch(childProfileId, {
+				notificationEmail: 'kiddo@example.com',
+				notificationEmailVerifiedAt: Date.now()
+			});
 		});
 
 		const memberId = await memberIdFor(t, clubId, childProfileId);

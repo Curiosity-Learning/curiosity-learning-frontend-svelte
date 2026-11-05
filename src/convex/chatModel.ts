@@ -560,8 +560,8 @@ export const getChatEmailCopy = async (
 };
 
 // Parent-facing variant of getChatEmailCopy: a child account's chat email is delivered to their
-// approved parent (notifications.resolveEmailRecipient) unless the parent has set a
-// notificationEmail for the child, so the parent reads it as a third party — "your club
+// approved parent (notifications.resolveEmailRecipient) unless the child has a confirmed
+// notificationEmail, so the parent reads it as a third party — "your club
 // application" would be wrong, and the link goes to the parent's read-only view of the child's
 // chats. Exhaustive like getChatEmailCopy.
 export const getChatEmailCopyForParent = async (

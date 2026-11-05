@@ -35,9 +35,18 @@ export default defineSchema({
 		// row can set or clear it; who and when is kept for the record. Critical notices (account
 		// actions, application/join-request chats) keep going to the approved parent regardless.
 		// Resolution lives in notifications.resolveEmailRecipient.
+		//
+		// PENDING until `notificationEmailVerifiedAt` is set (CL-768, review B2/B3): the child
+		// confirms it while signed in as themselves (childEmailVerification.confirmChildEmail),
+		// so a typo or someone else's inbox never receives anything but the generic
+		// confirmation email. A pending address behaves everywhere exactly as if none were set.
+		// Changing the address clears the verification; removing it clears all of these.
 		notificationEmail: v.optional(v.string()),
 		notificationEmailSetAt: v.optional(v.number()),
 		notificationEmailSetByProfileId: v.optional(v.id('profiles')),
+		notificationEmailVerifiedAt: v.optional(v.number()),
+		// Where the parent entered it: the child's page, or the consent screen (review S12).
+		notificationEmailSource: v.optional(v.union(v.literal('childPage'), v.literal('consent'))),
 		// PRD 5.10: platform-wide capability, orthogonal to club/project roles. Grants access to
 		// the separate /admin route group (CL-693) only — must never be branched on inside normal
 		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).
@@ -912,6 +921,27 @@ export default defineSchema({
 	})
 		.index('by_recipient', ['recipientProfileId', 'createdAt'])
 		.index('by_room', ['roomId', 'createdAt']),
+
+	// One row per confirmation email for a child's pending notificationEmail (CL-768, review
+	// B2). Created by parentAccounts.setChildNotificationEmail WITHOUT a token: the token is
+	// generated in the send action (childEmailVerification.sendChildEmailVerification — actions
+	// get OS randomness, mutations a per-execution seeded RNG, see magicLinks.ts) and only its
+	// hash is stored here (sha-256, base64url, like the magic-link `verification` rows); a row
+	// without `tokenHash` matches nothing. Confirming requires the CHILD's own session
+	// (`childProfileId`) — holding the token alone is not enough. Issuing a new one deletes the
+	// child's unconsumed rows; a daily cron deletes expired rows.
+	childEmailVerifications: defineTable({
+		childProfileId: v.id('profiles'),
+		email: v.string(),
+		tokenHash: v.optional(v.string()),
+		expiresAt: v.number(),
+		createdAt: v.number(),
+		requestedByProfileId: v.id('profiles'),
+		consumedAt: v.optional(v.number())
+	})
+		.index('by_token_hash', ['tokenHash'])
+		.index('by_child_profile_id', ['childProfileId'])
+		.index('by_expires_at', ['expiresAt']),
 
 	rateLimits: defineTable({
 		key: v.string(),

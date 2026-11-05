@@ -27,6 +27,18 @@ vi.mock('./authEmail', () => ({
 		authEmailByUserId.get(authUserId) ?? null
 }));
 
+// The fresh-sign-in rule reads the Better Auth session row, which needs the auth component;
+// childEmailVerification.spec.ts covers it against the real component. Here it always passes.
+vi.mock('./sessionFreshness', () => ({
+	ROUTING_CHANGE_MAX_SESSION_AGE_MS: 15 * 60 * 1000,
+	requireFreshSession: async () => {}
+}));
+
+// Confirmation emails and parent notices are scheduled by setChildNotificationEmail.
+vi.mock('./email/resend', () => ({
+	sendEmail: async () => ({ providerMessageId: 'resend-msg-1' })
+}));
+
 const insertProfile = async (
 	t: ReturnType<typeof convexTest>,
 	authUserId: string,
@@ -474,13 +486,21 @@ describe('parentAccounts.setChildNotificationEmail', () => {
 			childProfileId,
 			email: '  Kid.Mail@Example.com '
 		});
-		expect(result).toEqual({ notificationEmail: 'kid.mail@example.com' });
+		expect(result).toEqual({
+			notificationEmail: 'kid.mail@example.com',
+			status: 'pending',
+			verificationSent: true
+		});
 		let child = await t.run(async (ctx) => await ctx.db.get(childProfileId));
 		expect(child?.notificationEmail).toBe('kid.mail@example.com');
 		expect(child?.notificationEmailSetByProfileId).toBe(parentProfileId);
 		expect(child?.notificationEmailSetAt).toEqual(expect.any(Number));
+		expect(child?.notificationEmailSource).toBe('childPage');
+		// Pending until the child confirms it (CL-768).
+		expect(child?.notificationEmailVerifiedAt).toBeUndefined();
 		const overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
 		expect(overview.notificationEmail).toBe('kid.mail@example.com');
+		expect(overview.notificationEmailVerifiedAt).toBeNull();
 
 		await parent.mutation(api.parentAccounts.setChildNotificationEmail, {
 			childProfileId,
@@ -489,6 +509,7 @@ describe('parentAccounts.setChildNotificationEmail', () => {
 		child = await t.run(async (ctx) => await ctx.db.get(childProfileId));
 		expect(child?.notificationEmail).toBeUndefined();
 		expect(child?.notificationEmailSetByProfileId).toBeUndefined();
+		expect(child?.notificationEmailSource).toBeUndefined();
 	});
 
 	it('rejects anyone without a parentLinks row for that child', async () => {
