@@ -57,6 +57,17 @@ const en = {
 		}
 	},
 	settingsPage: {
+		devicesTitle: 'Signed-in devices',
+		devicesDescription:
+			'Signed in on a shared or lost device? Sign out everywhere, including this device.',
+		devicesSignOutEverywhere: 'Sign out everywhere',
+		devicesConfirmTitle: 'Sign out everywhere?',
+		devicesConfirmDescription:
+			'You will be signed out on every device, including this one. You can sign in again with your password, Google, or an email sign-in link.',
+		devicesConfirmAction: 'Sign out everywhere',
+		devicesCancel: 'Cancel',
+		devicesSigningOut: 'Signing out...',
+		devicesFailure: 'Could not sign out your other devices. Please try again.',
 		errorTitle: 'Settings update failed',
 		successTitle: 'Saved',
 		policiesTitle: 'Policies',
@@ -1044,6 +1055,11 @@ const en = {
 		sharedClubIndicatorLabel: "Visible because you're in the same club"
 	},
 	parentAccounts: {
+		sharedDeviceTitle: 'Not your device?',
+		sharedDeviceDescription:
+			'You signed in with a link from an email. If this computer or phone is shared, sign out when you are done.',
+		sharedDeviceSignOut: 'Sign out',
+		sharedDeviceDismiss: 'Dismiss',
 		linkedChildrenTitle: 'Linked children',
 		linkedChildrenDescription: 'View a read-only summary of clubs, projects, and chats.',
 		linkedChildrenEmpty: 'No linked children yet.',

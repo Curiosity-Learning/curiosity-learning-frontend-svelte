@@ -9,6 +9,7 @@
 import betterAuthTest from '@convex-dev/better-auth/test';
 import { createHash } from '@better-auth/utils/hash';
 import { base64Url } from '@better-auth/utils/base64';
+import { hashPassword } from 'better-auth/crypto';
 import { convexTest } from 'convex-test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { components } from './_generated/api';
@@ -139,7 +140,10 @@ describe('mintMagicLink', () => {
 		// decodeURIComponent() yields exactly the intended paths.
 		const verify = new URL(interstitialToVerifyPath(link!), 'https://app.example.com');
 		expect(verify.pathname).toBe('/api/auth/magic-link/verify');
-		expect(decodeURIComponent(verify.searchParams.get('callbackURL')!)).toBe('/child/abc?room=xyz');
+		// The landing page is marked as reached through a sign-in link (CL-769 banner).
+		expect(decodeURIComponent(verify.searchParams.get('callbackURL')!)).toBe(
+			'/child/abc?room=xyz&via=link'
+		);
 		expect(decodeURIComponent(verify.searchParams.get('errorCallbackURL')!)).toBe(
 			'/auth/sign-in?next=%2Fchild%2Fabc%3Froom%3Dxyz&link=expired'
 		);
@@ -192,7 +196,9 @@ describe('mintMagicLink', () => {
 
 		const first = await t.fetch(verifyPath, { method: 'GET' });
 		expect(first.status).toBe(302);
-		expect(first.headers.get('location')).toBe('https://app.example.com/child/abc?room=xyz');
+		expect(first.headers.get('location')).toBe(
+			'https://app.example.com/child/abc?room=xyz&via=link'
+		);
 		expect(first.headers.get('set-cookie')).toContain('better-auth.session_token=');
 		expect(first.headers.get('set-cookie')).toContain('convex_jwt=');
 
@@ -331,7 +337,9 @@ describe('POST /sign-in/magic-link (expired-link fallback)', () => {
 
 		const verify = await t.fetch(verifyPath, { method: 'GET' });
 		expect(verify.status).toBe(302);
-		expect(verify.headers.get('location')).toBe('https://app.example.com/child/abc?room=xyz');
+		expect(verify.headers.get('location')).toBe(
+			'https://app.example.com/child/abc?room=xyz&via=link'
+		);
 
 		const reused = await t.fetch(verifyPath, { method: 'GET' });
 		const fallback = new URL(reused.headers.get('location')!);
@@ -430,5 +438,122 @@ describe('deleteExpiredVerifications (daily cron)', () => {
 		expect(result).toEqual({ deleted: 1, hasMore: false });
 		expect(await findVerification(t, await hashMagicLinkToken(expiredToken))).toBeNull();
 		expect(await findVerification(t, await hashMagicLinkToken(liveToken))).not.toBeNull();
+	});
+});
+
+// Review S4 (CL-769): sessions created by a sign-in link last 7 days, and Better Auth's session
+// refresh (which would otherwise push any session back to the full 30 days on first use) keeps
+// them there (auth.ts databaseHooks).
+describe('sessions created by a sign-in link', () => {
+	const DAY_MS = 24 * 60 * 60 * 1000;
+	type SessionRow = { token: string; expiresAt: number; createdAt: number };
+	const sessionsOf = async (t: Awaited<ReturnType<typeof setup>>) =>
+		(
+			(await t.query(components.betterAuth.adapter.findMany, {
+				model: 'session',
+				where: [],
+				paginationOpts: { cursor: null, numItems: 10 }
+			})) as { page: SessionRow[] }
+		).page;
+	const sessionCookie = (response: Response) =>
+		response.headers
+			.get('set-cookie')!
+			.split(/,(?=\s*[\w.-]+=)/)
+			.map((cookie) => cookie.trim().split(';')[0])
+			.find((cookie) => /^(__Secure-)?better-auth\.session_token=/.test(cookie))!;
+
+	it('last 7 days, and a session refresh does not extend them', async () => {
+		stubAuthEnv();
+		const t = await setup();
+		const before = Date.now();
+		const verify = await t.fetch(interstitialToVerifyPath((await mint(t))!), { method: 'GET' });
+		expect(verify.status).toBe(302);
+
+		const [created] = await sessionsOf(t);
+		expect(created.expiresAt).toBeGreaterThanOrEqual(before + 7 * DAY_MS);
+		expect(created.expiresAt).toBeLessThanOrEqual(Date.now() + 7 * DAY_MS);
+
+		// For a 7-day session getSession's refresh condition is already true: it rewrites
+		// expiresAt, and the hook keeps it at createdAt + 7 days.
+		const session = await t.fetch('/api/auth/get-session', {
+			method: 'GET',
+			headers: { cookie: sessionCookie(verify) }
+		});
+		expect(session.status).toBe(200);
+		expect(((await session.json()) as { user?: { email: string } } | null)?.user?.email).toBe(
+			'parent@example.com'
+		);
+		const [refreshed] = await sessionsOf(t);
+		expect(refreshed.token).toBe(created.token);
+		expect(refreshed.expiresAt).toBeLessThanOrEqual(created.createdAt + 7 * DAY_MS);
+		expect(refreshed.expiresAt).toBeGreaterThanOrEqual(created.createdAt + 7 * DAY_MS - 1000);
+	});
+
+	// Settings' "Sign out everywhere" (CL-769): revoke-other-sessions, then a local sign-out.
+	it('can all be ended from another device through revoke-other-sessions', async () => {
+		stubAuthEnv();
+		const t = await setup();
+		const first = await t.fetch(interstitialToVerifyPath((await mint(t))!), { method: 'GET' });
+		const second = await t.fetch(interstitialToVerifyPath((await mint(t))!), { method: 'GET' });
+		expect(await sessionsOf(t)).toHaveLength(2);
+
+		const revoke = await t.fetch('/api/auth/revoke-other-sessions', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				origin: 'https://app.example.com',
+				cookie: sessionCookie(second)
+			},
+			body: '{}'
+		});
+		expect(revoke.status).toBe(200);
+		const remaining = await sessionsOf(t);
+		expect(remaining).toHaveLength(1);
+		const stale = await t.fetch('/api/auth/get-session', {
+			method: 'GET',
+			headers: { cookie: sessionCookie(first) }
+		});
+		expect(await stale.json()).toBeNull();
+	});
+
+	it('other sign-ins keep the normal 30 days', async () => {
+		stubAuthEnv();
+		const t = await setup({ withUser: false });
+		const now = Date.now();
+		const user = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'adult@example.com',
+					emailVerified: true,
+					name: 'adult',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'account',
+				data: {
+					accountId: user._id,
+					providerId: 'credential',
+					userId: user._id,
+					password: await hashPassword('a-long-password-1'),
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+
+		const signIn = await t.fetch('/api/auth/sign-in/email', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ email: 'adult@example.com', password: 'a-long-password-1' })
+		});
+		expect(signIn.status).toBe(200);
+
+		const [created] = await sessionsOf(t);
+		expect(created.expiresAt).toBeGreaterThanOrEqual(now + 30 * DAY_MS);
 	});
 });

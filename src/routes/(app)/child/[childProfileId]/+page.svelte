@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -19,6 +20,9 @@
 	import { t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
 	import { formatClockTime } from '$lib/domain/date';
+	import { SIGNED_IN_VIA_LINK_PARAM, SIGNED_IN_VIA_LINK_VALUE } from '$lib/auth/magic-link';
+	import { SIGNED_IN_VIA_LINK_STORAGE_KEY } from '$lib/auth/onboarding-state';
+	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
 
 	// PRD 2.4/6.1.10 (CL-703): "View as Child" — a DEDICATED READ-ONLY SURFACE, not full app
 	// impersonation (see parentAccounts.ts module header for the full design note). Every query
@@ -52,6 +56,45 @@
 				parentLinksClaimSettled = true;
 			});
 	});
+
+	// CL-769 (review S4): a parent who signs in from an email link is often on a shared family
+	// computer, where the session they leave behind lets the child act as them. Visits that
+	// arrived through a sign-in link carry `via=link` (lib/auth/magic-link.ts); it is read once,
+	// remembered for this tab, and stripped from the address bar, and the page offers to sign
+	// out. sessionStorage, not localStorage: the hint belongs to this visit, not the browser.
+	let signedInViaLink = $state(false);
+	onMount(() => {
+		const viaLink =
+			page.url.searchParams.get(SIGNED_IN_VIA_LINK_PARAM) === SIGNED_IN_VIA_LINK_VALUE;
+		try {
+			if (viaLink) window.sessionStorage.setItem(SIGNED_IN_VIA_LINK_STORAGE_KEY, '1');
+			signedInViaLink = window.sessionStorage.getItem(SIGNED_IN_VIA_LINK_STORAGE_KEY) === '1';
+		} catch {
+			signedInViaLink = viaLink;
+		}
+		if (viaLink) {
+			const url = new URL(page.url);
+			url.searchParams.delete(SIGNED_IN_VIA_LINK_PARAM);
+			replaceState(`${url.pathname}${url.search}${url.hash}`, {});
+		}
+	});
+	const dismissSignedInViaLink = () => {
+		signedInViaLink = false;
+		try {
+			window.sessionStorage.removeItem(SIGNED_IN_VIA_LINK_STORAGE_KEY);
+		} catch {
+			// Ignore storage errors.
+		}
+	};
+	let signingOut = $state(false);
+	const signOutFromSharedDevice = async () => {
+		signingOut = true;
+		try {
+			await signOutAndGoToSignIn();
+		} finally {
+			signingOut = false;
+		}
+	};
 
 	const overviewResponse = useStableQuery(api.parentAccounts.getChildOverview, () => ({
 		childProfileId
@@ -146,6 +189,27 @@
 <PageHeaderTitle title={displayName || 'Child overview'} />
 
 <div class="flex w-full flex-col gap-4 py-4">
+	{#if signedInViaLink}
+		<Alert class="flex flex-wrap items-center justify-between gap-3">
+			<div class="flex flex-col gap-1">
+				<AlertTitle>{t('parentAccounts.sharedDeviceTitle')}</AlertTitle>
+				<AlertDescription>{t('parentAccounts.sharedDeviceDescription')}</AlertDescription>
+			</div>
+			<div class="flex items-center gap-2">
+				<Button variant="ghost" onclick={dismissSignedInViaLink} disabled={signingOut}>
+					{t('parentAccounts.sharedDeviceDismiss')}
+				</Button>
+				<Button
+					variant="outline"
+					onclick={() => void signOutFromSharedDevice()}
+					disabled={signingOut}
+				>
+					{t('parentAccounts.sharedDeviceSignOut')}
+				</Button>
+			</div>
+		</Alert>
+	{/if}
+
 	{#if overviewResponse.error && parentLinksClaimSettled}
 		{#if isNotFoundError(overviewResponse.error)}
 			<Alert variant="destructive">

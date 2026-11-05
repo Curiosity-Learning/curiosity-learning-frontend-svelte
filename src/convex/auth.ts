@@ -85,6 +85,21 @@ const authCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
 
 const REMEMBERED_SESSION_SECONDS = 60 * 60 * 24 * 30;
 
+// CL-769 (review S4): a session created by a one-time sign-in link lasts 7 days, not 30. Such
+// links are mostly pressed by parents on whatever device the email was opened on — often the
+// family computer — and a leftover parent session there lets the child act as their parent.
+// Applied by the session databaseHooks below. The session row is its own marker: a session whose
+// lifetime (expiresAt - createdAt) is at most this long is a short session and stays capped at
+// createdAt + 7 days. The cap matters as much as the shorter start: Better Auth's getSession
+// "refreshes" any session whose expiresAt is within (expiresIn - updateAge) of now back to the
+// full 30 days, which for a 7-day session is true on the very first request. (Sessions created
+// with "don't remember me" are 1 day and never refreshed, so the cap never touches them.)
+export const SIGN_IN_LINK_SESSION_SECONDS = 60 * 60 * 24 * 7;
+const SIGN_IN_LINK_SESSION_MS = SIGN_IN_LINK_SESSION_SECONDS * 1000;
+// Clock slack between createdAt and expiresAt being computed in createSession.
+const SHORT_SESSION_SLACK_MS = 60 * 1000;
+const toMs = (value: Date | string | number) => new Date(value).getTime();
+
 const splitNameParts = (name?: string | null) => {
 	if (!name) {
 		return { firstName: undefined, lastName: undefined };
@@ -154,6 +169,39 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 		database: authComponent.adapter(ctx),
 		session: {
 			expiresIn: REMEMBERED_SESSION_SECONDS
+		},
+		databaseHooks: {
+			session: {
+				create: {
+					// `context` is the endpoint context of the request creating the session (Better
+					// Auth keeps it in AsyncLocalStorage for every API call); only the magic-link verify
+					// endpoint gets the short lifetime.
+					before: async (session, context) => {
+						if (context?.path !== '/magic-link/verify') return;
+						return {
+							data: { ...session, expiresAt: new Date(Date.now() + SIGN_IN_LINK_SESSION_MS) }
+						};
+					}
+				},
+				update: {
+					// getSession has already loaded the session it refreshes into
+					// context.context.session; a short one never moves past createdAt + 7 days.
+					before: async (update, context) => {
+						if (!update.expiresAt) return;
+						const current = context?.context.session?.session;
+						if (!current) return;
+						const createdAt = toMs(current.createdAt);
+						if (
+							toMs(current.expiresAt) - createdAt >
+							SIGN_IN_LINK_SESSION_MS + SHORT_SESSION_SLACK_MS
+						)
+							return;
+						const cap = createdAt + SIGN_IN_LINK_SESSION_MS;
+						if (toMs(update.expiresAt) <= cap) return;
+						return { data: { ...update, expiresAt: new Date(cap) } };
+					}
+				}
+			}
 		},
 		emailAndPassword: {
 			enabled: true,

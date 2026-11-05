@@ -107,9 +107,19 @@ describe('interstitial fragment', () => {
 		);
 		expect(url.pathname).toBe('/api/auth/magic-link/verify');
 		expect(url.searchParams.get('token')).toBe('abcDEF');
-		expect(decodeURIComponent(url.searchParams.get('callbackURL')!)).toBe('/child/abc?room=xyz');
+		// The landing page gets the via=link marker; the expired-link fallback continues to the
+		// unmarked page.
+		expect(decodeURIComponent(url.searchParams.get('callbackURL')!)).toBe(
+			'/child/abc?room=xyz&via=link'
+		);
 		expect(decodeURIComponent(url.searchParams.get('errorCallbackURL')!)).toBe(
 			buildMagicLinkErrorPath('/child/abc?room=xyz')
 		);
+		const bare = new URL(
+			buildMagicLinkVerifyPath({ token: 'abcDEF', next: '/child/abc' }),
+			'https://app.example.com'
+		);
+		expect(decodeURIComponent(bare.searchParams.get('callbackURL')!)).toBe('/child/abc?via=link');
+		expect(isMagicLinkCallbackPath('/child/abc?room=xyz&via=link')).toBe(true);
 	});
 });

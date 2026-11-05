@@ -23,6 +23,7 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { authClient } from '$lib/auth-client';
+	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
 	import { routes } from '$lib/routes';
 	import type { PageProps } from './$types';
 
@@ -84,6 +85,31 @@
 			unlinkPending = false;
 		}
 	};
+	// CL-769 (review S4): "Sign out everywhere". Sign-in links make sessions easy to leave
+	// behind (a family computer, a forwarded email), and nothing else lets a parent end them.
+	// Revokes every other session server-side, then signs this device out too.
+	let signOutEverywhereDialogOpen = $state(false);
+	let signOutEverywherePending = $state(false);
+	let signOutEverywhereError = $state('');
+
+	const confirmSignOutEverywhere = async () => {
+		signOutEverywherePending = true;
+		signOutEverywhereError = '';
+		try {
+			const { error } = await authClient.revokeOtherSessions();
+			if (error) {
+				signOutEverywhereError = t('settingsPage.devicesFailure');
+				return;
+			}
+			signOutEverywhereDialogOpen = false;
+			await signOutAndGoToSignIn();
+		} catch {
+			signOutEverywhereError = t('settingsPage.devicesFailure');
+		} finally {
+			signOutEverywherePending = false;
+		}
+	};
+
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
 		mode: 'immediate'
 	});
@@ -540,6 +566,25 @@
 
 	<Card>
 		<CardHeader class="flex flex-col gap-2">
+			<CardTitle>{$_('settingsPage.devicesTitle')}</CardTitle>
+			<CardDescription>{$_('settingsPage.devicesDescription')}</CardDescription>
+		</CardHeader>
+		<CardContent class="flex flex-col gap-2">
+			<Button
+				variant="outline"
+				class="justify-start"
+				onclick={() => {
+					signOutEverywhereError = '';
+					signOutEverywhereDialogOpen = true;
+				}}
+			>
+				{$_('settingsPage.devicesSignOutEverywhere')}
+			</Button>
+		</CardContent>
+	</Card>
+
+	<Card>
+		<CardHeader class="flex flex-col gap-2">
 			<CardTitle>{$_('settingsPage.policiesTitle')}</CardTitle>
 			<CardDescription>{$_('settingsPage.policiesDescription')}</CardDescription>
 		</CardHeader>
@@ -568,6 +613,38 @@
 			</Button>
 			<Button variant="destructive" disabled={unlinkPending} onclick={() => void confirmUnlinkParent()}>
 				{$_('parentAccounts.unlinkConfirmAction')}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root bind:open={signOutEverywhereDialogOpen}>
+	<Dialog.Content>
+		<Dialog.Header>
+			<Dialog.Title>{$_('settingsPage.devicesConfirmTitle')}</Dialog.Title>
+			<Dialog.Description>{$_('settingsPage.devicesConfirmDescription')}</Dialog.Description>
+		</Dialog.Header>
+		{#if signOutEverywhereError}
+			<Alert variant="destructive">
+				<AlertDescription>{signOutEverywhereError}</AlertDescription>
+			</Alert>
+		{/if}
+		<Dialog.Footer>
+			<Button
+				variant="outline"
+				onclick={() => (signOutEverywhereDialogOpen = false)}
+				disabled={signOutEverywherePending}
+			>
+				{$_('settingsPage.devicesCancel')}
+			</Button>
+			<Button
+				variant="destructive"
+				disabled={signOutEverywherePending}
+				onclick={() => void confirmSignOutEverywhere()}
+			>
+				{signOutEverywherePending
+					? $_('settingsPage.devicesSigningOut')
+					: $_('settingsPage.devicesConfirmAction')}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

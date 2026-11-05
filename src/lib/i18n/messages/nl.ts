@@ -58,6 +58,17 @@ const nl = {
 		}
 	},
 	settingsPage: {
+		devicesTitle: 'Ingelogde apparaten',
+		devicesDescription:
+			'Ingelogd op een gedeeld of kwijtgeraakt apparaat? Log overal uit, ook op dit apparaat.',
+		devicesSignOutEverywhere: 'Overal uitloggen',
+		devicesConfirmTitle: 'Overal uitloggen?',
+		devicesConfirmDescription:
+			'Je wordt op elk apparaat uitgelogd, ook op dit apparaat. Je kunt weer inloggen met je wachtwoord, Google of een inloglink per e-mail.',
+		devicesConfirmAction: 'Overal uitloggen',
+		devicesCancel: 'Annuleren',
+		devicesSigningOut: 'Bezig met uitloggen...',
+		devicesFailure: 'Kon je andere apparaten niet uitloggen. Probeer het opnieuw.',
 		errorTitle: 'Bijwerken van instellingen mislukt',
 		successTitle: 'Opgeslagen',
 		policiesTitle: 'Beleidsdocumenten',
@@ -1041,6 +1052,11 @@ const nl = {
 		sharedClubIndicatorLabel: 'Zichtbaar omdat je in dezelfde club zit'
 	},
 	parentAccounts: {
+		sharedDeviceTitle: 'Niet jouw apparaat?',
+		sharedDeviceDescription:
+			'Je bent ingelogd met een link uit een e-mail. Wordt deze computer of telefoon gedeeld? Log dan uit als je klaar bent.',
+		sharedDeviceSignOut: 'Uitloggen',
+		sharedDeviceDismiss: 'Sluiten',
 		linkedChildrenTitle: 'Gekoppelde kinderen',
 		linkedChildrenDescription: 'Bekijk een alleen-lezen overzicht van clubs, projecten en chats.',
 		linkedChildrenEmpty: 'Nog geen gekoppelde kinderen.',

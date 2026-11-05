@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import ClipboardCheckIcon from '@lucide/svelte/icons/clipboard-check';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
@@ -18,8 +16,7 @@
 	import chessIcon from '$lib/assets/chess.svg';
 	import ideaIcon from '$lib/assets/idea.svg';
 	import nodesIcon from '$lib/assets/nodes.svg';
-	import { authClient } from '$lib/auth-client';
-	import { clearClientSessionArtifacts } from '$lib/auth/onboarding-state';
+	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
 	import { formatScheduleSlot } from '$lib/domain/schedule';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
@@ -84,23 +81,7 @@
 		});
 	});
 
-	const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
-	const signOut = async () => {
-		clearClientSessionArtifacts();
-		await authClient.signOut();
-		for (let attempt = 0; attempt < 5; attempt += 1) {
-			try {
-				const session = await authClient.getSession({
-					query: { disableCookieCache: true }
-				});
-				if (!session.data) break;
-			} catch {
-				break;
-			}
-			await delay(150);
-		}
-		await goto(resolve('/auth/sign-in'), { replaceState: true, invalidateAll: true });
-	};
+	const signOut = signOutAndGoToSignIn;
 
 	let clubs = $derived(clubsResponse.data ?? []);
 	let initialUpdateMediaById = $derived.by(() => {

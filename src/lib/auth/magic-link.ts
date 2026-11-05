@@ -59,13 +59,23 @@ export const parseMagicLinkInterstitialFragment = (hash: string): MagicLinkInter
 	};
 };
 
+// Marker on the page a successful sign-in link lands on (CL-769, review S4): /child/[id] reads
+// it once, remembers it for the tab and strips it, and offers "Not your device? Sign out" — a
+// link session is the one most likely to be left behind on a shared family computer.
+export const SIGNED_IN_VIA_LINK_PARAM = 'via';
+export const SIGNED_IN_VIA_LINK_VALUE = 'link';
+
+export const withSignedInViaLinkMarker = (path: string) =>
+	`${path}${path.includes('?') ? '&' : '?'}${SIGNED_IN_VIA_LINK_PARAM}=${SIGNED_IN_VIA_LINK_VALUE}`;
+
 // The real verify URL (relative: the interstitial runs on the app origin, whose /api/auth proxy
-// reaches Better Auth). A failed or expired token lands on the sign-in page, which offers to
-// email a fresh link and then continues to `next`.
+// reaches Better Auth). Every sign-in link goes through here (minted ones and the plugin's own),
+// so this is where the landing page gets the via=link marker; a failed or expired token lands
+// on the sign-in page (unmarked `next`), which offers to email a fresh link.
 export const buildMagicLinkVerifyPath = (link: { token: string; next: string }) => {
 	const params = new URLSearchParams({
 		token: link.token,
-		callbackURL: toMagicLinkCallbackParam(link.next),
+		callbackURL: toMagicLinkCallbackParam(withSignedInViaLinkMarker(link.next)),
 		errorCallbackURL: toMagicLinkCallbackParam(buildMagicLinkErrorPath(link.next))
 	});
 	return `${AUTH_BASE_PATH}/magic-link/verify?${params.toString()}`;
