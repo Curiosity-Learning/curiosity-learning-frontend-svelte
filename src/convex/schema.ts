@@ -245,6 +245,15 @@ export default defineSchema({
 				createdByProfileId: v.id('profiles')
 			})
 		),
+		// CL-770: which completion reminders this (incomplete) application has had, so each goes
+		// out at most once. `closingSoonSeasonId` is the season whose "applications close
+		// tomorrow" email it got (applicationReminders.ts).
+		reminders: v.optional(
+			v.object({
+				closingSoonSeasonId: v.optional(v.id('seasons')),
+				closingSoonSentAt: v.optional(v.number())
+			})
+		),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
@@ -879,12 +888,16 @@ export default defineSchema({
 	// about this room, when, and did it go through?" — nothing reads it on the hot path. `to` is
 	// the resolved address (the approved parent's for child accounts). For chat emails, `roomId`
 	// and `coveredThroughAt` say which batch the email covered.
+	// CL-770: application reminders also record the sends they deliberately skipped (status
+	// 'skipped' + `skipReason`, `to` empty when no address could be resolved), so "did they get
+	// it?" has an answer for e.g. a child whose parent consent is still pending.
 	emailDeliveries: defineTable({
 		recipientProfileId: v.id('profiles'),
 		to: v.string(),
 		kind: v.string(),
 		subject: v.string(),
-		status: v.union(v.literal('sent'), v.literal('failed')),
+		status: v.union(v.literal('sent'), v.literal('failed'), v.literal('skipped')),
+		skipReason: v.optional(v.string()),
 		error: v.optional(v.string()),
 		providerMessageId: v.optional(v.string()),
 		roomId: v.optional(v.id('rooms')),
@@ -893,6 +906,17 @@ export default defineSchema({
 	})
 		.index('by_recipient', ['recipientProfileId', 'createdAt'])
 		.index('by_room', ['roomId', 'createdAt']),
+
+	// CL-770: addresses that unsubscribed from a kind of non-essential email (one-click link or
+	// List-Unsubscribe header, see emailUnsubscribe.ts). Keyed by the lowercased ADDRESS, not a
+	// profile: a parent whose consent is still pending has no account. Critical emails (account
+	// notices, decisions, consent) never check this.
+	emailSuppressions: defineTable({
+		email: v.string(),
+		kind: v.string(),
+		source: v.union(v.literal('link'), v.literal('one_click')),
+		createdAt: v.number()
+	}).index('by_email_and_kind', ['email', 'kind']),
 
 	rateLimits: defineTable({
 		key: v.string(),
@@ -908,8 +932,16 @@ export default defineSchema({
 	// timestamps (UTC), same convention as `sessions.startTime`/`endTime` — no per-club timezone
 	// concept at this level. Foundation only here: internal CRUD + authenticated read queries, no
 	// admin UI and no overlap/validation beyond what createSeason/updateSeason enforce.
+	//
+	// CL-770 season model (Ron, 2026-11-05): people apply all year; a season's intake runs from
+	// the previous season's `applicationDeadline` to its own, so there is no separate "open" date.
+	// Review (scoring) follows, interviews happen before `startDate`. Admins enter calendar DATES
+	// only; lib/domain/season-dates.ts turns them into the official moments (closing dates 23:55
+	// GMT, start 00:00 GMT). `applicationDeadline` is optional only for the pre-CL-770 bootstrap
+	// season; the admin form requires it.
 	seasons: defineTable({
 		name: v.string(),
+		applicationDeadline: v.optional(v.number()),
 		startDate: v.number(),
 		endDate: v.number(),
 		reviewWindowOpen: v.number(),

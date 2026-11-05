@@ -223,6 +223,19 @@ const nl = {
 		planNextSessionDescription: 'Plan je volgende sessie om de club weer op de kalender te zetten.',
 		planNextSessionAction: 'Volgende sessie plannen'
 	},
+	emailUnsubscribe: {
+		title: 'Geen herinneringen over aanmeldingen meer?',
+		description:
+			'Je krijgt dan op {email} geen herinneringen meer over onafgemaakte clubaanmeldingen. Andere e-mails, zoals accountberichten en besluiten over aanmeldingen, blijven komen.',
+		submit: 'Afmelden',
+		submitting: 'Bezig met afmelden...',
+		doneTitle: 'Je bent afgemeld',
+		doneDescription: 'We sturen geen herinneringen over aanmeldingen meer naar {email}.',
+		invalidTitle: 'Deze afmeldlink werkt niet',
+		invalidDescription:
+			'Misschien is hij niet helemaal gekopieerd. Gebruik de link uit de e-mail opnieuw, of neem contact met ons op.',
+		failure: 'Er ging iets mis. Probeer het opnieuw.'
+	},
 	authLayout: {
 		description: 'Log in om verder te gaan met je clubervaring.'
 	},
