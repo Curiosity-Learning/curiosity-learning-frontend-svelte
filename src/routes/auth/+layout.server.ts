@@ -18,6 +18,14 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 	if (url.pathname === '/auth/link') {
 		return {};
 	}
+	// Settings' "Set a password" sends a reset email to a signed-in parent; Better Auth's
+	// `/reset-password/{token}` redirects back here with `?token=…`. Setting a password for the
+	// account the token names is legitimate while signed in (the reset is keyed by the token, not
+	// the session), so the form must open instead of bouncing to `next` (review S1). Without a
+	// token (the "request a reset" form) a signed-in visitor is still redirected.
+	if (url.pathname === '/auth/reset-password' && url.searchParams.has('token')) {
+		return {};
+	}
 
 	if (locals.token) {
 		throw redirect(307, normalizeRedirectTarget(url.searchParams.get('next')));

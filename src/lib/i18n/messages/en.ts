@@ -1156,7 +1156,7 @@ const en = {
 			'Your children are linked to the account that approved them. You are signed in as {email}. If you approved with a different email, we can send a sign-in link there.',
 		differentEmailSend: 'Send a sign-in link to the approving address',
 		differentEmailRequested:
-			'If this account was approved with a different email address, we sent a sign-in link there. It works once, for 48 hours.',
+			'If this account was approved with a different email address, we sent a sign-in link there. It works once, for 30 minutes.',
 		differentEmailRateLimited:
 			"You've asked for this link too many times today. Please try again tomorrow.",
 		differentEmailFailure: 'Could not send the link. Please try again.',

@@ -417,6 +417,51 @@ describe('POST /sign-in/magic-link (expired-link fallback)', () => {
 	});
 });
 
+describe('POST /sign-in/magic-link per-address rate limit', () => {
+	const requestLink = (t: Awaited<ReturnType<typeof setup>>, email: string) =>
+		t.fetch('/api/auth/sign-in/magic-link', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ email, callbackURL: toMagicLinkCallbackParam('/') })
+		});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('emails at most 5 links per address per hour, answering the same either way', async () => {
+		stubAuthEnv();
+		vi.useFakeTimers({ toFake: ['Date'] });
+		const t = await setup();
+		const now = Date.now();
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'other@example.com',
+					emailVerified: true,
+					name: 'other',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+
+		for (let attempt = 0; attempt < 7; attempt++) {
+			expect((await requestLink(t, 'Parent@Example.com')).status).toBe(200);
+		}
+		expect(sendEmailMock).toHaveBeenCalledTimes(5);
+
+		// Another address has its own allowance.
+		expect((await requestLink(t, 'other@example.com')).status).toBe(200);
+		expect(sendEmailMock).toHaveBeenCalledTimes(6);
+
+		vi.setSystemTime(now + 61 * 60 * 1000);
+		expect((await requestLink(t, 'parent@example.com')).status).toBe(200);
+		expect(sendEmailMock).toHaveBeenCalledTimes(7);
+	});
+});
+
 describe('deleteExpiredVerifications (daily cron)', () => {
 	it('deletes expired verification rows and keeps live ones', async () => {
 		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');

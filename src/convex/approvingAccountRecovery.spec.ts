@@ -138,7 +138,7 @@ const setup = async () => {
 };
 
 describe('requestApprovingAccountSignInLink (review S9)', () => {
-	it('emails a 48-hour sign-in link to the approving address, never revealing it to the caller', async () => {
+	it('emails a 30-minute sign-in link to the approving address, never revealing it to the caller', async () => {
 		const { t, other, childProfileId } = await setup();
 		const result = await other.mutation(api.parentAccounts.requestApprovingAccountSignInLink, {
 			childProfileId
@@ -155,7 +155,14 @@ describe('requestApprovingAccountSignInLink (review S9)', () => {
 		expect(emails.map((email) => [email.to, email.type, email.subject])).toEqual([
 			['parent@example.com', 'magic-link', 'Your sign-in link']
 		]);
-		expect(emails[0].text).toContain('This link works once and expires in 48 hours.');
+		expect(emails[0].text).toContain('This link works once and expires in 30 minutes.');
+		const [row] = (
+			(await t.query(components.betterAuth.adapter.findMany, {
+				model: 'verification',
+				paginationOpts: { cursor: null, numItems: 10 }
+			})) as { page: { expiresAt: number; createdAt: number }[] }
+		).page;
+		expect(row.expiresAt - row.createdAt).toBe(30 * 60 * 1000);
 		const raw = emails[0].text.match(/https:\/\/app\.example\.com\/auth\/link#\S+/)![0];
 		expect(parseMagicLinkInterstitialFragment(new URL(raw).hash)?.next).toBe(
 			`/child/${childProfileId}`
@@ -238,6 +245,33 @@ describe('requestApprovingAccountSignInLink (review S9)', () => {
 				childProfileId
 			})
 		).toEqual({ status: 'requested' });
+	});
+	it('sends at most 3 links per consent per day, whoever asks (review S4), still answering requested', async () => {
+		const { t, other, childProfileId } = await setup();
+		const thirdUserId = await createAuthUser(t, 'stranger@example.com');
+		await insertProfile(t, thirdUserId, 'stranger');
+		const stranger = t.withIdentity({ subject: thirdUserId });
+		for (const caller of [other, stranger]) {
+			for (let attempt = 0; attempt < 3; attempt++) {
+				expect(
+					await caller.mutation(api.parentAccounts.requestApprovingAccountSignInLink, {
+						childProfileId
+					})
+				).toEqual({ status: 'requested' });
+			}
+		}
+		await settle(t);
+		expect(sent().map((email) => email.to)).toEqual([
+			'parent@example.com',
+			'parent@example.com',
+			'parent@example.com'
+		]);
+		vi.setSystemTime(Date.now() + DAY + 1000);
+		await stranger.mutation(api.parentAccounts.requestApprovingAccountSignInLink, {
+			childProfileId
+		});
+		await settle(t);
+		expect(sent()).toHaveLength(4);
 	});
 });
 

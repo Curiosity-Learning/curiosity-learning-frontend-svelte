@@ -27,7 +27,7 @@ import {
 	RESEND_LIMIT_REACHED,
 	UNLINK_REQUIRES_CONFIRMED_EMAIL
 } from '../lib/domain/child-notification-email';
-import { EMAIL_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
+import { APPROVING_ACCOUNT_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
 import { canViewProject } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
@@ -1185,9 +1185,15 @@ export const approvingAccountLinkRateLimitKey = (
 	callerProfileId: Id<'profiles'>,
 	childProfileId: Id<'profiles'>
 ) => `approvingAccountSignInLink:${callerProfileId}:${childProfileId}`;
+// And at most 3 links per consent (i.e. per approving address and child) per 24 h whoever asks
+// (review S4): accounts are cheap, so the per-caller cap alone would let any group of adults flood
+// a parent with sign-in links. Over this cap nothing is sent and the answer stays `requested`, so
+// it reveals nothing about the consent.
+export const approvingAccountLinkConsentRateLimitKey = (consentId: Id<'parentChildConsents'>) =>
+	`approvingAccountSignInLink:consent:${consentId}`;
 
 /**
- * Emails a one-time sign-in link (48 h, continuing to /child/{id}) to the approving address of
+ * Emails a one-time sign-in link (30 min, continuing to /child/{id}) to the approving address of
  * this child's consent, when that address is not the caller's own. Answers `requested` whether
  * or not such a consent exists, whether or not the caller is the approving parent, and whether
  * or not anything was sent; it never returns or reveals the address (not even masked). Only
@@ -1223,8 +1229,18 @@ export const requestApprovingAccountSignInLink = mutation({
 		if (
 			consent &&
 			!callerIsChild &&
-			(!callerEmail || normalizeEmail(callerEmail) !== normalizeEmail(consent.parentEmail))
+			(!callerEmail || normalizeEmail(callerEmail) !== normalizeEmail(consent.parentEmail)) &&
+			!(await isRateLimited(
+				ctx,
+				approvingAccountLinkConsentRateLimitKey(consent._id),
+				APPROVING_ACCOUNT_LINK_RATE_LIMIT
+			))
 		) {
+			await recordRateLimitAttempt(
+				ctx,
+				approvingAccountLinkConsentRateLimitKey(consent._id),
+				APPROVING_ACCOUNT_LINK_RATE_LIMIT
+			);
 			await ctx.scheduler.runAfter(0, internal.parentAccounts.sendApprovingAccountSignInLink, {
 				consentId: consent._id
 			});
@@ -1255,10 +1271,10 @@ export const sendApprovingAccountSignInLink = internalAction({
 		const url = await mintMagicLink(ctx, {
 			email: target.email,
 			callbackPath: `/child/${target.childProfileId}`,
-			expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+			expiresInSeconds: APPROVING_ACCOUNT_MAGIC_LINK_SECONDS
 		});
 		if (!url) return null;
-		const content = magicLinkEmail({ url, expiresIn: '48 hours' });
+		const content = magicLinkEmail({ url, expiresIn: '30 minutes' });
 		let result: NotificationEmailResult;
 		try {
 			const { providerMessageId } = await sendEmail({

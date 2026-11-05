@@ -4,6 +4,7 @@ import { internalMutation, internalQuery } from './_generated/server';
 import type { ActionCtx, MutationCtx } from './_generated/server';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { getProfileByAuthUserId } from './permissions';
+import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import {
 	MAGIC_LINK_INTERSTITIAL_PATH,
 	buildMagicLinkInterstitialFragment,
@@ -108,6 +109,25 @@ export const isMagicLinkRecipient = internalQuery({
 		if (args.email.trim().toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) return false;
 		const profile = await getProfileByAuthUserId(ctx, args.authUserId);
 		return profile?.globalRole !== 'admin';
+	}
+});
+
+// The sign-in page's "Send me a new link" (the plugin's POST /sign-in/magic-link) is
+// unauthenticated, so anyone can ask for a link to any address. Better Auth's own IP-based rate
+// limiting is not configured (see docs/security.md, "Rate limits"), so this per-address cap is
+// what bounds it: at most 5 emailed links per address per hour. Over the cap the request is
+// skipped silently, like the other sendMagicLink guards (the endpoint answers the same either way).
+export const SELF_SERVICE_MAGIC_LINK_RATE_LIMIT = { maxAttempts: 5, windowMs: 60 * 60 * 1000 };
+
+// Returns true (and counts the send) when another self-service link may go to this address.
+export const consumeSelfServiceMagicLinkAllowance = internalMutation({
+	args: { email: v.string() },
+	returns: v.boolean(),
+	handler: async (ctx, args) => {
+		const key = `selfServiceMagicLink:${args.email.trim().toLowerCase()}`;
+		if (await isRateLimited(ctx, key, SELF_SERVICE_MAGIC_LINK_RATE_LIMIT)) return false;
+		await recordRateLimitAttempt(ctx, key, SELF_SERVICE_MAGIC_LINK_RATE_LIMIT);
+		return true;
 	}
 });
 

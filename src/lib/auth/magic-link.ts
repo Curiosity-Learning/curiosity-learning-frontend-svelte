@@ -14,6 +14,9 @@ export const CONSENT_SCREEN_MAGIC_LINK_SECONDS = 30 * 60;
 export const EMAIL_MAGIC_LINK_SECONDS = 48 * 60 * 60;
 // - "Send me a new link" from the sign-in page: the user asked for it and is waiting for it.
 export const SELF_SERVICE_MAGIC_LINK_SECONDS = 30 * 60;
+// - "Email a sign-in link to the address that approved" (/child/{id} "not linked", review S9/S4):
+//   the parent asked for it on that page and is waiting for it in their other inbox.
+export const APPROVING_ACCOUNT_MAGIC_LINK_SECONDS = 30 * 60;
 
 // Better Auth's default basePath. auth.ts does not override it and the SvelteKit app proxies
 // /api/auth/* to the Convex site (src/routes/api/auth/[...all]).

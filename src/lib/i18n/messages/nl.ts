@@ -1153,7 +1153,7 @@ const nl = {
 			'Je kinderen zijn gekoppeld aan het account waarmee ze zijn goedgekeurd. Je bent ingelogd als {email}. Heb je met een ander e-mailadres goedgekeurd, dan kunnen we daar een inloglink naartoe sturen.',
 		differentEmailSend: 'Stuur een inloglink naar het goedkeurende adres',
 		differentEmailRequested:
-			'Als dit account met een ander e-mailadres is goedgekeurd, hebben we daar een inloglink naartoe gestuurd. Die werkt één keer, 48 uur lang.',
+			'Als dit account met een ander e-mailadres is goedgekeurd, hebben we daar een inloglink naartoe gestuurd. Die werkt één keer, 30 minuten lang.',
 		differentEmailRateLimited:
 			'Je hebt deze link vandaag te vaak aangevraagd. Probeer het morgen opnieuw.',
 		differentEmailFailure: 'De link kon niet worden verstuurd. Probeer het opnieuw.',

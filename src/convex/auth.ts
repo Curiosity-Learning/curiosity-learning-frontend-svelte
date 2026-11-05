@@ -278,6 +278,16 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 					) {
 						return;
 					}
+					// Per-address cap (5 per hour), since Better Auth's IP-based limiter is not in
+					// effect here (docs/security.md, "Rate limits"). Silent, like the guards above.
+					if (
+						!('runMutation' in ctx) ||
+						!(await ctx.runMutation(internal.magicLinks.consumeSelfServiceMagicLinkAllowance, {
+							email: found.user.email
+						}))
+					) {
+						return;
+					}
 					// Like every emailed link, through the /auth/link interstitial (review S1), so a
 					// mail scanner's GET does not consume the token.
 					await sendEmail({
