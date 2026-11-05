@@ -184,7 +184,7 @@ export const magicLinkEmail = (args: { url: string }): EmailContent => {
 	const url = absoluteUrl(args.url);
 	return {
 		subject: 'Your sign-in link',
-		text: `Sign in to Curiosity Learning:\n\n${url}\n\nThis link works once and expires in 7 days. If you did not ask for it, you can ignore this email.`,
+		text: `Sign in to Curiosity Learning:\n\n${url}\n\nThis link works once and expires in 30 minutes. If you did not ask for it, you can ignore this email.`,
 		html: layout({
 			preheader: 'Your link to sign in to Curiosity Learning.',
 			title: 'Your sign-in link',
@@ -192,7 +192,7 @@ export const magicLinkEmail = (args: { url: string }): EmailContent => {
 				${paragraph('Use the button below to sign in to Curiosity Learning. No password needed.')}
 				${button(url, 'Sign in')}
 				${rawLink(url)}
-				${paragraph('This link works once and expires in 7 days. If you did not ask for it, you can ignore this email.')}
+				${paragraph('This link works once and expires in 30 minutes. If you did not ask for it, you can ignore this email.')}
 			`
 		})
 	};
@@ -289,6 +289,9 @@ export const clubLeaderInviteEmail = (args: {
 	};
 };
 
+// Under a parent email's sign-in button (edge case 15: forwarded email = forwarded session).
+export const SIGN_IN_LINK_NOTICE = "This button signs you in — please don't forward this email.";
+
 // Generic template for tiered notification emails (CL-715). Renders the same title/message
 // pair that is stored on the in-app `notifications` row, plus an optional CTA link into the app.
 // `note` is an optional secondary paragraph under the CTA, with its own link (e.g. telling a
@@ -300,8 +303,12 @@ export const notificationEmail = (args: {
 	// Button text; defaults to the generic "Open Curiosity Learning".
 	ctaLabel?: string;
 	note?: { text: string; url?: string; linkLabel?: string };
+	// The CTA is a one-time sign-in link (parent emails, see notifications.deliverNotificationEmail):
+	// say so right under the button, so the parent knows not to forward it (review edge case 15).
+	ctaSignsIn?: boolean;
 }): EmailContent => {
 	const message = escapeHtml(args.message);
+	const signInNotice = args.ctaUrl && args.ctaSignsIn ? SIGN_IN_LINK_NOTICE : undefined;
 	const noteText = args.note
 		? [args.note.text, args.note.url].filter(Boolean).join('\n')
 		: undefined;
@@ -318,13 +325,14 @@ export const notificationEmail = (args: {
 		: '';
 	return {
 		subject: args.title,
-		text: [args.message, args.ctaUrl, noteText].filter(Boolean).join('\n\n'),
+		text: [args.message, args.ctaUrl, signInNotice, noteText].filter(Boolean).join('\n\n'),
 		html: layout({
 			preheader: args.message,
 			title: args.title,
 			children: `
 				${paragraph(message)}
 				${args.ctaUrl ? `${button(args.ctaUrl, args.ctaLabel ?? 'Open Curiosity Learning')}${rawLink(args.ctaUrl)}` : ''}
+				${signInNotice ? `<p style="margin:12px 0 0;font-size:13px;line-height:19px;color:${colors.muted};">${escapeHtml(signInNotice)}</p>` : ''}
 				${noteHtml}
 			`,
 			footer:

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, components } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
+import { parseMagicLinkInterstitialFragment } from '../lib/auth/magic-link';
 
 const modules = import.meta.glob('./**/*.ts');
 
@@ -40,16 +41,12 @@ afterEach(() => {
 });
 
 // The magic sign-in links in an email's plain-text body (same helper as chatEmail.spec.ts).
+// Sign-in links are /auth/link interstitials with the token and `next` in the fragment.
 const magicLinksIn = (text: string) =>
-	(text.match(/https:\/\/app\.example\.com\/api\/auth\/magic-link\/verify\?\S+/g) ?? []).map(
-		(raw) => {
-			const url = new URL(raw);
-			return {
-				token: url.searchParams.get('token'),
-				callbackURL: decodeURIComponent(url.searchParams.get('callbackURL') ?? '')
-			};
-		}
-	);
+	(text.match(/https:\/\/app\.example\.com\/auth\/link#\S+/g) ?? []).map((raw) => {
+		const parsed = parseMagicLinkInterstitialFragment(new URL(raw).hash);
+		return { token: parsed?.token, next: parsed?.next };
+	});
 
 const seedFixture = async () => {
 	const t = convexTest(schema, modules);
@@ -316,7 +313,8 @@ describe('child account email routing', () => {
 		expect(html).toContain('Open kiddo&#39;s account');
 		const links = magicLinksIn(text);
 		expect(links).toHaveLength(1);
-		expect(links[0].callbackURL).toBe(`/child/${childProfileId}`);
+		expect(links[0].next).toBe(`/child/${childProfileId}`);
+		expect(text).toContain("This button signs you in — please don't forward this email.");
 		expect(text).not.toContain('/notifications');
 	});
 
@@ -336,6 +334,7 @@ describe('child account email routing', () => {
 		expect(to).toBe('learner@example.com');
 		expect(magicLinksIn(text)).toHaveLength(0);
 		expect(text).not.toContain('This is about');
+		expect(text).not.toContain('signs you in');
 	});
 
 	it('sends no email at all to child accounts for high kinds (in-app only)', async () => {

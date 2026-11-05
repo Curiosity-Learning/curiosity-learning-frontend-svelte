@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
+import { parseMagicLinkInterstitialFragment } from '../lib/auth/magic-link';
 
 const modules = import.meta.glob('./**/*.ts');
 
@@ -67,22 +68,13 @@ const createTest = async () => {
 	return t;
 };
 
-// The magic sign-in links in an email's plain-text body, with the paths the verify endpoint will
-// redirect to (it decodes the callback params once more, see lib/auth/magic-link.ts).
+// The sign-in links in an email's plain-text body: /auth/link interstitials (review S1) whose
+// fragment carries the token and the page the link continues to (lib/auth/magic-link.ts).
 const magicLinksIn = (text: string) =>
-	(text.match(/https:\/\/app\.example\.com\/api\/auth\/magic-link\/verify\?\S+/g) ?? []).map(
-		(raw) => {
-			const url = new URL(raw);
-			return {
-				token: url.searchParams.get('token'),
-				callbackURL: decodeURIComponent(url.searchParams.get('callbackURL') ?? ''),
-				errorCallbackURL: decodeURIComponent(url.searchParams.get('errorCallbackURL') ?? '')
-			};
-		}
-	);
-
-const expiredLinkPath = (next: string) =>
-	`/auth/sign-in?next=${encodeURIComponent(next)}&link=expired`;
+	(text.match(/https:\/\/app\.example\.com\/auth\/link#\S+/g) ?? []).map((raw) => {
+		const parsed = parseMagicLinkInterstitialFragment(new URL(raw).hash);
+		return { token: parsed?.token, next: parsed?.next };
+	});
 
 const seedFixture = async (options: { withChild?: boolean; learnerLeftAt?: number } = {}) => {
 	const t = await createTest();
@@ -457,30 +449,30 @@ describe('chat email notifications', () => {
 		)
 			.map(([call]) => call)
 			.find((call) => call.to === 'parent@example.com')!;
-		// The parent's account has no password (created at consent approval), so both links are
-		// one-time sign-in links: the button continues to the child's chats in this room, the
-		// note's link to the child's overview. Each token works once, so they differ.
+		// The parent's account has no password (created at consent approval), so the button is a
+		// one-time sign-in link that continues to the child's chats in this room. One token per
+		// email (review S3): the note's link is a plain path the button's session covers.
 		const childChatPath = `/child/${childProfileId}?room=${roomId}`;
-		const [cta, noteLink] = magicLinksIn(parentCall.text);
-		expect(cta).toEqual({
-			token: expect.stringMatching(/^[a-zA-Z]{32}$/),
-			callbackURL: childChatPath,
-			errorCallbackURL: expiredLinkPath(childChatPath)
-		});
-		expect(noteLink).toEqual({
-			token: expect.stringMatching(/^[a-zA-Z]{32}$/),
-			callbackURL: `/child/${childProfileId}`,
-			errorCallbackURL: expiredLinkPath(`/child/${childProfileId}`)
-		});
-		expect(noteLink.token).not.toBe(cta.token);
-		// No plain app links left that would strand the parent on a password form.
-		expect(parentCall.html).not.toContain(`https://app.example.com/child/`);
+		expect(magicLinksIn(parentCall.text)).toEqual([
+			{ token: expect.stringMatching(/^[a-zA-Z]{32}$/), next: childChatPath }
+		]);
+		expect(parentCall.text.endsWith(`\nhttps://app.example.com/child/${childProfileId}`)).toBe(
+			true
+		);
 		expect(parentCall.html).toContain('Open kiddo&#39;s chats');
 		expect(parentCall.html).toContain('Add an email address for kiddo');
 		expect(parentCall.text).toContain(
-			'You get these emails because kiddo has a child account. The button signs you in — no password needed. Add an email address for kiddo and chat notifications like this one will go to them directly.'
+			"This button signs you in — please don't forward this email."
+		);
+		expect(parentCall.text).toContain(
+			"You get these emails because kiddo has a child account. Chat notifications like this one can go to kiddo directly: after opening the chats with the button above, add an email address for them on kiddo's page."
 		);
 		expect(parentCall.text).not.toContain('Forgot password');
+		// Review S2: the link is minted in the send action, so no scheduled function's stored
+		// args ever held a token.
+		const scheduled = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect());
+		expect(scheduled.some((job) => job.name.includes('sendChatEmail'))).toBe(true);
+		expect(JSON.stringify(scheduled.map((job) => job.args))).not.toMatch(/auth\/link|magic-link/);
 		// Adults get plain links into their own chat.
 		const learnerCall = (
 			sendEmailMock.mock.calls as unknown as Array<[{ to: string; text: string }]>
@@ -567,7 +559,7 @@ describe('chat email notifications', () => {
 		expect(childCall?.html).toContain(`https://app.example.com/chat?room=${roomId}`);
 		expect(childCall?.html).not.toContain('Add an email address');
 		// The child gets a plain link: sign-in links are only for the parent's own address.
-		expect(childCall?.html).not.toContain('magic-link');
+		expect(childCall?.html).not.toContain('/auth/link');
 		expect(childCall?.html).toContain('Open Curiosity Learning');
 	});
 
@@ -779,7 +771,7 @@ describe('chat email notifications', () => {
 		// Signed in by the link itself (one link: there is no note on critical chats).
 		const links = magicLinksIn(text);
 		expect(links).toHaveLength(1);
-		expect(links[0].callbackURL).toBe(`/child/${childProfileId}?room=${roomId}`);
+		expect(links[0].next).toBe(`/child/${childProfileId}?room=${roomId}`);
 		expect(html).toContain('Open kiddo&#39;s chats');
 		expect(html).not.toContain('Add an email address');
 	});
@@ -987,7 +979,7 @@ describe('chat email notifications', () => {
 		const [{ text }] = sendEmailMock.mock.calls[0] as unknown as [{ text: string }];
 		const links = magicLinksIn(text);
 		expect(links).toHaveLength(1);
-		expect(links[0].callbackURL).toBe(`/child/${requesterProfileId}?room=${roomId}`);
+		expect(links[0].next).toBe(`/child/${requesterProfileId}?room=${roomId}`);
 	});
 
 	// Application decisions post messages into the room but are announced through their own

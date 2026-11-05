@@ -44,8 +44,6 @@ import {
 	requireProfile
 } from './permissions';
 import { listAttributedClubIds } from './projectsModel';
-import { mintMagicLink } from './magicLinks';
-import { buildMagicLinkErrorPath } from '../lib/auth/magic-link';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -757,39 +755,22 @@ export const deliverChatEmailNotification = internalMutation({
 			? await getChatEmailCopyForParent(ctx, room, recipientProfile)
 			: await getChatEmailCopy(ctx, room, args.profileId);
 		const childName = parentAudience ? profileDisplayName(recipientProfile) : undefined;
+		// For a parent this is the page the sign-in link continues to: sendChatEmail (via
+		// notifications.deliverNotificationEmail) mints that link right before sending, so no
+		// plaintext token passes through the scheduler args below (review S2).
 		const appUrl = parentAudience
 			? `/child/${args.profileId}?room=${args.roomId}`
 			: `/chat?room=${args.roomId}`;
-		// The parent's account was created password-less at consent approval
-		// (childSignup.approveConsent), so a plain link would strand them on a sign-in form they
-		// cannot complete. Parent emails carry one-time sign-in links instead: the address already
-		// proved itself by approving consent, and the email goes to that same address. A failed or
-		// expired link lands on the sign-in page, which offers to email a fresh one and then
-		// continues to the same page. Falls back to the plain link when no link can be minted
-		// (no BETTER_AUTH_URL, or no account under the address).
-		const url = parentAudience
-			? ((await mintMagicLink(ctx, {
-					email: recipient.to,
-					callbackURL: appUrl,
-					errorCallbackURL: buildMagicLinkErrorPath(appUrl)
-				})) ?? appUrl)
-			: appUrl;
 		// A parent reading a club/project chat email is told they can hand these over to the
 		// child by adding an email address for them (the child cannot consent to that themselves;
-		// the parent does it from the child's overview page). Its link is a second sign-in link:
-		// each one works once. Not on critical chats: those keep going to the parent either way,
-		// so the promise would be false.
+		// the parent does it from the child's overview page). A plain path, not a second sign-in
+		// link: one token per email (review S3), and the button's session covers it. Not on
+		// critical chats: those keep going to the parent either way, so the promise would be false.
 		let note: { text: string; url: string; linkLabel: string } | undefined;
 		if (parentAudience && !critical) {
-			const overviewPath = `/child/${args.profileId}`;
 			note = {
-				text: `You get these emails because ${childName} has a child account.${url === appUrl ? '' : ' The button signs you in — no password needed.'} Add an email address for ${childName} and chat notifications like this one will go to them directly.`,
-				url:
-					(await mintMagicLink(ctx, {
-						email: recipient.to,
-						callbackURL: overviewPath,
-						errorCallbackURL: buildMagicLinkErrorPath(overviewPath)
-					})) ?? overviewPath,
+				text: `You get these emails because ${childName} has a child account. Chat notifications like this one can go to ${childName} directly: after opening the chats with the button above, add an email address for them on ${childName}'s page.`,
+				url: `/child/${args.profileId}`,
 				linkLabel: `Add an email address for ${childName}`
 			};
 		}
@@ -811,9 +792,10 @@ export const deliverChatEmailNotification = internalMutation({
 			kind,
 			title,
 			message: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
-			url,
+			url: appUrl,
 			ctaLabel: parentAudience ? `Open ${childName}'s chats` : undefined,
 			to: recipient.to,
+			audience: recipient.audience,
 			note
 		});
 		return null;
@@ -836,6 +818,8 @@ export const sendChatEmail = internalAction({
 		url: v.string(),
 		ctaLabel: v.optional(v.string()),
 		to: v.string(),
+		// 'parent': `url` is the app path; deliverNotificationEmail turns it into a sign-in link.
+		audience: v.optional(v.union(v.literal('self'), v.literal('parent'))),
 		note: v.optional(notificationEmailNoteValidator)
 	},
 	handler: async (ctx, args) => {

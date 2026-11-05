@@ -30,7 +30,7 @@ import {
 } from './pendingClubJoinsModel';
 import { autoCreateJoinRequestFromNextPath } from './joinRequests';
 import { mintMagicLink } from './magicLinks';
-import { buildMagicLinkErrorPath } from '../lib/auth/magic-link';
+import { CONSENT_SCREEN_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
 
 // PRD 6.1.6/8.5: parental consent must be obtained within 90 days of account creation, or the
 // child account and all associated data are automatically purged. See `purgeExpiredChildConsents`
@@ -471,11 +471,16 @@ export const approveConsent = mutation({
 		// account was just created without credentials. Safe to mint here because the consent
 		// token was only ever sent to parentEmail, so holding it already proves possession of
 		// that address (the same proof a magic-link email would give).
-		const childOverviewPath = `/child/${consent.childProfileId}`;
+		// Minted in this mutation, unlike every emailed link (minted in send actions, review S2),
+		// because the page needs the link in the approval's own response. Trade-offs, accepted:
+		// mutation randomness is a ChaCha12 CSPRNG seeded per execution rather than OS randomness
+		// (see magicLinks.ts), and the token is in this mutation's return value (shown on screen,
+		// not stored by us). The short lifetime bounds both: the button is pressed within minutes
+		// or not at all, and the emails cover a parent who closes the tab.
 		const signInUrl = await mintMagicLink(ctx, {
 			email: consent.parentEmail,
-			callbackURL: childOverviewPath,
-			errorCallbackURL: buildMagicLinkErrorPath(childOverviewPath)
+			callbackPath: `/child/${consent.childProfileId}`,
+			expiresInSeconds: CONSENT_SCREEN_MAGIC_LINK_SECONDS
 		});
 		return { success: true, ...(signInUrl ? { signInUrl } : {}) };
 	}

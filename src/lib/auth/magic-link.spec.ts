@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildMagicLinkErrorPath,
+	buildMagicLinkInterstitialFragment,
+	buildMagicLinkVerifyPath,
+	maskEmail,
+	parseMagicLinkInterstitialFragment,
 	isMagicLinkCallbackPath,
 	isMagicLinkFailure,
 	toMagicLinkCallbackParam
@@ -60,5 +64,52 @@ describe('isMagicLinkCallbackPath', () => {
 		expect(isMagicLinkCallbackPath('//evil.example.com')).toBe(false);
 		expect(isMagicLinkCallbackPath('https://evil.example.com')).toBe(false);
 		expect(isMagicLinkCallbackPath('/%2fevil.example.com')).toBe(false);
+	});
+});
+
+describe('maskEmail', () => {
+	it('keeps the first letter and the domain', () => {
+		expect(maskEmail('parent@example.com')).toBe('p…@example.com');
+		expect(maskEmail(' P@x.nl ')).toBe('P…@x.nl');
+		expect(maskEmail('not-an-email')).toBe('…');
+	});
+});
+
+// The /auth/link interstitial (review S1): token and destination travel in the fragment.
+describe('interstitial fragment', () => {
+	it('round-trips token, next (query included) and the masked address', () => {
+		const fragment = buildMagicLinkInterstitialFragment({
+			token: 'abcDEF',
+			next: '/child/abc?room=xyz&via=link',
+			as: 'p…@example.com'
+		});
+		expect(parseMagicLinkInterstitialFragment(`#${fragment}`)).toEqual({
+			token: 'abcDEF',
+			next: '/child/abc?room=xyz&via=link',
+			as: 'p…@example.com'
+		});
+	});
+
+	it('rejects a missing or malformed token, and sends an untrusted next home', () => {
+		expect(parseMagicLinkInterstitialFragment('')).toBeNull();
+		expect(parseMagicLinkInterstitialFragment('#next=%2Fchild%2Fabc')).toBeNull();
+		expect(parseMagicLinkInterstitialFragment('#t=a%20b')).toBeNull();
+		expect(
+			parseMagicLinkInterstitialFragment('#t=abc&next=https%3A%2F%2Fevil.example.com')?.next
+		).toBe('/');
+		expect(parseMagicLinkInterstitialFragment('#t=abc')?.next).toBe('/');
+	});
+
+	it('builds the verify path the plugin expects, with the expired-link fallback', () => {
+		const url = new URL(
+			buildMagicLinkVerifyPath({ token: 'abcDEF', next: '/child/abc?room=xyz' }),
+			'https://app.example.com'
+		);
+		expect(url.pathname).toBe('/api/auth/magic-link/verify');
+		expect(url.searchParams.get('token')).toBe('abcDEF');
+		expect(decodeURIComponent(url.searchParams.get('callbackURL')!)).toBe('/child/abc?room=xyz');
+		expect(decodeURIComponent(url.searchParams.get('errorCallbackURL')!)).toBe(
+			buildMagicLinkErrorPath('/child/abc?room=xyz')
+		);
 	});
 });

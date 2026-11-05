@@ -287,6 +287,19 @@ const nl = {
 				failure: 'Kon geen nieuwe link verzenden. Probeer het opnieuw.'
 			}
 		},
+		signInLink: {
+			title: 'Inloggen als {email}?',
+			titleNoEmail: 'Inloggen en doorgaan?',
+			description:
+				'Met deze link log je in bij Curiosity Learning en open je de pagina waarvoor hij is verstuurd. De link werkt één keer.',
+			submit: 'Inloggen en doorgaan',
+			submitting: 'Bezig met inloggen...',
+			notYou: 'Ben jij dit niet? Sluit deze pagina.',
+			invalidTitle: 'Deze inloglink is onvolledig',
+			invalidDescription:
+				'Open de link opnieuw vanuit je e-mail, of log in met je e-mailadres en we sturen je een nieuwe link.',
+			goToSignIn: 'Naar inloggen'
+		},
 		resetPassword: {
 			backToSignIn: 'Terug naar inloggen',
 			requestTitle: 'Stel je wachtwoord opnieuw in',

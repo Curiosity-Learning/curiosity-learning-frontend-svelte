@@ -12,7 +12,7 @@ import {
 import { getAuthUserEmail } from './authEmail';
 import { profileDisplayName } from './chatModel';
 import { mintMagicLink } from './magicLinks';
-import { buildMagicLinkErrorPath } from '../lib/auth/magic-link';
+import { EMAIL_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { notificationEmail } from './email/templates';
@@ -177,9 +177,12 @@ export type NotificationEmailArgs = {
 	url?: string;
 	// Button text override (chat emails to a parent name the child); template default otherwise.
 	ctaLabel?: string;
-	// Pre-resolved address: the caller already ran resolveEmailRecipient (chat does, because the
+	// Pre-resolved recipient: the caller already ran resolveEmailRecipient (chat does, because the
 	// wording depends on the audience) and the result must not be re-derived differently here.
+	// The caller then owns the wording; for audience 'parent', `url` is the app path the sign-in
+	// link continues to (the link itself is minted here, see below).
 	to?: string;
+	audience?: 'self' | 'parent';
 	note?: NotificationEmailNote;
 };
 
@@ -200,7 +203,7 @@ export const deliverNotificationEmail = async (
 	args: NotificationEmailArgs
 ): Promise<NotificationEmailResult> => {
 	const recipient = args.to
-		? { to: args.to, audience: 'self' as const, childName: '' }
+		? { to: args.to, audience: args.audience ?? 'self', childName: '' }
 		: await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
 				recipientProfileId: args.recipientProfileId,
 				critical: args.critical
@@ -208,23 +211,34 @@ export const deliverNotificationEmail = async (
 	if (!recipient) return { status: 'skipped' };
 	const to = recipient.to;
 
-	// A parent reading about their child's account (critical notices for a child account route
-	// to the approved parent) cannot use the child-facing link — it leads to the child's own
-	// pages — and has no credentials to sign in with (childSignup.approveConsent creates the
-	// account password-less). So, like chat emails (chat.deliverChatEmailNotification), the
-	// email says who it is about, and the button is a one-time sign-in link into the parent's
-	// read-only view of the child (/child/[id]); plain overview link when none can be minted.
+	// The ONE place a parent audience becomes a one-time sign-in link (chat and dispatched
+	// notifications both come through here). The parent's account was created password-less at
+	// consent approval (childSignup.approveConsent), so a plain link would strand them on a
+	// sign-in form they cannot complete; the address proved itself by approving consent, and the
+	// email goes to that same address. Minted here, in the send action, right before sendEmail —
+	// never in a mutation that schedules this — so no plaintext token is stored in scheduler args
+	// (review S2). One token per email (S3): any other link in the email is a plain path the
+	// button's session covers. Plain path when no link can be minted (no BETTER_AUTH_URL, or the
+	// account may not sign in by link, see magicLinks.isMagicLinkRecipient).
 	let { url, ctaLabel, message } = args;
+	let ctaSignsIn = false;
 	if (recipient.audience === 'parent') {
-		const overviewPath = `/child/${args.recipientProfileId}`;
-		url =
-			(await mintMagicLink(ctx, {
-				email: to,
-				callbackURL: overviewPath,
-				errorCallbackURL: buildMagicLinkErrorPath(overviewPath)
-			})) ?? overviewPath;
-		ctaLabel = `Open ${recipient.childName}'s account`;
-		message = `This is about ${recipient.childName}'s Curiosity Learning account. ${args.message}`;
+		// A dispatched notice about a child account (critical notices route to the approved
+		// parent) carries the child-facing link — the child's own pages — which the parent cannot
+		// open: point it at the parent's read-only view of the child and say who it is about.
+		// Pre-resolved callers (chat) already chose the parent's page and wording.
+		const callbackPath = args.to && url ? url : `/child/${args.recipientProfileId}`;
+		if (!args.to) {
+			ctaLabel = `Open ${recipient.childName}'s account`;
+			message = `This is about ${recipient.childName}'s Curiosity Learning account. ${args.message}`;
+		}
+		const signInUrl = await mintMagicLink(ctx, {
+			email: to,
+			callbackPath,
+			expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+		});
+		url = signInUrl ?? callbackPath;
+		ctaSignsIn = Boolean(signInUrl);
 	}
 
 	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
@@ -252,7 +266,8 @@ export const deliverNotificationEmail = async (
 				message,
 				ctaUrl,
 				ctaLabel,
-				note
+				note,
+				ctaSignsIn
 			})
 		});
 		return { status: 'sent', to, providerMessageId };

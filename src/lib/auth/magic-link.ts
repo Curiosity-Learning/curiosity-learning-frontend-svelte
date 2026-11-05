@@ -2,9 +2,74 @@
 // the sign-in page (the expired-link fallback). Pure functions only: Convex imports this file
 // relatively, so it must not pull in SvelteKit modules.
 
-// One lifetime for every magic link: the ones Convex mints into parent emails and the ones the
-// Better Auth plugin issues itself (auth.ts passes this as the plugin's `expiresIn`).
-export const MAGIC_LINK_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60;
+// How long a sign-in link stays usable, per use (review S3). magicLinks.mintMagicLink takes the
+// lifetime explicitly; the plugin's own links use SELF_SERVICE (auth.ts `expiresIn`). A link IS a
+// session for whoever holds it, so each lifetime is as short as its use allows — an expired link
+// costs one click on the sign-in page's "Send me a new link".
+// - Consent success screen: shown on screen right after approval, used within minutes or never
+//   (the emails cover a parent who closes the tab).
+export const CONSENT_SCREEN_MAGIC_LINK_SECONDS = 30 * 60;
+// - Notification / chat email buttons: parents read email hours later, not within minutes; two
+//   days keeps an evening-or-next-day click working without leaving week-old sessions in inboxes.
+export const EMAIL_MAGIC_LINK_SECONDS = 48 * 60 * 60;
+// - "Send me a new link" from the sign-in page: the user asked for it and is waiting for it.
+export const SELF_SERVICE_MAGIC_LINK_SECONDS = 30 * 60;
+
+// Better Auth's default basePath. auth.ts does not override it and the SvelteKit app proxies
+// /api/auth/* to the Convex site (src/routes/api/auth/[...all]).
+export const AUTH_BASE_PATH = '/api/auth';
+
+// Emails and the consent screen never link to the verify endpoint directly (review S1): link
+// scanners (Safe Links, Mimecast, ...) GET every link on delivery, which would consume the token
+// and hand THEM the session. They link to this app page instead, with the token in the URL
+// fragment — never sent to a server, so it stays out of request logs, proxies and Referer — and
+// the page only calls the verify endpoint when a person presses its button.
+export const MAGIC_LINK_INTERSTITIAL_PATH = '/auth/link';
+
+export type MagicLinkInterstitial = {
+	token: string;
+	// App path to continue to once signed in.
+	next: string;
+	// Masked address the link signs in, shown as "Sign in as p…@x.com?".
+	as: string;
+};
+
+// "parent@example.com" -> "p…@example.com": enough for the owner to recognise, not enough for
+// someone a link was forwarded to to learn the address.
+export const maskEmail = (email: string) => {
+	const [local, domain] = email.trim().split('@');
+	if (!local || !domain) return '…';
+	return `${local[0]}…@${domain}`;
+};
+
+export const buildMagicLinkInterstitialFragment = (link: MagicLinkInterstitial) =>
+	new URLSearchParams({ t: link.token, next: link.next, as: link.as }).toString();
+
+// Reads the fragment back. A `next` the verify endpoint would reject (see
+// isMagicLinkCallbackPath) falls back to home rather than failing the whole sign-in.
+export const parseMagicLinkInterstitialFragment = (hash: string): MagicLinkInterstitial | null => {
+	const params = new URLSearchParams(hash.replace(/^#/, ''));
+	const token = params.get('t');
+	if (!token || !/^[a-zA-Z0-9_-]+$/.test(token)) return null;
+	const next = params.get('next') ?? '/';
+	return {
+		token,
+		next: isMagicLinkCallbackPath(next) ? next : '/',
+		as: params.get('as') ?? ''
+	};
+};
+
+// The real verify URL (relative: the interstitial runs on the app origin, whose /api/auth proxy
+// reaches Better Auth). A failed or expired token lands on the sign-in page, which offers to
+// email a fresh link and then continues to `next`.
+export const buildMagicLinkVerifyPath = (link: { token: string; next: string }) => {
+	const params = new URLSearchParams({
+		token: link.token,
+		callbackURL: toMagicLinkCallbackParam(link.next),
+		errorCallbackURL: toMagicLinkCallbackParam(buildMagicLinkErrorPath(link.next))
+	});
+	return `${AUTH_BASE_PATH}/magic-link/verify?${params.toString()}`;
+};
 
 // Marker the minted links put on their errorCallbackURL, so the sign-in page can tell "your
 // sign-in link failed" apart from a Google OAuth error (both arrive as `?error=`).

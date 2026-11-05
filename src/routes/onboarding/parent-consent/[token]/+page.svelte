@@ -99,8 +99,9 @@
 				</Alert>
 				<div class="mt-auto flex flex-col gap-3 pb-2 sm:pb-6">
 					{#if approval.signInUrl}
-						<!-- A full page load: the link is Better Auth's verify endpoint, which sets the
-						session cookie and redirects to the child's overview. -->
+						<!-- The /auth/link interstitial (30-minute link, token in the fragment): its button
+						calls Better Auth's verify endpoint, which sets the session cookie and redirects
+						to the child's overview. -->
 						<Button class="h-12 w-full" size="xl" href={approval.signInUrl}>
 							{formatT('onboarding.parentConsent.signInButton', { child: childName })}
 						</Button>

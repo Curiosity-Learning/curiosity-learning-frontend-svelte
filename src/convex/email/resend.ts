@@ -1,4 +1,5 @@
 import type { EmailContent } from './templates';
+import { CHILD_EMAIL_DOMAIN } from '../childAccounts';
 import { reportConvexError } from '../monitoring';
 
 export type TransactionalEmailType =
@@ -19,6 +20,13 @@ export const sendEmail = async (
 	args: EmailContent & { to: string; type: TransactionalEmailType }
 ): Promise<SendEmailResult> => {
 	try {
+		// Child accounts sign in with a synthetic auth email (childAccounts.ts) that is not an
+		// inbox: sending to it only bounces and hurts sender reputation (review edge case 16).
+		// Callers route child email elsewhere (notifications.resolveEmailRecipient); this is the
+		// backstop, and it fails like any other send.
+		if (args.to.trim().toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
+			throw new Error(`Refusing to email a synthetic child address (@${CHILD_EMAIL_DOMAIN}).`);
+		}
 		const apiKey = process.env.RESEND_API_KEY;
 		if (!apiKey) {
 			throw new Error('RESEND_API_KEY is not set (Convex environment variable).');

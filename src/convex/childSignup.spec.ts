@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, components, internal } from './_generated/api';
 import type { MutationCtx } from './_generated/server';
 import schema from './schema';
+import {
+	CONSENT_SCREEN_MAGIC_LINK_SECONDS,
+	parseMagicLinkInterstitialFragment
+} from '../lib/auth/magic-link';
 
 const modules = import.meta.glob('./**/*.ts');
 
@@ -286,11 +290,10 @@ describe('approveConsent', () => {
 
 		const first = await approve();
 		expect(first.success).toBe(true);
+		// Through the /auth/link interstitial, like every sign-in link (review S1).
 		const signInUrl = new URL(first.signInUrl!);
-		expect(`${signInUrl.origin}${signInUrl.pathname}`).toBe(
-			'https://app.example.com/api/auth/magic-link/verify'
-		);
-		expect(decodeURIComponent(signInUrl.searchParams.get('callbackURL')!)).toBe(
+		expect(`${signInUrl.origin}${signInUrl.pathname}`).toBe('https://app.example.com/auth/link');
+		expect(parseMagicLinkInterstitialFragment(signInUrl.hash)?.next).toBe(
 			`/child/${childProfileId}`
 		);
 		// For the parent account approveConsent just created.
@@ -298,10 +301,15 @@ describe('approveConsent', () => {
 			model: 'verification',
 			where: [],
 			paginationOpts: { cursor: null, numItems: 10 }
-		})) as { page: Array<{ value: string }> };
+		})) as { page: Array<{ value: string; expiresAt: number }> };
 		expect(verification.page.map((row) => JSON.parse(row.value))).toEqual([
 			{ email: 'parent@example.com' }
 		]);
+		// Shown on screen right after approval: 30 minutes (review S3).
+		expect(verification.page[0].expiresAt).toBeLessThanOrEqual(
+			Date.now() + CONSENT_SCREEN_MAGIC_LINK_SECONDS * 1000
+		);
+		expect(CONSENT_SCREEN_MAGIC_LINK_SECONDS).toBe(30 * 60);
 
 		const revisit = await approve();
 		expect(revisit).toEqual({ success: true });

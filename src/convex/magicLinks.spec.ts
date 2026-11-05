@@ -13,10 +13,14 @@ import { convexTest } from 'convex-test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { components } from './_generated/api';
 import { hashMagicLinkToken, mintMagicLink } from './magicLinks';
+import { internal } from './_generated/api';
 import schema from './schema';
 import {
-	MAGIC_LINK_EXPIRES_IN_SECONDS,
+	EMAIL_MAGIC_LINK_SECONDS,
+	SELF_SERVICE_MAGIC_LINK_SECONDS,
 	buildMagicLinkErrorPath,
+	buildMagicLinkVerifyPath,
+	parseMagicLinkInterstitialFragment,
 	toMagicLinkCallbackParam
 } from '../lib/auth/magic-link';
 
@@ -98,41 +102,56 @@ const stubAuthEnv = () => {
 	vi.stubEnv('BETTER_AUTH_SECRET', 'test-secret-'.repeat(4));
 };
 
+// What the /auth/link interstitial does in the browser: read the fragment, build the verify URL.
+const interstitialToVerifyPath = (link: string) => {
+	const url = new URL(link);
+	const parsed = parseMagicLinkInterstitialFragment(url.hash);
+	if (!parsed) throw new Error(`Not an interstitial link: ${link}`);
+	return buildMagicLinkVerifyPath(parsed);
+};
+
+const mint = (
+	t: Awaited<ReturnType<typeof setup>>,
+	callbackPath = '/child/abc?room=xyz',
+	expiresInSeconds = EMAIL_MAGIC_LINK_SECONDS
+) =>
+	t.run((ctx) =>
+		mintMagicLink(ctx, { email: 'Parent@Example.com', callbackPath, expiresInSeconds })
+	);
+
 describe('mintMagicLink', () => {
-	it('builds a verify URL under the auth base path with the callbacks the plugin expects', async () => {
+	// Review S1: never the verify endpoint itself (mail scanners would consume the token), and
+	// the token only in the fragment (never sent to a server).
+	it('hands out the /auth/link interstitial with token, next and masked address in the fragment', async () => {
 		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const t = await setup();
 
-		const link = await t.run((ctx) =>
-			mintMagicLink(ctx, {
-				email: 'Parent@Example.com',
-				callbackURL: '/child/abc?room=xyz',
-				errorCallbackURL: '/auth/sign-in?next=%2Fchild%2Fabc%3Froom%3Dxyz&link=expired'
-			})
-		);
+		const link = await mint(t);
 
 		const url = new URL(link!);
-		expect(`${url.origin}${url.pathname}`).toBe(
-			'https://app.example.com/api/auth/magic-link/verify'
-		);
-		expect(url.searchParams.get('token')).toMatch(/^[a-zA-Z]{32}$/);
-		// The verify endpoint decodeURIComponent()s these once more before validating and
-		// redirecting; that extra decode must yield exactly the intended paths.
-		expect(decodeURIComponent(url.searchParams.get('callbackURL')!)).toBe('/child/abc?room=xyz');
-		expect(decodeURIComponent(url.searchParams.get('errorCallbackURL')!)).toBe(
+		expect(`${url.origin}${url.pathname}`).toBe('https://app.example.com/auth/link');
+		expect(url.search).toBe('');
+		const parsed = parseMagicLinkInterstitialFragment(url.hash);
+		expect(parsed?.token).toMatch(/^[a-zA-Z]{32}$/);
+		expect(parsed?.next).toBe('/child/abc?room=xyz');
+		expect(parsed?.as).toBe('p…@example.com');
+		// What the interstitial's button opens: the verify endpoint with callbacks whose extra
+		// decodeURIComponent() yields exactly the intended paths.
+		const verify = new URL(interstitialToVerifyPath(link!), 'https://app.example.com');
+		expect(verify.pathname).toBe('/api/auth/magic-link/verify');
+		expect(decodeURIComponent(verify.searchParams.get('callbackURL')!)).toBe('/child/abc?room=xyz');
+		expect(decodeURIComponent(verify.searchParams.get('errorCallbackURL')!)).toBe(
 			'/auth/sign-in?next=%2Fchild%2Fabc%3Froom%3Dxyz&link=expired'
 		);
 	});
 
-	it('stores the row the magic-link plugin reads: hashed identifier, email JSON, 7-day expiry', async () => {
+	it('stores the row the magic-link plugin reads: hashed identifier, email JSON, the given lifetime', async () => {
 		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const t = await setup();
 		const before = Date.now();
 
-		const link = await t.run((ctx) =>
-			mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' })
-		);
-		const token = new URL(link!).searchParams.get('token')!;
+		const link = await mint(t, '/child/abc', 30 * 60);
+		const token = parseMagicLinkInterstitialFragment(new URL(link!).hash)!.token;
 
 		// storeToken: 'hashed' → the plugin looks the row up by its own hash of the token.
 		const identifier = await pluginKeyHasher(token);
@@ -143,25 +162,25 @@ describe('mintMagicLink', () => {
 		expect(await findVerification(t, token)).toBeNull();
 		// verify: JSON.parse(value) → { email, name } → findUserByEmail(email).
 		expect(JSON.parse(row!.value)).toEqual({ email: 'parent@example.com' });
-		expect(row!.expiresAt).toBeGreaterThanOrEqual(before + MAGIC_LINK_EXPIRES_IN_SECONDS * 1000);
-		expect(row!.expiresAt).toBeLessThanOrEqual(Date.now() + MAGIC_LINK_EXPIRES_IN_SECONDS * 1000);
-		expect(MAGIC_LINK_EXPIRES_IN_SECONDS).toBe(7 * 24 * 60 * 60);
+		expect(row!.expiresAt).toBeGreaterThanOrEqual(before + 30 * 60 * 1000);
+		expect(row!.expiresAt).toBeLessThanOrEqual(Date.now() + 30 * 60 * 1000);
 		expect(typeof row!.createdAt).toBe('number');
 		expect(typeof row!.updatedAt).toBe('number');
+	});
+
+	it('pins the per-use lifetimes (review S3)', () => {
+		expect(EMAIL_MAGIC_LINK_SECONDS).toBe(48 * 60 * 60);
+		expect(SELF_SERVICE_MAGIC_LINK_SECONDS).toBe(30 * 60);
 	});
 
 	it('mints a different single-use token on every call', async () => {
 		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const t = await setup();
 
-		const [first, second] = await t.run(async (ctx) => [
-			await mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' }),
-			await mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' })
-		]);
+		const first = await mint(t);
+		const second = await mint(t);
 
-		expect(new URL(first!).searchParams.get('token')).not.toBe(
-			new URL(second!).searchParams.get('token')
-		);
+		expect(new URL(first!).hash).not.toBe(new URL(second!).hash);
 	});
 
 	// The real thing: the minted link through the app's registered Better Auth routes (http.ts),
@@ -169,16 +188,9 @@ describe('mintMagicLink', () => {
 	it('signs the user in through the real verify endpoint, once', async () => {
 		stubAuthEnv();
 		const t = await setup();
-		const link = await t.run((ctx) =>
-			mintMagicLink(ctx, {
-				email: 'parent@example.com',
-				callbackURL: '/child/abc?room=xyz',
-				errorCallbackURL: '/auth/sign-in?next=%2Fchild%2Fabc%3Froom%3Dxyz&link=expired'
-			})
-		);
-		const { pathname, search } = new URL(link!);
+		const verifyPath = interstitialToVerifyPath((await mint(t))!);
 
-		const first = await t.fetch(`${pathname}${search}`, { method: 'GET' });
+		const first = await t.fetch(verifyPath, { method: 'GET' });
 		expect(first.status).toBe(302);
 		expect(first.headers.get('location')).toBe('https://app.example.com/child/abc?room=xyz');
 		expect(first.headers.get('set-cookie')).toContain('better-auth.session_token=');
@@ -186,7 +198,7 @@ describe('mintMagicLink', () => {
 
 		// Single use: the second click lands on the sign-in page's expired-link fallback, with
 		// `next` still pointing at the original page.
-		const second = await t.fetch(`${pathname}${search}`, { method: 'GET' });
+		const second = await t.fetch(verifyPath, { method: 'GET' });
 		expect(second.status).toBe(302);
 		const fallback = new URL(second.headers.get('location')!);
 		expect(fallback.pathname).toBe('/auth/sign-in');
@@ -195,32 +207,30 @@ describe('mintMagicLink', () => {
 		expect(fallback.searchParams.get('error')).toBe('INVALID_TOKEN');
 	});
 
-	it('an expired link redirects to the fallback with EXPIRED_TOKEN', async () => {
+	// Review S10: the verify endpoint decodes callback params a second time and we escape for
+	// it (toMagicLinkCallbackParam). If an upgrade drops that extra decode, the error redirect's
+	// `next` would keep a literal %25 and silently send the user to "/" — this pins it.
+	it('an expired link redirects to the sign-in fallback with EXPIRED_TOKEN and `next` intact, query included', async () => {
 		stubAuthEnv();
 		const t = await setup();
-		const link = await t.run((ctx) =>
-			mintMagicLink(ctx, {
-				email: 'parent@example.com',
-				callbackURL: '/child/abc',
-				errorCallbackURL: '/auth/sign-in?next=%2Fchild%2Fabc&link=expired'
-			})
-		);
-		const { pathname, search, searchParams } = new URL(link!);
+		const link = (await mint(t, '/child/abc?room=xyz'))!;
+		const verifyPath = interstitialToVerifyPath(link);
+		const token = parseMagicLinkInterstitialFragment(new URL(link).hash)!.token;
 		await t.mutation(components.betterAuth.adapter.updateOne, {
 			input: {
 				model: 'verification',
-				where: [
-					{ field: 'identifier', value: await hashMagicLinkToken(searchParams.get('token')!) }
-				],
+				where: [{ field: 'identifier', value: await hashMagicLinkToken(token) }],
 				update: { expiresAt: Date.now() - 1000 }
 			}
 		});
 
-		const response = await t.fetch(`${pathname}${search}`, { method: 'GET' });
+		const response = await t.fetch(verifyPath, { method: 'GET' });
 		expect(response.status).toBe(302);
 		const fallback = new URL(response.headers.get('location')!);
 		expect(fallback.pathname).toBe('/auth/sign-in');
 		expect(fallback.searchParams.get('error')).toBe('EXPIRED_TOKEN');
+		expect(fallback.searchParams.get('link')).toBe('expired');
+		expect(fallback.searchParams.get('next')).toBe('/child/abc?room=xyz');
 		expect(response.headers.get('set-cookie') ?? '').not.toContain('better-auth.session_token=');
 	});
 
@@ -229,7 +239,11 @@ describe('mintMagicLink', () => {
 		const t = await setup({ withUser: false });
 
 		const link = await t.run((ctx) =>
-			mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' })
+			mintMagicLink(ctx, {
+				email: 'parent@example.com',
+				callbackPath: '/child/abc',
+				expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+			})
 		);
 
 		expect(link).toBeNull();
@@ -242,7 +256,11 @@ describe('mintMagicLink', () => {
 		const t = await setup({ emailVerified: false });
 
 		const link = await t.run((ctx) =>
-			mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' })
+			mintMagicLink(ctx, {
+				email: 'parent@example.com',
+				callbackPath: '/child/abc',
+				expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+			})
 		);
 
 		expect(link).toBeNull();
@@ -254,7 +272,11 @@ describe('mintMagicLink', () => {
 		const t = await setup({ platformAdmin: true });
 
 		const link = await t.run((ctx) =>
-			mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' })
+			mintMagicLink(ctx, {
+				email: 'parent@example.com',
+				callbackPath: '/child/abc',
+				expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+			})
 		);
 
 		expect(link).toBeNull();
@@ -265,7 +287,11 @@ describe('mintMagicLink', () => {
 		const t = await setup();
 
 		const link = await t.run((ctx) =>
-			mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' })
+			mintMagicLink(ctx, {
+				email: 'parent@example.com',
+				callbackPath: '/child/abc',
+				expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+			})
 		);
 
 		expect(link).toBeNull();
@@ -296,14 +322,18 @@ describe('POST /sign-in/magic-link (expired-link fallback)', () => {
 		expect(sendEmailMock).toHaveBeenCalledTimes(1);
 		const email = sendEmailMock.mock.calls[0][0];
 		expect(email).toMatchObject({ to: 'parent@example.com', type: 'magic-link' });
-		const link = new URL(email.text.match(/https:\/\/\S+/)![0]);
-		expect(link.pathname).toBe('/api/auth/magic-link/verify');
+		// Through the interstitial like every emailed link, with the plugin's own token.
+		const emailed = email.text.match(/https:\/\/\S+/)![0];
+		const link = new URL(emailed);
+		expect(link.pathname).toBe('/auth/link');
+		expect(link.search).toBe('');
+		const verifyPath = interstitialToVerifyPath(emailed);
 
-		const verify = await t.fetch(`${link.pathname}${link.search}`, { method: 'GET' });
+		const verify = await t.fetch(verifyPath, { method: 'GET' });
 		expect(verify.status).toBe(302);
 		expect(verify.headers.get('location')).toBe('https://app.example.com/child/abc?room=xyz');
 
-		const reused = await t.fetch(`${link.pathname}${link.search}`, { method: 'GET' });
+		const reused = await t.fetch(verifyPath, { method: 'GET' });
 		const fallback = new URL(reused.headers.get('location')!);
 		expect(fallback.pathname).toBe('/auth/sign-in');
 		expect(fallback.searchParams.get('next')).toBe('/child/abc?room=xyz');
@@ -328,6 +358,47 @@ describe('POST /sign-in/magic-link (expired-link fallback)', () => {
 		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
 
+	// Review edge case 16: a child's synthetic auth address is not an inbox. Neither a sign-in
+	// link nor a password reset is sent to it, and both endpoints answer as usual.
+	it('answers the same but emails nothing to a synthetic child address', async () => {
+		stubAuthEnv();
+		const t = await setup({ withUser: false });
+		const now = Date.now();
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'kiddo@children.curiosity.local',
+					emailVerified: true,
+					name: 'kiddo',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+
+		expect((await requestLink(t, 'kiddo@children.curiosity.local')).status).toBe(200);
+		const reset = await t.fetch('/api/auth/request-password-reset', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				email: 'kiddo@children.curiosity.local',
+				redirectTo: '/auth/reset-password'
+			})
+		});
+		expect(reset.status).toBe(200);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+		expect(
+			await t.run((ctx) =>
+				mintMagicLink(ctx, {
+					email: 'kiddo@children.curiosity.local',
+					callbackPath: '/',
+					expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+				})
+			)
+		).toBeNull();
+	});
+
 	it('answers the same but sends nothing for an unknown address', async () => {
 		stubAuthEnv();
 		const t = await setup({ withUser: false });
@@ -335,5 +406,29 @@ describe('POST /sign-in/magic-link (expired-link fallback)', () => {
 		const response = await requestLink(t, 'stranger@example.com');
 		expect(response.status).toBe(200);
 		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+});
+
+describe('deleteExpiredVerifications (daily cron)', () => {
+	it('deletes expired verification rows and keeps live ones', async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const t = await setup();
+		const live = await mint(t);
+		const expired = await mint(t);
+		const expiredToken = parseMagicLinkInterstitialFragment(new URL(expired!).hash)!.token;
+		const liveToken = parseMagicLinkInterstitialFragment(new URL(live!).hash)!.token;
+		await t.mutation(components.betterAuth.adapter.updateOne, {
+			input: {
+				model: 'verification',
+				where: [{ field: 'identifier', value: await hashMagicLinkToken(expiredToken) }],
+				update: { expiresAt: Date.now() - 1000 }
+			}
+		});
+
+		const result = await t.mutation(internal.magicLinks.deleteExpiredVerifications, {});
+
+		expect(result).toEqual({ deleted: 1, hasMore: false });
+		expect(await findVerification(t, await hashMagicLinkToken(expiredToken))).toBeNull();
+		expect(await findVerification(t, await hashMagicLinkToken(liveToken))).not.toBeNull();
 	});
 });

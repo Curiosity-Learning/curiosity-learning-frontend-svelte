@@ -11,7 +11,9 @@ import type { MutationCtx } from './_generated/server';
 import authConfig from './auth.config';
 import { sendEmail } from './email/resend';
 import { magicLinkEmail, passwordResetEmail, verificationOtpEmail } from './email/templates';
-import { MAGIC_LINK_EXPIRES_IN_SECONDS } from '../lib/auth/magic-link';
+import { SELF_SERVICE_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
+import { pluginVerifyUrlToInterstitial } from './magicLinks';
+import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 import { setPendingClubJoin } from './pendingClubJoinsModel';
 import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
@@ -157,6 +159,10 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 			enabled: true,
 			requireEmailVerification: true,
 			sendResetPassword: async ({ user, url, token }) => {
+				// A child's auth email is synthetic, not an inbox (sendEmail refuses it): answer the
+				// request like any other instead of failing it, so the endpoint does not reveal
+				// which usernames are child accounts. Children have no self-service reset yet.
+				if (user.email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) return;
 				await sendEmail({
 					type: 'password-reset',
 					to: user.email,
@@ -195,10 +201,11 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 			}),
 			// One-time sign-in links. Parent-facing emails carry links minted server-side by
 			// magicLinks.mintMagicLink, which writes the plugin's verification rows directly — keep
-			// `storeToken` and `expiresIn` in sync with it. The plugin's own POST
-			// /sign-in/magic-link is the "send me a new link" fallback on the sign-in page.
+			// `storeToken` in sync with it (it picks its own per-use lifetime). The plugin's own
+			// POST /sign-in/magic-link is the "send me a new link" fallback on the sign-in page;
+			// `expiresIn` applies to those links only.
 			magicLink({
-				expiresIn: MAGIC_LINK_EXPIRES_IN_SECONDS,
+				expiresIn: SELF_SERVICE_MAGIC_LINK_SECONDS,
 				// Links only sign in existing users; account creation keeps its own flows.
 				disableSignUp: true,
 				// Hashed at rest: a link stays valid for days, so a leaked verification table
@@ -216,15 +223,18 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 						!('runQuery' in ctx) ||
 						!(await ctx.runQuery(internal.magicLinks.isMagicLinkRecipient, {
 							authUserId: found.user.id,
+							email: found.user.email,
 							emailVerified: found.user.emailVerified === true
 						}))
 					) {
 						return;
 					}
+					// Like every emailed link, through the /auth/link interstitial (review S1), so a
+					// mail scanner's GET does not consume the token.
 					await sendEmail({
 						type: 'magic-link',
 						to: email,
-						...magicLinkEmail({ url })
+						...magicLinkEmail({ url: pluginVerifyUrlToInterstitial(url, email) ?? url })
 					});
 				}
 			}),

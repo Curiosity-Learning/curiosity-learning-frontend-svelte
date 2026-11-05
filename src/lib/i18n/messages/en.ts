@@ -296,6 +296,19 @@ const en = {
 				failure: 'Could not send a new link. Please try again.'
 			}
 		},
+		signInLink: {
+			title: 'Sign in as {email}?',
+			titleNoEmail: 'Sign in and continue?',
+			description:
+				'This link signs you in to Curiosity Learning and opens the page it was sent for. It works once.',
+			submit: 'Sign in and continue',
+			submitting: 'Signing in...',
+			notYou: 'Not you? Close this page.',
+			invalidTitle: 'This sign-in link is incomplete',
+			invalidDescription:
+				'Open the link again from your email, or sign in with your email and we can send you a new link.',
+			goToSignIn: 'Go to sign in'
+		},
 		resetPassword: {
 			backToSignIn: 'Return to account log in',
 			requestTitle: 'Reset your password',
