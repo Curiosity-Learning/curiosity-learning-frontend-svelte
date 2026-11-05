@@ -116,6 +116,26 @@ export const runDailyMaintenance = internalAction({
 			});
 		}
 
+		try {
+			// "{child} hasn't confirmed their email" to the parent, once per address pending 3+
+			// days (childEmailVerification.ts, review edge case 4). Bounded like the cleanups.
+			let scheduled = 0;
+			for (let page = 0; page < MAX_EXPIRED_VERIFICATION_PAGES; page++) {
+				const result = await ctx.runMutation(
+					internal.childEmailVerification.schedulePendingEmailReminders,
+					{}
+				);
+				scheduled += result.scheduled;
+				if (!result.hasMore) break;
+			}
+			console.log('cron:runDailyMaintenance:schedulePendingEmailReminders', { scheduled });
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'crons:runDailyMaintenance:schedulePendingEmailReminders'
+			});
+		}
+
 		return null;
 	}
 });

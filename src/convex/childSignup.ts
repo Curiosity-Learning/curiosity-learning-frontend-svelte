@@ -540,7 +540,8 @@ export const approveConsent = mutation({
 						notificationEmailSetAt: now,
 						notificationEmailSetByProfileId: parentProfileId,
 						notificationEmailVerifiedAt: undefined,
-						notificationEmailSource: 'consent' as const
+						notificationEmailSource: 'consent' as const,
+						notificationEmailReminderSentAt: undefined
 					}
 				: {}),
 			updatedAt: now

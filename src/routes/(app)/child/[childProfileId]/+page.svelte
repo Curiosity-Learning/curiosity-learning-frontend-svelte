@@ -24,6 +24,7 @@
 	import { SIGNED_IN_VIA_LINK_PARAM, SIGNED_IN_VIA_LINK_VALUE } from '$lib/auth/magic-link';
 	import { SIGNED_IN_VIA_LINK_STORAGE_KEY } from '$lib/auth/onboarding-state';
 	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
+	import { authClient } from '$lib/auth-client';
 	import {
 		FRESH_SESSION_REQUIRED,
 		NOTIFICATION_EMAIL_IS_PARENT,
@@ -49,9 +50,11 @@
 	// Fallback claim: parent links are created at consent approval (childSignup.approveConsent),
 	// but a parent whose consent predates that has none until syncParentLinks runs — and they can
 	// land here straight from a chat email without ever opening Settings. Claim once per mount,
-	// alongside the queries below. Once the link row exists, getChildOverview's subscription
-	// re-runs by itself (Convex re-runs a failed query when the data it read changes), so the only
-	// thing to hold back is the "not linked" alert, until the claim has settled.
+	// and only subscribe to the child queries once the claim has settled (review smaller notes):
+	// they then read after any link the claim created, instead of relying on a failed query being
+	// re-run when its read set changes. Costs one round trip before the page loads. The claim is
+	// caller-scoped (it only ever links consents approved under the caller's own email, and never
+	// one the child has unlinked), so running it on any /child/x URL is harmless.
 	let parentLinksClaimSettled = $state(false);
 	onMount(() => {
 		void convexClient
@@ -103,12 +106,12 @@
 		}
 	};
 
-	const overviewResponse = useStableQuery(api.parentAccounts.getChildOverview, () => ({
-		childProfileId
-	}));
-	const roomsResponse = useStableQuery(api.parentAccounts.listChildRooms, () => ({
-		childProfileId
-	}));
+	const overviewResponse = useStableQuery(api.parentAccounts.getChildOverview, () =>
+		parentLinksClaimSettled ? { childProfileId } : 'skip'
+	);
+	const roomsResponse = useStableQuery(api.parentAccounts.listChildRooms, () =>
+		parentLinksClaimSettled ? { childProfileId } : 'skip'
+	);
 
 	let overview = $derived(overviewResponse.data ?? null);
 	let rooms = $derived(roomsResponse.data ?? []);
@@ -267,6 +270,28 @@
 		{ key: 'activityCopies', labelKey: 'parentAccounts.parentEmailsActivityCopies' }
 	];
 
+	// Review S9: signed in as B, but the child was approved under another address A, so this
+	// account is not linked. Offer to email a sign-in link to "the address that approved": the
+	// server resolves it from the consent and answers the same whether or not one exists, so this
+	// page never learns A (requestApprovingAccountSignInLink).
+	const session = authClient.useSession();
+	let approvingLinkState = $state<'idle' | 'sending' | 'requested' | 'rateLimited' | 'failed'>(
+		'idle'
+	);
+	const requestApprovingAccountLink = async () => {
+		if (approvingLinkState === 'sending') return;
+		approvingLinkState = 'sending';
+		try {
+			const result = await convexClient.mutation(
+				api.parentAccounts.requestApprovingAccountSignInLink,
+				{ childProfileId }
+			);
+			approvingLinkState = result.status;
+		} catch {
+			approvingLinkState = 'failed';
+		}
+	};
+
 	let signingInAgain = $state(false);
 	const signInAgain = async () => {
 		signingInAgain = true;
@@ -328,6 +353,38 @@
 				<AlertTitle>{t('parentAccounts.notFoundTitle')}</AlertTitle>
 				<AlertDescription>{t('parentAccounts.notFoundDescription')}</AlertDescription>
 			</Alert>
+			<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
+				<p class="type-sm text-muted-foreground">
+					{t('parentAccounts.differentEmailHelp').replace(
+						'{email}',
+						$session.data?.user.email ?? ''
+					)}
+				</p>
+				{#if approvingLinkState === 'requested'}
+					<p class="type-sm text-foreground" role="status">
+						{t('parentAccounts.differentEmailRequested')}
+					</p>
+				{:else}
+					{#if approvingLinkState === 'rateLimited'}
+						<p class="type-sm text-destructive" role="alert">
+							{t('parentAccounts.differentEmailRateLimited')}
+						</p>
+					{:else if approvingLinkState === 'failed'}
+						<p class="type-sm text-destructive" role="alert">
+							{t('parentAccounts.differentEmailFailure')}
+						</p>
+					{/if}
+					<Button
+						type="button"
+						variant="outline"
+						class="self-start"
+						disabled={approvingLinkState === 'sending' || approvingLinkState === 'rateLimited'}
+						onclick={() => void requestApprovingAccountLink()}
+					>
+						{t('parentAccounts.differentEmailSend')}
+					</Button>
+				{/if}
+			</section>
 		{:else}
 			<Alert variant="destructive">
 				<AlertTitle>{t('parentAccounts.loadErrorTitle')}</AlertTitle>

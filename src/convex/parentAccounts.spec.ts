@@ -459,7 +459,15 @@ describe('parentAccounts.unlinkParent: an unlinked parent cannot claim the link 
 // `args` precedes `handler` in the object. Internal mutations are not client-callable and are
 // out of scope. Behaviour tests for each parent mutation follow the scan.
 describe('structural guard: public mutations taking a profile id (review S13)', () => {
-	const allowlist: Record<string, { guard: string; reason: string }> = {
+	// `childProfileIdArg: true` exempts one entry from "a childProfileId arg must use
+	// requireParentLink(": only for a mutation whose caller is by definition NOT linked.
+	const allowlist: Record<string, { guard: string; reason: string; childProfileIdArg?: true }> = {
+		'parentAccounts.ts:requestApprovingAccountSignInLink': {
+			guard: 'requireProfile(',
+			reason:
+				'Review S9: the caller signed in with a different email and is NOT linked, by definition. It returns the same answer whether or not a consent exists, never reveals the approving address, and only emails a sign-in link to that address (for that account, not the caller).',
+			childProfileIdArg: true
+		},
 		'parentAccounts.ts:unlinkParent': {
 			guard: 'requireProfile(',
 			reason:
@@ -563,7 +571,7 @@ describe('structural guard: public mutations taking a profile id (review S13)', 
 			if (!mutation.handler.includes(exception.guard)) {
 				offenders.push(`${mutation.key}: allowlisted guard ${exception.guard} not called`);
 			}
-			if (/\bchildProfileId\s*:/.test(mutation.args)) {
+			if (/\bchildProfileId\s*:/.test(mutation.args) && !exception.childProfileIdArg) {
 				offenders.push(`${mutation.key}: a childProfileId arg must use requireParentLink(`);
 			}
 		}

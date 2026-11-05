@@ -316,7 +316,7 @@ const en = {
 				failure: 'Could not send a new link. Please try again.',
 				passwordlessTitle: 'No password on this account',
 				passwordlessDescription:
-					"This account signs in with a link sent by email. We'll send one to {email}.",
+					"This email already has a Curiosity Learning account, for example from approving a child's account. It has no password: we'll email a sign-in link to {email}.",
 				passwordlessSubmit: 'Email me a sign-in link'
 			}
 		},
@@ -1152,6 +1152,18 @@ const en = {
 			"You've sent the most confirmation emails allowed for today. Please try again tomorrow.",
 		ownEmailInvalid: 'Please enter a valid email address.',
 		ownEmailFailure: 'Could not save the email address. Please try again.',
+		differentEmailHelp:
+			'Your children are linked to the account that approved them. You are signed in as {email}. If you approved with a different email, we can send a sign-in link there.',
+		differentEmailSend: 'Send a sign-in link to the approving address',
+		differentEmailRequested:
+			'If this account was approved with a different email address, we sent a sign-in link there. It works once, for 48 hours.',
+		differentEmailRateLimited:
+			"You've asked for this link too many times today. Please try again tomorrow.",
+		differentEmailFailure: 'Could not send the link. Please try again.',
+		differentEmailSettingsTitle: 'Approved a child account?',
+		differentEmailSettingsHelp:
+			'Your children are linked to the account that approved them. You are signed in as {email}. If you approved with a different email, sign in with that email instead: if it has no password, the sign-in page emails you a sign-in link.',
+		differentEmailSettingsAction: 'Sign in with another email',
 		bannerLabel: 'Viewing as {name} — read-only',
 		exitAction: 'Back to settings',
 		overviewTab: 'Overview',

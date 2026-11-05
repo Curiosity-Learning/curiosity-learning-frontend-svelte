@@ -53,6 +53,11 @@ export default defineSchema({
 		notificationEmailSource: v.optional(
 			v.union(v.literal('childPage'), v.literal('consent'), v.literal('self'))
 		),
+		// When the parent was told the address is still unconfirmed after 3 days (review edge case
+		// 4; childEmailVerification.sendPendingEmailReminders, daily cron). Once per address:
+		// cleared whenever the address is changed or removed. Also stamped (without an email) on
+		// addresses the child entered themselves, so the cron never looks at them again.
+		notificationEmailReminderSentAt: v.optional(v.number()),
 		// Adult accounts: when this person first agreed to the Terms / Privacy Policy, and which
 		// version (legalDocuments.version, or 'unversioned' when none was published). Set by
 		// childSignup.approveConsent for the PARENT (the combined consent checkbox covers the
@@ -75,7 +80,13 @@ export default defineSchema({
 	})
 		.index('by_auth_user_id', ['authUserId'])
 		.index('by_username', ['username'])
-		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
+		.index('by_profile_image_media_asset', ['profileImageMediaAssetId'])
+		// Pending notification emails not reminded about yet, oldest first (the reminder cron).
+		.index('by_pending_notification_email', [
+			'notificationEmailVerifiedAt',
+			'notificationEmailReminderSentAt',
+			'notificationEmailSetAt'
+		]),
 
 	// PRD 5.10 follow-up: the only path that grants `profiles.globalRole = 'admin'` besides the
 	// CLI-only `profiles.setGlobalRole`. An existing admin records an invite for an email; the

@@ -308,7 +308,7 @@ const nl = {
 				failure: 'Kon geen nieuwe link verzenden. Probeer het opnieuw.',
 				passwordlessTitle: 'Geen wachtwoord voor dit account',
 				passwordlessDescription:
-					'Je logt bij dit account in met een link per e-mail. We sturen er een naar {email}.',
+					'Dit e-mailadres heeft al een account bij Curiosity Learning, bijvoorbeeld van het goedkeuren van het account van een kind. Er hoort geen wachtwoord bij: we sturen een inloglink naar {email}.',
 				passwordlessSubmit: 'Stuur me een inloglink'
 			}
 		},
@@ -1149,6 +1149,18 @@ const nl = {
 			'Je hebt vandaag het maximale aantal bevestigingsmails verstuurd. Probeer het morgen opnieuw.',
 		ownEmailInvalid: 'Vul een geldig e-mailadres in.',
 		ownEmailFailure: 'Het e-mailadres kon niet worden opgeslagen. Probeer het opnieuw.',
+		differentEmailHelp:
+			'Je kinderen zijn gekoppeld aan het account waarmee ze zijn goedgekeurd. Je bent ingelogd als {email}. Heb je met een ander e-mailadres goedgekeurd, dan kunnen we daar een inloglink naartoe sturen.',
+		differentEmailSend: 'Stuur een inloglink naar het goedkeurende adres',
+		differentEmailRequested:
+			'Als dit account met een ander e-mailadres is goedgekeurd, hebben we daar een inloglink naartoe gestuurd. Die werkt één keer, 48 uur lang.',
+		differentEmailRateLimited:
+			'Je hebt deze link vandaag te vaak aangevraagd. Probeer het morgen opnieuw.',
+		differentEmailFailure: 'De link kon niet worden verstuurd. Probeer het opnieuw.',
+		differentEmailSettingsTitle: 'Een kinderaccount goedgekeurd?',
+		differentEmailSettingsHelp:
+			'Je kinderen zijn gekoppeld aan het account waarmee ze zijn goedgekeurd. Je bent ingelogd als {email}. Heb je met een ander e-mailadres goedgekeurd, log dan met dat adres in: heeft het geen wachtwoord, dan stuurt de inlogpagina je een inloglink.',
+		differentEmailSettingsAction: 'Inloggen met een ander e-mailadres',
 		bannerLabel: 'Bekijken als {name} — alleen-lezen',
 		exitAction: 'Terug naar instellingen',
 		overviewTab: 'Overzicht',

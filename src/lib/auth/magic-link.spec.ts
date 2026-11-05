@@ -7,6 +7,7 @@ import {
 	parseMagicLinkInterstitialFragment,
 	isMagicLinkCallbackPath,
 	isMagicLinkFailure,
+	isPasswordlessSignInAccount,
 	toMagicLinkCallbackParam
 } from './magic-link';
 
@@ -121,5 +122,22 @@ describe('interstitial fragment', () => {
 		);
 		expect(decodeURIComponent(bare.searchParams.get('callbackURL')!)).toBe('/child/abc?via=link');
 		expect(isMagicLinkCallbackPath('/child/abc?room=xyz&via=link')).toBe(true);
+	});
+});
+
+describe('isPasswordlessSignInAccount (review S9)', () => {
+	it('is true only for an existing account with neither a password nor Google', () => {
+		expect(
+			isPasswordlessSignInAccount({ exists: true, hasPassword: false, hasGoogle: false })
+		).toBe(true);
+		expect(isPasswordlessSignInAccount({ exists: true, hasPassword: true, hasGoogle: false })).toBe(
+			false
+		);
+		expect(isPasswordlessSignInAccount({ exists: true, hasPassword: false, hasGoogle: true })).toBe(
+			false
+		);
+		expect(
+			isPasswordlessSignInAccount({ exists: false, hasPassword: false, hasGoogle: false })
+		).toBe(false);
 	});
 });

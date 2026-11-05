@@ -118,3 +118,14 @@ export const toMagicLinkCallbackParam = (path: string) => path.replaceAll('%', '
 // continues to `next`.
 export const buildMagicLinkErrorPath = (next: string) =>
 	`/auth/sign-in?next=${encodeURIComponent(next)}&${MAGIC_LINK_FAILED_PARAM}=${MAGIC_LINK_FAILED_VALUE}`;
+
+// Review S9: the sign-in page offers "Email me a sign-in link" as soon as the typed email
+// belongs to an account that can only sign in by link: no password and no Google. Every parent
+// account created at consent approval starts like that (childSignup.approveConsent creates the
+// user with no `account` rows). Reads auth.getSignupAccountStatusByEmail as is — this adds
+// nothing to what that query already tells any caller.
+export const isPasswordlessSignInAccount = (status: {
+	exists: boolean;
+	hasPassword: boolean;
+	hasGoogle: boolean;
+}) => status.exists && !status.hasPassword && !status.hasGoogle;

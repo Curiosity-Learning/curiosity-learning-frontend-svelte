@@ -12,6 +12,7 @@ import {
 import { profileDisplayName } from './chatModel';
 import { sendEmail } from './email/resend';
 import {
+	childEmailPendingReminderEmail,
 	childEmailVerificationEmail,
 	childRoutingChangedEmail,
 	parentUnlinkedEmail,
@@ -427,6 +428,119 @@ export const confirmChildEmail = mutation({
 			email: row.email
 		});
 		return { success: true };
+	}
+});
+
+// ---------------------------------------------------------------------------------------------
+// "{child} hasn't confirmed their email" reminder (review edge case 4, crons.runDailyMaintenance)
+// ---------------------------------------------------------------------------------------------
+
+// A parent-entered address still pending after this long gets ONE reminder to the parent. The
+// confirmation link itself expires after 72 h, so by now the parent has to resend anyway.
+export const CHILD_EMAIL_REMINDER_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
+const REMINDER_PAGE_SIZE = 100;
+
+/**
+ * Stamps `notificationEmailReminderSentAt` on up to a page of addresses pending for 3+ days and
+ * not reminded yet (by_pending_notification_email), and schedules one reminder each. Addresses
+ * the child entered themselves (16+, source 'self') are stamped without an email: it is not the
+ * parent's address to fix. Stamping first makes it once per address even if a send fails (a
+ * missed reminder is harmless; a repeated one is noise).
+ */
+export const schedulePendingEmailReminders = internalMutation({
+	args: {},
+	returns: v.object({ scheduled: v.number(), hasMore: v.boolean() }),
+	handler: async (ctx) => {
+		const now = Date.now();
+		const due = await ctx.db
+			.query('profiles')
+			.withIndex('by_pending_notification_email', (q) =>
+				q
+					.eq('notificationEmailVerifiedAt', undefined)
+					.eq('notificationEmailReminderSentAt', undefined)
+					.gt('notificationEmailSetAt', 0)
+					.lte('notificationEmailSetAt', now - CHILD_EMAIL_REMINDER_AFTER_MS)
+			)
+			.take(REMINDER_PAGE_SIZE + 1);
+		const page = due.slice(0, REMINDER_PAGE_SIZE);
+		let scheduled = 0;
+		for (const profile of page) {
+			await ctx.db.patch(profile._id, { notificationEmailReminderSentAt: now });
+			if (!profile.notificationEmail || profile.notificationEmailSource === 'self') continue;
+			await ctx.scheduler.runAfter(0, internal.childEmailVerification.sendPendingEmailReminder, {
+				childProfileId: profile._id,
+				email: profile.notificationEmail
+			});
+			scheduled += 1;
+		}
+		return { scheduled, hasMore: due.length > REMINDER_PAGE_SIZE };
+	}
+});
+
+// Null when the address was confirmed, changed or removed since it was scheduled, or no linked
+// parent is left to tell.
+export const getPendingEmailReminder = internalQuery({
+	args: { childProfileId: v.id('profiles'), email: v.string() },
+	returns: v.union(
+		v.object({ to: v.string(), childName: v.string(), setAt: v.number() }),
+		v.null()
+	),
+	handler: async (ctx, args) => {
+		const child = await ctx.db.get(args.childProfileId);
+		if (
+			!child ||
+			child.notificationEmail !== args.email ||
+			child.notificationEmailVerifiedAt !== undefined ||
+			child.notificationEmailSetAt === undefined
+		) {
+			return null;
+		}
+		const consents = await ctx.db
+			.query('parentChildConsents')
+			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.childProfileId))
+			.order('desc')
+			.collect();
+		const approved = consents.find(
+			(row) => row.status === 'approved' && row.unlinkedAt === undefined
+		);
+		return approved
+			? {
+					to: approved.parentEmail,
+					childName: profileDisplayName(child),
+					setAt: child.notificationEmailSetAt
+				}
+			: null;
+	}
+});
+
+export const sendPendingEmailReminder = internalAction({
+	args: { childProfileId: v.id('profiles'), email: v.string() },
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const reminder = await ctx.runQuery(
+			internal.childEmailVerification.getPendingEmailReminder,
+			args
+		);
+		if (!reminder) return null;
+		const baseUrl = getAppBaseUrl();
+		const content = childEmailPendingReminderEmail({
+			childName: reminder.childName,
+			maskedEmail: maskEmail(args.email),
+			days: Math.max(3, Math.floor((Date.now() - reminder.setAt) / (24 * 60 * 60 * 1000))),
+			childPageUrl: baseUrl ? `${baseUrl}/child/${args.childProfileId}` : undefined
+		});
+		const result = await sendResult(
+			() => sendEmail({ to: reminder.to, type: 'notification', ...content }),
+			reminder.to
+		);
+		await ctx.runMutation(internal.notifications.logEmailDelivery, {
+			recipientProfileId: args.childProfileId,
+			kind: 'child_email_reminder',
+			subject: content.subject,
+			result,
+			audience: 'parent'
+		});
+		return null;
 	}
 });
 

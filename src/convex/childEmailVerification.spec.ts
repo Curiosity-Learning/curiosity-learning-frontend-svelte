@@ -336,6 +336,8 @@ describe('setChildNotificationEmail: pending address and its confirmation email'
 		});
 		await settle(t);
 		await child.mutation(api.childEmailVerification.confirmChildEmail, { token: latestToken() });
+		// As if the 3-day reminder had gone out for the old address (edge case 4).
+		await t.run((ctx) => ctx.db.patch(childProfileId, { notificationEmailReminderSentAt: 1 }));
 
 		await parent.mutation(api.parentAccounts.setChildNotificationEmail, {
 			childProfileId,
@@ -345,6 +347,8 @@ describe('setChildNotificationEmail: pending address and its confirmation email'
 		const updated = await t.run((ctx) => ctx.db.get(childProfileId));
 		expect(updated?.notificationEmail).toBe('kiddo.new@example.com');
 		expect(updated?.notificationEmailVerifiedAt).toBeUndefined();
+		// A new address can be reminded about again.
+		expect(updated?.notificationEmailReminderSentAt).toBeUndefined();
 		expect(verificationEmails().at(-1)?.to).toBe('kiddo.new@example.com');
 
 		// Saving the confirmed address again is a no-op: nothing sent, nothing reset.

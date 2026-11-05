@@ -20,6 +20,7 @@
 		buildMagicLinkErrorPath,
 		isMagicLinkCallbackPath,
 		isMagicLinkFailure,
+		isPasswordlessSignInAccount,
 		toMagicLinkCallbackParam
 	} from '$lib/auth/magic-link';
 	import { routes } from '$lib/routes';
@@ -339,8 +340,7 @@
 				.query(api.auth.getSignupAccountStatusByEmail, { email })
 				.then((status) => {
 					if (seq !== accountLookupSeq) return;
-					passwordlessEmail =
-						status.exists && !status.hasPassword && !status.hasGoogle ? email : null;
+					passwordlessEmail = isPasswordlessSignInAccount(status) ? email : null;
 				})
 				.catch(() => {
 					if (seq === accountLookupSeq) passwordlessEmail = null;

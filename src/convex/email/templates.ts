@@ -180,11 +180,15 @@ export const passwordResetEmail = (args: { url: string; token: string }): EmailC
 
 // "Send me a new link" from the sign-in page (the magic-link plugin's sendMagicLink in auth.ts).
 // Links minted into other emails (parent chat emails) are not sent with this template.
-export const magicLinkEmail = (args: { url: string }): EmailContent => {
+// `expiresIn`: the link's lifetime in words. The sign-in page's own links last 30 minutes; the
+// "send a link to the approving address" helper (parentAccounts
+// .requestApprovingAccountSignInLink, review S9) mints a 48-hour one.
+export const magicLinkEmail = (args: { url: string; expiresIn?: string }): EmailContent => {
 	const url = absoluteUrl(args.url);
+	const expiry = `This link works once and expires in ${args.expiresIn ?? '30 minutes'}. If you did not ask for it, you can ignore this email.`;
 	return {
 		subject: 'Your sign-in link',
-		text: `Sign in to Curiosity Learning:\n\n${url}\n\nThis link works once and expires in 30 minutes. If you did not ask for it, you can ignore this email.`,
+		text: `Sign in to Curiosity Learning:\n\n${url}\n\n${expiry}`,
 		html: layout({
 			preheader: 'Your link to sign in to Curiosity Learning.',
 			title: 'Your sign-in link',
@@ -192,7 +196,7 @@ export const magicLinkEmail = (args: { url: string }): EmailContent => {
 				${paragraph('Use the button below to sign in to Curiosity Learning. No password needed.')}
 				${button(url, 'Sign in')}
 				${rawLink(url)}
-				${paragraph('This link works once and expires in 30 minutes. If you did not ask for it, you can ignore this email.')}
+				${paragraph(escapeHtml(expiry))}
 			`
 		})
 	};
@@ -392,6 +396,36 @@ export const parentUnlinkedEmail = (args: { childName: string }): EmailContent =
 			title: subject,
 			children: paragraph(escapeHtml(message)),
 			footer: `You received this email because you were the parent or guardian on ${escapeHtml(childName)}'s Curiosity Learning account.`
+		})
+	};
+};
+
+// Edge case 4 (review): a parent-entered child address still unconfirmed after 3 days, most
+// likely a typo or an inbox the child never checks. Sent once per address (crons, see
+// childEmailVerification.sendPendingEmailReminders). Like the routing notice: plain link to the
+// child's page, never a sign-in link.
+export const childEmailPendingReminderEmail = (args: {
+	childName: string;
+	maskedEmail: string;
+	days: number;
+	childPageUrl?: string;
+}): EmailContent => {
+	const { childName, maskedEmail, days } = args;
+	const subject = `${childName} hasn't confirmed their email address yet`;
+	const message = `We sent a confirmation link to ${maskedEmail} ${days} days ago, and ${childName} hasn't confirmed it yet. Until they do, emails about ${childName}'s chats keep coming to you.`;
+	const action = `Check that the address is right, or send a new link from ${childName}'s page.`;
+	return {
+		subject,
+		text: [message, action, args.childPageUrl].filter(Boolean).join('\n\n'),
+		html: layout({
+			preheader: message,
+			title: subject,
+			children: `
+				${paragraph(escapeHtml(message))}
+				${paragraph(escapeHtml(action))}
+				${args.childPageUrl ? `${button(args.childPageUrl, `Open ${childName}'s page`)}${rawLink(args.childPageUrl)}` : ''}
+			`,
+			footer: `You received this email because you are the parent or guardian on ${escapeHtml(childName)}'s Curiosity Learning account.`
 		})
 	};
 };

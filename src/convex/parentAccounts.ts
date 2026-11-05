@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internal } from './_generated/api';
-import { mutation, query } from './_generated/server';
+import { internalAction, internalQuery, mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { getRoomAccess, getRoomName } from './chatModel';
@@ -13,7 +13,11 @@ import {
 	issueChildEmailVerification,
 	scheduleRoutingChangedNotice
 } from './childEmailVerification';
+import { sendEmail } from './email/resend';
+import { magicLinkEmail } from './email/templates';
+import { mintMagicLink } from './magicLinks';
 import { getParentNotificationSettings } from './notificationRouting';
+import type { NotificationEmailResult } from './notifications';
 import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { ROUTING_CHANGE_MAX_SESSION_AGE_MS, requireFreshSession } from './sessionFreshness';
@@ -23,6 +27,7 @@ import {
 	RESEND_LIMIT_REACHED,
 	UNLINK_REQUIRES_CONFIRMED_EMAIL
 } from '../lib/domain/child-notification-email';
+import { EMAIL_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
 import { canViewProject } from './projectsModel';
 
 type Ctx = QueryCtx | MutationCtx;
@@ -852,6 +857,7 @@ export const setChildNotificationEmail = mutation({
 				notificationEmailSetByProfileId: undefined,
 				notificationEmailVerifiedAt: undefined,
 				notificationEmailSource: undefined,
+				notificationEmailReminderSentAt: undefined,
 				updatedAt: now
 			});
 			await invalidateChildEmailVerifications(ctx, child._id);
@@ -877,6 +883,7 @@ export const setChildNotificationEmail = mutation({
 				notificationEmailSetByProfileId: parentProfile._id,
 				notificationEmailVerifiedAt: undefined,
 				notificationEmailSource: 'childPage',
+				notificationEmailReminderSentAt: undefined,
 				updatedAt: now
 			});
 		}
@@ -1117,6 +1124,7 @@ export const setMyNotificationEmail = mutation({
 				notificationEmailSetByProfileId: undefined,
 				notificationEmailVerifiedAt: undefined,
 				notificationEmailSource: undefined,
+				notificationEmailReminderSentAt: undefined,
 				updatedAt: now
 			});
 			await invalidateChildEmailVerifications(ctx, profile._id);
@@ -1140,6 +1148,7 @@ export const setMyNotificationEmail = mutation({
 				notificationEmailSetByProfileId: profile._id,
 				notificationEmailVerifiedAt: undefined,
 				notificationEmailSource: 'self',
+				notificationEmailReminderSentAt: undefined,
 				updatedAt: now
 			});
 		}
@@ -1156,5 +1165,122 @@ export const setMyNotificationEmail = mutation({
 			});
 		}
 		return { notificationEmail: email, status: 'pending' as const, verificationSent: true };
+	}
+});
+
+// ---------------------------------------------------------------------------------------------
+// Signed in with a different email (review S9)
+// ---------------------------------------------------------------------------------------------
+
+// The approving parent's account is the one created (or adopted) under the consent address at
+// approval. A parent who later signs up or signs in with another address B has a second,
+// unlinked account: /child/{id} says "not linked", Settings lists no children. The child page
+// offers to email a sign-in link to "the address that approved", resolved here, server-side, so
+// the page — signed in as B — never learns that address.
+//
+// At most 3 requests per (caller, child) per 24 h, counted for EVERY request (with or without a
+// consent behind it), so the limit itself reveals nothing either.
+export const APPROVING_ACCOUNT_LINK_RATE_LIMIT = { maxAttempts: 3, windowMs: 24 * 60 * 60 * 1000 };
+export const approvingAccountLinkRateLimitKey = (
+	callerProfileId: Id<'profiles'>,
+	childProfileId: Id<'profiles'>
+) => `approvingAccountSignInLink:${callerProfileId}:${childProfileId}`;
+
+/**
+ * Emails a one-time sign-in link (48 h, continuing to /child/{id}) to the approving address of
+ * this child's consent, when that address is not the caller's own. Answers `requested` whether
+ * or not such a consent exists, whether or not the caller is the approving parent, and whether
+ * or not anything was sent; it never returns or reveals the address (not even masked). Only
+ * `rateLimited` differs, and that depends on the caller's own requests alone.
+ *
+ * Takes a childProfileId without calling requireParentLink: the caller is by definition NOT
+ * linked (that is the situation this recovers from). On the structural scan's allowlist for that
+ * reason: it discloses nothing and only ever emails the address that proved itself by approving
+ * consent — the link signs in as THAT account, never the caller's.
+ */
+export const requestApprovingAccountSignInLink = mutation({
+	args: { childProfileId: v.id('profiles') },
+	returns: v.object({ status: v.union(v.literal('requested'), v.literal('rateLimited')) }),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+
+		const rateLimitKey = approvingAccountLinkRateLimitKey(profile._id, args.childProfileId);
+		if (await isRateLimited(ctx, rateLimitKey, APPROVING_ACCOUNT_LINK_RATE_LIMIT)) {
+			return { status: 'rateLimited' as const };
+		}
+		await recordRateLimitAttempt(ctx, rateLimitKey, APPROVING_ACCOUNT_LINK_RATE_LIMIT);
+
+		const consent = (
+			await ctx.db
+				.query('parentChildConsents')
+				.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.childProfileId))
+				.order('desc')
+				.collect()
+		).find((row) => row.status === 'approved' && row.unlinkedAt === undefined);
+		const callerEmail = await getAuthUserEmail(ctx, identity.subject);
+		const callerIsChild = Boolean(callerEmail?.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`));
+		if (
+			consent &&
+			!callerIsChild &&
+			(!callerEmail || normalizeEmail(callerEmail) !== normalizeEmail(consent.parentEmail))
+		) {
+			await ctx.scheduler.runAfter(0, internal.parentAccounts.sendApprovingAccountSignInLink, {
+				consentId: consent._id
+			});
+		}
+		return { status: 'requested' as const };
+	}
+});
+
+export const getApprovingAccountLinkTarget = internalQuery({
+	args: { consentId: v.id('parentChildConsents') },
+	returns: v.union(v.object({ email: v.string(), childProfileId: v.id('profiles') }), v.null()),
+	handler: async (ctx, args) => {
+		const consent = await ctx.db.get(args.consentId);
+		if (!consent || consent.status !== 'approved' || consent.unlinkedAt !== undefined) return null;
+		return { email: normalizeEmail(consent.parentEmail), childProfileId: consent.childProfileId };
+	}
+});
+
+// Minted here, in the action, right before sending (review S2: OS randomness, no token in
+// scheduler args). mintMagicLink returns null for an address it may not sign in (no account,
+// unverified, platform admin): then nothing is sent and nothing is logged.
+export const sendApprovingAccountSignInLink = internalAction({
+	args: { consentId: v.id('parentChildConsents') },
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const target = await ctx.runQuery(internal.parentAccounts.getApprovingAccountLinkTarget, args);
+		if (!target) return null;
+		const url = await mintMagicLink(ctx, {
+			email: target.email,
+			callbackPath: `/child/${target.childProfileId}`,
+			expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+		});
+		if (!url) return null;
+		const content = magicLinkEmail({ url, expiresIn: '48 hours' });
+		let result: NotificationEmailResult;
+		try {
+			const { providerMessageId } = await sendEmail({
+				to: target.email,
+				type: 'magic-link',
+				...content
+			});
+			result = { status: 'sent', to: target.email, providerMessageId };
+		} catch (error) {
+			result = {
+				status: 'failed',
+				to: target.email,
+				error: error instanceof Error ? error.message : String(error)
+			};
+		}
+		await ctx.runMutation(internal.notifications.logEmailDelivery, {
+			recipientProfileId: target.childProfileId,
+			kind: 'approving_account_sign_in_link',
+			subject: content.subject,
+			result,
+			audience: 'parent'
+		});
+		return null;
 	}
 });
