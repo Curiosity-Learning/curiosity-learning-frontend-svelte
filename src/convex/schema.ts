@@ -47,6 +47,15 @@ export default defineSchema({
 		notificationEmailVerifiedAt: v.optional(v.number()),
 		// Where the parent entered it: the child's page, or the consent screen (review S12).
 		notificationEmailSource: v.optional(v.union(v.literal('childPage'), v.literal('consent'))),
+		// Adult accounts: when this person first agreed to the Terms / Privacy Policy, and which
+		// version (legalDocuments.version, or 'unversioned' when none was published). Set by
+		// childSignup.approveConsent for the PARENT (the combined consent checkbox covers the
+		// parent's own account too, review S12/D9), and only when not already set: an adult who
+		// accepted earlier keeps the earliest record. Never overwritten.
+		termsAcceptedAt: v.optional(v.number()),
+		termsVersion: v.optional(v.string()),
+		privacyPolicyAcceptedAt: v.optional(v.number()),
+		privacyPolicyVersion: v.optional(v.string()),
 		// PRD 5.10: platform-wide capability, orthogonal to club/project roles. Grants access to
 		// the separate /admin route group (CL-693) only — must never be branched on inside normal
 		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).
@@ -347,6 +356,16 @@ export default defineSchema({
 		termsAcceptedAt: v.optional(v.number()),
 		privacyPolicyAcceptedAt: v.optional(v.number()),
 		approvedAt: v.optional(v.number()),
+		// What exactly was agreed to (review S12/D9), stamped at approval: the active
+		// legalDocuments versions ('unversioned' when none was published), the wording shown
+		// (`wordingKey`, e.g. 'parentConsent.v2.combined' — one checkbox covering the child's
+		// account AND the parent's own), the page language, and whether the wording covered the
+		// parent account. Missing on consents approved before 2026-11 (v1 wording: child only).
+		termsVersion: v.optional(v.string()),
+		privacyPolicyVersion: v.optional(v.string()),
+		wordingKey: v.optional(v.string()),
+		locale: v.optional(v.string()),
+		coversParentAccount: v.optional(v.boolean()),
 		// Set by `parentAccounts.unlinkParent` when a 16+ child severs the link to this parent.
 		// A consent with it set must never be claimed into a `parentLinks` row again by
 		// `syncParentLinks`, and no longer routes the child's non-critical chat emails to the

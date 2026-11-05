@@ -19,7 +19,12 @@ type LegalDocumentKey = keyof typeof legalDocumentNameByKey;
 
 const legalDocumentKeys = Object.keys(legalDocumentNameByKey) as LegalDocumentKey[];
 
-const getActiveOrLatestByKey = async (ctx: QueryCtx, documentKey: LegalDocumentKey) => {
+// What /terms, /privacy and /cookies show, so also the version a consent records as agreed to
+// (childSignup.approveConsent).
+export const getActiveOrLatestByKey = async (
+	ctx: Pick<QueryCtx, 'db'>,
+	documentKey: LegalDocumentKey
+) => {
 	const active = await ctx.db
 		.query('legalDocuments')
 		.withIndex('by_document_key_and_active', (q) =>

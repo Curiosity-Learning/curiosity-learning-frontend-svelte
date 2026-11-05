@@ -25,7 +25,8 @@ import { VERIFY_EMAIL_PATH_PREFIX } from '../lib/domain/child-notification-email
 // Child notification email confirmation (CL-768, review B2/B3).
 //
 // A parent enters an address for their child on the child's page (parentAccounts
-// .setChildNotificationEmail; the consent screen will reuse the same path). Until the CHILD
+// .setChildNotificationEmail) or on the consent screen (childSignup.approveConsent, same issue
+// path below). Until the CHILD
 // confirms it, the address is pending and nothing is routed to it
 // (notifications.resolveEmailRecipient): the only email it ever gets is the generic confirmation
 // email below. Confirming requires the child's own session, not just the link: clicking a link

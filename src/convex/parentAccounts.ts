@@ -12,7 +12,7 @@ import {
 	issueChildEmailVerification,
 	scheduleRoutingChangedNotice
 } from './childEmailVerification';
-import { requireIdentity, requireProfile } from './permissions';
+import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { ROUTING_CHANGE_MAX_SESSION_AGE_MS, requireFreshSession } from './sessionFreshness';
 import {
@@ -197,6 +197,30 @@ export const getMyLinkedChildren = query({
 			});
 		}
 		return children;
+	}
+});
+
+/**
+ * Edge case 14: where a club-less account lands instead of /new-club. A parent's account exists
+ * because they approved a child, not to start a club, so the (app) layout, `/` and `/club` send
+ * an account with no clubs but with a `parentLinks` row to that child's page
+ * (lib/auth/no-club-allowlist.ts `clubLessLandingPath`). The earliest link wins, so the landing
+ * is stable for parents of several children (Settings lists them all). Null for signed-out
+ * callers and accounts without links, so the gates can call it unconditionally.
+ */
+export const getMyFirstLinkedChildId = query({
+	args: {},
+	returns: v.union(v.id('profiles'), v.null()),
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return null;
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
+		if (!profile) return null;
+		const link = await ctx.db
+			.query('parentLinks')
+			.withIndex('by_parent', (q) => q.eq('parentProfileId', profile._id))
+			.first();
+		return link?.childProfileId ?? null;
 	}
 });
 
@@ -657,21 +681,42 @@ export const listChildMessages = query({
 // undeliverable email — neither is a security concern.
 const isPlausibleEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-// The parent's own sign-in email, or the approved consent address for this child (the two can
+/**
+ * The address rules for a child's notification email, shared by the child page
+ * (setChildNotificationEmail) and the consent screen (childSignup.approveConsent) so the two can
+ * never accept different addresses. Returns the normalized address or throws a ConvexError:
+ * not plausible / the synthetic child domain, or one of `parentAddresses` (edge case 1: child
+ * wording and child links would reach the parent — the UI maps NOTIFICATION_EMAIL_IS_PARENT to
+ * its own copy). Addresses of other accounts are deliberately allowed (edge cases 2-3).
+ */
+export const normalizeChildNotificationEmail = (raw: string, parentAddresses: string[]) => {
+	const email = normalizeEmail(raw);
+	if (!isPlausibleEmail(email) || email.endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
+		throw new ConvexError('Please enter a valid email address');
+	}
+	if (parentAddresses.some((address) => normalizeEmail(address) === email)) {
+		throw new ConvexError(
+			`${NOTIFICATION_EMAIL_IS_PARENT}: That's your own address. Leave it empty to get these emails yourself.`
+		);
+	}
+	return email;
+};
+
+// The parent's own sign-in email and the approved consent addresses for this child (the two can
 // differ, review S9).
-const isParentOwnAddress = async (
+const getParentOwnAddresses = async (
 	ctx: MutationCtx,
-	args: { parentAuthUserId: string; child: Doc<'profiles'>; email: string }
+	args: { parentAuthUserId: string; child: Doc<'profiles'> }
 ) => {
 	const parentAuthEmail = await getAuthUserEmail(ctx, args.parentAuthUserId);
-	if (parentAuthEmail && normalizeEmail(parentAuthEmail) === args.email) return true;
 	const consents = await ctx.db
 		.query('parentChildConsents')
 		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.child._id))
 		.collect();
-	return consents.some(
-		(consent) => consent.status === 'approved' && normalizeEmail(consent.parentEmail) === args.email
-	);
+	return [
+		...(parentAuthEmail ? [parentAuthEmail] : []),
+		...consents.filter((consent) => consent.status === 'approved').map((c) => c.parentEmail)
+	];
 };
 
 /**
@@ -728,17 +773,13 @@ export const setChildNotificationEmail = mutation({
 			throw new ConvexError('Notification email can only be set for a child account');
 		}
 
-		const email = args.email === null ? null : normalizeEmail(args.email);
-		if (email !== null) {
-			if (!isPlausibleEmail(email) || email.endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
-				throw new ConvexError('Please enter a valid email address');
-			}
-			if (await isParentOwnAddress(ctx, { parentAuthUserId: identity.subject, child, email })) {
-				throw new ConvexError(
-					`${NOTIFICATION_EMAIL_IS_PARENT}: That's your own address. Leave it empty to get these emails yourself.`
-				);
-			}
-		}
+		const email =
+			args.email === null
+				? null
+				: normalizeChildNotificationEmail(
+						args.email,
+						await getParentOwnAddresses(ctx, { parentAuthUserId: identity.subject, child })
+					);
 
 		const current = child.notificationEmail ?? null;
 		const currentlyVerified = current !== null && child.notificationEmailVerifiedAt !== undefined;

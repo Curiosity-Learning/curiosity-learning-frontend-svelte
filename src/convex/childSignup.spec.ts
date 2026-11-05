@@ -3,16 +3,33 @@
 import betterAuthTest from '@convex-dev/better-auth/test';
 import { hashPassword } from 'better-auth/crypto';
 import { convexTest } from 'convex-test';
+import { ConvexError } from 'convex/values';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, components, internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import schema from './schema';
+import { PARENT_CONSENT_WORDING_KEY } from './childSignup';
+import { NOTIFICATION_EMAIL_IS_PARENT } from '../lib/domain/child-notification-email';
 import {
 	CONSENT_SCREEN_MAGIC_LINK_SECONDS,
 	parseMagicLinkInterstitialFragment
 } from '../lib/auth/magic-link';
 
 const modules = import.meta.glob('./**/*.ts');
+
+type SentEmail = { to: string; type: string; subject: string; text: string; html: string };
+
+// Only the consent-screen-v2 specs look at sent mail; the rest never send any.
+const { sendEmailMock } = vi.hoisted(() => ({
+	sendEmailMock: vi.fn<(email: SentEmail) => Promise<{ providerMessageId: string }>>(async () => ({
+		providerMessageId: 'resend-msg-1'
+	}))
+}));
+
+vi.mock('./email/resend', () => ({
+	sendEmail: sendEmailMock
+}));
 
 const DAY = 24 * 60 * 60 * 1000;
 const CONSENT_EXPIRY_MS = 90 * DAY;
@@ -194,7 +211,9 @@ describe('listExpiredPendingConsents', () => {
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.unstubAllEnvs();
+	sendEmailMock.mockClear();
 });
 
 describe('approveConsent', () => {
@@ -479,5 +498,358 @@ describe('approveConsent', () => {
 			expect(signIn.status).toBe(200);
 			expect(signIn.headers.get('set-cookie')).toContain('better-auth.session_token=');
 		});
+	});
+});
+
+// Consent screen v2 (CL-769, review S12/S13/D8/D9, edge case 1): the optional child email chosen
+// on the consent screen, and what the approval records.
+describe('approveConsent: consent screen v2', () => {
+	const setup = async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const t = convexTest(schema, modules);
+		betterAuthTest.register(t);
+		// A second child for the same parent (a sibling) gets its own createdAt, hence token.
+		const seedChild = async (createdAt: number) => {
+			const childAuthUser = (await t.mutation(components.betterAuth.adapter.create, {
+				input: {
+					model: 'user',
+					data: {
+						email: `kid${createdAt}@children.curiosity.local`,
+						emailVerified: false,
+						name: 'Kid',
+						createdAt,
+						updatedAt: createdAt
+					}
+				}
+			})) as { _id: string };
+			const { profileId } = await t.run(async (ctx) => {
+				const seeded = await seedPendingChild(ctx, { createdAt });
+				await ctx.db.patch(seeded.profileId, { authUserId: childAuthUser._id });
+				return seeded;
+			});
+			return { childProfileId: profileId, token: `token-${createdAt}` };
+		};
+		const approve = (token: string, extra: { childEmail?: string; locale?: string } = {}) =>
+			t.mutation(api.childSignup.approveConsent, {
+				token,
+				acceptedTerms: true,
+				acceptedPrivacyPolicy: true,
+				...extra
+			});
+		const consentFor = (childProfileId: Id<'profiles'>) =>
+			t.run((ctx) =>
+				ctx.db
+					.query('parentChildConsents')
+					.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', childProfileId))
+					.unique()
+			);
+		const settle = () => t.finishAllScheduledFunctions(vi.runAllTimers);
+		const sent = () => sendEmailMock.mock.calls.map(([email]) => email);
+		return { t, seedChild, approve, consentFor, settle, sent };
+	};
+
+	it('with no child email: routing is untouched and only the parent hears about the child', async () => {
+		const { t, seedChild, approve, consentFor, settle, sent } = await setup();
+		const { childProfileId, token } = await seedChild(Date.now());
+		vi.useFakeTimers();
+
+		const result = await approve(token, { locale: 'nl' });
+		expect(result.childEmail).toBeUndefined();
+		expect(result.parentAccountCreated).toBe(true);
+		await settle();
+
+		const child = await t.run((ctx) => ctx.db.get(childProfileId));
+		expect(child?.notificationEmail).toBeUndefined();
+		expect(child?.notificationEmailSource).toBeUndefined();
+		expect(await t.run((ctx) => ctx.db.query('childEmailVerifications').collect())).toEqual([]);
+		expect(sent()).toEqual([]);
+		expect((await consentFor(childProfileId))?.locale).toBe('nl');
+	});
+
+	it('with a child email: stores it PENDING from the consent, emails it a confirmation, sends the parent no routing notice', async () => {
+		const { t, seedChild, approve, consentFor, settle, sent } = await setup();
+		const { childProfileId, token } = await seedChild(Date.now());
+		vi.useFakeTimers();
+
+		const result = await approve(token, { childEmail: '  Kid.Own@Example.com ' });
+		expect(result.childEmail).toBe('kid.own@example.com');
+		await settle();
+
+		const parentProfileId = (await consentFor(childProfileId))?.parentProfileId;
+		const child = await t.run((ctx) => ctx.db.get(childProfileId));
+		expect(child?.notificationEmail).toBe('kid.own@example.com');
+		expect(child?.notificationEmailVerifiedAt).toBeUndefined();
+		expect(child?.notificationEmailSource).toBe('consent');
+		expect(child?.notificationEmailSetAt).toEqual(expect.any(Number));
+		expect(child?.notificationEmailSetByProfileId).toBe(parentProfileId);
+
+		// The same confirmation path as the child page (childEmailVerification.ts): one row, hash
+		// only, and the generic confirmation email.
+		const rows = await t.run((ctx) => ctx.db.query('childEmailVerifications').collect());
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			childProfileId,
+			email: 'kid.own@example.com',
+			requestedByProfileId: parentProfileId,
+			tokenHash: expect.any(String)
+		});
+		expect(sent().map((email) => [email.type, email.to])).toEqual([
+			['child-email-verification', 'kid.own@example.com']
+		]);
+		expect(sent()[0].text).toMatch(/https:\/\/app\.example\.com\/verify-email\/[a-zA-Z]+/);
+		// Counts toward the 3-per-24h confirmation cap.
+		const attempts = await t.run((ctx) => ctx.db.query('rateLimits').collect());
+		expect(attempts.map((row) => row.key)).toEqual([`childEmailVerification:${childProfileId}`]);
+	});
+
+	for (const [label, childEmail] of [
+		["the parent's own address (any case)", 'PARENT@example.com'],
+		['an invalid address', 'not-an-email'],
+		['the synthetic child domain', 'kid@children.curiosity.local']
+	] as const) {
+		it(`refuses ${label} before writing anything: the consent stays pending`, async () => {
+			const { t, seedChild, approve, consentFor, settle, sent } = await setup();
+			const { childProfileId, token } = await seedChild(Date.now());
+
+			const failure = approve(token, { childEmail });
+			await expect(failure).rejects.toThrow(ConvexError);
+			if (childEmail === 'PARENT@example.com') {
+				await expect(failure).rejects.toThrow(NOTIFICATION_EMAIL_IS_PARENT);
+			}
+			vi.useFakeTimers();
+			await settle();
+
+			expect((await consentFor(childProfileId))?.status).toBe('pending');
+			const child = await t.run((ctx) => ctx.db.get(childProfileId));
+			expect(child?.isVerified).toBe(false);
+			expect(child?.notificationEmail).toBeUndefined();
+			// Not even the parent account was created.
+			expect(
+				await t.query(components.betterAuth.adapter.findOne, {
+					model: 'user',
+					where: [{ field: 'email', value: 'parent@example.com' }]
+				})
+			).toBeNull();
+			expect(sent()).toEqual([]);
+
+			// The parent fixes it and approves again.
+			const retry = await approve(token);
+			expect(retry.signInUrl).toEqual(expect.any(String));
+			expect((await consentFor(childProfileId))?.status).toBe('approved');
+		});
+	}
+
+	it('records what was agreed to on the consent, and on the parent profile only the first time', async () => {
+		const { t, seedChild, approve, consentFor } = await setup();
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			for (const [documentKey, fullName, version] of [
+				['terms_and_conditions', 'Terms and Conditions', '2026-09'],
+				['privacy_policy', 'Privacy Policy', '2026-10']
+			] as const) {
+				await ctx.db.insert('legalDocuments', {
+					documentKey,
+					fullName,
+					title: fullName,
+					content: '...',
+					version,
+					isActive: true,
+					createdAt: now,
+					updatedAt: now
+				});
+			}
+		});
+		vi.useFakeTimers();
+		const firstAt = new Date('2026-11-01T10:00:00Z').getTime();
+		vi.setSystemTime(firstAt);
+		const first = await seedChild(firstAt);
+		await approve(first.token, { locale: 'en' });
+
+		const firstConsent = await consentFor(first.childProfileId);
+		expect(firstConsent).toMatchObject({
+			status: 'approved',
+			termsAcceptedAt: firstAt,
+			privacyPolicyAcceptedAt: firstAt,
+			termsVersion: '2026-09',
+			privacyPolicyVersion: '2026-10',
+			wordingKey: PARENT_CONSENT_WORDING_KEY,
+			locale: 'en',
+			coversParentAccount: true
+		});
+		expect(PARENT_CONSENT_WORDING_KEY).toBe('parentConsent.v2.combined');
+		const parentProfileId = firstConsent!.parentProfileId!;
+		const expectedParentRecord = {
+			termsAcceptedAt: firstAt,
+			termsVersion: '2026-09',
+			privacyPolicyAcceptedAt: firstAt,
+			privacyPolicyVersion: '2026-10'
+		};
+		expect(await t.run((ctx) => ctx.db.get(parentProfileId))).toMatchObject(expectedParentRecord);
+
+		// A sibling approved later, under newer documents: the sibling's consent records the new
+		// versions, the parent's earliest acceptance stays.
+		await t.run(async (ctx) => {
+			const terms = await ctx.db
+				.query('legalDocuments')
+				.withIndex('by_document_key_and_active', (q) =>
+					q.eq('documentKey', 'terms_and_conditions').eq('isActive', true)
+				)
+				.unique();
+			await ctx.db.patch(terms!._id, { version: '2026-12' });
+		});
+		const secondAt = firstAt + 7 * DAY;
+		vi.setSystemTime(secondAt);
+		const second = await seedChild(secondAt);
+		const secondResult = await approve(second.token, { locale: 'xx-unknown' });
+		expect(secondResult.parentAccountCreated).toBe(false);
+
+		const secondConsent = await consentFor(second.childProfileId);
+		expect(secondConsent).toMatchObject({
+			parentProfileId,
+			termsAcceptedAt: secondAt,
+			termsVersion: '2026-12',
+			coversParentAccount: true
+		});
+		// Unsupported locales are not stored.
+		expect(secondConsent?.locale).toBeUndefined();
+		expect(await t.run((ctx) => ctx.db.get(parentProfileId))).toMatchObject(expectedParentRecord);
+	});
+
+	it("falls back to 'unversioned' without published legal documents, and keeps an existing adult's earlier acceptance", async () => {
+		const { t, seedChild, approve, consentFor } = await setup();
+		const now = Date.now();
+		const parentUser = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'parent@example.com',
+					emailVerified: true,
+					name: 'Existing Adult',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		const parentProfileId = await t.run((ctx) =>
+			ctx.db.insert('profiles', {
+				authUserId: parentUser._id,
+				isVerified: true,
+				firstLoginCompleted: true,
+				// Accepted the Terms before, with no recorded privacy acceptance.
+				termsAcceptedAt: now - 100 * DAY,
+				termsVersion: 'v1',
+				updatedAt: now
+			})
+		);
+		const { childProfileId, token } = await seedChild(now);
+
+		const result = await approve(token);
+		expect(result.parentAccountCreated).toBe(false);
+
+		expect(await consentFor(childProfileId)).toMatchObject({
+			parentProfileId,
+			termsVersion: 'unversioned',
+			privacyPolicyVersion: 'unversioned'
+		});
+		const parent = await t.run((ctx) => ctx.db.get(parentProfileId));
+		expect(parent?.termsAcceptedAt).toBe(now - 100 * DAY);
+		expect(parent?.termsVersion).toBe('v1');
+		expect(parent?.privacyPolicyAcceptedAt).toEqual(expect.any(Number));
+		expect(parent?.privacyPolicyVersion).toBe('unversioned');
+	});
+
+	it('returns a sign-in link only on the first approval; a revisit with a child email changes nothing', async () => {
+		const { t, seedChild, approve } = await setup();
+		const { childProfileId, token } = await seedChild(Date.now());
+
+		const first = await approve(token);
+		expect(first.signInUrl).toEqual(expect.any(String));
+
+		const revisit = await approve(token, { childEmail: 'kid.own@example.com' });
+		expect(revisit).toEqual({ success: true });
+		const child = await t.run((ctx) => ctx.db.get(childProfileId));
+		expect(child?.notificationEmail).toBeUndefined();
+	});
+});
+
+// What a freshly approved parent sees after signing in: Settings offers "Set a password" (review
+// S8/D8) and a club-less parent lands on the child's page (edge case 14).
+describe('the parent account after approval', () => {
+	it('has no password (Settings offers to set one) and lands on its first linked child', async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const t = convexTest(schema, modules);
+		betterAuthTest.register(t);
+		const now = Date.now();
+		const childAuthUser = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'kid@children.curiosity.local',
+					emailVerified: false,
+					name: 'Kid',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		const { profileId: childProfileId } = await t.run(async (ctx) => {
+			const seeded = await seedPendingChild(ctx, { createdAt: now });
+			await ctx.db.patch(seeded.profileId, { authUserId: childAuthUser._id });
+			return seeded;
+		});
+		await t.mutation(api.childSignup.approveConsent, {
+			token: `token-${now}`,
+			acceptedTerms: true,
+			acceptedPrivacyPolicy: true
+		});
+		const parentUser = (await t.query(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: 'email', value: 'parent@example.com' }]
+		})) as { _id: string };
+		const parent = t.withIdentity({ subject: parentUser._id });
+		const child = t.withIdentity({ subject: childAuthUser._id });
+
+		expect(await parent.query(api.auth.getMySignInMethods, {})).toEqual({
+			hasPassword: false,
+			hasGoogle: false,
+			isChildAccount: false
+		});
+		// The child has a password and is never offered the card.
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'account',
+				data: {
+					accountId: childAuthUser._id,
+					providerId: 'credential',
+					userId: childAuthUser._id,
+					password: await hashPassword('child-password-1'),
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+		expect(await child.query(api.auth.getMySignInMethods, {})).toMatchObject({
+			hasPassword: true,
+			isChildAccount: true
+		});
+		// Once the reset flow has created the parent's credential account, the card goes away.
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'account',
+				data: {
+					accountId: parentUser._id,
+					providerId: 'credential',
+					userId: parentUser._id,
+					password: await hashPassword('parent-password-1'),
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+		expect((await parent.query(api.auth.getMySignInMethods, {})).hasPassword).toBe(true);
+
+		expect(await parent.query(api.parentAccounts.getMyFirstLinkedChildId, {})).toBe(childProfileId);
+		expect(await child.query(api.parentAccounts.getMyFirstLinkedChildId, {})).toBeNull();
+		expect(await t.query(api.parentAccounts.getMyFirstLinkedChildId, {})).toBeNull();
 	});
 });

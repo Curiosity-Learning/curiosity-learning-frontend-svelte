@@ -312,6 +312,44 @@ export const getViewerIdentity = query({
 	}
 });
 
+/**
+ * The CALLER's own sign-in methods, for Settings' "Set a password" card (review S8/D8). Parent
+ * accounts are created password-less at consent approval and sign in with emailed links; this
+ * lets Settings offer to set a password without the unauthenticated by-email lookup below.
+ * `hasPassword` is a `credential` account row (what Better Auth's password reset creates when it
+ * is missing). `isChildAccount` lets Settings never offer it to a child: their auth email is
+ * synthetic and cannot receive a reset link.
+ */
+export const getMySignInMethods = query({
+	args: {},
+	returns: v.object({
+		hasPassword: v.boolean(),
+		hasGoogle: v.boolean(),
+		isChildAccount: v.boolean()
+	}),
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: '_id', value: identity.subject }]
+		})) as { _id: string; email: string } | null;
+		const isChildAccount = Boolean(
+			authUser?.email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)
+		);
+		if (!authUser) return { hasPassword: false, hasGoogle: false, isChildAccount };
+		const accounts = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+			model: 'account',
+			where: [{ field: 'userId', value: authUser._id }],
+			paginationOpts: { cursor: null, numItems: 20 }
+		})) as { page: Array<{ providerId: string }> };
+		return {
+			hasPassword: accounts.page.some((account) => account.providerId === 'credential'),
+			hasGoogle: accounts.page.some((account) => account.providerId === 'google'),
+			isChildAccount
+		};
+	}
+});
+
 export const getSignupAccountStatusByEmail = query({
 	args: {
 		email: v.string()
