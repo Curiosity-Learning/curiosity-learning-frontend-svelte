@@ -410,3 +410,51 @@ describe('routing after unlink (review S7): the teen only, nothing to the parent
 		expect(await verificationRowCount(t)).toBe(0);
 	});
 });
+
+describe("a child's date of birth is immutable (review B1: the 16+ gate depends on it)", () => {
+	it('updateMe refuses a new date of birth from a 15-year-old, who still cannot own an email or unlink', async () => {
+		const { t, child, childProfileId, parentProfileId } = await setup({ dateOfBirth: FIFTEEN() });
+		await expect(child.mutation(api.profiles.updateMe, { dateOfBirth: '2000-01' })).rejects.toThrow(
+			"A child account's date of birth can't be changed"
+		);
+		// Resending the stored value (or omitting it) is fine.
+		await child.mutation(api.profiles.updateMe, { dateOfBirth: FIFTEEN(), about: 'hi' });
+		expect((await t.run((ctx) => ctx.db.get(childProfileId)))?.dateOfBirth).toBe(FIFTEEN());
+
+		expect((await child.query(api.parentAccounts.getMyParentLink, {}))?.canUnlink).toBe(false);
+		await expect(
+			child.mutation(api.parentAccounts.setMyNotificationEmail, { email: 'teen@example.com' })
+		).rejects.toThrow('Only accounts aged 16 or older');
+		await expect(
+			child.mutation(api.parentAccounts.unlinkParent, { parentProfileId })
+		).rejects.toThrow();
+	});
+
+	it('completeSignupProfile refuses it too', async () => {
+		const { t, child, childProfileId } = await setup({ dateOfBirth: FIFTEEN() });
+		await expect(
+			child.mutation(api.auth.completeSignupProfile, {
+				signUpWith: 'email',
+				dateOfBirth: '2000-01'
+			})
+		).rejects.toThrow("A child account's date of birth can't be changed");
+		expect((await t.run((ctx) => ctx.db.get(childProfileId)))?.dateOfBirth).toBe(FIFTEEN());
+	});
+
+	it('a child without a stored date of birth cannot set one', async () => {
+		const { t, child, childProfileId } = await setup({ dateOfBirth: FIFTEEN() });
+		await t.run((ctx) => ctx.db.patch(childProfileId, { dateOfBirth: undefined }));
+		await expect(child.mutation(api.profiles.updateMe, { dateOfBirth: '2000-01' })).rejects.toThrow(
+			"A child account's date of birth can't be changed"
+		);
+	});
+
+	it('an adult (here: the parent) can still edit theirs, in YYYY-MM format', async () => {
+		const { t, parent, parentProfileId } = await setup({ dateOfBirth: FIFTEEN() });
+		await parent.mutation(api.profiles.updateMe, { dateOfBirth: '1985-04' });
+		expect((await t.run((ctx) => ctx.db.get(parentProfileId)))?.dateOfBirth).toBe('1985-04');
+		await expect(
+			parent.mutation(api.profiles.updateMe, { dateOfBirth: 'April 1985' })
+		).rejects.toThrow('YYYY-MM');
+	});
+});

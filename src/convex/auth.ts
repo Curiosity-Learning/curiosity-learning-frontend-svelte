@@ -14,6 +14,7 @@ import { magicLinkEmail, passwordResetEmail, verificationOtpEmail } from './emai
 import { SELF_SERVICE_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
 import { pluginVerifyUrlToInterstitial } from './magicLinks';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
+import { assertDateOfBirthChangeAllowed, isSyntheticChildEmail } from './notificationRouting';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 import { setPendingClubJoin } from './pendingClubJoinsModel';
 import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
@@ -557,6 +558,14 @@ export const completeSignupProfile = mutation({
 		const pendingJoinCode = extractPendingJoinCode(args.nextPath);
 
 		const existing = await getProfileByAuthUserId(ctx, authUser._id);
+		// Review B1: this is the adult signup path, but any signed-in caller can reach it. A child
+		// account's date of birth (set at child signup) must not change here: the 16+ unlink gate
+		// depends on it.
+		if (existing) {
+			await assertDateOfBirthChangeAllowed(ctx, existing, args.dateOfBirth);
+		} else if (args.dateOfBirth !== undefined && isSyntheticChildEmail(authUser.email)) {
+			throw new ConvexError("A child account's date of birth can't be changed");
+		}
 
 		let resolvedUsername = desiredUsername;
 		if (desiredUsername) {

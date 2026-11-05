@@ -45,6 +45,7 @@
 ## Child Aged 16+: Own Email and Unlinking (CL-769, review S7/D4, edge case 13)
 
 - **The 16+ child owns their own address.** `parentAccounts.setMyNotificationEmail` (caller-keyed, no profile id argument) lets a child account aged 16+ set, change, resend or remove their own notification email; `getMyNotificationEmail` returns null for everyone else, and Settings shows the "Your email address" card only when it is not null. Both check server-side: synthetic child auth email and `isAtLeast16FromDateOfBirth` (the permissive first-of-birth-month reading also used for unlinking). The address goes through the same pending flow as a parent-entered one (confirmation email, `/verify-email/{token}` bound to the child's session, 72 h, 3 per 24 h shared with the parent's form), with `notificationEmailSource: 'self'` and the child as `requestedByProfileId`; the confirmation email says "You added this address". Every approved consent address and every linked parent's sign-in email is refused. Requires a session created within 15 minutes. A linked parent gets the usual plain routing-changed notice and, while linked, can still change the address from the child's page.
+- **Date of birth is immutable for child accounts (review B1).** Every 16+ gate reads `profiles.dateOfBirth`, so a child account's value is set once, at child signup (`childSignup.createPendingChildAccount`), and never from the client afterwards: `profiles.updateMe` and `auth.completeSignupProfile` throw when a child (any `parentChildConsents` row, or a synthetic auth email: `notificationRouting.isChildAccount`) sends a value that differs from the stored one, including a first value when none is stored (`assertDateOfBirthChangeAllowed`). Correcting a child's date of birth is an admin/data fix. Adults may edit theirs (`YYYY-MM` only).
 - **Unlinking requires a confirmed own address.** `unlinkParent` throws `UNLINK_REQUIRES_CONFIRMED_EMAIL` unless `notificationEmailVerifiedAt` is set; the Settings dialog explains it and disables the button. After unlinking, removing the address is refused (`OWN_EMAIL_REQUIRED`); changing it is allowed, and until the new one is confirmed emails reach nobody (in-app rows still arrive).
 - **What unlinking does.** Deletes the `parentLinks` row and the pair's `parentNotificationSettings` row, stamps `unlinkedAt` on the consent(s) (kept as the legal record; `syncParentLinks` and the `/child` claim skip them, so the link cannot be claimed back), and sends the parent ONE final plain email — "{child} has unlinked your parent account. You will no longer receive emails about {child}." — with no link at all, logged on `emailDeliveries` (`kind: parent_unlinked`, `audience: parent`). A repeated call unlinks nothing and sends nothing.
 
@@ -88,11 +89,11 @@ Source: `src/convex/permissions.ts`
 
 ### Profiles
 
-| Endpoint                             | Auth | Permission | Notes                        |
-| ------------------------------------ | ---- | ---------- | ---------------------------- |
-| `profiles.getMe`                     | Yes  | —          |                              |
-| `profiles.updateMe`                  | Yes  | —          | Enforces username uniqueness |
-| `profiles.checkUsernameAvailability` | No   | —          | Public                       |
+| Endpoint                             | Auth | Permission | Notes                                                                      |
+| ------------------------------------ | ---- | ---------- | -------------------------------------------------------------------------- |
+| `profiles.getMe`                     | Yes  | —          |                                                                            |
+| `profiles.updateMe`                  | Yes  | —          | Enforces username uniqueness; a child account's `dateOfBirth` is immutable |
+| `profiles.checkUsernameAvailability` | No   | —          | Public                                                                     |
 
 ### Clubs
 

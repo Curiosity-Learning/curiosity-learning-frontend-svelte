@@ -1,3 +1,4 @@
+import { ConvexError } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
@@ -101,6 +102,34 @@ export const hasParentConsent = async (ctx: Ctx, profileId: Id<'profiles'>) =>
 		.query('parentChildConsents')
 		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', profileId))
 		.first()) !== null;
+
+// A child account: a synthetic auth email, or any parentChildConsents row (pending included).
+// Either signal alone suffices, so a consent row deleted by hand or an auth email changed by an
+// admin does not turn a child into an adult.
+export const isChildAccount = async (ctx: Ctx, profile: Doc<'profiles'>) => {
+	if (await hasParentConsent(ctx, profile._id)) return true;
+	const email = await getAuthUserEmail(ctx, profile.authUserId);
+	return email !== null && isSyntheticChildEmail(email);
+};
+
+// Review B1: a child account's dateOfBirth is set once, at signup
+// (childSignup.createPendingChildAccount), and never from the client afterwards: the 16+ gate
+// for owning an email and unlinking the parent (parentAccounts.isAtLeast16FromDateOfBirth)
+// depends on it. Throws when a client-supplied value would change (or first set) a child's
+// stored date of birth; a resent identical value is a no-op. Adults may still edit theirs.
+export const assertDateOfBirthChangeAllowed = async (
+	ctx: Ctx,
+	profile: Doc<'profiles'>,
+	dateOfBirth: string | undefined
+) => {
+	if (dateOfBirth === undefined || dateOfBirth === profile.dateOfBirth) return;
+	if (await isChildAccount(ctx, profile)) {
+		throw new ConvexError("A child account's date of birth can't be changed");
+	}
+	if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(dateOfBirth)) {
+		throw new ConvexError('Date of birth must be in YYYY-MM format');
+	}
+};
 
 export const DEFAULT_PARENT_NOTIFICATION_SETTINGS = { chatCopies: false, activityCopies: false };
 
