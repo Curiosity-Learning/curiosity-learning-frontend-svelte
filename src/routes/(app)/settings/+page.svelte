@@ -200,17 +200,6 @@
 	const signInMethodsResponse = useStableQuery(api.auth.getMySignInMethods, () =>
 		$session.data ? {} : 'skip'
 	);
-	// Review S9: an account that approved a child's account (auth.getMySignInMethods
-	// `approvedChildConsent`, never a child, Guide or ordinary member) but has no linked children
-	// now — every child unlinked it, or the parent has a second account. Settings cannot know which
-	// child is meant, so it only explains and offers to sign in with the other email (the child
-	// page can send the link itself).
-	let showDifferentEmailHelp = $derived(
-		signInMethodsResponse.data !== undefined &&
-			signInMethodsResponse.data.approvedChildConsent &&
-			linkedChildrenResponse.data !== undefined &&
-			linkedChildrenResponse.data.length === 0
-	);
 	let showSetPassword = $derived(
 		signInMethodsResponse.data !== undefined &&
 			!signInMethodsResponse.data.hasPassword &&
@@ -664,30 +653,6 @@
 						</Button>
 					</div>
 				{/each}
-			</CardContent>
-		</Card>
-	{/if}
-
-	{#if showDifferentEmailHelp}
-		<Card>
-			<CardHeader class="flex flex-col gap-2">
-				<CardTitle>{$_('parentAccounts.differentEmailSettingsTitle')}</CardTitle>
-				<CardDescription>
-					{t('parentAccounts.differentEmailSettingsHelp').replace(
-						'{email}',
-						$session.data?.user.email ?? ''
-					)}
-				</CardDescription>
-			</CardHeader>
-			<CardContent>
-				<Button
-					type="button"
-					variant="outline"
-					disabled={signingInAgain}
-					onclick={() => void signInAgain()}
-				>
-					{$_('parentAccounts.differentEmailSettingsAction')}
-				</Button>
 			</CardContent>
 		</Card>
 	{/if}
