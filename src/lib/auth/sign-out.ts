@@ -6,10 +6,11 @@ import { clearClientSessionArtifacts } from './onboarding-state';
 const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
 // Signs this device out and lands on the sign-in page. Shared by the profile menu, Settings'
-// "Sign out everywhere" and the child page's "Not your device?" banner. Waits (briefly) until
+// "Sign out everywhere", the child page's "Not your device?" banner and "Sign in again" (fresh
+// sign-in for routing changes), and /verify-email's wrong-account case. Waits (briefly) until
 // Better Auth no longer reports a session, so the sign-in page's signed-in redirect does not
-// bounce straight back.
-export const signOutAndGoToSignIn = async () => {
+// bounce straight back. `next`: an app path to continue to after signing in again.
+export const signOutAndGoToSignIn = async (next?: string) => {
 	clearClientSessionArtifacts();
 	await authClient.signOut();
 	for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -23,5 +24,10 @@ export const signOutAndGoToSignIn = async () => {
 		}
 		await delay(150);
 	}
-	await goto(resolve('/auth/sign-in'), { replaceState: true, invalidateAll: true });
+	const signInPath = resolve('/auth/sign-in');
+	const target =
+		next?.startsWith('/') && !next.startsWith('//')
+			? `${signInPath}?next=${encodeURIComponent(next)}`
+			: signInPath;
+	await goto(target, { replaceState: true, invalidateAll: true });
 };

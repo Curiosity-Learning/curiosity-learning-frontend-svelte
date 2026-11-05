@@ -295,7 +295,11 @@ const nl = {
 				sentDescription:
 					'Als er een account is voor {email}, is er een nieuwe inloglink onderweg. De link werkt één keer.',
 				invalidEmail: 'Voer een geldig e-mailadres in.',
-				failure: 'Kon geen nieuwe link verzenden. Probeer het opnieuw.'
+				failure: 'Kon geen nieuwe link verzenden. Probeer het opnieuw.',
+				passwordlessTitle: 'Geen wachtwoord voor dit account',
+				passwordlessDescription:
+					'Je logt bij dit account in met een link per e-mail. We sturen er een naar {email}.',
+				passwordlessSubmit: 'Stuur me een inloglink'
 			}
 		},
 		signInLink: {
@@ -1092,7 +1096,7 @@ const nl = {
 		selectChatPrompt: 'Selecteer een chat om de berichten te bekijken.',
 		notificationEmailTitle: 'E-mailmeldingen',
 		notificationEmailDescription:
-			'E-mails over de club- en projectchats van {name} komen nu bij jou terecht. Voeg een e-mailadres voor {name} toe en die e-mails gaan rechtstreeks naar {name}.',
+			'E-mails over de club- en projectchats van {name} komen nu bij jou terecht. Voeg een e-mailadres voor {name} toe en zodra {name} het bevestigt, gaan die e-mails rechtstreeks naar {name}.',
 		notificationEmailCurrent: 'E-mails over de club- en projectchats van {name} gaan naar',
 		notificationEmailCriticalNote:
 			'Belangrijke berichten, zoals updates over aanmeldingen en accountacties, sturen we altijd naar jou.',
@@ -1104,10 +1108,50 @@ const nl = {
 		notificationEmailCancel: 'Annuleren',
 		notificationEmailChange: 'Wijzigen',
 		notificationEmailRemove: 'Verwijderen en weer naar mij sturen',
-		notificationEmailSaved: 'Opgeslagen. Chat-e-mails gaan nu rechtstreeks naar {name}.',
+		notificationEmailSaved:
+			'Opgeslagen. We hebben {name} een link gestuurd om het adres te bevestigen. Tot die tijd komen de e-mails bij jou.',
+		notificationEmailPending:
+			'We wachten tot {name} {email} bevestigt. Tot die tijd komen de e-mails bij jou.',
+		notificationEmailPendingStale:
+			'{days} dagen geleden verstuurd en nog niet bevestigd. Controleer of het adres klopt, of stuur de link opnieuw.',
+		notificationEmailConfirmed: 'Bevestigd',
+		notificationEmailResend: 'Opnieuw sturen',
+		notificationEmailResent:
+			'Opnieuw verstuurd. Vraag {name} de e-mail te openen en te bevestigen.',
+		notificationEmailResendLimit:
+			'Je hebt vandaag het maximale aantal bevestigingsmails verstuurd. Probeer het morgen opnieuw.',
+		notificationEmailIsParent:
+			'Dat is je eigen adres. Wil je deze e-mails zelf ontvangen? Voeg dan geen adres toe voor {name}.',
+		notificationEmailFreshSessionTitle: 'Log opnieuw in',
+		notificationEmailFreshSession: 'Log voor je veiligheid opnieuw in om dit te wijzigen.',
+		notificationEmailSignInAgain: 'Opnieuw inloggen',
 		notificationEmailRemoved: 'Verwijderd. Chat-e-mails komen weer bij jou terecht.',
 		notificationEmailInvalid: 'Vul een geldig e-mailadres in.',
 		notificationEmailFailure: 'Het e-mailadres kon niet worden opgeslagen. Probeer het opnieuw.'
+	},
+	verifyEmail: {
+		title: 'Bevestig je e-mailadres',
+		validQuestion: 'Is {email} jouw e-mailadres?',
+		validDescription:
+			'Je ouder of voogd heeft het toegevoegd voor meldingen van Curiosity Learning voor {username}. Zodra je het bevestigt, gaan chatmeldingen naar dit adres in plaats van naar je ouder.',
+		confirm: 'Ja, dit is mijn e-mailadres',
+		confirming: 'Bezig met bevestigen...',
+		confirmedSnackbar: 'E-mailadres bevestigd',
+		confirmedTitle: 'E-mailadres bevestigd',
+		confirmedDescription: 'Je meldingen gaan vanaf nu naar dit adres.',
+		goToChat: 'Naar chat',
+		wrongAccountTitle: 'Ingelogd met een ander account',
+		wrongAccountDescription:
+			'Deze link is voor een ander account. Log in met het account dat in de e-mail staat.',
+		signOut: 'Uitloggen',
+		expiredTitle: 'Deze link is verlopen',
+		expiredDescription: 'Vraag je ouder of voogd om een nieuwe te sturen.',
+		usedTitle: 'Al bevestigd',
+		usedDescription: 'Deze link is al gebruikt om je e-mailadres te bevestigen.',
+		notFoundTitle: 'Deze link is niet geldig',
+		notFoundDescription:
+			'Misschien is er een nieuwere link verstuurd. Gebruik de nieuwste e-mail, of vraag je ouder of voogd om een nieuwe link.',
+		failure: 'Je e-mailadres kon niet worden bevestigd. Probeer het opnieuw.'
 	},
 	feedback: {
 		entryPointTitle: 'Feedbackformulieren',

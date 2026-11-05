@@ -23,6 +23,12 @@
 	import { SIGNED_IN_VIA_LINK_PARAM, SIGNED_IN_VIA_LINK_VALUE } from '$lib/auth/magic-link';
 	import { SIGNED_IN_VIA_LINK_STORAGE_KEY } from '$lib/auth/onboarding-state';
 	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
+	import {
+		FRESH_SESSION_REQUIRED,
+		NOTIFICATION_EMAIL_IS_PARENT,
+		RESEND_LIMIT_REACHED,
+		hasErrorCode
+	} from '$lib/domain/child-notification-email';
 
 	// PRD 2.4/6.1.10 (CL-703): "View as Child" — a DEDICATED READ-ONLY SURFACE, not full app
 	// impersonation (see parentAccounts.ts module header for the full design note). Every query
@@ -147,10 +153,25 @@
 	// Notification email: where the child's club/project chat (and other non-critical) emails
 	// go. Unset, they come to the parent — the chat email itself links here with a nudge to set
 	// one (chat.deliverChatEmailNotification). Critical notices keep going to the parent.
+	// CL-768 (review B2/B3/S5): a saved address is PENDING until the child confirms it from the
+	// emailed link while signed in as themselves; until then emails keep coming to the parent.
+	// Every change needs a recent sign-in (the server answers FRESH_SESSION_REQUIRED otherwise),
+	// so a session left behind on a shared computer cannot redirect the child's emails.
 	let notificationEmail = $derived(overview?.notificationEmail ?? null);
+	let notificationEmailConfirmed = $derived(
+		notificationEmail !== null && (overview?.notificationEmailVerifiedAt ?? null) !== null
+	);
+	// Edge case 4: a typo'd address never confirms; after a few days say so.
+	const PENDING_STALE_AFTER_DAYS = 3;
+	let pendingDays = $derived(
+		notificationEmail && !notificationEmailConfirmed && overview?.notificationEmailSetAt
+			? Math.floor((Date.now() - overview.notificationEmailSetAt) / (24 * 60 * 60 * 1000))
+			: 0
+	);
 	let editingNotificationEmail = $state(false);
 	let notificationEmailDraft = $state('');
 	let notificationEmailError = $state<string | null>(null);
+	let freshSignInRequired = $state(false);
 	let savingNotificationEmail = $state(false);
 
 	const startEditingNotificationEmail = () => {
@@ -159,28 +180,61 @@
 		editingNotificationEmail = true;
 	};
 
+	const notificationEmailErrorMessage = (error: unknown) => {
+		if (hasErrorCode(error, NOTIFICATION_EMAIL_IS_PARENT)) {
+			return t('parentAccounts.notificationEmailIsParent').replace('{name}', displayName);
+		}
+		if (hasErrorCode(error, RESEND_LIMIT_REACHED)) {
+			return t('parentAccounts.notificationEmailResendLimit');
+		}
+		if (error instanceof Error && /valid email/i.test(error.message)) {
+			return t('parentAccounts.notificationEmailInvalid');
+		}
+		return t('parentAccounts.notificationEmailFailure');
+	};
+
+	// `email` null removes the address; the current pending address again is "Resend".
 	const submitNotificationEmail = async (email: string | null) => {
 		if (savingNotificationEmail) return;
 		notificationEmailError = null;
+		freshSignInRequired = false;
 		savingNotificationEmail = true;
+		const isResend = email !== null && email === notificationEmail && !editingNotificationEmail;
 		try {
-			await convexClient.mutation(api.parentAccounts.setChildNotificationEmail, {
+			const result = await convexClient.mutation(api.parentAccounts.setChildNotificationEmail, {
 				childProfileId,
 				email
 			});
 			editingNotificationEmail = false;
-			showGlobalSnackbar({
-				title: email
-					? t('parentAccounts.notificationEmailSaved').replace('{name}', displayName)
-					: t('parentAccounts.notificationEmailRemoved')
-			});
+			if (result.status === 'none') {
+				showGlobalSnackbar({ title: t('parentAccounts.notificationEmailRemoved') });
+			} else if (result.verificationSent) {
+				showGlobalSnackbar({
+					title: t(
+						isResend
+							? 'parentAccounts.notificationEmailResent'
+							: 'parentAccounts.notificationEmailSaved'
+					).replace('{name}', displayName)
+				});
+			}
 		} catch (error) {
-			notificationEmailError =
-				error instanceof Error && /valid email/i.test(error.message)
-					? t('parentAccounts.notificationEmailInvalid')
-					: t('parentAccounts.notificationEmailFailure');
+			if (hasErrorCode(error, FRESH_SESSION_REQUIRED)) {
+				freshSignInRequired = true;
+			} else {
+				notificationEmailError = notificationEmailErrorMessage(error);
+			}
 		} finally {
 			savingNotificationEmail = false;
+		}
+	};
+
+	let signingInAgain = $state(false);
+	const signInAgain = async () => {
+		signingInAgain = true;
+		try {
+			await signOutAndGoToSignIn(routes.childOverview(childProfileId));
+		} finally {
+			signingInAgain = false;
 		}
 	};
 </script>
@@ -248,14 +302,35 @@
 			<Tabs.Content value="overview" class="flex flex-col gap-4">
 				<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
 					<div class="flex flex-col gap-1">
-						<p class="type-body-bold text-foreground">
-							{t('parentAccounts.notificationEmailTitle')}
-						</p>
-						{#if notificationEmail && !editingNotificationEmail}
-							<p class="type-sm text-muted-foreground">
-								{t('parentAccounts.notificationEmailCurrent').replace('{name}', displayName)}
-								<span class="type-sm-bold text-foreground">{notificationEmail}</span>
+						<div class="flex flex-wrap items-center gap-2">
+							<p class="type-body-bold text-foreground">
+								{t('parentAccounts.notificationEmailTitle')}
 							</p>
+							{#if notificationEmailConfirmed && !editingNotificationEmail}
+								<Badge variant="secondary">{t('parentAccounts.notificationEmailConfirmed')}</Badge>
+							{/if}
+						</div>
+						{#if notificationEmail && !editingNotificationEmail}
+							{#if notificationEmailConfirmed}
+								<p class="type-sm text-muted-foreground">
+									{t('parentAccounts.notificationEmailCurrent').replace('{name}', displayName)}
+									<span class="type-sm-bold text-foreground">{notificationEmail}</span>
+								</p>
+							{:else}
+								<p class="type-sm text-muted-foreground">
+									{t('parentAccounts.notificationEmailPending')
+										.replace('{name}', displayName)
+										.replace('{email}', notificationEmail)}
+								</p>
+								{#if pendingDays >= PENDING_STALE_AFTER_DAYS}
+									<p class="type-sm text-muted-foreground">
+										{t('parentAccounts.notificationEmailPendingStale').replace(
+											'{days}',
+											String(pendingDays)
+										)}
+									</p>
+								{/if}
+							{/if}
 						{:else}
 							<p class="type-sm text-muted-foreground">
 								{t('parentAccounts.notificationEmailDescription').replace(/\{name\}/g, displayName)}
@@ -265,6 +340,24 @@
 							{t('parentAccounts.notificationEmailCriticalNote')}
 						</p>
 					</div>
+					{#if freshSignInRequired}
+						<Alert class="flex flex-wrap items-center justify-between gap-3">
+							<div class="flex flex-col gap-1">
+								<AlertTitle>{t('parentAccounts.notificationEmailFreshSessionTitle')}</AlertTitle>
+								<AlertDescription>
+									{t('parentAccounts.notificationEmailFreshSession')}
+								</AlertDescription>
+							</div>
+							<Button
+								type="button"
+								variant="outline"
+								disabled={signingInAgain}
+								onclick={() => void signInAgain()}
+							>
+								{t('parentAccounts.notificationEmailSignInAgain')}
+							</Button>
+						</Alert>
+					{/if}
 					{#if editingNotificationEmail || !notificationEmail}
 						<form
 							class="flex flex-col gap-3"
@@ -313,8 +406,25 @@
 							</div>
 						</form>
 					{:else}
+						{#if notificationEmailError}
+							<p class="type-sm text-destructive">{notificationEmailError}</p>
+						{/if}
 						<div class="flex flex-wrap gap-2">
-							<Button type="button" variant="outline" onclick={startEditingNotificationEmail}>
+							{#if !notificationEmailConfirmed}
+								<Button
+									type="button"
+									disabled={savingNotificationEmail}
+									onclick={() => void submitNotificationEmail(notificationEmail)}
+								>
+									{t('parentAccounts.notificationEmailResend')}
+								</Button>
+							{/if}
+							<Button
+								type="button"
+								variant="outline"
+								disabled={savingNotificationEmail}
+								onclick={startEditingNotificationEmail}
+							>
 								{t('parentAccounts.notificationEmailChange')}
 							</Button>
 							<Button

@@ -304,7 +304,11 @@ const en = {
 				sentDescription:
 					'If there is an account for {email}, a new sign-in link is on its way. It works once.',
 				invalidEmail: 'Enter a valid email address.',
-				failure: 'Could not send a new link. Please try again.'
+				failure: 'Could not send a new link. Please try again.',
+				passwordlessTitle: 'No password on this account',
+				passwordlessDescription:
+					"This account signs in with a link sent by email. We'll send one to {email}.",
+				passwordlessSubmit: 'Email me a sign-in link'
 			}
 		},
 		signInLink: {
@@ -1095,7 +1099,7 @@ const en = {
 		selectChatPrompt: 'Select a chat to view its messages.',
 		notificationEmailTitle: 'Email notifications',
 		notificationEmailDescription:
-			"Emails about {name}'s club and project chats currently come to you. Add an email address for {name} and those emails will go to them directly.",
+			"Emails about {name}'s club and project chats currently come to you. Add an email address for {name} and, once {name} confirms it, those emails will go to them directly.",
 		notificationEmailCurrent: "Emails about {name}'s club and project chats go to",
 		notificationEmailCriticalNote:
 			'Important notices, such as application updates and account actions, will always be sent to you.',
@@ -1107,10 +1111,49 @@ const en = {
 		notificationEmailCancel: 'Cancel',
 		notificationEmailChange: 'Change',
 		notificationEmailRemove: 'Remove and send to me instead',
-		notificationEmailSaved: 'Saved. Chat emails will now go to {name} directly.',
+		notificationEmailSaved:
+			'Saved. We emailed {name} a link to confirm the address. Until then, emails come to you.',
+		notificationEmailPending:
+			'Waiting for {name} to confirm {email}. Until then, emails come to you.',
+		notificationEmailPendingStale:
+			'Sent {days} days ago and not confirmed yet. Check that the address is right, or send the link again.',
+		notificationEmailConfirmed: 'Confirmed',
+		notificationEmailResend: 'Resend',
+		notificationEmailResent: 'Sent again. Ask {name} to open the email and confirm.',
+		notificationEmailResendLimit:
+			"You've sent the most confirmation emails allowed for today. Please try again tomorrow.",
+		notificationEmailIsParent:
+			"That's your own address. To get these emails yourself, don't add an address for {name}.",
+		notificationEmailFreshSessionTitle: 'Please sign in again',
+		notificationEmailFreshSession: 'For your security, please sign in again to change this.',
+		notificationEmailSignInAgain: 'Sign in again',
 		notificationEmailRemoved: 'Removed. Chat emails will come to you again.',
 		notificationEmailInvalid: 'Please enter a valid email address.',
 		notificationEmailFailure: 'Could not save the email address. Please try again.'
+	},
+	verifyEmail: {
+		title: 'Confirm your email',
+		validQuestion: 'Is {email} your email address?',
+		validDescription:
+			'Your parent or guardian added it for Curiosity Learning notifications for {username}. Once you confirm, chat notifications go there instead of to your parent.',
+		confirm: 'Yes, this is my email',
+		confirming: 'Confirming...',
+		confirmedSnackbar: 'Email confirmed',
+		confirmedTitle: 'Email confirmed',
+		confirmedDescription: 'Your notifications will now go to this address.',
+		goToChat: 'Go to chat',
+		wrongAccountTitle: 'Signed in with a different account',
+		wrongAccountDescription:
+			'This link is for a different account. Sign in with the account named in the email.',
+		signOut: 'Sign out',
+		expiredTitle: 'This link has expired',
+		expiredDescription: 'Ask your parent or guardian to send a new one.',
+		usedTitle: 'Already confirmed',
+		usedDescription: 'This link was already used to confirm your email.',
+		notFoundTitle: 'This link is not valid',
+		notFoundDescription:
+			'It may have been replaced by a newer one. Use the latest email, or ask your parent or guardian to send a new link.',
+		failure: 'Could not confirm your email. Please try again.'
 	},
 	feedback: {
 		entryPointTitle: 'Feedback forms',

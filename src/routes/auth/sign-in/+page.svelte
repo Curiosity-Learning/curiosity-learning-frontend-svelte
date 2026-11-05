@@ -48,6 +48,11 @@
 	let magicLinkPending = $state(false);
 	let magicLinkError = $state('');
 	let magicLinkSentTo = $state<string | null>(null);
+	// Review S9 / CL-768: an email address whose account has no password (every parent account
+	// created at consent approval) can only sign in by link. Offer it as soon as such an address
+	// is typed, not only after an expired link — "sign in again" on the child page sends parents
+	// here. Same lookup the sign-up flow already uses (auth.getSignupAccountStatusByEmail).
+	let passwordlessEmail = $state<string | null>(null);
 
 	const normalizePostSignInPath = (value: string | null) => {
 		if (!value?.startsWith('/')) return '/';
@@ -318,8 +323,33 @@
 		}
 	};
 
-	const requestMagicLink = async () => {
-		const email = normalizeIdentifier(magicLinkEmail);
+	// Debounced from the identifier field's input handler (an async lookup, not derived state).
+	let accountLookupTimer: ReturnType<typeof setTimeout> | undefined;
+	let accountLookupSeq = 0;
+	const lookUpPasswordlessAccount = () => {
+		clearTimeout(accountLookupTimer);
+		const email = normalizeIdentifier(identifier);
+		const seq = ++accountLookupSeq;
+		if (!isEmailLike(email)) {
+			passwordlessEmail = null;
+			return;
+		}
+		accountLookupTimer = setTimeout(() => {
+			void convexClient
+				.query(api.auth.getSignupAccountStatusByEmail, { email })
+				.then((status) => {
+					if (seq !== accountLookupSeq) return;
+					passwordlessEmail =
+						status.exists && !status.hasPassword && !status.hasGoogle ? email : null;
+				})
+				.catch(() => {
+					if (seq === accountLookupSeq) passwordlessEmail = null;
+				});
+		}, 400);
+	};
+
+	const requestMagicLink = async (typedEmail?: string) => {
+		const email = normalizeIdentifier(typedEmail ?? magicLinkEmail);
 		if (!isEmailLike(email)) {
 			magicLinkError = t('auth.signIn.magicLink.invalidEmail');
 			return;
@@ -466,11 +496,49 @@
 								id="email"
 								type="text"
 								bind:value={identifier}
+								oninput={lookUpPasswordlessAccount}
 								autocomplete="username"
 								placeholder={$_('auth.signIn.identifierPlaceholder')}
 								class="h-12 border-gray-300 bg-input-background px-4 text-base"
 							/>
 						</Field>
+
+						{#if passwordlessEmail && !magicLinkFailed}
+							{#if magicLinkSentTo === passwordlessEmail}
+								<Alert>
+									<AlertTitle>{$_('common.checkEmail')}</AlertTitle>
+									<AlertDescription>
+										{formatT('auth.signIn.magicLink.sentDescription', { email: magicLinkSentTo })}
+									</AlertDescription>
+								</Alert>
+							{:else}
+								<Alert>
+									<AlertTitle>{$_('auth.signIn.magicLink.passwordlessTitle')}</AlertTitle>
+									<AlertDescription class="flex flex-col gap-3">
+										<p>
+											{formatT('auth.signIn.magicLink.passwordlessDescription', {
+												email: passwordlessEmail
+											})}
+										</p>
+										{#if magicLinkError}
+											<p class="text-sm text-destructive" role="alert">{magicLinkError}</p>
+										{/if}
+										<Button
+											type="button"
+											variant="outline"
+											size="xl"
+											class="h-12 w-full"
+											disabled={magicLinkPending}
+											onclick={() => void requestMagicLink(passwordlessEmail ?? undefined)}
+										>
+											{magicLinkPending
+												? $_('auth.signIn.magicLink.submitting')
+												: $_('auth.signIn.magicLink.passwordlessSubmit')}
+										</Button>
+									</AlertDescription>
+								</Alert>
+							{/if}
+						{/if}
 
 						<Field class="flex flex-col gap-2">
 							<FieldLabel for="password" required class="type-field-label text-gray-900">
