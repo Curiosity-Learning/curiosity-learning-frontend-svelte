@@ -7,7 +7,10 @@ const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const SENSITIVE_KEY_PATTERN =
 	/(authorization|cookie|password|secret|token|api[-_]?key|private[-_]?key|signature|credential|email|body|formdata)/i;
 const SENSITIVE_PATH_PATTERN =
-	/(\/(?:onboarding\/parent-consent|auth\/reset-password)\/)[^/?#\s]+/gi;
+	/(\/(?:onboarding\/parent-consent|auth\/reset-password|verify-email)\/)[^/?#\s]+/gi;
+// Tokens in a query or fragment of a URL that is not absolute (absolute URLs lose both in
+// sanitizeUrl): the sign-in link interstitial's `#t=` and Better Auth's `?token=`.
+const SENSITIVE_PARAM_PATTERN = /([?&#](?:t|token)=)[^&#\s"'<>]+/gi;
 const URL_PATTERN = /https?:\/\/[^\s"'<>]+/gi;
 
 const sanitizeUrl = (value: string) => {
@@ -26,6 +29,7 @@ export const redactText = (value: string) =>
 	value
 		.replace(EMAIL_PATTERN, '[Redacted email]')
 		.replace(SENSITIVE_PATH_PATTERN, '$1[Redacted]')
+		.replace(SENSITIVE_PARAM_PATTERN, '$1[Redacted]')
 		.replace(URL_PATTERN, (url) => sanitizeUrl(url));
 
 export const redactUnknown = (value: unknown, key = '', depth = 0): unknown => {

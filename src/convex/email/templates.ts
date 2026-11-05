@@ -395,7 +395,7 @@ export const parentUnlinkedEmail = (args: { childName: string }): EmailContent =
 			preheader: message,
 			title: subject,
 			children: paragraph(escapeHtml(message)),
-			footer: `You received this email because you were the parent or guardian on ${escapeHtml(childName)}'s Curiosity Learning account.`
+			footer: `You received this email because you were the parent or guardian on ${childName}'s Curiosity Learning account.`
 		})
 	};
 };
@@ -425,7 +425,7 @@ export const childEmailPendingReminderEmail = (args: {
 				${paragraph(escapeHtml(action))}
 				${args.childPageUrl ? `${button(args.childPageUrl, `Open ${childName}'s page`)}${rawLink(args.childPageUrl)}` : ''}
 			`,
-			footer: `You received this email because you are the parent or guardian on ${escapeHtml(childName)}'s Curiosity Learning account.`
+			footer: `You received this email because you are the parent or guardian on ${childName}'s Curiosity Learning account.`
 		})
 	};
 };

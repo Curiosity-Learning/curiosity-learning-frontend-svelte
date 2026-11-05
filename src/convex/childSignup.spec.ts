@@ -865,3 +865,141 @@ describe('the parent account after approval', () => {
 		expect(await t.query(api.parentAccounts.getMyFirstLinkedChildId, {})).toBeNull();
 	});
 });
+
+// Review S3: consents approved before approveConsent stripped adopted accounts may have left the
+// registrant's password on the parent account. The audit lists them (ids and timestamps only);
+// the strip removes the account and session rows for one flagged consent.
+describe('auditAdoptedParentAccounts / stripAdoptedParentCredentials', () => {
+	const createUser = async (t: ReturnType<typeof convexTest>, email: string, createdAt: number) =>
+		(
+			(await t.mutation(components.betterAuth.adapter.create, {
+				input: {
+					model: 'user',
+					data: { email, emailVerified: true, name: email, createdAt, updatedAt: createdAt }
+				}
+			})) as { _id: string }
+		)._id;
+	const createRow = (
+		t: ReturnType<typeof convexTest>,
+		model: 'account' | 'session',
+		userId: string,
+		createdAt: number
+	) =>
+		model === 'account'
+			? t.mutation(components.betterAuth.adapter.create, {
+					input: {
+						model: 'account',
+						data: {
+							accountId: userId,
+							providerId: 'credential',
+							userId,
+							password: 'hash',
+							createdAt,
+							updatedAt: createdAt
+						}
+					}
+				})
+			: t.mutation(components.betterAuth.adapter.create, {
+					input: {
+						model: 'session',
+						data: {
+							token: `session-${userId}-${createdAt}`,
+							userId,
+							expiresAt: createdAt + 30 * DAY,
+							createdAt,
+							updatedAt: createdAt
+						}
+					}
+				});
+	const countRows = async (t: ReturnType<typeof convexTest>, model: 'account' | 'session') =>
+		(
+			(await t.query(components.betterAuth.adapter.findMany, {
+				model,
+				paginationOpts: { cursor: null, numItems: 100 }
+			})) as { page: unknown[] }
+		).page.length;
+
+	const seed = async () => {
+		const t = convexTest(schema, modules);
+		betterAuthTest.register(t);
+		const approvedAt = Date.now();
+		// Pre-registered before approval, password from then: flagged.
+		const adoptedUserId = await createUser(t, 'adopted@example.com', approvedAt - 5 * DAY);
+		await createRow(t, 'account', adoptedUserId, approvedAt - 5 * DAY);
+		await createRow(t, 'session', adoptedUserId, approvedAt - DAY);
+		// Created password-less at approval, password set afterwards: not flagged.
+		const laterUserId = await createUser(t, 'later@example.com', approvedAt);
+		await createRow(t, 'account', laterUserId, approvedAt + DAY);
+		// A pending consent is never flagged.
+		const pendingUserId = await createUser(t, 'pending@example.com', approvedAt - 5 * DAY);
+		await createRow(t, 'account', pendingUserId, approvedAt - 5 * DAY);
+		const ids = await t.run(async (ctx) => {
+			const insertConsent = async (parentEmail: string, approved: boolean) => {
+				const childProfileId = await ctx.db.insert('profiles', {
+					authUserId: `child-${parentEmail}`,
+					isVerified: true,
+					firstLoginCompleted: true,
+					updatedAt: approvedAt
+				});
+				const consentId = await ctx.db.insert('parentChildConsents', {
+					childProfileId,
+					parentEmail,
+					status: approved ? 'approved' : 'pending',
+					token: `token-${parentEmail}`,
+					...(approved ? { approvedAt } : {}),
+					createdAt: approvedAt - 6 * DAY,
+					updatedAt: approvedAt
+				});
+				return { childProfileId, consentId };
+			};
+			return {
+				adopted: await insertConsent('Adopted@example.com', true),
+				later: await insertConsent('later@example.com', true),
+				pending: await insertConsent('pending@example.com', false)
+			};
+		});
+		return { t, approvedAt, adoptedUserId, ...ids };
+	};
+
+	it('lists only approved consents whose password predates the approval, without emails', async () => {
+		const { t, approvedAt, adoptedUserId, adopted } = await seed();
+		const result = await t.query(internal.childSignup.auditAdoptedParentAccounts, {});
+		expect(result).toEqual({
+			flagged: [
+				{
+					consentId: adopted.consentId,
+					childProfileId: adopted.childProfileId,
+					parentAuthUserId: adoptedUserId,
+					userCreatedAt: approvedAt - 5 * DAY,
+					credentialCreatedAt: approvedAt - 5 * DAY,
+					approvedAt
+				}
+			],
+			scanned: 2,
+			truncated: false
+		});
+		expect(JSON.stringify(result)).not.toContain('@');
+	});
+
+	it("strips one flagged consent's account and session rows, and refuses an unflagged one", async () => {
+		const { t, adopted, later } = await seed();
+		expect(await countRows(t, 'account')).toBe(3);
+		expect(await countRows(t, 'session')).toBe(1);
+
+		await t.mutation(internal.childSignup.stripAdoptedParentCredentials, {
+			consentId: adopted.consentId
+		});
+		expect(await countRows(t, 'account')).toBe(2);
+		expect(await countRows(t, 'session')).toBe(0);
+		expect((await t.query(internal.childSignup.auditAdoptedParentAccounts, {})).flagged).toEqual(
+			[]
+		);
+
+		await expect(
+			t.mutation(internal.childSignup.stripAdoptedParentCredentials, {
+				consentId: later.consentId
+			})
+		).rejects.toThrow('no password account that predates its approval');
+		expect(await countRows(t, 'account')).toBe(2);
+	});
+});

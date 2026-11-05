@@ -101,6 +101,16 @@ describe('interstitial fragment', () => {
 		expect(parseMagicLinkInterstitialFragment('#t=abc')?.next).toBe('/');
 	});
 
+	it('drops an `as` that is not a masked address (no free text on our origin)', () => {
+		const as = (value: string) =>
+			parseMagicLinkInterstitialFragment(`#t=abc&as=${encodeURIComponent(value)}`)?.as;
+		expect(as(maskEmail('parent@example.com'))).toBe('p…@example.com');
+		expect(as('Your bank account is locked. Call 555-0100')).toBe('');
+		expect(as('parent@example.com')).toBe('');
+		expect(as('p…@exa mple.com')).toBe('');
+		expect(as('')).toBe('');
+	});
+
 	it('builds the verify path the plugin expects, with the expired-link fallback', () => {
 		const url = new URL(
 			buildMagicLinkVerifyPath({ token: 'abcDEF', next: '/child/abc?room=xyz' }),

@@ -45,6 +45,12 @@ export const maskEmail = (email: string) => {
 	return `${local[0]}…@${domain}`;
 };
 
+// The exact shape maskEmail produces for a real address: one character, "…@", a domain without
+// spaces. The fragment is attacker-controllable (anyone can build /auth/link#t=…&as=…), so any
+// other `as` is dropped instead of shown on our origin (review nice-to-have 4).
+const MASKED_EMAIL_PATTERN = /^[^\s@…]…@[^\s@]{1,253}$/;
+export const isMaskedEmail = (value: string) => MASKED_EMAIL_PATTERN.test(value);
+
 export const buildMagicLinkInterstitialFragment = (link: MagicLinkInterstitial) =>
 	new URLSearchParams({ t: link.token, next: link.next, as: link.as }).toString();
 
@@ -58,7 +64,7 @@ export const parseMagicLinkInterstitialFragment = (hash: string): MagicLinkInter
 	return {
 		token,
 		next: isMagicLinkCallbackPath(next) ? next : '/',
-		as: params.get('as') ?? ''
+		as: isMaskedEmail(params.get('as') ?? '') ? params.get('as')! : ''
 	};
 };
 
