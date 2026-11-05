@@ -47,23 +47,36 @@ type VerificationRow = {
 	updatedAt: number;
 };
 
-const setup = async (options: { withUser?: boolean } = {}) => {
+const setup = async (
+	options: { withUser?: boolean; emailVerified?: boolean; platformAdmin?: boolean } = {}
+) => {
 	const t = convexTest(schema, modules);
 	betterAuthTest.register(t);
 	if (options.withUser ?? true) {
 		const now = Date.now();
-		await t.mutation(components.betterAuth.adapter.create, {
+		const user = (await t.mutation(components.betterAuth.adapter.create, {
 			input: {
 				model: 'user',
 				data: {
 					email: 'parent@example.com',
-					emailVerified: true,
+					emailVerified: options.emailVerified ?? true,
 					name: 'parent',
 					createdAt: now,
 					updatedAt: now
 				}
 			}
-		});
+		})) as { _id: string };
+		if (options.platformAdmin) {
+			await t.run((ctx) =>
+				ctx.db.insert('profiles', {
+					authUserId: user._id,
+					globalRole: 'admin',
+					isVerified: true,
+					firstLoginCompleted: true,
+					updatedAt: now
+				})
+			);
+		}
 	}
 	return t;
 };
@@ -222,6 +235,31 @@ describe('mintMagicLink', () => {
 		expect(link).toBeNull();
 	});
 
+	// CL-768: the verify endpoint marks an unverified user verified on use, so a link for one
+	// would skip email verification (and "verify" a row someone else may have pre-registered).
+	it('mints nothing for an unverified user', async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const t = await setup({ emailVerified: false });
+
+		const link = await t.run((ctx) =>
+			mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' })
+		);
+
+		expect(link).toBeNull();
+	});
+
+	// Review S11: an email link must not be a no-password door into an admin session.
+	it('mints nothing for a platform admin', async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const t = await setup({ platformAdmin: true });
+
+		const link = await t.run((ctx) =>
+			mintMagicLink(ctx, { email: 'parent@example.com', callbackURL: '/child/abc' })
+		);
+
+		expect(link).toBeNull();
+	});
+
 	it('mints nothing without BETTER_AUTH_URL (no absolute link to build)', async () => {
 		vi.stubEnv('BETTER_AUTH_URL', '');
 		const t = await setup();
@@ -270,6 +308,24 @@ describe('POST /sign-in/magic-link (expired-link fallback)', () => {
 		expect(fallback.pathname).toBe('/auth/sign-in');
 		expect(fallback.searchParams.get('next')).toBe('/child/abc?room=xyz');
 		expect(fallback.searchParams.get('link')).toBe('expired');
+	});
+
+	it('answers the same but sends nothing to an unverified user', async () => {
+		stubAuthEnv();
+		const t = await setup({ emailVerified: false });
+
+		const response = await requestLink(t, 'parent@example.com');
+		expect(response.status).toBe(200);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	it('answers the same but sends nothing to a platform admin', async () => {
+		stubAuthEnv();
+		const t = await setup({ platformAdmin: true });
+
+		const response = await requestLink(t, 'parent@example.com');
+		expect(response.status).toBe(200);
+		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
 
 	it('answers the same but sends nothing for an unknown address', async () => {

@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import betterAuthTest from '@convex-dev/better-auth/test';
+import { hashPassword } from 'better-auth/crypto';
 import { convexTest } from 'convex-test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, components, internal } from './_generated/api';
@@ -304,5 +305,171 @@ describe('approveConsent', () => {
 
 		const revisit = await approve();
 		expect(revisit).toEqual({ success: true });
+	});
+
+	// CL-768 (review B1): someone (most plausibly the child) can register an adult account under
+	// the parent's address with a password of their own and never verify it. Approving consent
+	// must not turn that into a verified parent account they can sign in to.
+	describe('an existing account under the parent address', () => {
+		const stubAuthEnv = () => {
+			vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+			vi.stubEnv('CONVEX_SITE_URL', 'https://site.example.com');
+			vi.stubEnv('BETTER_AUTH_SECRET', 'test-secret-'.repeat(4));
+		};
+		const PASSWORD = 'pre-registered-password-1';
+
+		const setup = async (options: { parentVerified: boolean }) => {
+			stubAuthEnv();
+			const t = convexTest(schema, modules);
+			betterAuthTest.register(t);
+			const now = Date.now();
+			const childAuthUser = (await t.mutation(components.betterAuth.adapter.create, {
+				input: {
+					model: 'user',
+					data: {
+						email: 'kid@children.curiosity.local',
+						emailVerified: false,
+						name: 'Kid',
+						createdAt: now,
+						updatedAt: now
+					}
+				}
+			})) as { _id: string };
+			const parentUser = (await t.mutation(components.betterAuth.adapter.create, {
+				input: {
+					model: 'user',
+					data: {
+						email: 'parent@example.com',
+						emailVerified: options.parentVerified,
+						name: 'Chosen By Registrant',
+						username: 'sneaky_kid',
+						displayUsername: 'sneaky_kid',
+						createdAt: now,
+						updatedAt: now
+					}
+				}
+			})) as { _id: string };
+			// What /sign-up/email leaves behind: a credential account with the registrant's password.
+			await t.mutation(components.betterAuth.adapter.create, {
+				input: {
+					model: 'account',
+					data: {
+						accountId: parentUser._id,
+						providerId: 'credential',
+						userId: parentUser._id,
+						password: await hashPassword(PASSWORD),
+						createdAt: now,
+						updatedAt: now
+					}
+				}
+			});
+			for (const token of ['session-one', 'session-two']) {
+				await t.mutation(components.betterAuth.adapter.create, {
+					input: {
+						model: 'session',
+						data: {
+							token,
+							userId: parentUser._id,
+							expiresAt: now + DAY,
+							createdAt: now,
+							updatedAt: now
+						}
+					}
+				});
+			}
+			const { profileId: childProfileId } = await t.run(async (ctx) => {
+				const seeded = await seedPendingChild(ctx, { createdAt: now });
+				await ctx.db.patch(seeded.profileId, { authUserId: childAuthUser._id });
+				return seeded;
+			});
+			const approve = () =>
+				t.mutation(api.childSignup.approveConsent, {
+					token: `token-${now}`,
+					acceptedTerms: true,
+					acceptedPrivacyPolicy: true
+				});
+			const rowsFor = async (model: 'account' | 'session') =>
+				(
+					(await t.query(components.betterAuth.adapter.findMany, {
+						model,
+						where: [{ field: 'userId', value: parentUser._id }],
+						paginationOpts: { cursor: null, numItems: 10 }
+					})) as { page: unknown[] }
+				).page;
+			const signInWithPassword = () =>
+				t.fetch('/api/auth/sign-in/email', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ email: 'parent@example.com', password: PASSWORD })
+				});
+			const getParentUser = () =>
+				t.query(components.betterAuth.adapter.findOne, {
+					model: 'user',
+					where: [{ field: '_id', value: parentUser._id }]
+				}) as Promise<{
+					emailVerified: boolean;
+					name: string;
+					username?: string | null;
+				} | null>;
+			const getParentLinks = () =>
+				t.run(async (ctx) => {
+					const parentProfile = await ctx.db
+						.query('profiles')
+						.withIndex('by_auth_user_id', (q) => q.eq('authUserId', parentUser._id))
+						.unique();
+					const links = await ctx.db
+						.query('parentLinks')
+						.withIndex('by_child', (q) => q.eq('childProfileId', childProfileId))
+						.collect();
+					return { parentProfileId: parentProfile?._id, links };
+				});
+			return { t, approve, rowsFor, signInWithPassword, getParentUser, getParentLinks };
+		};
+
+		it('an unverified one loses its password and sessions before it becomes the parent account', async () => {
+			const { approve, rowsFor, signInWithPassword, getParentUser, getParentLinks } = await setup({
+				parentVerified: false
+			});
+			expect(await rowsFor('account')).toHaveLength(1);
+			expect(await rowsFor('session')).toHaveLength(2);
+
+			await approve();
+
+			expect(await rowsFor('account')).toHaveLength(0);
+			expect(await rowsFor('session')).toHaveLength(0);
+			const user = await getParentUser();
+			expect(user?.emailVerified).toBe(true);
+			// The registrant's self-chosen identity does not carry over either.
+			expect(user?.name).toBe('parent');
+			expect(user?.username ?? null).toBeNull();
+			// Still the same user, and still linked to the child.
+			const { parentProfileId, links } = await getParentLinks();
+			expect(parentProfileId).toBeDefined();
+			expect(links.map((link) => link.parentProfileId)).toEqual([parentProfileId]);
+			// The registrant's password no longer signs in, through the real Better Auth route.
+			const signIn = await signInWithPassword();
+			expect(signIn.status).toBe(401);
+			expect(signIn.headers.get('set-cookie') ?? '').not.toContain('better-auth.session_token=');
+		});
+
+		it('a verified one is adopted unchanged: password, sessions and name stay', async () => {
+			const { approve, rowsFor, signInWithPassword, getParentUser, getParentLinks } = await setup({
+				parentVerified: true
+			});
+
+			await approve();
+
+			expect(await rowsFor('account')).toHaveLength(1);
+			expect(await rowsFor('session')).toHaveLength(2);
+			const user = await getParentUser();
+			expect(user?.emailVerified).toBe(true);
+			expect(user?.name).toBe('Chosen By Registrant');
+			const { parentProfileId, links } = await getParentLinks();
+			expect(links.map((link) => link.parentProfileId)).toEqual([parentProfileId]);
+			// Control for the test above: the same sign-in works for a genuinely verified owner.
+			const signIn = await signInWithPassword();
+			expect(signIn.status).toBe(200);
+			expect(signIn.headers.get('set-cookie')).toContain('better-auth.session_token=');
+		});
 	});
 });

@@ -9,6 +9,12 @@
 - **Identity:** `identity.subject` is resolved to `profiles.authUserId` at the auth boundary. App-owned relationships use `profiles._id`.
 - **Trusted origins:** Configured in `src/convex/auth.ts`. LAN origins only enabled when `ALLOW_LAN_TRUSTED_ORIGINS === 'true'`.
 
+## Parent Accounts & Sign-in Links
+
+- **Parent account at consent approval.** `childSignup.approveConsent` finds or creates the Better Auth user for `parentChildConsents.parentEmail` (the consent token was only ever emailed there, so holding it proves ownership of the address). A new user is created verified and password-less.
+- **Adopting an unverified user (CL-768).** If a user already exists under that address but is unverified, whoever registered it never proved they own the address (most plausibly the child). Before marking it verified, approval deletes all of its `account` rows (password, linked providers) and `session` rows and resets its self-chosen name/username, so nothing the registrant set up survives. A verified existing user is adopted unchanged.
+- **Who can sign in by email link.** `magicLinks.isMagicLinkRecipient` is the single rule for both server-minted links (`magicLinks.mintMagicLink`) and the plugin's own "send me a new link" (`sendMagicLink` in `auth.ts`): verified users only (the verify endpoint would otherwise mark an unverified user verified), and never platform admins (`profiles.globalRole === 'admin'`; admin sessions are shared with the admin portal). Ineligible addresses get no link, silently: the endpoint answers the same either way.
+
 ## Permissions Model
 
 Source: `src/convex/permissions.ts`

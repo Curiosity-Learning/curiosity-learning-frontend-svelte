@@ -11,6 +11,7 @@ import {
 	mutation,
 	query
 } from './_generated/server';
+import type { MutationCtx } from './_generated/server';
 import { syntheticEmailForUsername } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { parentConsentEmail } from './email/templates';
@@ -269,6 +270,27 @@ export const getConsentByToken = query({
 	}
 });
 
+// Deletes every Better Auth row that lets someone act as `authUserId` — sign-in methods
+// (`account`, all providers: a password, a linked Google account) and live `session` rows —
+// through the component adapter's paginated deleteMany. Leaves the `user` row itself.
+const AUTH_ROW_DELETE_PAGE_SIZE = 100;
+const deleteAuthRowsForUser = async (ctx: MutationCtx, authUserId: string) => {
+	for (const model of ['account', 'session'] as const) {
+		let cursor: string | null = null;
+		for (;;) {
+			const result: { isDone: boolean; continueCursor: string } = await ctx.runMutation(
+				components.betterAuth.adapter.deleteMany,
+				{
+					input: { model, where: [{ field: 'userId', value: authUserId }] },
+					paginationOpts: { cursor, numItems: AUTH_ROW_DELETE_PAGE_SIZE }
+				}
+			);
+			if (result.isDone) break;
+			cursor = result.continueCursor;
+		}
+	}
+};
+
 export const approveConsent = mutation({
 	args: {
 		token: v.string(),
@@ -317,13 +339,27 @@ export const approveConsent = mutation({
 				}
 			})) as { _id: string; email: string; emailVerified?: boolean; name?: string | null });
 
-		if (existingParentAuthUser && !existingParentAuthUser.emailVerified) {
+		if (existingParentAuthUser && existingParentAuthUser.emailVerified !== true) {
+			// CL-768 (review B1): an UNVERIFIED user under the parent's address was registered by
+			// someone who never proved they own it — most plausibly the child, who knows the address
+			// because they typed it. Approving consent is the first proof of ownership, so it must
+			// not inherit anything that registrant set up: marking the row verified while its
+			// password (credential account) or sessions survive would hand them a working login to
+			// the parent account, which is linked to the child below. Strip every sign-in method and
+			// session first, and reset the self-chosen name/username, then verify. The user row
+			// itself is kept (not deleted and recreated) because a profiles row may already point at
+			// its id; that profile is adopted below like any other.
+			await deleteAuthRowsForUser(ctx, existingParentAuthUser._id);
 			await ctx.runMutation(components.betterAuth.adapter.updateOne, {
 				input: {
 					model: 'user',
 					where: [{ field: '_id', value: existingParentAuthUser._id }],
 					update: {
 						emailVerified: true,
+						name: displayNameFromEmail(consent.parentEmail),
+						image: null,
+						username: null,
+						displayUsername: null,
 						updatedAt: now
 					}
 				}

@@ -204,10 +204,23 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 				// Hashed at rest: a link stays valid for days, so a leaked verification table
 				// must not hand out sessions.
 				storeToken: 'hashed',
-				sendMagicLink: async ({ email, url }, ctx) => {
+				sendMagicLink: async ({ email, url }, endpointCtx) => {
 					// disableSignUp makes a link for an unknown address useless; don't email strangers
-					// (the endpoint answers the same either way, so nothing is revealed).
-					if (ctx && !(await ctx.context.internalAdapter.findUserByEmail(email))) return;
+					// (the endpoint answers the same either way, so nothing is revealed). Same rule as
+					// minted links (magicLinks.isMagicLinkRecipient, CL-768): unverified users and
+					// platform admins get no link either — silently, for the same reason.
+					if (!endpointCtx) return;
+					const found = await endpointCtx.context.internalAdapter.findUserByEmail(email);
+					if (!found) return;
+					if (
+						!('runQuery' in ctx) ||
+						!(await ctx.runQuery(internal.magicLinks.isMagicLinkRecipient, {
+							authUserId: found.user.id,
+							emailVerified: found.user.emailVerified === true
+						}))
+					) {
+						return;
+					}
 					await sendEmail({
 						type: 'magic-link',
 						to: email,
