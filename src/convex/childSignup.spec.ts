@@ -813,7 +813,8 @@ describe('the parent account after approval', () => {
 		expect(await parent.query(api.auth.getMySignInMethods, {})).toEqual({
 			hasPassword: false,
 			hasGoogle: false,
-			isChildAccount: false
+			isChildAccount: false,
+			approvedChildConsent: true
 		});
 		// Review S9: so the sign-in page offers "Email me a sign-in link" for this address.
 		expect(
@@ -837,7 +838,8 @@ describe('the parent account after approval', () => {
 		});
 		expect(await child.query(api.auth.getMySignInMethods, {})).toMatchObject({
 			hasPassword: true,
-			isChildAccount: true
+			isChildAccount: true,
+			approvedChildConsent: false
 		});
 		// Once the reset flow has created the parent's credential account, the card goes away.
 		await t.mutation(components.betterAuth.adapter.create, {
@@ -853,7 +855,36 @@ describe('the parent account after approval', () => {
 				}
 			}
 		});
-		expect((await parent.query(api.auth.getMySignInMethods, {})).hasPassword).toBe(true);
+		// Review S9: still recognised as the approving parent after setting a password.
+		expect(await parent.query(api.auth.getMySignInMethods, {})).toMatchObject({
+			hasPassword: true,
+			approvedChildConsent: true
+		});
+		// An ordinary adult (a Guide who signed up with a password) never is.
+		const guideUser = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'guide@example.com',
+					emailVerified: true,
+					name: 'Guide',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		await t.run((ctx) =>
+			ctx.db.insert('profiles', {
+				authUserId: guideUser._id,
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			})
+		);
+		expect(
+			(await t.withIdentity({ subject: guideUser._id }).query(api.auth.getMySignInMethods, {}))
+				.approvedChildConsent
+		).toBe(false);
 		expect(
 			isPasswordlessSignInAccount(
 				await t.query(api.auth.getSignupAccountStatusByEmail, { email: 'parent@example.com' })

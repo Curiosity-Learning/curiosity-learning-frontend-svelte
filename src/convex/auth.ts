@@ -319,16 +319,27 @@ export const getViewerIdentity = query({
  * `hasPassword` is a `credential` account row (what Better Auth's password reset creates when it
  * is missing). `isChildAccount` lets Settings never offer it to a child: their auth email is
  * synthetic and cannot receive a reset link.
+ *
+ * `approvedChildConsent` (review S9): this account has approved a child's account. Signal:
+ * `profiles.termsAcceptedAt`, which only childSignup.approveConsent writes (set on the parent
+ * profile at approval, never at sign-up) — chosen over "no password and no Google" because it
+ * stays true after the parent sets a password or links Google, and it names exactly what we
+ * mean. Settings shows its "approved with a different email?" help only to such accounts with no
+ * linked children, never to Guides or ordinary members. If sign-up ever starts recording terms
+ * acceptance on profiles, this needs its own marker.
  */
 export const getMySignInMethods = query({
 	args: {},
 	returns: v.object({
 		hasPassword: v.boolean(),
 		hasGoogle: v.boolean(),
-		isChildAccount: v.boolean()
+		isChildAccount: v.boolean(),
+		approvedChildConsent: v.boolean()
 	}),
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
+		const approvedChildConsent = profile?.termsAcceptedAt !== undefined;
 		const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
 			model: 'user',
 			where: [{ field: '_id', value: identity.subject }]
@@ -336,7 +347,9 @@ export const getMySignInMethods = query({
 		const isChildAccount = Boolean(
 			authUser?.email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)
 		);
-		if (!authUser) return { hasPassword: false, hasGoogle: false, isChildAccount };
+		if (!authUser) {
+			return { hasPassword: false, hasGoogle: false, isChildAccount, approvedChildConsent };
+		}
 		const accounts = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
 			model: 'account',
 			where: [{ field: 'userId', value: authUser._id }],
@@ -345,7 +358,8 @@ export const getMySignInMethods = query({
 		return {
 			hasPassword: accounts.page.some((account) => account.providerId === 'credential'),
 			hasGoogle: accounts.page.some((account) => account.providerId === 'google'),
-			isChildAccount
+			isChildAccount,
+			approvedChildConsent: approvedChildConsent && !isChildAccount
 		};
 	}
 });

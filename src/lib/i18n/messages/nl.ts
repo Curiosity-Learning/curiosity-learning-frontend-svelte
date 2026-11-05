@@ -1157,9 +1157,9 @@ const nl = {
 		differentEmailRateLimited:
 			'Je hebt deze link vandaag te vaak aangevraagd. Probeer het morgen opnieuw.',
 		differentEmailFailure: 'De link kon niet worden verstuurd. Probeer het opnieuw.',
-		differentEmailSettingsTitle: 'Een kinderaccount goedgekeurd?',
+		differentEmailSettingsTitle: 'Geen gekoppelde kinderen',
 		differentEmailSettingsHelp:
-			'Je kinderen zijn gekoppeld aan het account waarmee ze zijn goedgekeurd. Je bent ingelogd als {email}. Heb je met een ander e-mailadres goedgekeurd, log dan met dat adres in: heeft het geen wachtwoord, dan stuurt de inlogpagina je een inloglink.',
+			'Er zijn geen kinderen aan dit account gekoppeld. Je bent ingelogd als {email}. Heb je het account van een kind met een ander e-mailadres goedgekeurd, log dan met dat adres in om het te zien: heeft het geen wachtwoord, dan stuurt de inlogpagina je een inloglink.',
 		differentEmailSettingsAction: 'Inloggen met een ander e-mailadres',
 		bannerLabel: 'Bekijken als {name} — alleen-lezen',
 		exitAction: 'Terug naar instellingen',

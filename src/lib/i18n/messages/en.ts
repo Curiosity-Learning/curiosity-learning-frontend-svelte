@@ -1160,9 +1160,9 @@ const en = {
 		differentEmailRateLimited:
 			"You've asked for this link too many times today. Please try again tomorrow.",
 		differentEmailFailure: 'Could not send the link. Please try again.',
-		differentEmailSettingsTitle: 'Approved a child account?',
+		differentEmailSettingsTitle: 'No linked children',
 		differentEmailSettingsHelp:
-			'Your children are linked to the account that approved them. You are signed in as {email}. If you approved with a different email, sign in with that email instead: if it has no password, the sign-in page emails you a sign-in link.',
+			"No children are linked to this account. You are signed in as {email}. If you approved a child's account with a different email, sign in with that email to see it: if it has no password, the sign-in page emails you a sign-in link.",
 		differentEmailSettingsAction: 'Sign in with another email',
 		bannerLabel: 'Viewing as {name} — read-only',
 		exitAction: 'Back to settings',
