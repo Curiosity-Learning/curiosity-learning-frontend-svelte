@@ -74,6 +74,19 @@ const insertApprovedConsent = async (
 		});
 	});
 
+// CL-769 (review D4): unlinking needs the child's own confirmed address (childUnlink.spec.ts
+// covers setting it); these tests start from one.
+const confirmChildEmailDirectly = (
+	t: ReturnType<typeof convexTest>,
+	childProfileId: Id<'profiles'>
+) =>
+	t.run((ctx) =>
+		ctx.db.patch(childProfileId, {
+			notificationEmail: 'teen@example.com',
+			notificationEmailVerifiedAt: Date.now()
+		})
+	);
+
 const seedClubRoom = async (
 	t: ReturnType<typeof convexTest>,
 	childProfileId: Id<'profiles'>,
@@ -302,6 +315,7 @@ describe('parentAccounts.unlinkParent', () => {
 		).padStart(2, '0')}`;
 
 		const childProfileId = await insertProfile(t, 'child-user', { dateOfBirth });
+		await confirmChildEmailDirectly(t, childProfileId);
 		const parentProfileId = await insertProfile(t, 'parent-user');
 		await t.run(async (ctx) => {
 			await ctx.db.insert('parentLinks', {
@@ -339,6 +353,7 @@ describe('parentAccounts.unlinkParent: an unlinked parent cannot claim the link 
 		const childProfileId = await insertProfile(t, 'child-user', {
 			dateOfBirth: over16DateOfBirth()
 		});
+		await confirmChildEmailDirectly(t, childProfileId);
 		const parentProfileId = await insertProfile(t, 'parent-user');
 		await insertApprovedConsent(t, {
 			childProfileId,
@@ -373,6 +388,7 @@ describe('parentAccounts.unlinkParent: an unlinked parent cannot claim the link 
 		const childProfileId = await insertProfile(t, 'child-user', {
 			dateOfBirth: over16DateOfBirth()
 		});
+		await confirmChildEmailDirectly(t, childProfileId);
 		const parentProfileId = await insertProfile(t, 'parent-user');
 		await insertApprovedConsent(t, { childProfileId, parentEmail: 'parent@example.com' });
 		const parent = t.withIdentity({ subject: 'parent-user' });
@@ -393,6 +409,7 @@ describe('parentAccounts.unlinkParent: an unlinked parent cannot claim the link 
 		const childProfileId = await insertProfile(t, 'child-user', {
 			dateOfBirth: over16DateOfBirth()
 		});
+		await confirmChildEmailDirectly(t, childProfileId);
 		const parentProfileId = await insertProfile(t, 'parent-user');
 		await insertProfile(t, 'other-parent-user');
 		await insertApprovedConsent(t, {

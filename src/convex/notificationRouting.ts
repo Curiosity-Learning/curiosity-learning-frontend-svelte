@@ -21,7 +21,7 @@ type Ctx = QueryCtx | MutationCtx;
 //   kind                         | no confirmed child email | confirmed child email
 //   -----------------------------+--------------------------+--------------------------------------
 //   critical (account actions,   | parent                   | parent AND child
-//   review chats, ...)           |                          |
+//   review chats, ...)           |                          |   (child only once unlinked, rule 4)
 //   chat_activity (club/project) | parent (mandatory)       | child (child's mute) + parent copy if
 //                                |                          |   parentNotificationSettings.chatCopies
 //   other high kinds             | nobody                   | child (child's mute) + parent copy if
@@ -35,9 +35,16 @@ type Ctx = QueryCtx | MutationCtx;
 // 2. Critical kinds ignore every setting and mute.
 // 3. With no confirmed child email, club/project chat goes to the parent whatever the settings
 //    say: otherwise nobody would hear about it.
-// 4. A parent the child has unlinked (consent `unlinkedAt`, a 16+ child) gets no non-critical
-//    email and no copies; critical notices still reach them for now (review S7, step 7 changes
-//    this).
+// 4. A parent the child has unlinked (consent `unlinkedAt`, a 16+ child, parentAccounts
+//    .unlinkParent) is no parent for routing at all (CL-769, review S7/D4, edge case 13): no
+//    critical notices, no chat, no copies, and so no sign-in link is ever minted for them
+//    (notifications.deliverNotificationEmail only mints for the 'parent' audience). The child is
+//    in effect an independent user: everything goes to their own confirmed address, subject to
+//    their own mutes (critical kinds ignore mutes as always). Unlinking requires a confirmed
+//    address, so a child who unlinked is never left unreachable (older unlinks without one get
+//    in-app rows only until they add one in Settings). Their parentNotificationSettings rows are
+//    deleted at unlink and would be ignored here anyway: settings are only read for a linked
+//    consent. The consent row stays as the legal record of consent.
 
 export type EmailAudience = 'self' | 'parent';
 export type EmailRecipient = { to: string; audience: EmailAudience };
@@ -63,24 +70,22 @@ export const planChildEmailAudiences = (args: {
 	chat: boolean;
 	childEmailConfirmed: boolean;
 	selfMuted: boolean;
-	// An approved consent exists (critical notices reach even an unlinked parent, rule 4).
-	parentForCritical: boolean;
-	// An approved consent the child has not unlinked.
-	parentForRest: boolean;
+	// An approved consent the child has not unlinked (rule 4).
+	parentLinked: boolean;
 	chatCopies: boolean;
 	activityCopies: boolean;
 }): EmailAudience[] => {
 	if (args.tier === 'critical') {
 		const audiences: EmailAudience[] = [];
-		if (args.parentForCritical) audiences.push('parent');
+		if (args.parentLinked) audiences.push('parent');
 		if (args.childEmailConfirmed) audiences.push('self');
 		return audiences;
 	}
 	if (args.tier !== 'high') return [];
-	if (!args.childEmailConfirmed) return args.chat && args.parentForRest ? ['parent'] : [];
+	if (!args.childEmailConfirmed) return args.chat && args.parentLinked ? ['parent'] : [];
 	const audiences: EmailAudience[] = [];
 	if (!args.selfMuted) audiences.push('self');
-	if (args.parentForRest && (args.chat ? args.chatCopies : args.activityCopies)) {
+	if (args.parentLinked && (args.chat ? args.chatCopies : args.activityCopies)) {
 		audiences.push('parent');
 	}
 	return audiences;
@@ -122,24 +127,24 @@ const loadChildRouting = async (ctx: Ctx, childProfileId: Id<'profiles'>) => {
 		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', childProfileId))
 		.order('desc')
 		.take(CONSENT_SCAN_LIMIT);
-	const approved = consents.filter((row) => row.status === 'approved');
-	const forCritical = approved[0] ?? null;
-	const forRest = approved.find((row) => row.unlinkedAt === undefined) ?? null;
+	// Rule 4: an unlinked consent is not a parent for any kind, critical included.
+	const parentConsent =
+		consents.find((row) => row.status === 'approved' && row.unlinkedAt === undefined) ?? null;
 	// The copies setting belongs to the parent behind the consent the copy goes to. Consents
 	// approved before `parentProfileId` existed have no id: the child's only settings row is
 	// theirs (one approved consent per child in v1).
 	let settings = DEFAULT_PARENT_NOTIFICATION_SETTINGS;
-	if (forRest) {
+	if (parentConsent) {
 		const rows = await ctx.db
 			.query('parentNotificationSettings')
 			.withIndex('by_child', (q) => q.eq('childProfileId', childProfileId))
 			.take(SETTINGS_SCAN_LIMIT);
-		const row = forRest.parentProfileId
-			? rows.find((candidate) => candidate.parentProfileId === forRest.parentProfileId)
+		const row = parentConsent.parentProfileId
+			? rows.find((candidate) => candidate.parentProfileId === parentConsent.parentProfileId)
 			: rows[0];
 		if (row) settings = { chatCopies: row.chatCopies, activityCopies: row.activityCopies };
 	}
-	return { forCritical, forRest, settings };
+	return { parentConsent, settings };
 };
 
 const childConfirmedEmail = (profile: Doc<'profiles'>) =>
@@ -154,8 +159,7 @@ const planForChild = async (ctx: Ctx, args: EmailRoutingArgs, selfMuted: boolean
 		chat: args.chat,
 		childEmailConfirmed: childConfirmedEmail(args.profile) !== null,
 		selfMuted,
-		parentForCritical: routing.forCritical !== null,
-		parentForRest: routing.forRest !== null,
+		parentLinked: routing.parentConsent !== null,
 		...routing.settings
 	});
 	return { routing, audiences };
@@ -184,7 +188,7 @@ export const resolveEmailRecipients = async (
 			recipients.push({ to: confirmedChildEmail, audience, childName });
 		}
 		if (audience === 'parent') {
-			const consent = args.tier === 'critical' ? routing.forCritical : routing.forRest;
+			const consent = routing.parentConsent;
 			if (consent?.parentEmail) recipients.push({ to: consent.parentEmail, audience, childName });
 		}
 	}

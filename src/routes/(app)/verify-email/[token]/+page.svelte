@@ -11,7 +11,8 @@
 	import { routes } from '$lib/routes';
 	import { t } from '$lib/i18n';
 
-	// CL-768 (review B2): a child confirms the notification email their parent added. The link
+	// CL-768 (review B2): a child confirms the notification email their parent added (or, 16+,
+	// added themselves from Settings — CL-769; `addedBySelf` only changes the wording). The link
 	// alone proves nothing (whoever owns that inbox can click it), so this page lives in the (app)
 	// group — the layout sends signed-out visitors to sign-in and back — and the server only
 	// confirms when the CALLER is the child the link was issued for
@@ -83,7 +84,11 @@
 				{t('verifyEmail.validQuestion').replace('{email}', verification.emailMasked ?? '')}
 			</p>
 			<p class="type-sm text-muted-foreground">
-				{t('verifyEmail.validDescription').replace('{username}', verification.username ?? '')}
+				{t(
+					verification.addedBySelf
+						? 'verifyEmail.validDescriptionSelf'
+						: 'verifyEmail.validDescription'
+				).replace('{username}', verification.username ?? '')}
 			</p>
 			{#if errorMessage}
 				<p class="type-sm text-destructive" role="alert">{errorMessage}</p>
@@ -113,8 +118,19 @@
 	{:else if verification.status === 'expired'}
 		<Alert>
 			<AlertTitle>{t('verifyEmail.expiredTitle')}</AlertTitle>
-			<AlertDescription>{t('verifyEmail.expiredDescription')}</AlertDescription>
+			<AlertDescription>
+				{t(
+					verification.addedBySelf
+						? 'verifyEmail.expiredDescriptionSelf'
+						: 'verifyEmail.expiredDescription'
+				)}
+			</AlertDescription>
 		</Alert>
+		{#if verification.addedBySelf}
+			<Button class="self-start" variant="outline" href={routes.settings}>
+				{t('verifyEmail.goToSettings')}
+			</Button>
+		{/if}
 	{:else}
 		<Alert>
 			<AlertTitle>{t('verifyEmail.notFoundTitle')}</AlertTitle>

@@ -1119,11 +1119,39 @@ const en = {
 		unlinkAction: 'Unlink parent',
 		unlinkConfirmTitle: 'Unlink parent account?',
 		unlinkConfirmDescription:
-			'Your parent will no longer be able to view your clubs, projects, or chats.',
+			'Your parent will no longer be able to view your clubs, projects, or chats, and will no longer get any emails about you. All Curiosity Learning emails, including important notices, will come to you at {email}.',
+		unlinkRequiresEmail:
+			'Add and confirm your own email address first, so important notices can still reach you.',
 		unlinkConfirmAction: 'Unlink',
 		unlinkCancel: 'Cancel',
 		unlinkFailure: 'Unable to unlink parent account.',
 		unlinkSuccess: 'Parent account unlinked.',
+		ownEmailTitle: 'Your email address',
+		ownEmailDescription:
+			'Add your own email address to get Curiosity Learning emails yourself, such as chat messages and important notices. Nothing is sent there until you confirm it.',
+		ownEmailLabel: 'Your email address',
+		ownEmailPlaceholder: 'name@example.com',
+		ownEmailSave: 'Save email address',
+		ownEmailCancel: 'Cancel',
+		ownEmailChange: 'Change',
+		ownEmailRemove: 'Remove',
+		ownEmailResend: 'Resend',
+		ownEmailConfirmed: 'Confirmed',
+		ownEmailCurrent: 'Your emails go to',
+		ownEmailPending:
+			'Waiting for you to confirm {email}. Open the email we sent and confirm it while signed in to this account.',
+		ownEmailPendingUnlinked:
+			'Until you confirm it, Curiosity Learning cannot email you. Notifications still appear in the app.',
+		ownEmailSaved: 'Saved. We sent you an email to confirm the address.',
+		ownEmailResent: 'Sent again. Open the email and confirm.',
+		ownEmailRemoved: 'Email address removed.',
+		ownEmailIsParent: "That's your parent's address. Enter your own email address.",
+		ownEmailRequired:
+			'You need an email address so important notices can reach you. You can change it, but not remove it.',
+		ownEmailResendLimit:
+			"You've sent the most confirmation emails allowed for today. Please try again tomorrow.",
+		ownEmailInvalid: 'Please enter a valid email address.',
+		ownEmailFailure: 'Could not save the email address. Please try again.',
 		bannerLabel: 'Viewing as {name} — read-only',
 		exitAction: 'Back to settings',
 		overviewTab: 'Overview',
@@ -1188,6 +1216,8 @@ const en = {
 		validQuestion: 'Is {email} your email address?',
 		validDescription:
 			'Your parent or guardian added it for Curiosity Learning notifications for {username}. Once you confirm, chat notifications go there instead of to your parent.',
+		validDescriptionSelf:
+			'You added it for Curiosity Learning notifications for {username}. Once you confirm, your emails go there.',
 		confirm: 'Yes, this is my email',
 		confirming: 'Confirming...',
 		confirmedSnackbar: 'Email confirmed',
@@ -1200,6 +1230,8 @@ const en = {
 		signOut: 'Sign out',
 		expiredTitle: 'This link has expired',
 		expiredDescription: 'Ask your parent or guardian to send a new one.',
+		expiredDescriptionSelf: 'Send a new one from Settings.',
+		goToSettings: 'Go to Settings',
 		usedTitle: 'Already confirmed',
 		usedDescription: 'This link was already used to confirm your email.',
 		notFoundTitle: 'This link is not valid',

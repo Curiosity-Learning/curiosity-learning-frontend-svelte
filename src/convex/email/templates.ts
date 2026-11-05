@@ -350,9 +350,12 @@ export const notificationEmail = (args: {
 export const childEmailVerificationEmail = (args: {
 	username: string;
 	url: string;
+	// The child (16+) added it themselves from Settings (CL-769), not their parent.
+	addedBySelf?: boolean;
 }): EmailContent => {
 	const url = absoluteUrl(args.url);
-	const intro = `Your parent or guardian added this address for Curiosity Learning notifications for the account ${args.username}.`;
+	const who = args.addedBySelf ? 'You' : 'Your parent or guardian';
+	const intro = `${who} added this address for Curiosity Learning notifications for the account ${args.username}.`;
 	const instruction = `Sign in as ${args.username} to confirm it.`;
 	const ignore = "If you don't know what this is, you can ignore this email.";
 	const strong = `<strong style="color:${colors.foreground};">${escapeHtml(args.username)}</strong>`;
@@ -363,12 +366,32 @@ export const childEmailVerificationEmail = (args: {
 			preheader: intro,
 			title: 'Confirm your email',
 			children: `
-				${paragraph(`Your parent or guardian added this address for Curiosity Learning notifications for the account ${strong}. Sign in as ${strong} to confirm it.`)}
+				${paragraph(`${who} added this address for Curiosity Learning notifications for the account ${strong}. Sign in as ${strong} to confirm it.`)}
 				${button(url, 'Confirm this email')}
 				${rawLink(url)}
 				${paragraph(escapeHtml(ignore))}
 			`,
 			footer: 'Nothing is sent to this address until it is confirmed.'
+		})
+	};
+};
+
+// The ONE email a parent gets when their 16+ child unlinks them (CL-769, review S7/D4): after
+// it, nothing about the child reaches them (notificationRouting.ts rule 4). Deliberately bare:
+// no link at all (the parent can no longer open the child's page, and a sign-in link would be a
+// session for an account that has nothing to show), and nothing about the child's activity.
+export const parentUnlinkedEmail = (args: { childName: string }): EmailContent => {
+	const { childName } = args;
+	const subject = `${childName} has unlinked your parent account`;
+	const message = `${childName} has unlinked your parent account. You will no longer receive emails about ${childName}.`;
+	return {
+		subject,
+		text: message,
+		html: layout({
+			preheader: message,
+			title: subject,
+			children: paragraph(escapeHtml(message)),
+			footer: `You received this email because you were the parent or guardian on ${escapeHtml(childName)}'s Curiosity Learning account.`
 		})
 	};
 };

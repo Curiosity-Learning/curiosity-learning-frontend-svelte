@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
+import { internal } from './_generated/api';
 import { mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
@@ -18,7 +19,9 @@ import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { ROUTING_CHANGE_MAX_SESSION_AGE_MS, requireFreshSession } from './sessionFreshness';
 import {
 	NOTIFICATION_EMAIL_IS_PARENT,
-	RESEND_LIMIT_REACHED
+	OWN_EMAIL_REQUIRED,
+	RESEND_LIMIT_REACHED,
+	UNLINK_REQUIRES_CONFIRMED_EMAIL
 } from '../lib/domain/child-notification-email';
 import { canViewProject } from './projectsModel';
 
@@ -267,6 +270,18 @@ export const getMyParentLink = query({
  * GAINS the option to unlink; access doesn't auto-sever until they unlink" — so under-16 child
  * accounts cannot call this at all, and turning 16 does not auto-sever anything by itself).
  * Also stamps `unlinkedAt` on the consent behind the link so `syncParentLinks` never re-creates it.
+ *
+ * CL-769 (review S7/D4, edge case 13):
+ * - Refused unless the child has a CONFIRMED notification email of their own
+ *   (UNLINK_REQUIRES_CONFIRMED_EMAIL): once unlinked, the parent receives nothing about the child
+ *   — critical notices included (notificationRouting.ts rule 4) — so without one, important
+ *   notices would reach nobody. The child adds one with setMyNotificationEmail.
+ * - The parent's own per-child email settings (parentNotificationSettings) for this pair are
+ *   DELETED, not just ignored: they describe a relationship that no longer exists, and a stale
+ *   row must not come back to life if the pair were ever linked again by a new consent.
+ * - The parent gets ONE final plain notice ("{child} has unlinked your parent account..."), sent
+ *   to the consent address(es) this call unlinked; a repeated call unlinks nothing and sends
+ *   nothing.
  */
 export const unlinkParent = mutation({
 	args: {
@@ -280,6 +295,11 @@ export const unlinkParent = mutation({
 		if (!isAtLeast16FromDateOfBirth(profile.dateOfBirth, Date.now())) {
 			throw new ConvexError('You must be at least 16 to unlink a parent account');
 		}
+		if (!profile.notificationEmail || profile.notificationEmailVerifiedAt === undefined) {
+			throw new ConvexError(
+				`${UNLINK_REQUIRES_CONFIRMED_EMAIL}: Add and confirm your own email address first, so important notices can still reach you.`
+			);
+		}
 
 		const link = await ctx.db
 			.query('parentLinks')
@@ -289,6 +309,15 @@ export const unlinkParent = mutation({
 			.unique();
 		if (link) {
 			await ctx.db.delete(link._id);
+		}
+		const settings = await ctx.db
+			.query('parentNotificationSettings')
+			.withIndex('by_parent_and_child', (q) =>
+				q.eq('parentProfileId', args.parentProfileId).eq('childProfileId', profile._id)
+			)
+			.unique();
+		if (settings) {
+			await ctx.db.delete(settings._id);
 		}
 
 		// Mark the consent(s) behind this link as unlinked, or the parent's next syncParentLinks
@@ -306,6 +335,7 @@ export const unlinkParent = mutation({
 			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', profile._id))
 			.collect();
 		const now = Date.now();
+		const unlinkedConsentIds: Id<'parentChildConsents'>[] = [];
 		for (const consent of consents) {
 			if (consent.unlinkedAt !== undefined) continue;
 			const isThisParent = consent.parentProfileId
@@ -314,6 +344,14 @@ export const unlinkParent = mutation({
 					normalizeEmail(consent.parentEmail) === normalizedParentEmail;
 			if (!isThisParent) continue;
 			await ctx.db.patch(consent._id, { unlinkedAt: now, updatedAt: now });
+			// Only approved consents ever made this person the child's parent.
+			if (consent.status === 'approved') unlinkedConsentIds.push(consent._id);
+		}
+		if (unlinkedConsentIds.length > 0) {
+			await ctx.scheduler.runAfter(0, internal.childEmailVerification.sendParentUnlinkedNotice, {
+				childProfileId: profile._id,
+				consentIds: unlinkedConsentIds
+			});
 		}
 		return { success: true };
 	}
@@ -921,5 +959,202 @@ export const setParentNotificationSettings = mutation({
 			});
 		}
 		return next;
+	}
+});
+
+// ---------------------------------------------------------------------------------------------
+// The child's own notification email, 16+ (CL-769, review D4 / edge case 13)
+// ---------------------------------------------------------------------------------------------
+
+// The caller is a child account (synthetic auth email) aged 16+ by the permissive DOB reading
+// above: the age at which they may unlink their parent, and so must be able to receive their own
+// important notices. Under-16 children never get here (server-side, not just hidden in the UI).
+const isChildAccountAtLeast16 = async (ctx: Ctx, profile: Doc<'profiles'>) => {
+	if (!isAtLeast16FromDateOfBirth(profile.dateOfBirth, Date.now())) return false;
+	const authEmail = await getAuthUserEmail(ctx, profile.authUserId);
+	return Boolean(authEmail?.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`));
+};
+
+// Whether an approved consent the child has not unlinked exists: the child still has a parent
+// who receives their critical notices.
+const hasLinkedParentConsent = async (ctx: Ctx, childProfileId: Id<'profiles'>) =>
+	(
+		await ctx.db
+			.query('parentChildConsents')
+			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', childProfileId))
+			.collect()
+	).some((consent) => consent.status === 'approved' && consent.unlinkedAt === undefined);
+
+// Addresses a child may not use as their own: every approved consent address (unlinked or not)
+// and the auth email of every linked parent (edge case 1: child-worded email and child links
+// would reach the parent).
+const getChildsParentAddresses = async (ctx: MutationCtx, childProfileId: Id<'profiles'>) => {
+	const consents = await ctx.db
+		.query('parentChildConsents')
+		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', childProfileId))
+		.collect();
+	const links = await ctx.db
+		.query('parentLinks')
+		.withIndex('by_child', (q) => q.eq('childProfileId', childProfileId))
+		.collect();
+	const linkedParentEmails: string[] = [];
+	for (const link of links) {
+		const parent = await ctx.db.get(link.parentProfileId);
+		const email = parent ? await getAuthUserEmail(ctx, parent.authUserId) : null;
+		if (email) linkedParentEmails.push(email);
+	}
+	return [
+		...consents.filter((consent) => consent.status === 'approved').map((c) => c.parentEmail),
+		...linkedParentEmails
+	];
+};
+
+const ownEmailStatusValidator = v.union(
+	v.literal('none'),
+	v.literal('pending'),
+	v.literal('verified')
+);
+
+/**
+ * Child-side, for the Settings "Your email" card: the caller's own notification email and its
+ * state, or null when the caller is not a child account aged 16+ (the card is not shown).
+ * `hasLinkedParent` says whether removing the address is allowed (see setMyNotificationEmail).
+ */
+export const getMyNotificationEmail = query({
+	args: {},
+	returns: v.union(
+		v.object({
+			notificationEmail: v.union(v.string(), v.null()),
+			status: ownEmailStatusValidator,
+			setAt: v.union(v.number(), v.null()),
+			hasLinkedParent: v.boolean()
+		}),
+		v.null()
+	),
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		if (!(await isChildAccountAtLeast16(ctx, profile))) return null;
+		const email = profile.notificationEmail ?? null;
+		return {
+			notificationEmail: email,
+			status:
+				email === null
+					? ('none' as const)
+					: profile.notificationEmailVerifiedAt !== undefined
+						? ('verified' as const)
+						: ('pending' as const),
+			setAt: profile.notificationEmailSetAt ?? null,
+			hasLinkedParent: await hasLinkedParentConsent(ctx, profile._id)
+		};
+	}
+});
+
+/**
+ * Child-side twin of setChildNotificationEmail: a child aged 16+ sets, changes, re-sends or
+ * removes (`email: null`) their OWN notification email. Keyed by the caller (no profile id
+ * argument), so it is outside the parent-link rule of the structural scan.
+ *
+ * - Child accounts aged 16+ only, checked here (ConvexError otherwise).
+ * - The same pending -> confirm flow as a parent-entered address (childEmailVerification.ts):
+ *   the address receives only a confirmation email until the child confirms it at
+ *   /verify-email/[token] while signed in; `requestedByProfileId` and
+ *   `notificationEmailSetByProfileId` are the child, `notificationEmailSource` is 'self'.
+ * - The same address rules (normalizeChildNotificationEmail): the parent's addresses are refused.
+ * - Fresh session (< 15 min, sessionFreshness.ts), like every routing change: a session left
+ *   signed in on a shared device must not let someone else redirect the child's notices.
+ * - Shares the child's 3-a-day confirmation-email limit with the parent's form.
+ * - A linked parent gets the usual plain routing-changed notice (getRoutingNoticeRecipient skips
+ *   unlinked consents), and while linked can still change the address from the child's page.
+ * - Removing is refused once no parent is linked (OWN_EMAIL_REQUIRED): the address is then the
+ *   only way important notices reach the child. Changing it is allowed; until the new address
+ *   is confirmed, emails reach nobody (in-app notifications still arrive) — the trade-off of
+ *   keeping one address field rather than a separate "pending replacement".
+ */
+export const setMyNotificationEmail = mutation({
+	args: { email: v.union(v.string(), v.null()) },
+	returns: v.object({
+		notificationEmail: v.union(v.string(), v.null()),
+		status: ownEmailStatusValidator,
+		verificationSent: v.boolean()
+	}),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		if (!(await isChildAccountAtLeast16(ctx, profile))) {
+			throw new ConvexError('Only accounts aged 16 or older can set their own email here');
+		}
+
+		const email =
+			args.email === null
+				? null
+				: normalizeChildNotificationEmail(
+						args.email,
+						await getChildsParentAddresses(ctx, profile._id)
+					);
+		const current = profile.notificationEmail ?? null;
+		const currentlyVerified = current !== null && profile.notificationEmailVerifiedAt !== undefined;
+		if (email === current && (email === null || currentlyVerified)) {
+			return {
+				notificationEmail: email,
+				status: email === null ? ('none' as const) : ('verified' as const),
+				verificationSent: false
+			};
+		}
+		if (email === null && !(await hasLinkedParentConsent(ctx, profile._id))) {
+			throw new ConvexError(
+				`${OWN_EMAIL_REQUIRED}: You need an email address so important notices can reach you. You can change it, but not remove it.`
+			);
+		}
+
+		await requireFreshSession(ctx, ROUTING_CHANGE_MAX_SESSION_AGE_MS);
+		const now = Date.now();
+
+		if (email === null) {
+			await ctx.db.patch(profile._id, {
+				notificationEmail: undefined,
+				notificationEmailSetAt: undefined,
+				notificationEmailSetByProfileId: undefined,
+				notificationEmailVerifiedAt: undefined,
+				notificationEmailSource: undefined,
+				updatedAt: now
+			});
+			await invalidateChildEmailVerifications(ctx, profile._id);
+			await scheduleRoutingChangedNotice(ctx, { childProfileId: profile._id, change: 'removed' });
+			return { notificationEmail: null, status: 'none' as const, verificationSent: false };
+		}
+
+		const rateLimitKey = childEmailVerificationRateLimitKey(profile._id);
+		if (await isRateLimited(ctx, rateLimitKey, CHILD_EMAIL_VERIFICATION_RATE_LIMIT)) {
+			throw new ConvexError(
+				`${RESEND_LIMIT_REACHED}: Too many confirmation emails for this account today. Please try again tomorrow.`
+			);
+		}
+		await recordRateLimitAttempt(ctx, rateLimitKey, CHILD_EMAIL_VERIFICATION_RATE_LIMIT);
+
+		const isResend = email === current;
+		if (!isResend) {
+			await ctx.db.patch(profile._id, {
+				notificationEmail: email,
+				notificationEmailSetAt: now,
+				notificationEmailSetByProfileId: profile._id,
+				notificationEmailVerifiedAt: undefined,
+				notificationEmailSource: 'self',
+				updatedAt: now
+			});
+		}
+		await issueChildEmailVerification(ctx, {
+			childProfileId: profile._id,
+			email,
+			requestedByProfileId: profile._id
+		});
+		if (!isResend) {
+			await scheduleRoutingChangedNotice(ctx, {
+				childProfileId: profile._id,
+				change: 'pending',
+				email
+			});
+		}
+		return { notificationEmail: email, status: 'pending' as const, verificationSent: true };
 	}
 });

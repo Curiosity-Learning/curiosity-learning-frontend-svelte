@@ -643,9 +643,9 @@ describe('child account routing for other high kinds (CL-768/CL-769)', () => {
 		expect(emailCalls().map((call) => call.to)).toEqual(['kiddo@example.com']);
 	});
 
-	// Unlink semantics are step 7 (review S7/D4): until then a critical notice still reaches the
-	// parent the child unlinked, and the confirmed child address gets its own copy.
-	it('critical notices still reach an unlinked parent (unchanged until step 7), plus the child', async () => {
+	// CL-769 (review S7/D4): a parent the child unlinked is no parent for routing at all — a
+	// critical notice reaches the child's own confirmed address only.
+	it('critical notices skip an unlinked parent and reach the child only', async () => {
 		vi.useFakeTimers();
 		const { t, clubId, childProfileId } = await seed({ confirmed: true, unlinked: true });
 		const memberId = await memberIdFor(t, clubId, childProfileId);
@@ -653,11 +653,7 @@ describe('child account routing for other high kinds (CL-768/CL-769)', () => {
 			.withIdentity({ subject: 'guide-user' })
 			.mutation(api.clubs.kickMember, { clubMemberId: memberId, reason: 'Testing' });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		expect(
-			emailCalls()
-				.map((call) => call.to)
-				.sort()
-		).toEqual(['kiddo@example.com', 'parent@example.com']);
+		expect(emailCalls().map((call) => call.to)).toEqual(['kiddo@example.com']);
 	});
 
 	it('a parent copy that fails does not stop the child copy, and both are recorded', async () => {

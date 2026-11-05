@@ -47,8 +47,12 @@ export default defineSchema({
 		notificationEmailSetAt: v.optional(v.number()),
 		notificationEmailSetByProfileId: v.optional(v.id('profiles')),
 		notificationEmailVerifiedAt: v.optional(v.number()),
-		// Where the parent entered it: the child's page, or the consent screen (review S12).
-		notificationEmailSource: v.optional(v.union(v.literal('childPage'), v.literal('consent'))),
+		// Where it was entered: by the parent on the child's page or the consent screen (review
+		// S12), or by the child themselves from Settings once 16+ ('self', CL-769 review D4 /
+		// edge case 13; parentAccounts.setMyNotificationEmail).
+		notificationEmailSource: v.optional(
+			v.union(v.literal('childPage'), v.literal('consent'), v.literal('self'))
+		),
 		// Adult accounts: when this person first agreed to the Terms / Privacy Policy, and which
 		// version (legalDocuments.version, or 'unversioned' when none was published). Set by
 		// childSignup.approveConsent for the PARENT (the combined consent checkbox covers the

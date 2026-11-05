@@ -1115,11 +1115,40 @@ const nl = {
 		linkedParentNone: 'Er is momenteel geen ouder gekoppeld aan je account.',
 		unlinkAction: 'Ouder ontkoppelen',
 		unlinkConfirmTitle: 'Ouderaccount ontkoppelen?',
-		unlinkConfirmDescription: 'Je ouder kan je clubs, projecten en chats niet meer bekijken.',
+		unlinkConfirmDescription:
+			'Je ouder kan je clubs, projecten en chats niet meer bekijken en krijgt geen e-mails meer over jou. Alle e-mails van Curiosity Learning, ook belangrijke meldingen, komen dan naar jou op {email}.',
+		unlinkRequiresEmail:
+			'Voeg eerst je eigen e-mailadres toe en bevestig het, zodat belangrijke meldingen je nog steeds bereiken.',
 		unlinkConfirmAction: 'Ontkoppelen',
 		unlinkCancel: 'Annuleren',
 		unlinkFailure: 'Kan ouderaccount niet ontkoppelen.',
 		unlinkSuccess: 'Ouderaccount ontkoppeld.',
+		ownEmailTitle: 'Je e-mailadres',
+		ownEmailDescription:
+			'Voeg je eigen e-mailadres toe om e-mails van Curiosity Learning zelf te ontvangen, zoals chatberichten en belangrijke meldingen. Er wordt niets naartoe gestuurd totdat je het bevestigt.',
+		ownEmailLabel: 'Je e-mailadres',
+		ownEmailPlaceholder: 'naam@voorbeeld.nl',
+		ownEmailSave: 'E-mailadres opslaan',
+		ownEmailCancel: 'Annuleren',
+		ownEmailChange: 'Wijzigen',
+		ownEmailRemove: 'Verwijderen',
+		ownEmailResend: 'Opnieuw versturen',
+		ownEmailConfirmed: 'Bevestigd',
+		ownEmailCurrent: 'Je e-mails gaan naar',
+		ownEmailPending:
+			'We wachten tot je {email} bevestigt. Open de e-mail die we stuurden en bevestig het terwijl je met dit account bent ingelogd.',
+		ownEmailPendingUnlinked:
+			'Totdat je het bevestigt, kan Curiosity Learning je niet e-mailen. Meldingen verschijnen nog wel in de app.',
+		ownEmailSaved: 'Opgeslagen. We hebben je een e-mail gestuurd om het adres te bevestigen.',
+		ownEmailResent: 'Opnieuw verstuurd. Open de e-mail en bevestig.',
+		ownEmailRemoved: 'E-mailadres verwijderd.',
+		ownEmailIsParent: 'Dat is het adres van je ouder. Vul je eigen e-mailadres in.',
+		ownEmailRequired:
+			'Je hebt een e-mailadres nodig zodat belangrijke meldingen je bereiken. Je kunt het wijzigen, maar niet verwijderen.',
+		ownEmailResendLimit:
+			'Je hebt vandaag het maximale aantal bevestigingsmails verstuurd. Probeer het morgen opnieuw.',
+		ownEmailInvalid: 'Vul een geldig e-mailadres in.',
+		ownEmailFailure: 'Het e-mailadres kon niet worden opgeslagen. Probeer het opnieuw.',
 		bannerLabel: 'Bekijken als {name} — alleen-lezen',
 		exitAction: 'Terug naar instellingen',
 		overviewTab: 'Overzicht',
@@ -1185,6 +1214,8 @@ const nl = {
 		validQuestion: 'Is {email} jouw e-mailadres?',
 		validDescription:
 			'Je ouder of voogd heeft het toegevoegd voor meldingen van Curiosity Learning voor {username}. Zodra je het bevestigt, gaan chatmeldingen naar dit adres in plaats van naar je ouder.',
+		validDescriptionSelf:
+			'Je hebt het toegevoegd voor meldingen van Curiosity Learning voor {username}. Zodra je het bevestigt, gaan je e-mails naar dit adres.',
 		confirm: 'Ja, dit is mijn e-mailadres',
 		confirming: 'Bezig met bevestigen...',
 		confirmedSnackbar: 'E-mailadres bevestigd',
@@ -1197,6 +1228,8 @@ const nl = {
 		signOut: 'Uitloggen',
 		expiredTitle: 'Deze link is verlopen',
 		expiredDescription: 'Vraag je ouder of voogd om een nieuwe te sturen.',
+		expiredDescriptionSelf: 'Stuur een nieuwe vanuit Instellingen.',
+		goToSettings: 'Naar Instellingen',
 		usedTitle: 'Al bevestigd',
 		usedDescription: 'Deze link is al gebruikt om je e-mailadres te bevestigen.',
 		notFoundTitle: 'Deze link is niet geldig',

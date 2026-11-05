@@ -548,7 +548,12 @@ describe('confirmChildEmail / getChildEmailVerification', () => {
 		const { t, child, childProfileId, token } = await setPending();
 		expect(
 			await child.query(api.childEmailVerification.getChildEmailVerification, { token })
-		).toEqual({ status: 'valid', username: 'kiddo', emailMasked: 'k…@example.com' });
+		).toEqual({
+			status: 'valid',
+			username: 'kiddo',
+			emailMasked: 'k…@example.com',
+			addedBySelf: false
+		});
 
 		await child.mutation(api.childEmailVerification.confirmChildEmail, { token });
 		await settle(t);
@@ -593,7 +598,7 @@ describe('confirmChildEmail / getChildEmailVerification', () => {
 		vi.setSystemTime(Date.now() + CHILD_EMAIL_VERIFICATION_TTL_MS + MINUTE);
 		expect(
 			await child.query(api.childEmailVerification.getChildEmailVerification, { token })
-		).toEqual({ status: 'expired' });
+		).toEqual({ status: 'expired', addedBySelf: false });
 		await expect(
 			child.mutation(api.childEmailVerification.confirmChildEmail, { token })
 		).rejects.toThrow(/expired/);

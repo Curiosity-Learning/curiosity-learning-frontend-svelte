@@ -10,6 +10,12 @@ export const NOTIFICATION_EMAIL_IS_PARENT = 'NOTIFICATION_EMAIL_IS_PARENT';
 // Too many confirmation emails for this child today.
 export const RESEND_LIMIT_REACHED = 'RESEND_LIMIT_REACHED';
 
+// A 16+ child tried to unlink their parent without a confirmed address of their own (CL-769,
+// review D4): important notices would then reach nobody.
+export const UNLINK_REQUIRES_CONFIRMED_EMAIL = 'UNLINK_REQUIRES_CONFIRMED_EMAIL';
+// A child with no linked parent tried to remove their own address (same reason).
+export const OWN_EMAIL_REQUIRED = 'OWN_EMAIL_REQUIRED';
+
 // Path of the page a confirmation email links to: /verify-email/{token}.
 export const VERIFY_EMAIL_PATH_PREFIX = '/verify-email/';
 

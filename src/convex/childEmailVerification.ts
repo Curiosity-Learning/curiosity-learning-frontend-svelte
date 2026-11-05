@@ -14,6 +14,7 @@ import { sendEmail } from './email/resend';
 import {
 	childEmailVerificationEmail,
 	childRoutingChangedEmail,
+	parentUnlinkedEmail,
 	type ChildRoutingChange
 } from './email/templates';
 import { generateMagicLinkToken, hashMagicLinkToken } from './magicLinks';
@@ -26,7 +27,8 @@ import { VERIFY_EMAIL_PATH_PREFIX } from '../lib/domain/child-notification-email
 //
 // A parent enters an address for their child on the child's page (parentAccounts
 // .setChildNotificationEmail) or on the consent screen (childSignup.approveConsent, same issue
-// path below). Until the CHILD
+// path below); a child aged 16+ can enter their own from Settings (parentAccounts
+// .setMyNotificationEmail, CL-769 review D4 / edge case 13, same pending flow). Until the CHILD
 // confirms it, the address is pending and nothing is routed to it
 // (notificationRouting.resolveEmailRecipients): the only email it ever gets is the generic confirmation
 // email below. Confirming requires the child's own session, not just the link: clicking a link
@@ -139,7 +141,12 @@ export const scheduleRoutingChangedNotice = async (
 export const getVerificationForSend = internalQuery({
 	args: { verificationId: v.id('childEmailVerifications') },
 	returns: v.union(
-		v.object({ childProfileId: v.id('profiles'), email: v.string(), username: v.string() }),
+		v.object({
+			childProfileId: v.id('profiles'),
+			email: v.string(),
+			username: v.string(),
+			addedBySelf: v.boolean()
+		}),
 		v.null()
 	),
 	handler: async (ctx, args) => {
@@ -147,7 +154,12 @@ export const getVerificationForSend = internalQuery({
 		if (!row || row.tokenHash !== undefined || row.consumedAt !== undefined) return null;
 		const child = await ctx.db.get(row.childProfileId);
 		if (!child?.username || child.notificationEmail !== row.email) return null;
-		return { childProfileId: row.childProfileId, email: row.email, username: child.username };
+		return {
+			childProfileId: row.childProfileId,
+			email: row.email,
+			username: child.username,
+			addedBySelf: row.requestedByProfileId === row.childProfileId
+		};
 	}
 });
 
@@ -197,7 +209,8 @@ export const sendChildEmailVerification = internalAction({
 						type: 'child-email-verification',
 						...childEmailVerificationEmail({
 							username: request.username,
-							url: `${baseUrl}${VERIFY_EMAIL_PATH_PREFIX}${token}`
+							url: `${baseUrl}${VERIFY_EMAIL_PATH_PREFIX}${token}`,
+							addedBySelf: request.addedBySelf
 						})
 					}),
 				request.email
@@ -273,6 +286,57 @@ export const sendRoutingChangedNotice = internalAction({
 });
 
 // ---------------------------------------------------------------------------------------------
+// Final notice to a parent the child unlinked (CL-769, review S7/D4)
+// ---------------------------------------------------------------------------------------------
+
+// Keyed by the consent rows parentAccounts.unlinkParent just stamped `unlinkedAt` on: their
+// `parentEmail` is the inbox the parent proved they own. Returns each distinct address once.
+export const getParentUnlinkedNoticeRecipients = internalQuery({
+	args: { childProfileId: v.id('profiles'), consentIds: v.array(v.id('parentChildConsents')) },
+	returns: v.object({ to: v.array(v.string()), childName: v.string() }),
+	handler: async (ctx, args) => {
+		const child = await ctx.db.get(args.childProfileId);
+		const to = new Set<string>();
+		for (const consentId of args.consentIds) {
+			const consent = await ctx.db.get(consentId);
+			if (consent?.childProfileId !== args.childProfileId || consent.unlinkedAt === undefined) {
+				continue;
+			}
+			to.add(consent.parentEmail.trim().toLowerCase());
+		}
+		return { to: [...to], childName: child ? profileDisplayName(child) : 'Your child' };
+	}
+});
+
+// Scheduled once per unlink, only when the call actually unlinked a consent, so a repeated
+// unlink never sends a second notice. Plain text, no link (see the template).
+export const sendParentUnlinkedNotice = internalAction({
+	args: { childProfileId: v.id('profiles'), consentIds: v.array(v.id('parentChildConsents')) },
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const { to, childName } = await ctx.runQuery(
+			internal.childEmailVerification.getParentUnlinkedNoticeRecipients,
+			args
+		);
+		const content = parentUnlinkedEmail({ childName });
+		for (const address of to) {
+			const result = await sendResult(
+				() => sendEmail({ to: address, type: 'notification', ...content }),
+				address
+			);
+			await ctx.runMutation(internal.notifications.logEmailDelivery, {
+				recipientProfileId: args.childProfileId,
+				kind: 'parent_unlinked',
+				subject: content.subject,
+				result,
+				audience: 'parent'
+			});
+		}
+		return null;
+	}
+});
+
+// ---------------------------------------------------------------------------------------------
 // The child confirms (/verify-email/[token])
 // ---------------------------------------------------------------------------------------------
 
@@ -317,17 +381,23 @@ export const getChildEmailVerification = query({
 			v.literal('wrongAccount')
 		),
 		username: v.optional(v.string()),
-		emailMasked: v.optional(v.string())
+		emailMasked: v.optional(v.string()),
+		// The child added the address themselves (16+, Settings) rather than their parent: only
+		// changes the wording. Only ever returned to the child the link is for.
+		addedBySelf: v.optional(v.boolean())
 	}),
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
 		const { status, row, child } = await resolveVerification(ctx, args.token, profile._id);
+		const addedBySelf = row ? row.requestedByProfileId === row.childProfileId : undefined;
+		if (status === 'expired') return { status, addedBySelf };
 		if (status !== 'valid' || !row || !child) return { status };
 		return {
 			status,
 			username: child.username ?? undefined,
-			emailMasked: maskEmail(row.email)
+			emailMasked: maskEmail(row.email),
+			addedBySelf
 		};
 	}
 });
