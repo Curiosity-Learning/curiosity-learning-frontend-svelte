@@ -388,3 +388,53 @@ export const sendClosingSoonReminders = internalAction({
 		};
 	}
 });
+
+/**
+ * Sends the three versions of the closing-soon reminder (applicant, approved parent, parent asked
+ * to approve) to ONE address, subject prefixed "[Preview]", with sample names, so the wording can
+ * be checked in a real inbox before a real run. Touches no application. The unsubscribe link is
+ * real for that address — pressing it really unsubscribes it.
+ *
+ *   npx convex run applicationReminders:sendClosingSoonPreview '{"to": "you@example.com"}' --prod
+ */
+export const sendClosingSoonPreview = internalAction({
+	args: { to: v.string() },
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const season = (await ctx.runQuery(internal.applicationReminders.planClosingSoonReminders, {
+			now: Date.now()
+		})) as { season: { name: string; applicationDeadline: number } | null };
+		if (!season.season) {
+			throw new ConvexError(
+				'No season is taking applications: set an application deadline on the next season first.'
+			);
+		}
+		const appOrigin = getAppOrigin();
+		const links = await buildUnsubscribeLinks('application_reminder', args.to);
+		if (!appOrigin || !links) throw new ConvexError('Links cannot be built on this deployment.');
+		const audiences: ApplicationReminderAudience[] = ['self', 'parent', 'parent_pending'];
+		for (const [index, audience] of audiences.entries()) {
+			if (index > 0) await new Promise((resolve) => setTimeout(resolve, SEND_SPACING_MS));
+			const email = applicationReminderEmail({
+				audience,
+				childName: audience === 'self' ? undefined : 'Sam',
+				seasonName: season.season.name,
+				deadlineLabel: formatSeasonDeadline(season.season.applicationDeadline),
+				deadlineDayLabel: formatSeasonDay(season.season.applicationDeadline),
+				ctaUrl:
+					audience === 'parent_pending'
+						? `${appOrigin}/onboarding/parent-consent/preview`
+						: `${appOrigin}/new-club/start?step=2`,
+				unsubscribeUrl: links.pageUrl
+			});
+			await sendEmail({
+				to: args.to,
+				type: 'application-reminder',
+				headers: links.headers,
+				...email,
+				subject: `[Preview] ${email.subject}`
+			});
+		}
+		return null;
+	}
+});
