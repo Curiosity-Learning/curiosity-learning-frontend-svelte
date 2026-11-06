@@ -6,6 +6,7 @@ export type TransactionalEmailType =
 	| 'password-reset'
 	| 'verification-otp'
 	| 'notification'
+	| 'application-reminder'
 	| 'admin-invite'
 	| 'club-leader-invite';
 
@@ -15,7 +16,12 @@ export type SendEmailResult = { providerMessageId: string | null };
 // asynchronous and only surfaces via the Resend webhook. Throws on any failure after reporting
 // it, so callers that track "was this sent?" (chat.sendChatEmail) can tell the two apart.
 export const sendEmail = async (
-	args: EmailContent & { to: string; type: TransactionalEmailType }
+	args: EmailContent & {
+		to: string;
+		type: TransactionalEmailType;
+		// Extra MIME headers, e.g. List-Unsubscribe on application reminders (emailUnsubscribe.ts).
+		headers?: Record<string, string>;
+	}
 ): Promise<SendEmailResult> => {
 	try {
 		const apiKey = process.env.RESEND_API_KEY;
@@ -37,6 +43,7 @@ export const sendEmail = async (
 				subject: args.subject,
 				html: args.html,
 				text: args.text,
+				...(args.headers ? { headers: args.headers } : {}),
 				tags: [{ name: 'email_type', value: args.type }]
 			})
 		});

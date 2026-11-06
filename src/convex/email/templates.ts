@@ -25,7 +25,8 @@ const escapeHtml = (value: string) =>
 
 const absoluteUrl = (url: string) => url;
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
-const isLocalUrl = (value: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value);
+const isLocalUrl = (value: string) =>
+	/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value);
 
 const getEmailLogoUrl = () => {
 	const explicitLogoUrl = process.env.EMAIL_LOGO_URL?.trim();
@@ -72,12 +73,7 @@ const rawLink = (url: string) => `
 	</p>
 `;
 
-const layout = (args: {
-	preheader: string;
-	title: string;
-	children: string;
-	footer?: string;
-}) => {
+const layout = (args: { preheader: string; title: string; children: string; footer?: string }) => {
 	const preheader = escapeHtml(args.preheader);
 	const title = escapeHtml(args.title);
 	const footer =
@@ -293,6 +289,100 @@ export const notificationEmail = (args: {
 			`,
 			footer:
 				'You received this email because of activity on your Curiosity Learning account. You can adjust which notifications you receive in Settings.'
+		})
+	};
+};
+
+// CL-770: the "your club application isn't finished" reminder. Three readers:
+// - 'self': the applicant themselves;
+// - 'parent': the approved parent of a child applicant — the parent cannot finish it for them,
+//   so the email says what is missing and how the child gets back to it;
+// - 'parent_pending': the parent of a child whose account still waits for their approval — the
+//   only thing they can do is approve, so the button is the consent link they were sent before.
+// Every reminder carries an unsubscribe link (emailUnsubscribe.ts); callers never send one without.
+export type ApplicationReminderAudience = 'self' | 'parent' | 'parent_pending';
+
+export const applicationReminderEmail = (args: {
+	audience: ApplicationReminderAudience;
+	childName?: string;
+	seasonName: string;
+	// "Saturday 7 November, 23:55 GMT" and "Saturday 7 November" (lib/domain/season-dates.ts).
+	deadlineLabel: string;
+	deadlineDayLabel: string;
+	ctaUrl: string;
+	unsubscribeUrl: string;
+}): EmailContent => {
+	const child = args.childName ?? 'your child';
+	const strong = (value: string) =>
+		`<strong style="color:${colors.foreground};">${escapeHtml(value)}</strong>`;
+	const videoLine =
+		'The last step is a short video about the club you want to start: up to 3 minutes and 500 MB, filmed on a phone is fine.';
+
+	const copy =
+		args.audience === 'parent_pending'
+			? {
+					subject: `${child}'s club application is waiting for your approval`,
+					title: `Approve ${child}'s account`,
+					paragraphs: [
+						`${child} signed up for Curiosity Learning and started an application to run a Curiosity Club, but their account is still waiting for your approval.`,
+						`Once you approve it, ${child} can upload a short video and submit the application. Applications for ${args.seasonName} close on ${args.deadlineLabel}.`
+					],
+					htmlParagraphs: [
+						`${escapeHtml(child)} signed up for Curiosity Learning and started an application to run a Curiosity Club, but their account is still waiting for your approval.`,
+						`Once you approve it, ${escapeHtml(child)} can upload a short video and submit the application. Applications for ${escapeHtml(args.seasonName)} close on ${strong(args.deadlineLabel)}.`
+					],
+					ctaLabel: `Review ${child}'s account`
+				}
+			: args.audience === 'parent'
+				? {
+						subject: `${child}'s club application closes ${args.deadlineDayLabel}`,
+						title: `${child}'s application isn't finished yet`,
+						paragraphs: [
+							`${child} started an application to run a Curiosity Club, but hasn't submitted it yet. ${videoLine}`,
+							`Applications for ${args.seasonName} close on ${args.deadlineLabel}. ${child} can finish by signing in with their username and uploading the video.`
+						],
+						htmlParagraphs: [
+							`${escapeHtml(child)} started an application to run a Curiosity Club, but hasn't submitted it yet. ${escapeHtml(videoLine)}`,
+							`Applications for ${escapeHtml(args.seasonName)} close on ${strong(args.deadlineLabel)}. ${escapeHtml(child)} can finish by signing in with their username and uploading the video.`
+						],
+						ctaLabel: 'Open the application'
+					}
+				: {
+						subject: `Your club application closes ${args.deadlineDayLabel}`,
+						title: 'Your application isn’t finished yet',
+						paragraphs: [
+							`You started an application to run a Curiosity Club, but haven't submitted it yet. ${videoLine}`,
+							`Applications for ${args.seasonName} close on ${args.deadlineLabel}. If you get stuck on the upload, use "Message us" on the video page and we'll help.`
+						],
+						htmlParagraphs: [
+							`You started an application to run a Curiosity Club, but haven't submitted it yet. ${escapeHtml(videoLine)}`,
+							`Applications for ${escapeHtml(args.seasonName)} close on ${strong(args.deadlineLabel)}. If you get stuck on the upload, use “Message us” on the video page and we'll help.`
+						],
+						ctaLabel: 'Finish my application'
+					};
+
+	const footer =
+		args.audience === 'self'
+			? 'You received this because you started a club application on Curiosity Learning.'
+			: `You received this because ${child} started a club application on Curiosity Learning.`;
+	const unsubscribeText = `Don't want these reminders? Unsubscribe: ${args.unsubscribeUrl}`;
+
+	return {
+		subject: copy.subject,
+		text: [...copy.paragraphs, `${copy.ctaLabel}: ${args.ctaUrl}`, footer, unsubscribeText].join(
+			'\n\n'
+		),
+		html: layout({
+			preheader: copy.paragraphs[0],
+			title: copy.title,
+			children: `
+				${copy.htmlParagraphs.map((content) => paragraph(content)).join('')}
+				${button(args.ctaUrl, copy.ctaLabel)}${rawLink(args.ctaUrl)}
+				<p style="margin:24px 0 0;font-size:13px;line-height:19px;color:${colors.muted};">
+					Don't want these reminders? <a href="${escapeHtml(args.unsubscribeUrl)}" style="color:${colors.primaryDark};">Unsubscribe from application reminders</a>.
+				</p>
+			`,
+			footer
 		})
 	};
 };
