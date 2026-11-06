@@ -328,10 +328,11 @@ const seedIntakeSeason = async (
 	});
 };
 
-const newSchemaTest = () => convexTest(schema, modules);
+// Typed against the schema, so helpers taking it get typed table queries.
+const createTest = () => convexTest(schema, modules);
 
 const getApplicationOf = async (
-	t: ReturnType<typeof newSchemaTest>,
+	t: ReturnType<typeof createTest>,
 	applicantProfileId: Id<'profiles'>
 ) =>
 	await t.run((ctx) =>
@@ -343,7 +344,7 @@ const getApplicationOf = async (
 
 describe('submitApplication season linking (CL-778)', () => {
 	it('a submission after a season deadline goes to the next season and is not scored in the open window', async () => {
-		const t = convexTest(schema, modules);
+		const t = createTest();
 		const { guideRoleId } = await seedRoles(t);
 		const guideProfileId = await seedProfile(t, 'guide-rolling');
 		await seedGuideClub(t, guideProfileId, guideRoleId);
@@ -377,7 +378,7 @@ describe('submitApplication season linking (CL-778)', () => {
 	});
 
 	it('keeps the started season of the draft and sets the review season on submit', async () => {
-		const t = convexTest(schema, modules);
+		const t = createTest();
 		const now = Date.now();
 		const winterId = await seedIntakeSeason(t, 'Winter 2026', now + DAY);
 
@@ -413,7 +414,7 @@ describe('submitApplication season linking (CL-778)', () => {
 	});
 
 	it('leaves both seasons unset (no throw) when no season takes applications', async () => {
-		const t = convexTest(schema, modules);
+		const t = createTest();
 		const applicantProfileId = await seedProfile(t, 'applicant-no-season');
 		const videoMediaAssetId = await seedReadyVideo(t, 'applicant-no-season');
 		await t
