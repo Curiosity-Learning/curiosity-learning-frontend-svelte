@@ -254,12 +254,34 @@ export default defineSchema({
 				closingSoonSentAt: v.optional(v.number())
 			})
 		),
+		// CL-778: which seasons an application belongs to (Ron, 2026-11-06). Both are "the season
+		// taking applications" (seasons.getApplicationIntakeSeason) at a moment:
+		//   - `startedSeasonId` ("Season started"): at the moment the row was CREATED. Set on every
+		//     insert path, never changed afterwards. Analytics' "started per season" groups by it.
+		//   - `reviewSeasonId` ("Season for review"): at the moment it was SUBMITTED, so an
+		//     application submitted after a season's deadline lands in the NEXT season. Review
+		//     assignment only hands an application to Guides during its own review season's window,
+		//     and the scoring form shows only then. Admins can move it to another season
+		//     (admin.adminSetApplicationReviewSeason) without re-scoring it — e.g. an applicant who
+		//     missed her interview is considered again next season.
+		// Unset when no season with a future deadline existed at that moment (and on rows from
+		// before CL-778 until clubApplications.backfillApplicationSeasons has run). Such pending
+		// applications are not assigned until an admin picks a season.
+		startedSeasonId: v.optional(v.id('seasons')),
+		reviewSeasonId: v.optional(v.id('seasons')),
+		// CL-778: when the applicant submitted (status became `pending`). Unknown — so unset — for
+		// applications submitted before CL-778.
+		submittedAt: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_applicant_profile_id', ['applicantProfileId'])
 		.index('by_status_and_created_at', ['status', 'createdAt'])
-		.index('by_created_club_id', ['createdClubId']),
+		.index('by_created_club_id', ['createdClubId'])
+		// CL-778: per-season lists (review assignment's pending scan, the admin pipeline's season
+		// filter) without scanning the whole table.
+		.index('by_review_season_id_and_status', ['reviewSeasonId', 'status'])
+		.index('by_started_season_id_and_status', ['startedSeasonId', 'status']),
 
 	applicationReviews: defineTable({
 		applicationId: v.id('clubApplications'),

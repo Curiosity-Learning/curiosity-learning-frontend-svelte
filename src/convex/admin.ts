@@ -9,9 +9,14 @@ import { dispatchNotification } from './notificationsModel';
 import {
 	applicationHasReadyVideo,
 	buildApplicationReviewSummary,
-	createClubFromApplication
+	createClubFromApplication,
+	resolveApplicationSeason
 } from './clubApplications';
-import { resolveSeasonForManualAssignment } from './reviewAssignmentModel';
+import {
+	assignReviewsForApplicationIfWindowOpen,
+	pickCurrentReviewSeason,
+	resolveSeasonForManualAssignment
+} from './reviewAssignmentModel';
 import { getAuthUserEmail } from './authEmail';
 
 // ---------------------------------------------------------------------------
@@ -350,6 +355,13 @@ export type ApplicationPipelineItem = {
 	clubName: string | null;
 	status: Doc<'clubApplications'>['status'];
 	createdAt: number;
+	// CL-778: "Season started" / "Season for review" (names from the seasons table), null when
+	// unset.
+	startedSeasonId: Id<'seasons'> | null;
+	startedSeasonName: string | null;
+	reviewSeasonId: Id<'seasons'> | null;
+	reviewSeasonName: string | null;
+	submittedAt: number | null;
 	// Set for decided applications only (see `decidedItems` below).
 	decidedAt: number | null;
 	reviewCount: number;
@@ -392,22 +404,73 @@ const getApplicationChatState = async (ctx: QueryCtx, application: Doc<'clubAppl
 	};
 };
 
+const SUBMITTED_STATUSES: Doc<'clubApplications'>['status'][] = [
+	'pending',
+	'interview',
+	'accepted',
+	'rejected'
+];
+
+// CL-778 season filter. A season's applications are the SUBMITTED ones whose "Season for review"
+// is that season plus the INCOMPLETE ones STARTED in it (an incomplete application has no review
+// season yet). 'none' lists what has no season link (submitted without a review season, incomplete
+// without a started season) so staff can place them. 'current' resolves to
+// reviewAssignmentModel.pickCurrentReviewSeason (the season in its review cycle — scoring opened,
+// not started yet — else the next one to open; all seasons when there is neither). No argument means every season — what admin portal builds from
+// before CL-778 get.
+const pipelineSeasonFilterValidator = v.union(
+	v.literal('current'),
+	v.literal('all'),
+	v.literal('none'),
+	v.id('seasons')
+);
+
+const loadApplicationsForSeason = async (ctx: QueryCtx, seasonId: Id<'seasons'> | undefined) => {
+	const submitted = (
+		await ctx.db
+			.query('clubApplications')
+			.withIndex('by_review_season_id_and_status', (q) => q.eq('reviewSeasonId', seasonId))
+			.collect()
+	).filter((application) => SUBMITTED_STATUSES.includes(application.status));
+	const incomplete = await ctx.db
+		.query('clubApplications')
+		.withIndex('by_started_season_id_and_status', (q) =>
+			q.eq('startedSeasonId', seasonId).eq('status', 'incomplete')
+		)
+		.collect();
+	return [...submitted, ...incomplete];
+};
+
 export const adminApplicationsPipeline = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		season: v.optional(pipelineSeasonFilterValidator)
+	},
+	handler: async (ctx, args) => {
 		await requireGlobalAdmin(ctx);
 
-		const [applications, reviews] = await Promise.all([
-			ctx.db.query('clubApplications').collect(),
-			ctx.db.query('applicationReviews').collect()
-		]);
+		// Seasons for the filter (newest start first, Season 0 included) and for row labels.
+		const seasons = await ctx.db
+			.query('seasons')
+			.withIndex('by_start_date')
+			.order('desc')
+			.collect();
+		const seasonsById = new Map(seasons.map((season) => [season._id, season]));
+		const currentReviewSeason = pickCurrentReviewSeason(seasons, Date.now());
 
-		const reviewsByApplication = new Map<Id<'clubApplications'>, Doc<'applicationReviews'>[]>();
-		for (const review of reviews) {
-			const list = reviewsByApplication.get(review.applicationId) ?? [];
-			list.push(review);
-			reviewsByApplication.set(review.applicationId, list);
+		const requested = args.season ?? 'all';
+		let selectedSeason: Id<'seasons'> | 'all' | 'none' =
+			requested === 'current' ? (currentReviewSeason?._id ?? 'all') : requested;
+		if (selectedSeason !== 'all' && selectedSeason !== 'none' && !seasonsById.has(selectedSeason)) {
+			selectedSeason = 'all';
 		}
+
+		const applications =
+			selectedSeason === 'all'
+				? await ctx.db.query('clubApplications').collect()
+				: await loadApplicationsForSeason(
+						ctx,
+						selectedSeason === 'none' ? undefined : selectedSeason
+					);
 
 		const statusCounts: Record<Doc<'clubApplications'>['status'], number> = {
 			incomplete: 0,
@@ -420,10 +483,18 @@ export const adminApplicationsPipeline = query({
 			statusCounts[application.status] += 1;
 		}
 
+		const seasonNameOf = (seasonId: Id<'seasons'> | undefined) =>
+			seasonId ? (seasonsById.get(seasonId)?.name ?? null) : null;
+
 		const toPipelineItem = async (
 			application: Doc<'clubApplications'>
 		): Promise<ApplicationPipelineItem> => {
-			const applicationReviews = reviewsByApplication.get(application._id) ?? [];
+			// Per application through the index (rather than the whole reviews table), now that a
+			// season filter usually narrows the list.
+			const applicationReviews = await ctx.db
+				.query('applicationReviews')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
+				.collect();
 			const scores = applicationReviews.map((r) => r.score);
 			const avgScore =
 				scores.length > 0 ? scores.reduce((sum, s) => sum + s, 0) / scores.length : null;
@@ -444,6 +515,11 @@ export const adminApplicationsPipeline = query({
 				clubName: await getClubName(ctx, application.createdClubId),
 				status: application.status,
 				createdAt: application.createdAt,
+				startedSeasonId: application.startedSeasonId ?? null,
+				startedSeasonName: seasonNameOf(application.startedSeasonId),
+				reviewSeasonId: application.reviewSeasonId ?? null,
+				reviewSeasonName: seasonNameOf(application.reviewSeasonId),
+				submittedAt: application.submittedAt ?? null,
 				decidedAt: application.decidedAt ?? null,
 				reviewCount: applicationReviews.length,
 				avgScore,
@@ -469,18 +545,38 @@ export const adminApplicationsPipeline = query({
 		const decidedItems: ApplicationPipelineItem[] = await Promise.all(decided.map(toPipelineItem));
 		decidedItems.sort((a, b) => (b.decidedAt ?? b.createdAt) - (a.decidedAt ?? a.createdAt));
 
-		return { statusCounts, items, decidedItems };
+		return {
+			statusCounts,
+			items,
+			decidedItems,
+			// CL-778: what the list is filtered to (with 'current' resolved), the season the page
+			// opens on, and the options for the filter.
+			selectedSeason,
+			currentReviewSeasonId: currentReviewSeason?._id ?? null,
+			seasons: seasons.map((season) => ({
+				seasonId: season._id,
+				name: season.name,
+				startDate: season.startDate
+			}))
+		};
 	}
 });
 
 // Lightweight per-application rows for the admin portal's analytics page (charts grouped by
-// cohort season). Raw values only — referral-source alias normalization and season bucketing are
-// presentation concerns and live in the admin app.
+// season). Raw values only — referral-source alias normalization is a presentation concern and
+// lives in the admin app. CL-778: grouping is by the application's linked seasons
+// (startedSeasonId for "started per season", reviewSeasonId for "in review per season") instead
+// of the admin app's former month-based cohort rule; names come from the seasons table.
 export type AdminAnalyticsApplicationRow = {
 	createdAt: number;
 	status: Doc<'clubApplications'>['status'];
 	referralSource: string | null;
 	referralOther: string | null;
+	startedSeasonId: Id<'seasons'> | null;
+	startedSeasonName: string | null;
+	reviewSeasonId: Id<'seasons'> | null;
+	reviewSeasonName: string | null;
+	submittedAt: number | null;
 };
 
 export const adminAnalyticsApplications = query({
@@ -488,12 +584,23 @@ export const adminAnalyticsApplications = query({
 	handler: async (ctx): Promise<AdminAnalyticsApplicationRow[]> => {
 		await requireGlobalAdmin(ctx);
 
-		const applications = await ctx.db.query('clubApplications').collect();
+		const [applications, seasons] = await Promise.all([
+			ctx.db.query('clubApplications').collect(),
+			ctx.db.query('seasons').collect()
+		]);
+		const seasonNames = new Map(seasons.map((season) => [season._id, season.name]));
+		const nameOf = (seasonId: Id<'seasons'> | undefined) =>
+			seasonId ? (seasonNames.get(seasonId) ?? null) : null;
 		return applications.map((application) => ({
 			createdAt: application.createdAt,
 			status: application.status,
 			referralSource: application.referralSource ?? null,
-			referralOther: application.referralOther ?? null
+			referralOther: application.referralOther ?? null,
+			startedSeasonId: application.startedSeasonId ?? null,
+			startedSeasonName: nameOf(application.startedSeasonId),
+			reviewSeasonId: application.reviewSeasonId ?? null,
+			reviewSeasonName: nameOf(application.reviewSeasonId),
+			submittedAt: application.submittedAt ?? null
 		}));
 	}
 });
@@ -616,6 +723,11 @@ export const adminGetApplication = query({
 			referralSource: application.referralSource ?? null,
 			referralOther: application.referralOther ?? null,
 			createdAt: application.createdAt,
+			// CL-778: "Season started" / "Season for review" ({ seasonId, name } or null); the
+			// review season is editable via adminSetApplicationReviewSeason.
+			startedSeason: await resolveApplicationSeason(ctx, application.startedSeasonId),
+			reviewSeason: await resolveApplicationSeason(ctx, application.reviewSeasonId),
+			submittedAt: application.submittedAt ?? null,
 			decidedAt: application.decidedAt ?? null,
 			decidedByName: decidedByProfile ? profileDisplayName(decidedByProfile) : null,
 			rejectionNote: application.rejectionNote ?? null,
@@ -672,7 +784,7 @@ export const adminAssignReviewer = mutation({
 		if (existing) {
 			throw new ConvexError('That user is already assigned to this application');
 		}
-		const season = await resolveSeasonForManualAssignment(ctx);
+		const season = await resolveSeasonForManualAssignment(ctx, application.reviewSeasonId);
 		if (!season) {
 			throw new ConvexError('No seasons configured — create a season first (Seasons & Booklet)');
 		}
@@ -739,6 +851,44 @@ export const adminEnsureApplicationRoom = mutation({
 		}
 		const roomId = await ensureClubApplicationRoom(ctx, application._id);
 		return { roomId };
+	}
+});
+
+// CL-778: move a submitted application to another "Season for review". Only the season changes —
+// status, reviews and reviewer assignments stay, so the application is NOT re-scored (Ron: an
+// applicant who missed her interview wants to be considered next season → she shows up in that
+// season's list to be interviewed and decided). The assignment job leaves applications with
+// actual reviews from another season alone (reviewAssignmentModel.hasReviewHistoryOutsideSeason);
+// a pending application that has never been scored is assigned right away if the new season's
+// window is open, exactly as the daily cron would. "Season started" is never editable.
+export const adminSetApplicationReviewSeason = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		seasonId: v.id('seasons')
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		if (application.status === 'incomplete') {
+			throw new ConvexError('Only submitted applications have a season for review');
+		}
+		const season = await ctx.db.get(args.seasonId);
+		if (!season) {
+			throw new ConvexError('Season not found');
+		}
+		if (application.reviewSeasonId === args.seasonId) {
+			return null;
+		}
+		await ctx.db.patch(application._id, {
+			reviewSeasonId: args.seasonId,
+			updatedAt: Date.now()
+		});
+		await assignReviewsForApplicationIfWindowOpen(ctx, application._id);
+		return null;
 	}
 });
 

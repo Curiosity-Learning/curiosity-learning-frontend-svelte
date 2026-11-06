@@ -79,6 +79,15 @@ export const getApplicationIntakeSeason = async (
 	now: number
 ): Promise<(Doc<'seasons'> & { applicationDeadline: number }) | null> => {
 	const seasons = await ctx.db.query('seasons').collect();
+	return pickApplicationIntakeSeason(seasons, now);
+};
+
+// The in-memory half of getApplicationIntakeSeason, for callers that already hold every season
+// and ask about many moments (CL-778's clubApplications.backfillApplicationSeasons).
+export const pickApplicationIntakeSeason = (
+	seasons: Doc<'seasons'>[],
+	now: number
+): (Doc<'seasons'> & { applicationDeadline: number }) | null => {
 	let intake: (Doc<'seasons'> & { applicationDeadline: number }) | null = null;
 	for (const season of seasons) {
 		const deadline = season.applicationDeadline;

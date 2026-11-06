@@ -8,6 +8,7 @@ import { getAuthUserEmailInfo } from './authEmail';
 import { createClubForFounder } from './clubCreationModel';
 import { ensureClubApplicationRoom } from './chatModel';
 import { resolveSeasonForManualAssignment } from './reviewAssignmentModel';
+import { getApplicationIntakeSeason } from './seasons';
 import { sendEmail } from './email/resend';
 import { clubLeaderInviteEmail } from './email/templates';
 
@@ -246,9 +247,15 @@ const createAcceptedApplicationForInvite = async (
 	}
 
 	const now = Date.now();
+	// CL-778: an invited leader's application is created, submitted and decided in one moment, so
+	// "Season started" and "Season for review" are both the season taking applications right now.
+	const season = await getApplicationIntakeSeason(ctx, now);
 	const applicationId = await ctx.db.insert('clubApplications', {
 		applicantProfileId,
 		status: 'accepted',
+		startedSeasonId: season?._id,
+		reviewSeasonId: season?._id,
+		submittedAt: now,
 		name: invite.clubName,
 		description: invite.clubDescription,
 		location: invite.clubLocation,
@@ -303,7 +310,8 @@ export const backfillApplicationForAcceptedInvite = internalMutation({
 				)
 				.first();
 			if (!existingAssignment) {
-				const season = await resolveSeasonForManualAssignment(ctx);
+				const application = await ctx.db.get(applicationId);
+				const season = await resolveSeasonForManualAssignment(ctx, application?.reviewSeasonId);
 				if (!season) {
 					throw new ConvexError('No seasons configured — create a season first');
 				}
