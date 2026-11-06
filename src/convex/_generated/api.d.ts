@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as adminInvites from "../adminInvites.js";
+import type * as applicationReminders from "../applicationReminders.js";
 import type * as auth from "../auth.js";
 import type * as authEmail from "../authEmail.js";
 import type * as booklet from "../booklet.js";
@@ -29,6 +30,7 @@ import type * as cocModel from "../cocModel.js";
 import type * as crons from "../crons.js";
 import type * as email_resend from "../email/resend.js";
 import type * as email_templates from "../email/templates.js";
+import type * as emailUnsubscribe from "../emailUnsubscribe.js";
 import type * as forms from "../forms.js";
 import type * as googleChat from "../googleChat.js";
 import type * as http from "../http.js";
@@ -83,6 +85,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   adminInvites: typeof adminInvites;
+  applicationReminders: typeof applicationReminders;
   auth: typeof auth;
   authEmail: typeof authEmail;
   booklet: typeof booklet;
@@ -102,6 +105,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   "email/resend": typeof email_resend;
   "email/templates": typeof email_templates;
+  emailUnsubscribe: typeof emailUnsubscribe;
   forms: typeof forms;
   googleChat: typeof googleChat;
   http: typeof http;

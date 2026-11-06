@@ -239,6 +239,19 @@ const en = {
 		planNextSessionDescription: 'Plan your next session to get the club back on the calendar.',
 		planNextSessionAction: 'Plan next session'
 	},
+	emailUnsubscribe: {
+		title: 'Stop application reminders?',
+		description:
+			"You'll no longer get reminders about unfinished club applications at {email}. Other emails, such as account notices and application decisions, still arrive.",
+		submit: 'Unsubscribe',
+		submitting: 'Unsubscribing...',
+		doneTitle: "You're unsubscribed",
+		doneDescription: "We won't send application reminders to {email} again.",
+		invalidTitle: 'This unsubscribe link is not valid',
+		invalidDescription:
+			'It may have been copied incompletely. Use the link from the email again, or contact us.',
+		failure: 'Something went wrong. Please try again.'
+	},
 	authLayout: {
 		description: 'Sign in to continue your club experience.'
 	},
