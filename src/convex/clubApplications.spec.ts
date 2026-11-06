@@ -558,14 +558,17 @@ describe('getApplication', () => {
 			reviewWindowClose: now + DAY_MS,
 			feedbackDeadline: now + 150 * DAY_MS
 		});
-		await t.run((ctx) =>
-			ctx.db.insert('applicationReviewAssignments', {
+		await t.run(async (ctx) => {
+			await ctx.db.insert('applicationReviewAssignments', {
 				applicationId,
 				reviewerProfileId,
 				seasonId,
 				assignedAt: now
-			})
-		);
+			});
+			// CL-778: the assignment is for the application's own review season.
+			await ctx.db.patch(applicationId, { reviewSeasonId: seasonId });
+		});
+		return seasonId;
 	};
 
 	const seedAdmin = async (t: Awaited<ReturnType<typeof seedApplicationFixture>>['t']) => {
@@ -866,5 +869,229 @@ describe('clubApplication chat overview and action state', () => {
 		expect(reviewerSummaries).toContainEqual(
 			expect.objectContaining({ roomId, actionState: 'open' })
 		);
+	});
+});
+
+// CL-778: the scoring form follows the application's OWN review season.
+describe('getApplication scoring window (CL-778)', () => {
+	const DAY = 24 * 60 * 60 * 1000;
+
+	it('is closed when another season is being scored but not the application’s own', async () => {
+		const { reviewer, reviewerProfileId, applicationId, t } = await seedApplicationFixture();
+		const now = Date.now();
+		const season = (name: string, reviewWindowOpen: number) =>
+			t.mutation(internal.seasons.createSeason, {
+				name,
+				reviewWindowOpen,
+				reviewWindowClose: reviewWindowOpen + 10 * DAY,
+				startDate: reviewWindowOpen + 20 * DAY,
+				endDate: reviewWindowOpen + 100 * DAY,
+				feedbackDeadline: reviewWindowOpen + 120 * DAY
+			});
+		const openId = await season('Winter 2026', now - DAY);
+		const laterId = await season('Spring 2027', now + 90 * DAY);
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId,
+				seasonId: openId,
+				assignedAt: now
+			})
+		);
+
+		await t.run((ctx) => ctx.db.patch(applicationId, { reviewSeasonId: laterId }));
+		const later = await reviewer.query(api.clubApplications.getApplication, { applicationId });
+		expect(later?.reviewWindowOpen).toBe(false);
+		expect(later?.reviewSeason).toEqual({ seasonId: laterId, name: 'Spring 2027' });
+		const laterList = await reviewer.query(api.clubApplications.listReviewableApplications, {});
+		expect(laterList[0]?.reviewWindowOpen).toBe(false);
+
+		await t.run((ctx) => ctx.db.patch(applicationId, { reviewSeasonId: undefined }));
+		const unset = await reviewer.query(api.clubApplications.getApplication, { applicationId });
+		expect(unset?.reviewWindowOpen).toBe(false);
+		expect(unset?.reviewSeason).toBeNull();
+
+		await t.run((ctx) => ctx.db.patch(applicationId, { reviewSeasonId: openId }));
+		const open = await reviewer.query(api.clubApplications.getApplication, { applicationId });
+		expect(open?.reviewWindowOpen).toBe(true);
+		const openList = await reviewer.query(api.clubApplications.listReviewableApplications, {});
+		expect(openList[0]?.reviewWindowOpen).toBe(true);
+	});
+});
+
+// CL-778: backfillApplicationSeasons.
+describe('backfillApplicationSeasons (CL-778)', () => {
+	const DAY = 24 * 60 * 60 * 1000;
+	const LEGACY_CUTOFF = Date.UTC(2026, 7, 1);
+
+	const seed = async () => {
+		const t = convexTest(schema, modules);
+		const ids = await t.run(async (ctx) => {
+			const now = Date.now();
+			const season = (fields: {
+				name: string;
+				applicationDeadline?: number;
+				reviewWindowOpen: number;
+			}) =>
+				ctx.db.insert('seasons', {
+					...fields,
+					reviewWindowClose: fields.reviewWindowOpen + 14 * DAY,
+					startDate: fields.reviewWindowOpen + 30 * DAY,
+					endDate: fields.reviewWindowOpen + 120 * DAY,
+					feedbackDeadline: fields.reviewWindowOpen + 150 * DAY,
+					createdAt: now,
+					updatedAt: now
+				});
+			// The bootstrap season has no application deadline.
+			const legacyId = await season({
+				name: 'Season 0 (bootstrap)',
+				reviewWindowOpen: Date.UTC(2026, 5, 1)
+			});
+			const winterDeadline = Date.UTC(2026, 10, 7, 23, 55);
+			const winterId = await season({
+				name: 'Winter 2026',
+				applicationDeadline: winterDeadline,
+				reviewWindowOpen: winterDeadline
+			});
+			const springDeadline = Date.UTC(2027, 1, 7, 23, 55);
+			const springId = await season({
+				name: 'Spring 2027',
+				applicationDeadline: springDeadline,
+				reviewWindowOpen: springDeadline
+			});
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'backfill-applicant',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const app = (
+				name: string,
+				status: 'incomplete' | 'pending' | 'interview' | 'accepted' | 'rejected',
+				createdAt: number,
+				extra: Record<string, unknown> = {}
+			) =>
+				ctx.db.insert('clubApplications', {
+					applicantProfileId,
+					name,
+					status,
+					createdAt,
+					updatedAt: createdAt,
+					...extra
+				});
+			return {
+				legacyId,
+				winterId,
+				springId,
+				// Before the cutoff → Season 0 for both fields.
+				oldAccepted: await app('Old accepted', 'accepted', Date.UTC(2026, 6, 1), {
+					decidedAt: Date.UTC(2026, 6, 10)
+				}),
+				oldDraft: await app('Old draft', 'incomplete', Date.UTC(2026, 6, 2)),
+				// After the cutoff, during Winter's intake.
+				winterPending: await app('Winter pending', 'pending', Date.UTC(2026, 8, 1)),
+				winterDraft: await app('Winter draft', 'incomplete', Date.UTC(2026, 8, 2)),
+				// Decided before Winter's review window opened → not reviewed in Winter → Season 0.
+				decidedEarly: await app('Decided early', 'rejected', Date.UTC(2026, 8, 3), {
+					decidedAt: Date.UTC(2026, 9, 1)
+				}),
+				// Decided inside Winter's window → stays Winter.
+				decidedInWindow: await app('Decided in window', 'accepted', Date.UTC(2026, 8, 4), {
+					decidedAt: winterDeadline + DAY
+				}),
+				// After Winter's deadline → Spring.
+				springInterview: await app('Spring interview', 'interview', winterDeadline + DAY),
+				// Already linked by hand: never overwritten.
+				alreadySet: await app('Already set', 'pending', Date.UTC(2026, 8, 5), {
+					startedSeasonId: springId,
+					reviewSeasonId: springId
+				}),
+				// After every deadline: nothing to link to.
+				tooLate: await app('Too late', 'pending', springDeadline + DAY)
+			};
+		});
+		return { t, ...ids };
+	};
+
+	it('dryRun reports the plan and writes nothing', async () => {
+		const { t, legacyId } = await seed();
+		const before = await t.run((ctx) => ctx.db.query('clubApplications').collect());
+
+		const summary = await t.mutation(internal.clubApplications.backfillApplicationSeasons, {
+			dryRun: true,
+			legacySeasonId: legacyId,
+			legacyCutoff: LEGACY_CUTOFF
+		});
+
+		expect(summary.dryRun).toBe(true);
+		expect(summary.scanned).toBe(9);
+		expect(summary.startedSeasonSet).toBe(7);
+		expect(summary.reviewSeasonSet).toBe(5);
+		const after = await t.run((ctx) => ctx.db.query('clubApplications').collect());
+		expect(after).toEqual(before);
+	});
+
+	it('applies the legacy cutoff, the intake-season rule and the decided-before-window exception', async () => {
+		const ids = await seed();
+		const { t, legacyId, winterId, springId } = ids;
+
+		const summary = await t.mutation(internal.clubApplications.backfillApplicationSeasons, {
+			dryRun: false,
+			legacySeasonId: legacyId,
+			legacyCutoff: LEGACY_CUTOFF
+		});
+
+		const get = (id: Id<'clubApplications'>) => t.run((ctx) => ctx.db.get(id));
+		const expectSeasons = async (
+			id: Id<'clubApplications'>,
+			started: Id<'seasons'> | undefined,
+			review: Id<'seasons'> | undefined
+		) => {
+			const application = await get(id);
+			expect(application?.startedSeasonId).toBe(started);
+			expect(application?.reviewSeasonId).toBe(review);
+			expect(application?.submittedAt).toBeUndefined();
+		};
+		await expectSeasons(ids.oldAccepted, legacyId, legacyId);
+		await expectSeasons(ids.oldDraft, legacyId, undefined);
+		await expectSeasons(ids.winterPending, winterId, winterId);
+		await expectSeasons(ids.winterDraft, winterId, undefined);
+		await expectSeasons(ids.decidedEarly, winterId, legacyId);
+		await expectSeasons(ids.decidedInWindow, winterId, winterId);
+		await expectSeasons(ids.springInterview, springId, springId);
+		await expectSeasons(ids.alreadySet, springId, springId);
+		await expectSeasons(ids.tooLate, undefined, undefined);
+
+		const counts = (rows: { seasonName: string; count: number }[]) =>
+			Object.fromEntries(rows.map((row) => [row.seasonName, row.count]));
+		expect(counts(summary.startedSeasonCounts)).toEqual({
+			'Season 0 (bootstrap)': 2,
+			'Winter 2026': 4,
+			'Spring 2027': 1
+		});
+		expect(counts(summary.reviewSeasonCounts)).toEqual({
+			'Season 0 (bootstrap)': 2,
+			'Winter 2026': 2,
+			'Spring 2027': 1
+		});
+		const tooLateRow = summary.applications.find((row) => row.applicationId === ids.tooLate);
+		expect(tooLateRow?.startedSeason).toBeNull();
+		expect(tooLateRow?.skippedReason).toContain('no season was taking applications');
+		const alreadySetRow = summary.applications.find((row) => row.applicationId === ids.alreadySet);
+		expect(alreadySetRow).toMatchObject({
+			startedSeason: 'Spring 2027',
+			reviewSeason: 'Spring 2027',
+			startedSeasonChanged: false,
+			reviewSeasonChanged: false
+		});
+
+		// Idempotent: a second run has nothing left to fill.
+		const again = await t.mutation(internal.clubApplications.backfillApplicationSeasons, {
+			dryRun: false,
+			legacySeasonId: legacyId,
+			legacyCutoff: LEGACY_CUTOFF
+		});
+		expect(again.startedSeasonSet).toBe(0);
+		expect(again.reviewSeasonSet).toBe(0);
 	});
 });

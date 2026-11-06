@@ -16,9 +16,10 @@ import { createClubForFounder } from './clubCreationModel';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	assignReviewsForApplicationIfWindowOpen,
-	isReviewWindowOpen,
+	isApplicationReviewWindowOpen,
 	maybeNotifyScoreDiscrepancy
 } from './reviewAssignmentModel';
+import { getApplicationIntakeSeason, pickApplicationIntakeSeason } from './seasons';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -292,10 +293,13 @@ const upsertIncompleteApplication = async (
 		return { applicationId: existing._id };
 	}
 
+	// CL-778: "Season started" — the season taking applications right now. Never changed later.
+	const startedSeason = await getApplicationIntakeSeason(ctx, now);
 	const applicationId = await ctx.db.insert('clubApplications', {
 		applicantProfileId: args.profileId,
 		status: 'incomplete',
 		...normalized,
+		startedSeasonId: startedSeason?._id,
 		createdAt: now,
 		updatedAt: now
 	});
@@ -363,9 +367,16 @@ export const submitApplication = mutation({
 
 		const now = Date.now();
 		const existing = await getLatestIncompleteApplication(ctx, profile._id);
+		// CL-778: "Season for review" — the season taking applications at the moment of submission.
+		// A submission after a season's deadline therefore goes to the NEXT season (and is scored in
+		// that season's window). Unset when no upcoming season has a deadline yet; an admin can set
+		// it later (admin.adminSetApplicationReviewSeason).
+		const reviewSeason = await getApplicationIntakeSeason(ctx, now);
 		const payload = {
 			applicantProfileId: profile._id,
 			status: 'pending',
+			reviewSeasonId: reviewSeason?._id,
+			submittedAt: now,
 			name: args.name.trim(),
 			description: args.description,
 			location: args.location,
@@ -395,8 +406,10 @@ export const submitApplication = mutation({
 			return { applicationId: existing._id };
 		}
 
+		// No draft row: started and submitted in the same moment, so both seasons are the same.
 		const applicationId = await ctx.db.insert('clubApplications', {
 			...payload,
+			startedSeasonId: reviewSeason?._id,
 			createdAt: now
 		});
 		await ensureClubApplicationRoom(ctx, applicationId);
@@ -514,6 +527,9 @@ export const listReviewableApplications = query({
 			if (existingReview) continue;
 			items.push({
 				...application,
+				// CL-778: whether this application's own review season is being scored right now —
+				// the card's call to action ("Review" vs "View application") follows it.
+				reviewWindowOpen: await isApplicationReviewWindowOpen(ctx, application),
 				myReview: null,
 				// CL-710 CEO review item 2: the video is one of the most important parts of the
 				// application — surface it directly on the review card.
@@ -887,6 +903,18 @@ const applicationStatusValidator = v.union(
 	v.literal('rejected')
 );
 
+const applicationSeasonValidator = v.object({
+	seasonId: v.id('seasons'),
+	name: v.string()
+});
+
+// CL-778: { seasonId, name } of a linked season, null when unset (or the row is gone).
+export const resolveApplicationSeason = async (ctx: Ctx, seasonId: Id<'seasons'> | undefined) => {
+	if (!seasonId) return null;
+	const season = await ctx.db.get(seasonId);
+	return season ? { seasonId: season._id, name: season.name } : null;
+};
+
 const applicationDecisionValidator = v.object({
 	decidedByName: v.union(v.string(), v.null()),
 	adminFollowUpFlag: v.union(
@@ -966,9 +994,14 @@ export const getApplication = query({
 				hasReviewed: v.boolean(),
 				isAssigned: v.boolean()
 			}),
-			// Season-driven: the scoring form only renders while a review window is open (see
-			// reviewAssignmentModel.isReviewWindowOpen).
+			// Season-driven: the scoring form only renders while the application's OWN review
+			// season's window is open (CL-778; reviewAssignmentModel.isApplicationReviewWindowOpen).
 			reviewWindowOpen: v.boolean(),
+			// CL-778: "Season started" / "Season for review", null when unset. Admins (and only
+			// admins) can change the review season from the detail page.
+			startedSeason: v.union(v.null(), applicationSeasonValidator),
+			reviewSeason: v.union(v.null(), applicationSeasonValidator),
+			submittedAt: v.union(v.number(), v.null()),
 			myReview: v.union(
 				v.null(),
 				v.object({
@@ -1054,7 +1087,10 @@ export const getApplication = query({
 				hasReviewed: viewer.hasReviewed,
 				isAssigned: viewer.isAssigned
 			},
-			reviewWindowOpen: await isReviewWindowOpen(ctx),
+			reviewWindowOpen: await isApplicationReviewWindowOpen(ctx, application),
+			startedSeason: await resolveApplicationSeason(ctx, application.startedSeasonId),
+			reviewSeason: await resolveApplicationSeason(ctx, application.reviewSeasonId),
+			submittedAt: application.submittedAt ?? null,
 			myReview: ownReview
 				? {
 						principlesScore: ownReview.principlesScore ?? null,
@@ -1101,6 +1137,170 @@ export const getApplicationVideoDeliveryAsset = query({
 			mediaKind: asset.mediaKind ?? null,
 			contentType: asset.contentType ?? null,
 			durationSeconds: asset.durationSeconds ?? null
+		};
+	}
+});
+
+// ---------------------------------------------------------------------------
+// CL-778 backfill: link applications created before CL-778 to seasons.
+//
+//   npx convex run clubApplications:backfillApplicationSeasons \
+//     '{"dryRun": true, "legacySeasonId": "<Season 0 id>", "legacyCutoff": 1785542400000}' [--prod]
+//
+// (legacyCutoff = Date.UTC(2026, 7, 1), 1 Aug 2026: everything created before the season system
+// belongs to the bootstrap "Season 0".) Run with dryRun first and read the per-application list.
+// Rules (Ron, 2026-11-06):
+//   - Only fills fields that are unset — idempotent, never overwrites (so it is safe to re-run,
+//     and it never touches anything set on create/submit or by an admin).
+//   - startedSeasonId: createdAt < legacyCutoff → legacySeasonId; otherwise the season taking
+//     applications at createdAt (seasons.getApplicationIntakeSeason); none → left unset.
+//   - reviewSeasonId: submitted statuses only (pending, interview, accepted, rejected), by the same
+//     date rule on createdAt — the submission moment of old rows is unknown. Exception: an
+//     application already decided before that season's review window opened was not reviewed in
+//     that season, so it goes to legacySeasonId.
+//   - submittedAt is NOT backfilled (unknown), and no past seasons are created.
+// ---------------------------------------------------------------------------
+
+const SUBMITTED_STATUSES: Doc<'clubApplications'>['status'][] = [
+	'pending',
+	'interview',
+	'accepted',
+	'rejected'
+];
+
+const backfillSeasonCountValidator = v.array(
+	v.object({ seasonName: v.string(), count: v.number() })
+);
+
+export const backfillApplicationSeasons = internalMutation({
+	args: {
+		dryRun: v.boolean(),
+		legacySeasonId: v.id('seasons'),
+		legacyCutoff: v.number()
+	},
+	returns: v.object({
+		dryRun: v.boolean(),
+		scanned: v.number(),
+		startedSeasonSet: v.number(),
+		reviewSeasonSet: v.number(),
+		// Seasons this run set (or, in a dry run, would set), per field.
+		startedSeasonCounts: backfillSeasonCountValidator,
+		reviewSeasonCounts: backfillSeasonCountValidator,
+		applications: v.array(
+			v.object({
+				applicationId: v.id('clubApplications'),
+				status: v.string(),
+				createdAt: v.number(),
+				// The resulting season names (existing or newly set), null when still unset.
+				startedSeason: v.union(v.string(), v.null()),
+				reviewSeason: v.union(v.string(), v.null()),
+				startedSeasonChanged: v.boolean(),
+				reviewSeasonChanged: v.boolean(),
+				skippedReason: v.union(v.string(), v.null())
+			})
+		)
+	}),
+	handler: async (ctx, args) => {
+		const legacySeason = await ctx.db.get(args.legacySeasonId);
+		if (!legacySeason) {
+			throw new ConvexError('legacySeasonId is not a season');
+		}
+		const seasons = await ctx.db.query('seasons').collect();
+		const seasonsById = new Map(seasons.map((season) => [season._id, season]));
+		const seasonName = (seasonId: Id<'seasons'> | undefined) =>
+			seasonId ? (seasonsById.get(seasonId)?.name ?? 'Unknown season') : null;
+
+		// The date rule shared by both fields.
+		const seasonForCreatedAt = (createdAt: number) =>
+			createdAt < args.legacyCutoff
+				? legacySeason
+				: pickApplicationIntakeSeason(seasons, createdAt);
+
+		const startedCounts = new Map<string, number>();
+		const reviewCounts = new Map<string, number>();
+		const bump = (counts: Map<string, number>, name: string) =>
+			counts.set(name, (counts.get(name) ?? 0) + 1);
+
+		const applications = await ctx.db.query('clubApplications').collect();
+		applications.sort((a, b) => a.createdAt - b.createdAt);
+
+		const rows = [];
+		let startedSeasonSet = 0;
+		let reviewSeasonSet = 0;
+		for (const application of applications) {
+			const reasons: string[] = [];
+			const patch: { startedSeasonId?: Id<'seasons'>; reviewSeasonId?: Id<'seasons'> } = {};
+
+			if (application.startedSeasonId) {
+				reasons.push('season started already set');
+			} else {
+				const season = seasonForCreatedAt(application.createdAt);
+				if (season) {
+					patch.startedSeasonId = season._id;
+				} else {
+					reasons.push('season started: no season was taking applications at createdAt');
+				}
+			}
+
+			if (application.reviewSeasonId) {
+				reasons.push('season for review already set');
+			} else if (!SUBMITTED_STATUSES.includes(application.status)) {
+				reasons.push('season for review: not submitted');
+			} else {
+				let season = seasonForCreatedAt(application.createdAt);
+				if (
+					season &&
+					season._id !== legacySeason._id &&
+					(application.status === 'accepted' || application.status === 'rejected') &&
+					application.decidedAt !== undefined &&
+					application.decidedAt < season.reviewWindowOpen
+				) {
+					// Decided before that season's scoring even opened: not reviewed in it.
+					season = legacySeason;
+				}
+				if (season) {
+					patch.reviewSeasonId = season._id;
+				} else {
+					reasons.push('season for review: no season was taking applications at createdAt');
+				}
+			}
+
+			if (patch.startedSeasonId) {
+				startedSeasonSet += 1;
+				bump(startedCounts, seasonName(patch.startedSeasonId) ?? 'Unknown season');
+			}
+			if (patch.reviewSeasonId) {
+				reviewSeasonSet += 1;
+				bump(reviewCounts, seasonName(patch.reviewSeasonId) ?? 'Unknown season');
+			}
+			if (!args.dryRun && (patch.startedSeasonId || patch.reviewSeasonId)) {
+				// updatedAt deliberately untouched: this is bookkeeping, not an applicant edit.
+				await ctx.db.patch(application._id, patch);
+			}
+
+			rows.push({
+				applicationId: application._id,
+				status: application.status,
+				createdAt: application.createdAt,
+				startedSeason: seasonName(patch.startedSeasonId ?? application.startedSeasonId),
+				reviewSeason: seasonName(patch.reviewSeasonId ?? application.reviewSeasonId),
+				startedSeasonChanged: Boolean(patch.startedSeasonId),
+				reviewSeasonChanged: Boolean(patch.reviewSeasonId),
+				skippedReason: reasons.length > 0 ? reasons.join('; ') : null
+			});
+		}
+
+		const toCounts = (counts: Map<string, number>) =>
+			[...counts.entries()].map(([name, count]) => ({ seasonName: name, count }));
+
+		return {
+			dryRun: args.dryRun,
+			scanned: applications.length,
+			startedSeasonSet,
+			reviewSeasonSet,
+			startedSeasonCounts: toCounts(startedCounts),
+			reviewSeasonCounts: toCounts(reviewCounts),
+			applications: rows
 		};
 	}
 });

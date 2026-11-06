@@ -72,7 +72,11 @@ const seedGuideClub = async (
 const seedApplication = async (
 	t: ReturnType<typeof convexTest>,
 	applicantProfileId: Id<'profiles'>,
-	overrides: { status?: 'pending' | 'incomplete'; createdAt?: number } = {}
+	overrides: {
+		status?: 'pending' | 'incomplete' | 'interview';
+		createdAt?: number;
+		reviewSeasonId?: Id<'seasons'>;
+	} = {}
 ) => {
 	return await t.run(async (ctx) => {
 		const now = Date.now();
@@ -80,6 +84,7 @@ const seedApplication = async (
 			applicantProfileId,
 			status: overrides.status ?? 'pending',
 			name: 'New Curiosity Club',
+			reviewSeasonId: overrides.reviewSeasonId,
 			createdAt: overrides.createdAt ?? now,
 			updatedAt: now
 		});
@@ -106,6 +111,12 @@ const seedSeason = async (
 		reviewWindowClose: overrides.reviewWindowClose ?? now + 1 * DAY,
 		feedbackDeadline: overrides.feedbackDeadline ?? now + 150 * DAY
 	});
+};
+
+const seedAdmin = async (t: ReturnType<typeof convexTest>) => {
+	const adminProfileId = await seedProfile(t, 'season-admin');
+	await t.run((ctx) => ctx.db.patch(adminProfileId, { globalRole: 'admin' }));
+	return t.withIdentity({ subject: 'season-admin' });
 };
 
 describe('assignReviewsForOpenWindow', () => {
@@ -157,8 +168,8 @@ describe('assignReviewsForOpenWindow', () => {
 		const applicantProfileId = await seedProfile(t, 'applicant-guide');
 		await seedGuideClub(t, applicantProfileId, guideRoleId);
 
-		const applicationId = await seedApplication(t, applicantProfileId);
 		const seasonId = await seedSeason(t);
+		const applicationId = await seedApplication(t, applicantProfileId, { reviewSeasonId: seasonId });
 
 		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
 		expect(result.seasonId).toBe(seasonId);
@@ -229,10 +240,10 @@ describe('assignReviewsForOpenWindow', () => {
 		const applicant1 = await seedProfile(t, 'applicant-load-1');
 		const applicant2 = await seedProfile(t, 'applicant-load-2');
 		const applicant3 = await seedProfile(t, 'applicant-load-3');
-		await seedApplication(t, applicant1, { createdAt: Date.now() - 3000 });
-		await seedApplication(t, applicant2, { createdAt: Date.now() - 2000 });
-		await seedApplication(t, applicant3, { createdAt: Date.now() - 1000 });
-		await seedSeason(t);
+		const seasonId = await seedSeason(t);
+		await seedApplication(t, applicant1, { createdAt: Date.now() - 3000, reviewSeasonId: seasonId });
+		await seedApplication(t, applicant2, { createdAt: Date.now() - 2000, reviewSeasonId: seasonId });
+		await seedApplication(t, applicant3, { createdAt: Date.now() - 1000, reviewSeasonId: seasonId });
 
 		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
 		// Only 2 applications can get an assignment: 2 guides x cap of 1 review each = 2 total slots.
@@ -261,8 +272,8 @@ describe('assignReviewsForOpenWindow', () => {
 		const guideProfileId = await seedProfile(t, 'guide-idempotent');
 		await seedGuideClub(t, guideProfileId, guideRoleId);
 		const applicantProfileId = await seedProfile(t, 'applicant-idempotent');
-		await seedApplication(t, applicantProfileId);
-		await seedSeason(t);
+		const seasonId = await seedSeason(t);
+		await seedApplication(t, applicantProfileId, { reviewSeasonId: seasonId });
 
 		await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
 		const secondRun = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
@@ -273,64 +284,313 @@ describe('assignReviewsForOpenWindow', () => {
 	});
 });
 
-describe('submitApplication rolling mid-window assignment', () => {
-	it('assigns a newly submitted application immediately when a review window is currently open', async () => {
+const seedReadyVideo = async (t: ReturnType<typeof convexTest>, ownerUserId: string) => {
+	return await t.run(async (ctx) => {
+		const now = Date.now();
+		return await ctx.db.insert('mediaAssets', {
+			ownerUserId,
+			mediaKind: 'video',
+			status: 'ready',
+			acceptedContentTypes: ['video/mp4'],
+			maxBytes: 100_000_000,
+			enableCompression: true,
+			enableSafetyScreening: true,
+			storageProvider: 's3',
+			sourceBucket: 'test-bucket',
+			sourceObjectKey: `test-object-key-${ownerUserId}`,
+			sourceObjectRevision: 1,
+			contentType: 'video/mp4',
+			sizeBytes: 1000,
+			pipelineVersion: 1,
+			attemptCount: 1,
+			stepResults: [],
+			createdAt: now,
+			updatedAt: now,
+			readyAt: now
+		});
+	});
+};
+
+// CL-778: a season as the admin form creates it — scoring opens when applications close.
+const seedIntakeSeason = async (
+	t: ReturnType<typeof convexTest>,
+	name: string,
+	applicationDeadline: number
+) => {
+	return await t.mutation(internal.seasons.createSeason, {
+		name,
+		applicationDeadline,
+		reviewWindowOpen: applicationDeadline,
+		reviewWindowClose: applicationDeadline + 14 * DAY,
+		startDate: applicationDeadline + 30 * DAY,
+		endDate: applicationDeadline + 120 * DAY,
+		feedbackDeadline: applicationDeadline + 150 * DAY
+	});
+};
+
+const newSchemaTest = () => convexTest(schema, modules);
+
+const getApplicationOf = async (
+	t: ReturnType<typeof newSchemaTest>,
+	applicantProfileId: Id<'profiles'>
+) =>
+	await t.run((ctx) =>
+		ctx.db
+			.query('clubApplications')
+			.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', applicantProfileId))
+			.first()
+	);
+
+describe('submitApplication season linking (CL-778)', () => {
+	it('a submission after a season deadline goes to the next season and is not scored in the open window', async () => {
 		const t = convexTest(schema, modules);
 		const { guideRoleId } = await seedRoles(t);
 		const guideProfileId = await seedProfile(t, 'guide-rolling');
 		await seedGuideClub(t, guideProfileId, guideRoleId);
-		await seedSeason(t);
+		const now = Date.now();
+		// Winter's applications closed yesterday, so its scoring window is open right now.
+		const winterId = await seedIntakeSeason(t, 'Winter 2026', now - DAY);
+		const springId = await seedIntakeSeason(t, 'Spring 2027', now + 90 * DAY);
 
 		const applicantProfileId = await seedProfile(t, 'applicant-rolling');
-		const videoAssetId = await t.run(async (ctx) => {
-			const now = Date.now();
-			return await ctx.db.insert('mediaAssets', {
-				ownerUserId: 'applicant-rolling',
-				mediaKind: 'video',
-				status: 'ready',
-				acceptedContentTypes: ['video/mp4'],
-				maxBytes: 100_000_000,
-				enableCompression: true,
-				enableSafetyScreening: true,
-				storageProvider: 's3',
-				sourceBucket: 'test-bucket',
-				sourceObjectKey: 'test-object-key-rolling',
-				sourceObjectRevision: 1,
-				contentType: 'video/mp4',
-				sizeBytes: 1000,
-				pipelineVersion: 1,
-				attemptCount: 1,
-				stepResults: [],
-				createdAt: now,
-				updatedAt: now,
-				readyAt: now
-			});
-		});
-
+		const videoMediaAssetId = await seedReadyVideo(t, 'applicant-rolling');
 		await t
 			.withIdentity({ subject: 'applicant-rolling' })
 			.mutation(api.clubApplications.submitApplication, {
 				name: 'Rolling Club',
-				videoMediaAssetId: videoAssetId
+				videoMediaAssetId
 			});
 
-		const application = await t.run((ctx) =>
-			ctx.db
-				.query('clubApplications')
-				.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', applicantProfileId))
-				.first()
-		);
-		expect(application).not.toBeNull();
+		const application = await getApplicationOf(t, applicantProfileId);
+		expect(application?.status).toBe('pending');
+		expect(application?.reviewSeasonId).toBe(springId);
+		expect(application?.startedSeasonId).toBe(springId);
+		expect(application?.submittedAt).toEqual(expect.any(Number));
+
+		// Neither on submit nor in the cron: Winter's open window is not this application's season.
+		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		expect(result.seasonIds).toEqual([winterId]);
+		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		expect(assignments).toHaveLength(0);
+
+		await t.finishAllScheduledFunctions(() => Promise.resolve());
+	});
+
+	it('keeps the started season of the draft and sets the review season on submit', async () => {
+		const t = convexTest(schema, modules);
+		const now = Date.now();
+		const winterId = await seedIntakeSeason(t, 'Winter 2026', now + DAY);
+
+		const applicantProfileId = await seedProfile(t, 'applicant-draft');
+		await t
+			.withIdentity({ subject: 'applicant-draft' })
+			.mutation(api.clubApplications.saveIncompleteApplication, { location: 'Utrecht' });
+		const draft = await getApplicationOf(t, applicantProfileId);
+		expect(draft?.status).toBe('incomplete');
+		expect(draft?.startedSeasonId).toBe(winterId);
+		expect(draft?.reviewSeasonId).toBeUndefined();
+		expect(draft?.submittedAt).toBeUndefined();
+
+		// Winter closes; the applicant finishes later, during Spring's intake.
+		const springId = await seedIntakeSeason(t, 'Spring 2027', now + 90 * DAY);
+		await t.run((ctx) => ctx.db.patch(winterId, { applicationDeadline: now - DAY }));
+
+		const videoMediaAssetId = await seedReadyVideo(t, 'applicant-draft');
+		await t
+			.withIdentity({ subject: 'applicant-draft' })
+			.mutation(api.clubApplications.submitApplication, {
+				name: 'Utrecht Curiosity Club',
+				videoMediaAssetId
+			});
+
+		const submitted = await t.run((ctx) => ctx.db.get(draft!._id));
+		expect(submitted?.status).toBe('pending');
+		expect(submitted?.startedSeasonId).toBe(winterId);
+		expect(submitted?.reviewSeasonId).toBe(springId);
+		expect(submitted?.submittedAt).toEqual(expect.any(Number));
+
+		await t.finishAllScheduledFunctions(() => Promise.resolve());
+	});
+
+	it('leaves both seasons unset (no throw) when no season takes applications', async () => {
+		const t = convexTest(schema, modules);
+		const applicantProfileId = await seedProfile(t, 'applicant-no-season');
+		const videoMediaAssetId = await seedReadyVideo(t, 'applicant-no-season');
+		await t
+			.withIdentity({ subject: 'applicant-no-season' })
+			.mutation(api.clubApplications.submitApplication, {
+				name: 'No Season Club',
+				videoMediaAssetId
+			});
+		const application = await getApplicationOf(t, applicantProfileId);
+		expect(application?.status).toBe('pending');
+		expect(application?.startedSeasonId).toBeUndefined();
+		expect(application?.reviewSeasonId).toBeUndefined();
+
+		await t.finishAllScheduledFunctions(() => Promise.resolve());
+	});
+});
+
+describe('season-scoped assignment (CL-778)', () => {
+	it('only assigns applications whose review season is the open-window season', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const guideProfileId = await seedProfile(t, 'guide-scoped');
+		await seedGuideClub(t, guideProfileId, guideRoleId);
+		const now = Date.now();
+		const openSeasonId = await seedSeason(t, { name: 'Open' });
+		const laterSeasonId = await seedSeason(t, {
+			name: 'Later',
+			reviewWindowOpen: now + 80 * DAY,
+			reviewWindowClose: now + 90 * DAY
+		});
+
+		const inSeason = await seedApplication(t, await seedProfile(t, 'applicant-in'), {
+			reviewSeasonId: openSeasonId
+		});
+		const nextSeason = await seedApplication(t, await seedProfile(t, 'applicant-next'), {
+			reviewSeasonId: laterSeasonId
+		});
+		// No review season: not assigned until the backfill or an admin sets one.
+		const noSeason = await seedApplication(t, await seedProfile(t, 'applicant-none'));
+
+		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		expect(result.seasonId).toBe(openSeasonId);
+		expect(result.applicationsProcessed).toBe(1);
+
+		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		expect(assignments.map((a) => a.applicationId)).toEqual([inSeason]);
+		expect(assignments[0].seasonId).toBe(openSeasonId);
+		expect(assignments.some((a) => a.applicationId === nextSeason)).toBe(false);
+		expect(assignments.some((a) => a.applicationId === noSeason)).toBe(false);
+	});
+
+	it('does not give a moved, already-reviewed pending application new reviewers', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const oldGuideProfileId = await seedProfile(t, 'guide-old');
+		const newGuideProfileId = await seedProfile(t, 'guide-new');
+		await seedGuideClub(t, oldGuideProfileId, guideRoleId);
+		await seedGuideClub(t, newGuideProfileId, guideRoleId);
+		const now = Date.now();
+		const pastSeasonId = await seedSeason(t, {
+			name: 'Past',
+			reviewWindowOpen: now - 100 * DAY,
+			reviewWindowClose: now - 90 * DAY
+		});
+		const openSeasonId = await seedSeason(t, { name: 'Open' });
+
+		// Scored in the past season, then moved by an admin to the open season while still pending.
+		const applicationId = await seedApplication(t, await seedProfile(t, 'applicant-moved'), {
+			reviewSeasonId: pastSeasonId
+		});
+		await t.run(async (ctx) => {
+			await ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId: oldGuideProfileId,
+				seasonId: pastSeasonId,
+				assignedAt: now - 95 * DAY
+			});
+			await ctx.db.insert('applicationReviews', {
+				applicationId,
+				reviewerProfileId: oldGuideProfileId,
+				principlesScore: 8,
+				safetyScore: 8,
+				score: 8,
+				note: 'Scored last season',
+				createdAt: now - 95 * DAY,
+				updatedAt: now - 95 * DAY
+			});
+		});
+		const admin = await seedAdmin(t);
+		await admin.mutation(api.admin.adminSetApplicationReviewSeason, {
+			applicationId,
+			seasonId: openSeasonId
+		});
+
+		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		expect(result.assignmentsCreated).toBe(0);
+		const application = await t.run((ctx) => ctx.db.get(applicationId));
+		expect(application?.reviewSeasonId).toBe(openSeasonId);
+		expect(application?.status).toBe('pending');
+		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		expect(assignments).toHaveLength(1);
+		const reviews = await t.run((ctx) => ctx.db.query('applicationReviews').collect());
+		expect(reviews).toHaveLength(1);
+	});
+
+	it('assigns a never-reviewed pending application right away when an admin moves it into the open season', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const guideProfileId = await seedProfile(t, 'guide-move-in');
+		await seedGuideClub(t, guideProfileId, guideRoleId);
+		const openSeasonId = await seedSeason(t, { name: 'Open' });
+		const applicationId = await seedApplication(t, await seedProfile(t, 'applicant-move-in'));
+
+		const admin = await seedAdmin(t);
+		await admin.mutation(api.admin.adminSetApplicationReviewSeason, {
+			applicationId,
+			seasonId: openSeasonId
+		});
 
 		const assignments = await t.run((ctx) =>
 			ctx.db
 				.query('applicationReviewAssignments')
-				.withIndex('by_application_id', (q) => q.eq('applicationId', application!._id))
+				.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
 				.collect()
 		);
-		expect(assignments.some((a) => a.reviewerProfileId === guideProfileId)).toBe(true);
+		expect(assignments.map((a) => a.reviewerProfileId)).toEqual([guideProfileId]);
+		expect(assignments[0].seasonId).toBe(openSeasonId);
+	});
 
-		await t.finishAllScheduledFunctions(() => Promise.resolve());
+	it('never assigns interview-stage applications, even in their own open season', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		await seedGuideClub(t, await seedProfile(t, 'guide-interview'), guideRoleId);
+		const openSeasonId = await seedSeason(t, { name: 'Open' });
+		await seedApplication(t, await seedProfile(t, 'applicant-interview'), {
+			status: 'interview',
+			reviewSeasonId: openSeasonId
+		});
+
+		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		expect(result.assignmentsCreated).toBe(0);
+	});
+});
+
+describe('adminSetApplicationReviewSeason (CL-778)', () => {
+	it('is admin-only and only for submitted applications', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const guideProfileId = await seedProfile(t, 'guide-not-admin');
+		await seedGuideClub(t, guideProfileId, guideRoleId);
+		const seasonId = await seedSeason(t);
+		const pendingId = await seedApplication(t, await seedProfile(t, 'applicant-edit'));
+		const incompleteId = await seedApplication(t, await seedProfile(t, 'applicant-draft-edit'), {
+			status: 'incomplete'
+		});
+
+		await expect(
+			t
+				.withIdentity({ subject: 'guide-not-admin' })
+				.mutation(api.admin.adminSetApplicationReviewSeason, { applicationId: pendingId, seasonId })
+		).rejects.toThrow('Not authorized');
+
+		const admin = await seedAdmin(t);
+		await expect(
+			admin.mutation(api.admin.adminSetApplicationReviewSeason, {
+				applicationId: incompleteId,
+				seasonId
+			})
+		).rejects.toThrow('Only submitted applications have a season for review');
+
+		await admin.mutation(api.admin.adminSetApplicationReviewSeason, {
+			applicationId: pendingId,
+			seasonId
+		});
+		const application = await t.run((ctx) => ctx.db.get(pendingId));
+		expect(application?.reviewSeasonId).toBe(seasonId);
+		expect(application?.startedSeasonId).toBeUndefined();
 	});
 });
 
@@ -557,8 +817,8 @@ describe('adminUpdateReviewSettings', () => {
 		const guideProfileId = await seedProfile(t, 'settings-guide-a');
 		await seedGuideClub(t, guideProfileId, guideRoleId);
 		const applicantProfileId = await seedProfile(t, 'applicant-settings');
-		await seedApplication(t, applicantProfileId);
-		await seedSeason(t);
+		const seasonId = await seedSeason(t);
+		await seedApplication(t, applicantProfileId, { reviewSeasonId: seasonId });
 
 		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
 		expect(result.assignmentsCreated).toBe(2);
