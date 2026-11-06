@@ -1007,7 +1007,7 @@ describe('admin application seasons (CL-778)', () => {
 		expect(all.items).toHaveLength(4);
 	});
 
-	it('falls back to the next season to open when no review window is open', async () => {
+	it('falls back to the next season to open when no season is in its review cycle', async () => {
 		const t = convexTest(schema, modules);
 		const adminProfileId = await seedProfile(t, 'admin-user');
 		await makeAdmin(t, adminProfileId);
@@ -1015,13 +1015,50 @@ describe('admin application seasons (CL-778)', () => {
 		await t.run((ctx) =>
 			ctx.db.patch(currentId, {
 				reviewWindowOpen: Date.now() - 30 * DAY,
-				reviewWindowClose: Date.now() - 20 * DAY
+				reviewWindowClose: Date.now() - 20 * DAY,
+				// Already started: past its review cycle.
+				startDate: Date.now() - 10 * DAY
 			})
 		);
 		const result = await t
 			.withIdentity({ subject: 'admin-user' })
 			.query(api.admin.adminApplicationsPipeline, { season: 'current' });
 		expect(result.selectedSeason).toBe(nextId);
+	});
+
+	it('keeps a season current through its interview phase, until it starts', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { currentId, nextId } = await seedSeasons(t);
+		const now = Date.now();
+		const admin = t.withIdentity({ subject: 'admin-user' });
+		// Scoring closed yesterday, the season starts in two weeks: still the current review season.
+		await t.run((ctx) =>
+			ctx.db.patch(currentId, {
+				reviewWindowOpen: now - 15 * DAY,
+				reviewWindowClose: now - DAY,
+				startDate: now + 14 * DAY
+			})
+		);
+		expect(
+			(await admin.query(api.admin.adminApplicationsPipeline, { season: 'current' })).selectedSeason
+		).toBe(currentId);
+
+		// Once it has started, the next season to open takes over.
+		await t.run((ctx) => ctx.db.patch(currentId, { startDate: now - DAY }));
+		expect(
+			(await admin.query(api.admin.adminApplicationsPipeline, { season: 'current' })).selectedSeason
+		).toBe(nextId);
+
+		// Two seasons in their review cycle: the one starting first.
+		await t.run(async (ctx) => {
+			await ctx.db.patch(currentId, { startDate: now + 20 * DAY });
+			await ctx.db.patch(nextId, { reviewWindowOpen: now - DAY, startDate: now + 10 * DAY });
+		});
+		expect(
+			(await admin.query(api.admin.adminApplicationsPipeline, { season: 'current' })).selectedSeason
+		).toBe(nextId);
 	});
 
 	it('returns both seasons on the admin application detail and in analytics rows', async () => {

@@ -988,6 +988,10 @@ describe('backfillApplicationSeasons (CL-778)', () => {
 					decidedAt: Date.UTC(2026, 6, 10)
 				}),
 				oldDraft: await app('Old draft', 'incomplete', Date.UTC(2026, 6, 2)),
+				// Before the cutoff but still in review / interview → the season in its review cycle
+				// at the cutoff (Winter), never the closed legacy season. Started season stays legacy.
+				oldPending: await app('Old pending', 'pending', Date.UTC(2026, 6, 3)),
+				oldInterview: await app('Old interview', 'interview', Date.UTC(2026, 6, 4)),
 				// After the cutoff, during Winter's intake.
 				winterPending: await app('Winter pending', 'pending', Date.UTC(2026, 8, 1)),
 				winterDraft: await app('Winter draft', 'incomplete', Date.UTC(2026, 8, 2)),
@@ -1007,7 +1011,12 @@ describe('backfillApplicationSeasons (CL-778)', () => {
 					reviewSeasonId: springId
 				}),
 				// After every deadline: nothing to link to.
-				tooLate: await app('Too late', 'pending', springDeadline + DAY)
+				tooLate: await app('Too late', 'pending', springDeadline + DAY),
+				// Started in Winter's intake, submitted (submittedAt known) after Winter's deadline →
+				// Spring, even though createdAt alone would say Winter.
+				lateSubmitted: await app('Late submitted', 'pending', Date.UTC(2026, 8, 6), {
+					submittedAt: winterDeadline + 2 * DAY
+				})
 			};
 		});
 		return { t, ...ids };
@@ -1024,9 +1033,9 @@ describe('backfillApplicationSeasons (CL-778)', () => {
 		});
 
 		expect(summary.dryRun).toBe(true);
-		expect(summary.scanned).toBe(9);
-		expect(summary.startedSeasonSet).toBe(7);
-		expect(summary.reviewSeasonSet).toBe(5);
+		expect(summary.scanned).toBe(12);
+		expect(summary.startedSeasonSet).toBe(10);
+		expect(summary.reviewSeasonSet).toBe(8);
 		const after = await t.run((ctx) => ctx.db.query('clubApplications').collect());
 		expect(after).toEqual(before);
 	});
@@ -1050,10 +1059,11 @@ describe('backfillApplicationSeasons (CL-778)', () => {
 			const application = await get(id);
 			expect(application?.startedSeasonId).toBe(started);
 			expect(application?.reviewSeasonId).toBe(review);
-			expect(application?.submittedAt).toBeUndefined();
 		};
 		await expectSeasons(ids.oldAccepted, legacyId, legacyId);
 		await expectSeasons(ids.oldDraft, legacyId, undefined);
+		await expectSeasons(ids.oldPending, legacyId, winterId);
+		await expectSeasons(ids.oldInterview, legacyId, winterId);
 		await expectSeasons(ids.winterPending, winterId, winterId);
 		await expectSeasons(ids.winterDraft, winterId, undefined);
 		await expectSeasons(ids.decidedEarly, winterId, legacyId);
@@ -1061,18 +1071,21 @@ describe('backfillApplicationSeasons (CL-778)', () => {
 		await expectSeasons(ids.springInterview, springId, springId);
 		await expectSeasons(ids.alreadySet, springId, springId);
 		await expectSeasons(ids.tooLate, undefined, undefined);
+		await expectSeasons(ids.lateSubmitted, winterId, springId);
+		// submittedAt is never backfilled.
+		expect((await get(ids.oldPending))?.submittedAt).toBeUndefined();
 
 		const counts = (rows: { seasonName: string; count: number }[]) =>
 			Object.fromEntries(rows.map((row) => [row.seasonName, row.count]));
 		expect(counts(summary.startedSeasonCounts)).toEqual({
-			'Season 0 (bootstrap)': 2,
-			'Winter 2026': 4,
+			'Season 0 (bootstrap)': 4,
+			'Winter 2026': 5,
 			'Spring 2027': 1
 		});
 		expect(counts(summary.reviewSeasonCounts)).toEqual({
 			'Season 0 (bootstrap)': 2,
-			'Winter 2026': 2,
-			'Spring 2027': 1
+			'Winter 2026': 4,
+			'Spring 2027': 2
 		});
 		const tooLateRow = summary.applications.find((row) => row.applicationId === ids.tooLate);
 		expect(tooLateRow?.startedSeason).toBeNull();
@@ -1093,5 +1106,76 @@ describe('backfillApplicationSeasons (CL-778)', () => {
 		});
 		expect(again.startedSeasonSet).toBe(0);
 		expect(again.reviewSeasonSet).toBe(0);
+	});
+
+	it('uses submittedAt when known, so a re-run after a new season is created puts a late submission in that season', async () => {
+		const t = convexTest(schema, modules);
+		const winterDeadline = Date.UTC(2026, 10, 7, 23, 55);
+		const { legacyId, winterId, applicationId } = await t.run(async (ctx) => {
+			const now = Date.now();
+			const season = (name: string, applicationDeadline: number | undefined, open: number) =>
+				ctx.db.insert('seasons', {
+					name,
+					applicationDeadline,
+					reviewWindowOpen: open,
+					reviewWindowClose: open + 14 * DAY,
+					startDate: open + 30 * DAY,
+					endDate: open + 120 * DAY,
+					feedbackDeadline: open + 150 * DAY,
+					createdAt: now,
+					updatedAt: now
+				});
+			const legacyId = await season('Season 0 (bootstrap)', undefined, Date.UTC(2026, 5, 1));
+			const winterId = await season('Winter 2026', winterDeadline, winterDeadline);
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'late-applicant',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			// Started during Winter's intake, submitted on 8 Nov — after Winter closed, before any
+			// Spring season existed, so submitApplication left reviewSeasonId unset.
+			const applicationId = await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				name: 'Submitted 8 Nov',
+				status: 'pending',
+				startedSeasonId: winterId,
+				submittedAt: winterDeadline + DAY,
+				createdAt: Date.UTC(2026, 9, 20),
+				updatedAt: winterDeadline + DAY
+			});
+			return { legacyId, winterId, applicationId };
+		});
+		const run = () =>
+			t.mutation(internal.clubApplications.backfillApplicationSeasons, {
+				dryRun: false,
+				legacySeasonId: legacyId,
+				legacyCutoff: LEGACY_CUTOFF
+			});
+
+		const first = await run();
+		expect(first.reviewSeasonSet).toBe(0);
+		expect((await t.run((ctx) => ctx.db.get(applicationId)))?.reviewSeasonId).toBeUndefined();
+
+		const springId = await t.run(async (ctx) => {
+			const now = Date.now();
+			const deadline = Date.UTC(2027, 1, 7, 23, 55);
+			return await ctx.db.insert('seasons', {
+				name: 'Spring 2027',
+				applicationDeadline: deadline,
+				reviewWindowOpen: deadline,
+				reviewWindowClose: deadline + 14 * DAY,
+				startDate: deadline + 30 * DAY,
+				endDate: deadline + 120 * DAY,
+				feedbackDeadline: deadline + 150 * DAY,
+				createdAt: now,
+				updatedAt: now
+			});
+		});
+		await run();
+		const application = await t.run((ctx) => ctx.db.get(applicationId));
+		expect(application?.reviewSeasonId).toBe(springId);
+		expect(application?.reviewSeasonId).not.toBe(winterId);
+		expect(application?.startedSeasonId).toBe(winterId);
 	});
 });

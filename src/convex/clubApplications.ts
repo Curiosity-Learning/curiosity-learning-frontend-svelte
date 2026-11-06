@@ -1154,10 +1154,18 @@ export const getApplicationVideoDeliveryAsset = query({
 //     and it never touches anything set on create/submit or by an admin).
 //   - startedSeasonId: createdAt < legacyCutoff → legacySeasonId; otherwise the season taking
 //     applications at createdAt (seasons.getApplicationIntakeSeason); none → left unset.
-//   - reviewSeasonId: submitted statuses only (pending, interview, accepted, rejected), by the same
-//     date rule on createdAt — the submission moment of old rows is unknown. Exception: an
-//     application already decided before that season's review window opened was not reviewed in
-//     that season, so it goes to legacySeasonId.
+//   - reviewSeasonId: submitted statuses only (pending, interview, accepted, rejected); incomplete
+//     applications get none.
+//       - submittedAt set (submitted after CL-778 shipped, e.g. a re-run after a new season was
+//         created): the season taking applications at submittedAt — exactly what submitApplication
+//         would have set. No legacy-cutoff or decided-early rule; a late (8 Nov) submission stays in
+//         Spring 2027, never Winter 2026.
+//       - pending/interview without submittedAt: still being reviewed or interviewed, so never the
+//         closed legacy season — the season taking applications at max(createdAt, legacyCutoff),
+//         i.e. the season in its review cycle when the season system started (Winter 2026 on prod).
+//       - accepted/rejected without submittedAt: the date rule on createdAt (submission moment
+//         unknown). Exception: decided before that season's review window opened → it was not
+//         reviewed in that season → legacySeasonId.
 //   - submittedAt is NOT backfilled (unknown), and no past seasons are created.
 // ---------------------------------------------------------------------------
 
@@ -1247,21 +1255,36 @@ export const backfillApplicationSeasons = internalMutation({
 			} else if (!SUBMITTED_STATUSES.includes(application.status)) {
 				reasons.push('season for review: not submitted');
 			} else {
-				let season = seasonForCreatedAt(application.createdAt);
-				if (
-					season &&
-					season._id !== legacySeason._id &&
-					(application.status === 'accepted' || application.status === 'rejected') &&
-					application.decidedAt !== undefined &&
-					application.decidedAt < season.reviewWindowOpen
-				) {
-					// Decided before that season's scoring even opened: not reviewed in it.
-					season = legacySeason;
+				let season: Doc<'seasons'> | null;
+				let moment: string;
+				if (application.submittedAt !== undefined) {
+					// Known submission moment: same answer submitApplication gives.
+					season = pickApplicationIntakeSeason(seasons, application.submittedAt);
+					moment = 'submittedAt';
+				} else if (application.status === 'pending' || application.status === 'interview') {
+					// Still in review/interview: the season in its review cycle, never the legacy one.
+					season = pickApplicationIntakeSeason(
+						seasons,
+						Math.max(application.createdAt, args.legacyCutoff)
+					);
+					moment = 'max(createdAt, legacyCutoff)';
+				} else {
+					season = seasonForCreatedAt(application.createdAt);
+					moment = 'createdAt';
+					if (
+						season &&
+						season._id !== legacySeason._id &&
+						application.decidedAt !== undefined &&
+						application.decidedAt < season.reviewWindowOpen
+					) {
+						// Decided before that season's scoring even opened: not reviewed in it.
+						season = legacySeason;
+					}
 				}
 				if (season) {
 					patch.reviewSeasonId = season._id;
 				} else {
-					reasons.push('season for review: no season was taking applications at createdAt');
+					reasons.push(`season for review: no season was taking applications at ${moment}`);
 				}
 			}
 

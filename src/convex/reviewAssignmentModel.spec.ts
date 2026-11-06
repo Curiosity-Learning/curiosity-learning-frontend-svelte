@@ -520,6 +520,81 @@ describe('season-scoped assignment (CL-778)', () => {
 		expect(reviews).toHaveLength(1);
 	});
 
+	it('still gives a moved application with only an unscored assignment in another season reviewers', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const oldGuideProfileId = await seedProfile(t, 'guide-unscored-old');
+		const newGuideProfileId = await seedProfile(t, 'guide-unscored-new');
+		await seedGuideClub(t, oldGuideProfileId, guideRoleId);
+		await seedGuideClub(t, newGuideProfileId, guideRoleId);
+		const now = Date.now();
+		// Like prod: an early assignment booked against the bootstrap season, never scored.
+		const bootstrapSeasonId = await seedSeason(t, {
+			name: 'Season 0',
+			reviewWindowOpen: now - 100 * DAY,
+			reviewWindowClose: now - 90 * DAY
+		});
+		const openSeasonId = await seedSeason(t, { name: 'Open' });
+		const applicationId = await seedApplication(t, await seedProfile(t, 'applicant-unscored'), {
+			reviewSeasonId: bootstrapSeasonId
+		});
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId: oldGuideProfileId,
+				seasonId: bootstrapSeasonId,
+				assignedAt: now - 95 * DAY
+			})
+		);
+
+		const admin = await seedAdmin(t);
+		await admin.mutation(api.admin.adminSetApplicationReviewSeason, {
+			applicationId,
+			seasonId: openSeasonId
+		});
+		await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+
+		const assignments = await t.run((ctx) =>
+			ctx.db
+				.query('applicationReviewAssignments')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+				.collect()
+		);
+		expect(assignments).toHaveLength(2);
+		const added = assignments.find((a) => a.reviewerProfileId === newGuideProfileId);
+		expect(added?.seasonId).toBe(openSeasonId);
+	});
+
+	it('tops up a pending application in the open season even when its old assignments were booked against another season', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const oldGuideProfileId = await seedProfile(t, 'guide-topup-old');
+		const newGuideProfileId = await seedProfile(t, 'guide-topup-new');
+		await seedGuideClub(t, oldGuideProfileId, guideRoleId);
+		await seedGuideClub(t, newGuideProfileId, guideRoleId);
+		const now = Date.now();
+		const bootstrapSeasonId = await seedSeason(t, {
+			name: 'Season 0',
+			reviewWindowOpen: now - 100 * DAY,
+			reviewWindowClose: now - 90 * DAY
+		});
+		const openSeasonId = await seedSeason(t, { name: 'Open' });
+		const applicationId = await seedApplication(t, await seedProfile(t, 'applicant-topup'), {
+			reviewSeasonId: openSeasonId
+		});
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId: oldGuideProfileId,
+				seasonId: bootstrapSeasonId,
+				assignedAt: now - 95 * DAY
+			})
+		);
+
+		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		expect(result.assignmentsCreated).toBe(1);
+	});
+
 	it('assigns a never-reviewed pending application right away when an admin moves it into the open season', async () => {
 		const t = convexTest(schema, modules);
 		const { guideRoleId } = await seedRoles(t);

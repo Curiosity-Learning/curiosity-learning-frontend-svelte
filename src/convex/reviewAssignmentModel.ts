@@ -29,9 +29,12 @@ type Ctx = QueryCtx | MutationCtx;
 // while ITS review season's window is open; pending applications without a review season are not
 // assigned at all (clubApplications.backfillApplicationSeasons runs right after the CL-778
 // deploy, and an admin can set a season on anything left over). An application an admin moved to
-// another season (admin.adminSetApplicationReviewSeason) is never re-scored: once it has
-// reviewers booked against another season, or reviews from Guides not assigned this season, the
-// assignment job leaves it alone (see hasReviewHistoryOutsideSeason). If a window is open but there are genuinely no eligible
+// another season (admin.adminSetApplicationReviewSeason) is never re-scored: once it has actual
+// reviews from Guides not assigned in this season, the assignment job leaves it alone (see
+// hasReviewHistoryOutsideSeason). Mere assignments booked against another season do not block —
+// prod's early assignments were booked against the bootstrap season.
+//
+// If a window is open but there are genuinely no eligible
 // Guides (e.g. a from-scratch platform bootstrap with no clubs yet), applications stay queued
 // until at least one Guide exists — this is an accepted operational reality, not a bug, and dev
 // data always has guides so it won't come up there.
@@ -115,13 +118,32 @@ export const resolveSeasonForManualAssignment = async (
 	}
 	const seasons = await ctx.db.query('seasons').collect();
 	if (seasons.length === 0) return null;
-	const now = Date.now();
+	// CL-778: otherwise the current review season (so an interviewer attached during the interview
+	// phase books against the season being interviewed), else the most recent one.
 	return (
-		seasons.find((season) => season.reviewWindowOpen <= now && now <= season.reviewWindowClose) ??
+		pickCurrentReviewSeason(seasons, Date.now()) ??
 		seasons.reduce((latest, season) =>
 			season.reviewWindowOpen > latest.reviewWindowOpen ? season : latest
 		)
 	);
+};
+
+// CL-778: "the current review season" — the season whose review cycle is under way: scoring has
+// opened and the season has not started yet (reviewWindowOpen <= now < startDate), so a season
+// stays current through its interview phase (Winter 2026: from applications closing on 7 Nov until
+// it starts on 5 Dec). Several → the one starting first. Else the next season whose scoring opens
+// in the future (earliest). Null when neither exists. The one definition used everywhere: the
+// admin applications page's default filter (admin.adminApplicationsPipeline) and the fallback of
+// resolveSeasonForManualAssignment above.
+export const pickCurrentReviewSeason = (seasons: Doc<'seasons'>[], now: number) => {
+	const inCycle = seasons
+		.filter((season) => season.reviewWindowOpen <= now && now < season.startDate)
+		.sort((a, b) => a.startDate - b.startDate);
+	if (inCycle[0]) return inCycle[0];
+	const upcoming = seasons
+		.filter((season) => season.reviewWindowOpen > now)
+		.sort((a, b) => a.reviewWindowOpen - b.reviewWindowOpen);
+	return upcoming[0] ?? null;
 };
 
 const isSeasonReviewWindowOpen = (season: Doc<'seasons'>, now: number) =>
@@ -223,18 +245,24 @@ const countAssignmentsThisSeason = async (
 
 // CL-778: moving an application to another review season must not re-score it (Ron: an applicant
 // who missed her interview is considered next season — interviewed and decided, no new scoring).
-// An application has review history outside `seasonId` when a reviewer was booked against a
-// different season, or a Guide reviewed it without an assignment in this season (pre-CL-709
-// self-select reviews). Topping up within the same season (e.g. too few Guides on day one) still
-// works: those assignments are all booked against this season.
+// An application has review history outside `seasonId` only when it has actual REVIEWS
+// (applicationReviews rows) from Guides who are not assigned to it in this season — scored in
+// another season, or by pre-CL-709 self-select. Assignments alone never block: an unscored
+// assignment booked against another season (prod's early assignments were booked against the
+// bootstrap season, and a never-scored application may be moved by an admin) is no scoring to
+// protect, so such applications are still topped up. Topping up within the same season (e.g. too
+// few Guides on day one) works too: reviews from this season's assignees don't count.
 const hasReviewHistoryOutsideSeason = async (
 	ctx: MutationCtx,
 	applicationId: Id<'clubApplications'>,
 	assignments: Doc<'applicationReviewAssignments'>[],
 	seasonId: Id<'seasons'>
 ) => {
-	if (assignments.some((assignment) => assignment.seasonId !== seasonId)) return true;
-	const assignedThisSeason = new Set(assignments.map((assignment) => assignment.reviewerProfileId));
+	const assignedThisSeason = new Set(
+		assignments
+			.filter((assignment) => assignment.seasonId === seasonId)
+			.map((assignment) => assignment.reviewerProfileId)
+	);
 	const reviews = await ctx.db
 		.query('applicationReviews')
 		.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))

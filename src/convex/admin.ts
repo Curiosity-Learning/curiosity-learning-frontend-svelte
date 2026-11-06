@@ -14,6 +14,7 @@ import {
 } from './clubApplications';
 import {
 	assignReviewsForApplicationIfWindowOpen,
+	pickCurrentReviewSeason,
 	resolveSeasonForManualAssignment
 } from './reviewAssignmentModel';
 import { getAuthUserEmail } from './authEmail';
@@ -403,25 +404,6 @@ const getApplicationChatState = async (ctx: QueryCtx, application: Doc<'clubAppl
 	};
 };
 
-// CL-778: the season the admin applications page opens on — the one whose review window is open
-// now, else the next one to open (by reviewWindowOpen), else the most recent one. Null with no
-// seasons at all.
-const resolveCurrentReviewSeason = (seasons: Doc<'seasons'>[], now: number) => {
-	const open = seasons.find(
-		(season) => season.reviewWindowOpen <= now && now <= season.reviewWindowClose
-	);
-	if (open) return open;
-	const upcoming = seasons
-		.filter((season) => season.reviewWindowOpen > now)
-		.sort((a, b) => a.reviewWindowOpen - b.reviewWindowOpen);
-	if (upcoming[0]) return upcoming[0];
-	return seasons.reduce<Doc<'seasons'> | null>(
-		(latest, season) =>
-			!latest || season.reviewWindowOpen > latest.reviewWindowOpen ? season : latest,
-		null
-	);
-};
-
 const SUBMITTED_STATUSES: Doc<'clubApplications'>['status'][] = [
 	'pending',
 	'interview',
@@ -433,7 +415,8 @@ const SUBMITTED_STATUSES: Doc<'clubApplications'>['status'][] = [
 // is that season plus the INCOMPLETE ones STARTED in it (an incomplete application has no review
 // season yet). 'none' lists what has no season link (submitted without a review season, incomplete
 // without a started season) so staff can place them. 'current' resolves to
-// resolveCurrentReviewSeason. No argument means every season — what admin portal builds from
+// reviewAssignmentModel.pickCurrentReviewSeason (the season in its review cycle — scoring opened,
+// not started yet — else the next one to open; all seasons when there is neither). No argument means every season — what admin portal builds from
 // before CL-778 get.
 const pipelineSeasonFilterValidator = v.union(
 	v.literal('current'),
@@ -472,7 +455,7 @@ export const adminApplicationsPipeline = query({
 			.order('desc')
 			.collect();
 		const seasonsById = new Map(seasons.map((season) => [season._id, season]));
-		const currentReviewSeason = resolveCurrentReviewSeason(seasons, Date.now());
+		const currentReviewSeason = pickCurrentReviewSeason(seasons, Date.now());
 
 		const requested = args.season ?? 'all';
 		let selectedSeason: Id<'seasons'> | 'all' | 'none' =
@@ -875,8 +858,8 @@ export const adminEnsureApplicationRoom = mutation({
 // status, reviews and reviewer assignments stay, so the application is NOT re-scored (Ron: an
 // applicant who missed her interview wants to be considered next season → she shows up in that
 // season's list to be interviewed and decided). The assignment job leaves applications with
-// review history in another season alone (reviewAssignmentModel.hasReviewHistoryOutsideSeason);
-// a pending application that has never been reviewed is assigned right away if the new season's
+// actual reviews from another season alone (reviewAssignmentModel.hasReviewHistoryOutsideSeason);
+// a pending application that has never been scored is assigned right away if the new season's
 // window is open, exactly as the daily cron would. "Season started" is never editable.
 export const adminSetApplicationReviewSeason = mutation({
 	args: {
