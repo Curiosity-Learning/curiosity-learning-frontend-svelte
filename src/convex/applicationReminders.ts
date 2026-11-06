@@ -9,7 +9,6 @@ import { profileDisplayName } from './chatModel';
 import { sendEmail } from './email/resend';
 import { applicationReminderEmail, type ApplicationReminderAudience } from './email/templates';
 import { buildUnsubscribeLinks, isEmailSuppressed } from './emailUnsubscribe';
-import { resolveEmailRecipient } from './notifications';
 import { getApplicationIntakeSeason } from './seasons';
 import { formatSeasonDay, formatSeasonDeadline } from '../lib/domain/season-dates';
 
@@ -29,8 +28,8 @@ import { formatSeasonDay, formatSeasonDeadline } from '../lib/domain/season-date
 //
 // Who gets it (Ron, 2026-11-05):
 // - an adult applicant: their own address;
-// - a child: the notification email their parent set (worded for the child), else the approved
-//   parent (parent wording — the child finishes by signing in with their username);
+// - a child: the approved parent (parent wording — the child finishes by signing in with their
+//   username);
 // - a child whose consent is still pending: the parent the consent request went to, asking them
 //   to approve; the button is that same consent link (it only ever went to this address).
 // Never sent: to an address that unsubscribed (emailUnsubscribe.ts), to a suspended account, to
@@ -82,19 +81,16 @@ const resolveReminderRecipient = async (
 	if (!authEmail.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
 		return { audience: 'self', to: authEmail };
 	}
-	// Child account: their own notification email, else the approved (still linked) parent.
-	const recipient = await resolveEmailRecipient(ctx, {
-		profile,
-		critical: false,
-		parentFallback: true
-	});
-	if (recipient) return { audience: recipient.audience, to: recipient.to };
-	// No approved parent: ask the parent the (still pending) consent request went to.
+	// Child account: the approved parent; with none yet, the parent the (still pending) consent
+	// request went to. (Once CL-768 lands, the child's own notification email and an unlinked
+	// parent are handled through notifications.resolveEmailRecipient instead.)
 	const consents = await ctx.db
 		.query('parentChildConsents')
 		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', profile._id))
 		.order('desc')
 		.collect();
+	const approved = consents.find((consent) => consent.status === 'approved');
+	if (approved) return { audience: 'parent', to: approved.parentEmail };
 	const pending = consents.find((consent) => consent.status === 'pending');
 	return pending
 		? { audience: 'parent_pending', to: pending.parentEmail, consentToken: pending.token }

@@ -31,8 +31,7 @@ const { sendEmailMock, authEmailByUserId } = vi.hoisted(() => ({
 		['submitted-user', 'submitted@example.com'],
 		['suspended-user', 'suspended@example.com'],
 		['child-approved-user', 'approved-kid@children.curiosity.local'],
-		['child-pending-user', 'pending-kid@children.curiosity.local'],
-		['child-own-email-user', 'own-kid@children.curiosity.local']
+		['child-pending-user', 'pending-kid@children.curiosity.local']
 	])
 }));
 
@@ -73,7 +72,6 @@ const insertProfile = async (
 		firstName?: string;
 		username?: string;
 		suspendedAt?: number;
-		notificationEmail?: string;
 	}
 ) =>
 	await ctx.db.insert('profiles', {
@@ -158,22 +156,6 @@ const seed = async (options: { deadlineInMs?: number | null } = {}) => {
 			updatedAt: now
 		});
 		const pendingChildApplicationId = await application(pendingChildId);
-
-		const ownEmailChildId = await insertProfile(ctx, {
-			authUserId: 'child-own-email-user',
-			username: 'teen',
-			notificationEmail: 'teen@example.com'
-		});
-		await ctx.db.insert('parentChildConsents', {
-			childProfileId: ownEmailChildId,
-			parentEmail: 'teen-parent@example.com',
-			status: 'approved',
-			token: 'teen-token',
-			approvedAt: now,
-			createdAt: now,
-			updatedAt: now
-		});
-		await application(ownEmailChildId);
 
 		return {
 			seasonId,
@@ -356,11 +338,9 @@ describe('sendClosingSoonReminders', () => {
 			audience: 'parent_pending',
 			to: 'pending-parent@example.com'
 		});
-		// A child whose parent set a notification email is written to directly.
-		expect(byApplicant['teen']).toMatchObject({ audience: 'self', to: 'teen@example.com' });
 		expect(byApplicant['Sam']).toMatchObject({ skipReason: 'has_submitted_application' });
 		expect(byApplicant['Sus']).toMatchObject({ skipReason: 'suspended' });
-		expect(result).toMatchObject({ toSend: 4, skipped: 2 });
+		expect(result).toMatchObject({ toSend: 3, skipped: 2 });
 		// The dry run never exposes the consent token.
 		expect(JSON.stringify(result)).not.toContain('pending-consent-token');
 
@@ -374,7 +354,7 @@ describe('sendClosingSoonReminders', () => {
 	it('sends each reminder once with the right wording, links and unsubscribe headers', async () => {
 		const { t, seasonId, deadline, adultApplicationId } = await seed();
 		const result = await run(t, false);
-		expect(result).toMatchObject({ sent: 4, failed: 0 });
+		expect(result).toMatchObject({ sent: 3, failed: 0 });
 
 		const emails = sentEmails();
 		const adult = emails.find((email) => email.to === 'adult@example.com')!;
@@ -405,7 +385,7 @@ describe('sendClosingSoonReminders', () => {
 			deliveries: await ctx.db.query('emailDeliveries').collect()
 		}));
 		expect(state.application?.reminders?.closingSoonSeasonId).toBe(seasonId);
-		expect(state.deliveries.filter((row) => row.status === 'sent')).toHaveLength(4);
+		expect(state.deliveries.filter((row) => row.status === 'sent')).toHaveLength(3);
 		expect(
 			state.deliveries
 				.filter((row) => row.status === 'skipped')
@@ -428,7 +408,7 @@ describe('sendClosingSoonReminders', () => {
 			return { providerMessageId: 'ok' };
 		});
 		const result = await run(t, false);
-		expect(result).toMatchObject({ sent: 3, failed: 1 });
+		expect(result).toMatchObject({ sent: 2, failed: 1 });
 		const state = await t.run(async (ctx) => ({
 			application: await ctx.db.get(adultApplicationId),
 			failed: (await ctx.db.query('emailDeliveries').collect()).filter(

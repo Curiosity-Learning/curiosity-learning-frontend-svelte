@@ -25,7 +25,8 @@ const escapeHtml = (value: string) =>
 
 const absoluteUrl = (url: string) => url;
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
-const isLocalUrl = (value: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value);
+const isLocalUrl = (value: string) =>
+	/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value);
 
 const getEmailLogoUrl = () => {
 	const explicitLogoUrl = process.env.EMAIL_LOGO_URL?.trim();
@@ -72,12 +73,7 @@ const rawLink = (url: string) => `
 	</p>
 `;
 
-const layout = (args: {
-	preheader: string;
-	title: string;
-	children: string;
-	footer?: string;
-}) => {
+const layout = (args: { preheader: string; title: string; children: string; footer?: string }) => {
 	const preheader = escapeHtml(args.preheader);
 	const title = escapeHtml(args.title);
 	const footer =
@@ -298,7 +294,7 @@ export const notificationEmail = (args: {
 };
 
 // CL-770: the "your club application isn't finished" reminder. Three readers:
-// - 'self': the applicant (an adult, or a child via the notification email their parent set);
+// - 'self': the applicant themselves;
 // - 'parent': the approved parent of a child applicant — the parent cannot finish it for them,
 //   so the email says what is missing and how the child gets back to it;
 // - 'parent_pending': the parent of a child whose account still waits for their approval — the
