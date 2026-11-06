@@ -844,7 +844,15 @@ const en = {
 		decidedByLabel: 'Decided by',
 		decidedAtLabel: 'Decided on',
 		rejectionNoteLabel: 'Note to the applicant',
-		followUpFlagLabel: 'Flagged for Core Team follow-up'
+		followUpFlagLabel: 'Flagged for Core Team follow-up',
+		reviewSeasonLabel: 'Season for review',
+		startedSeasonLabel: 'Season started',
+		seasonNotSet: 'Not set',
+		reviewSeasonPlaceholder: 'Pick a season',
+		reviewSeasonHint:
+			'Moving the application to another season keeps its reviews and status — it is not scored again.',
+		reviewSeasonSaved: 'Season for review updated',
+		reviewSeasonSaveFailure: 'Could not change the season'
 	},
 	publicClubPreview: {
 		notFoundTitle: 'Club not found',

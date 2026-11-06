@@ -21,6 +21,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { FieldLabel } from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
+	import * as Select from '$lib/components/ui/select';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { formatShortDate } from '$lib/domain/date';
@@ -28,6 +29,7 @@
 	import { captureUnexpectedOperationalError } from '$lib/monitoring/capture';
 	import { routes } from '$lib/routes';
 	import { useConvexClient } from 'convex-svelte';
+	import type { Id } from '$convex/_generated/dataModel';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -62,10 +64,11 @@
 	let prefilledFor = $state<string | null>(null);
 	let savePending = $state(false);
 
-	// Scoring is season-driven: the form only shows while a review window is open
-	// (reviewAssignmentModel.isReviewWindowOpen). Ron, 2026-09-03: not asking Guides for scores
-	// right now, past the 2 weeks since the review period opened — creating next season with its
-	// review window on the admin Seasons tab brings the form back without a code change.
+	// Scoring is season-driven: the form only shows while the application's own review season's
+	// window is open (CL-778, reviewAssignmentModel.isApplicationReviewWindowOpen). Ron,
+	// 2026-09-03: not asking Guides for scores right now, past the 2 weeks since the review period
+	// opened — creating next season with its review window on the admin Seasons tab brings the
+	// form back without a code change.
 	let canScore = $derived(
 		application?.status === 'pending' &&
 			application.reviewWindowOpen &&
@@ -100,6 +103,50 @@
 	let canSave = $derived(
 		parsedPrinciples !== null && parsedSafety !== null && note.trim().length > 0 && !savePending
 	);
+
+	// --- Season for review (CL-778) ---
+	// Every non-applicant viewer sees which season the application is reviewed in; only global
+	// admins may move it (admin.adminSetApplicationReviewSeason is requireGlobalAdmin) — peer-
+	// reviewing Guides never get the control. Submitted applications only: an incomplete one has
+	// no review season yet.
+	let canChangeReviewSeason = $derived(
+		application?.viewer.role === 'admin' && application.status !== 'incomplete'
+	);
+	const seasonsResponse = useStableQuery(api.seasons.listSeasons, () =>
+		canChangeReviewSeason ? {} : 'skip'
+	);
+	// listSeasons is ordered by start date, newest first (Season 0 included).
+	let seasonOptions = $derived(
+		(seasonsResponse.data ?? []).map((season) => ({
+			seasonId: season._id as Id<'seasons'>,
+			name: season.name as string
+		}))
+	);
+	let reviewSeasonPending = $state(false);
+
+	const changeReviewSeason = async (seasonId: string) => {
+		if (!application || !seasonId || seasonId === application.reviewSeason?.seasonId) return;
+		reviewSeasonPending = true;
+		try {
+			await convexClient.mutation(api.admin.adminSetApplicationReviewSeason, {
+				applicationId: application.applicationId,
+				seasonId: seasonId as Id<'seasons'>
+			});
+			showGlobalSnackbar({ title: $_('applicationDetail.reviewSeasonSaved') });
+		} catch (error) {
+			captureUnexpectedOperationalError(error, {
+				area: 'admin',
+				operation: 'application-review:set-review-season',
+				identifiers: { applicationId: application.applicationId }
+			});
+			showGlobalSnackbar({
+				title: $_('applicationDetail.reviewSeasonSaveFailure'),
+				description: error instanceof Error ? error.message : 'Please try again.'
+			});
+		} finally {
+			reviewSeasonPending = false;
+		}
+	};
 
 	const saveReview = async () => {
 		if (!application || parsedPrinciples === null || parsedSafety === null) return;
@@ -230,6 +277,56 @@
 							{#if application.referralOther}
 								({application.referralOther})
 							{/if}
+						</dd>
+					</div>
+				{/if}
+				{#if application.viewer.role !== 'applicant'}
+					<div class="flex flex-col gap-0.5">
+						<dt class="type-sm text-muted-foreground">
+							{#if canChangeReviewSeason}
+								<label for="review-season">{$_('applicationDetail.reviewSeasonLabel')}</label>
+							{:else}
+								{$_('applicationDetail.reviewSeasonLabel')}
+							{/if}
+						</dt>
+						<dd class="type-body text-foreground">
+							{#if canChangeReviewSeason}
+								<Select.Root
+									type="single"
+									value={application.reviewSeason?.seasonId ?? ''}
+									disabled={reviewSeasonPending || seasonOptions.length === 0}
+									onValueChange={(value) => void changeReviewSeason(value)}
+								>
+									<Select.Trigger id="review-season" class="w-full justify-between">
+										<span>
+											{application.reviewSeason?.name ??
+												$_('applicationDetail.reviewSeasonPlaceholder')}
+										</span>
+									</Select.Trigger>
+									<Select.Content>
+										{#each seasonOptions as season (season.seasonId)}
+											<Select.Item value={season.seasonId} label={season.name}>
+												{season.name}
+											</Select.Item>
+										{/each}
+									</Select.Content>
+								</Select.Root>
+								<p class="type-sm mt-1 text-muted-foreground">
+									{$_('applicationDetail.reviewSeasonHint')}
+								</p>
+							{:else}
+								{application.reviewSeason?.name ?? $_('applicationDetail.seasonNotSet')}
+							{/if}
+						</dd>
+					</div>
+				{/if}
+				{#if application.viewer.role === 'admin'}
+					<div class="flex flex-col gap-0.5">
+						<dt class="type-sm text-muted-foreground">
+							{$_('applicationDetail.startedSeasonLabel')}
+						</dt>
+						<dd class="type-body text-foreground">
+							{application.startedSeason?.name ?? $_('applicationDetail.seasonNotSet')}
 						</dd>
 					</div>
 				{/if}

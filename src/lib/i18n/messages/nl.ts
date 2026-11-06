@@ -842,7 +842,15 @@ const nl = {
 		decidedByLabel: 'Beslist door',
 		decidedAtLabel: 'Beslist op',
 		rejectionNoteLabel: 'Notitie voor de aanvrager',
-		followUpFlagLabel: 'Gemarkeerd voor opvolging door Core Team'
+		followUpFlagLabel: 'Gemarkeerd voor opvolging door Core Team',
+		reviewSeasonLabel: 'Seizoen voor beoordeling',
+		startedSeasonLabel: 'Seizoen gestart',
+		seasonNotSet: 'Niet ingesteld',
+		reviewSeasonPlaceholder: 'Kies een seizoen',
+		reviewSeasonHint:
+			'Als je de aanvraag naar een ander seizoen verplaatst, blijven de beoordelingen en de status staan — er wordt niet opnieuw gescoord.',
+		reviewSeasonSaved: 'Seizoen voor beoordeling aangepast',
+		reviewSeasonSaveFailure: 'Seizoen kon niet worden aangepast'
 	},
 	publicClubPreview: {
 		notFoundTitle: 'Club niet gevonden',
