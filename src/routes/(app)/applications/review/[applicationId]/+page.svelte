@@ -123,9 +123,20 @@
 		}))
 	);
 	let reviewSeasonPending = $state(false);
+	// What the select shows: the saved season, re-derived whenever the query result changes (so
+	// it follows a save, or another admin's change). Overridden locally while a change is saving,
+	// and put back to the saved season if the save fails.
+	let savedReviewSeasonId = $derived(application?.reviewSeason?.seasonId ?? '');
+	let reviewSeasonValue = $derived(savedReviewSeasonId);
+	let reviewSeasonValueName = $derived(
+		seasonOptions.find((season) => season.seasonId === reviewSeasonValue)?.name ??
+			application?.reviewSeason?.name ??
+			null
+	);
 
 	const changeReviewSeason = async (seasonId: string) => {
-		if (!application || !seasonId || seasonId === application.reviewSeason?.seasonId) return;
+		if (!application || !seasonId || seasonId === savedReviewSeasonId) return;
+		reviewSeasonValue = seasonId;
 		reviewSeasonPending = true;
 		try {
 			await convexClient.mutation(api.admin.adminSetApplicationReviewSeason, {
@@ -143,6 +154,7 @@
 				title: $_('applicationDetail.reviewSeasonSaveFailure'),
 				description: error instanceof Error ? error.message : 'Please try again.'
 			});
+			reviewSeasonValue = savedReviewSeasonId;
 		} finally {
 			reviewSeasonPending = false;
 		}
@@ -293,14 +305,13 @@
 							{#if canChangeReviewSeason}
 								<Select.Root
 									type="single"
-									value={application.reviewSeason?.seasonId ?? ''}
+									value={reviewSeasonValue}
 									disabled={reviewSeasonPending || seasonOptions.length === 0}
 									onValueChange={(value) => void changeReviewSeason(value)}
 								>
 									<Select.Trigger id="review-season" class="w-full justify-between">
 										<span>
-											{application.reviewSeason?.name ??
-												$_('applicationDetail.reviewSeasonPlaceholder')}
+											{reviewSeasonValueName ?? $_('applicationDetail.reviewSeasonPlaceholder')}
 										</span>
 									</Select.Trigger>
 									<Select.Content>
