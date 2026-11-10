@@ -25,8 +25,14 @@ import { unzipTo, zipDir } from './zip.mjs';
 const TEAM_SLUG = 'curiosity-learning';
 const PROJECT_SLUG = 'curiosity-learning-flutter-to-svelte';
 const SHARED_DEPLOYMENT = 'good-echidna-357';
-const REF_PREFIX = 'dev/wt-';
-const LEGACY_REF_PREFIX = 'dev/ronberlinski-worktree/';
+// Backend refs carry the machine name (dev/wt/<machine>/<worktree>): `status` and `prune` only see
+// this machine's worktrees, so they must never treat another machine's backends as orphans.
+const MACHINE = slugify(os.hostname().replace(/\.local$/i, ''), 24) || 'machine';
+const REF_PREFIX = `dev/wt/${MACHINE}/`;
+const ANY_MACHINE_PREFIX = 'dev/wt/';
+// Earlier naming schemes, all created on Ron's Mac mini: dev/wt-<slug> (2026-11-10) and
+// dev/ronberlinski-worktree/<slug> (June 2026). Pruned only with --include-legacy.
+const LEGACY_PREFIXES = ['dev/wt-', 'dev/ronberlinski-worktree/'];
 const PORT_MIN = 5200;
 const PORT_MAX = 5899;
 const SETUP_VERSION = '1';
@@ -203,7 +209,9 @@ async function deleteDeployment(name) {
 	await api('POST', `/v1/deployments/${name}/delete`);
 }
 
-const isWorktreeRef = (ref = '') => ref.startsWith(REF_PREFIX) || ref.startsWith(LEGACY_REF_PREFIX);
+const isOwnRef = (ref = '') => ref.startsWith(REF_PREFIX);
+const isLegacyRef = (ref = '') => LEGACY_PREFIXES.some((p) => ref.startsWith(p));
+const isOtherMachineRef = (ref = '') => ref.startsWith(ANY_MACHINE_PREFIX) && !isOwnRef(ref);
 const siteUrlFor = (cloudUrl) => cloudUrl.replace(/\.convex\.cloud\/?$/, '.convex.site');
 
 // ---------------------------------------------------------------------------------------------
@@ -250,7 +258,13 @@ function ensureNodeModules(root) {
 function syncLocalEnvFiles(root, mainRoot) {
 	const src = path.join(mainRoot, '.env');
 	const dest = path.join(root, '.env');
-	if (fs.existsSync(src)) {
+	if (!fs.existsSync(src)) {
+		log(
+			`  ⚠ ${src} not found: the app's local-only settings (Mapbox token, CloudFront keys,\n` +
+				'    Google client) are missing. Copy .env from a machine that has it into the main\n' +
+				'    checkout, then rerun npm run worktree:setup. Backend secrets come from Convex and are fine.'
+		);
+	} else {
 		fs.copyFileSync(src, dest);
 		fs.chmodSync(dest, 0o600);
 		writeEnvWithout(dest, MANAGED_KEYS);
@@ -567,11 +581,20 @@ async function status() {
 		const url = env.WORKTREE_PORT ? `http://${env.WORKTREE_HOST}:${env.WORKTREE_PORT}` : '';
 		log(`  ${wt.branch || '(detached)'}\n    ${wt.path}\n    backend: ${where}  ${url}`);
 	}
-	const orphans = deployments.filter((d) => isWorktreeRef(d.reference) && !used.has(d.name));
-	log(
-		`\nWorktree backends with no worktree (npm run worktree:prune deletes them): ${orphans.length}`
-	);
+	const orphans = deployments.filter((d) => isOwnRef(d.reference) && !used.has(d.name));
+	const legacy = deployments.filter((d) => isLegacyRef(d.reference) && !used.has(d.name));
+	const others = deployments.filter((d) => isOtherMachineRef(d.reference));
+	log(`\nThis machine: ${MACHINE}`);
+	log(`Backends from this machine with no worktree (npm run worktree:prune): ${orphans.length}`);
 	for (const d of orphans) log(`  ${d.name}  ${d.reference}`);
+	if (legacy.length) {
+		log(`Old-style backends not in use here (prune --include-legacy): ${legacy.length}`);
+		for (const d of legacy) log(`  ${d.name}  ${d.reference}`);
+	}
+	if (others.length) {
+		log(`Backends belonging to other machines (never pruned from here): ${others.length}`);
+		for (const d of others) log(`  ${d.name}  ${d.reference}`);
+	}
 }
 
 async function prune(flags) {
@@ -582,7 +605,9 @@ async function prune(flags) {
 			.map((v) => v.replace(/^[a-z]+:/, '').replace(/\s.*$/, ''))
 	);
 	const orphans = (await listDeployments()).filter(
-		(d) => isWorktreeRef(d.reference) && !used.has(d.name)
+		(d) =>
+			(isOwnRef(d.reference) || (flags.has('--include-legacy') && isLegacyRef(d.reference))) &&
+			!used.has(d.name)
 	);
 	if (!orphans.length) return log('No orphaned worktree backends.');
 	for (const d of orphans) log(`  ${d.name}  ${d.reference}`);

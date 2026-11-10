@@ -4,12 +4,12 @@ Every piece of work runs against its own Convex backend. Nothing a feature branc
 change another branch's functions, schema or data, and nothing touches production until it is
 merged to `main`.
 
-| Where                 | App URL                                | Convex backend                                          | Data                                  |
-| --------------------- | -------------------------------------- | ------------------------------------------------------- | ------------------------------------- |
-| Production (`main`)   | production domain                      | `dependable-albatross-999` (prod)                       | real                                  |
-| PR / branch preview   | Vercel branch URL (`…-git-<branch>-…`) | a Convex **preview** backend per branch (auto-deleted)  | copy of shared dev on the first build |
-| Worktree (local)      | `http://<worktree>.localhost:<port>`   | a Convex **dev** backend per worktree (`dev/wt-<name>`) | copy of shared dev at setup           |
-| Main checkout (local) | `http://localhost:5173`                | `good-echidna-357` (shared dev)                         | shared test data                      |
+| Where                 | App URL                                | Convex backend                                                    | Data                                  |
+| --------------------- | -------------------------------------- | ----------------------------------------------------------------- | ------------------------------------- |
+| Production (`main`)   | production domain                      | `dependable-albatross-999` (prod)                                 | real                                  |
+| PR / branch preview   | Vercel branch URL (`…-git-<branch>-…`) | a Convex **preview** backend per branch (auto-deleted)            | copy of shared dev on the first build |
+| Worktree (local)      | `http://<worktree>.localhost:<port>`   | a Convex **dev** backend per worktree (`dev/wt/<machine>/<name>`) | copy of shared dev at setup           |
+| Main checkout (local) | `http://localhost:5173`                | `good-echidna-357` (shared dev)                                   | shared test data                      |
 
 Shared dev (`good-echidna-357`) is the source of test data and backend secrets. Feature work
 should not deploy to it. It is what the main checkout and the admin app (`:4174`) use.
@@ -28,7 +28,7 @@ Setup (`scripts/worktree/cli.mjs`, ~2 min for a fresh worktree, mostly `npm inst
 
 1. installs dependencies;
 2. copies the main checkout's `.env` (local app settings), minus anything that picks a backend;
-3. creates the Convex dev backend `dev/wt-<worktree-folder>` (or reuses it);
+3. creates the Convex dev backend `dev/wt/<machine>/<worktree-folder>` (or reuses it);
 4. copies **all** env vars from shared dev onto it (Resend, S3, Google, auth secret…), with
    `BETTER_AUTH_URL` and `PUBLIC_CONVEX_SITE_URL` pointing at this worktree;
 5. pushes this branch's functions and schema;
@@ -56,11 +56,34 @@ npm run worktree:status         # every worktree, its backend and URL; orphaned 
 npm run worktree:refresh-data   # replace this worktree's data with a fresh copy of shared dev
 npm run worktree:setup -- --refresh-env   # recopy env vars from shared dev
 npm run worktree:remove [path]  # delete the worktree's backend and the worktree (branch kept)
-npm run worktree:prune [--yes]  # delete backends whose worktree is gone (dry run without --yes)
+npm run worktree:prune [--yes]  # delete THIS machine's backends whose worktree is gone (dry run without --yes)
 ```
 
 Removing a worktree from T3 or Claude Code does not delete its backend; run
 `npm run worktree:prune -- --yes` from time to time.
+
+## Working from more than one machine
+
+Two ways, and they combine:
+
+1. **Drive the Mac mini remotely (recommended when travelling).** In T3 Code on the Mac mini:
+   Settings → Sharing & access → enable **T3 Connect** (or run `~/.t3/bin/t3 connect`), and install
+   the background service (`~/.t3/bin/t3 service install`) so T3 runs whenever you are logged
+   in. On the laptop, sign in to the same T3 Connect account and pick the Mac mini. Threads,
+   worktrees, Convex backends and dev servers all live on the Mac mini; nothing needs setting up
+   on the laptop. T3's built-in browser runs on the host, so `http://<worktree>.localhost:<port>`
+   works in it. The Mac mini must stay awake: System Settings → Energy → "Prevent automatic
+   sleeping when the display is off" (or `sudo pmset -a sleep 0`).
+2. **Run worktrees on the laptop itself.** One-time setup on the laptop: clone the repo,
+   `npm install`, `npx convex login`, Node 22.2+ (`.nvmrc` says 24), and copy the main checkout's
+   `.env` over securely (it holds local-only keys like Mapbox and CloudFront; the scripts never
+   put them in git). After that, worktrees on the laptop set themselves up exactly as on the
+   Mac mini. Backend secrets and test data come from Convex, so nothing else needs copying.
+
+Backend names include the machine (`dev/wt/rons-mac-mini/...`), and `prune` only deletes
+backends from the machine it runs on, so it can't delete the other machine's backends.
+Ports and `*.localhost` URLs are per machine. Code moves between machines through git: push the
+branch on one, `git fetch` on the other.
 
 ## Vercel previews
 
