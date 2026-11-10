@@ -8,6 +8,37 @@ These instructions exist to keep iteration fast while still shipping production-
 - Do **not** run full E2E/screenshot suites after every small UI tweak.
 - Keep `npm run dev` and `npm run dev:backend` running in separate terminals during active development.
 
+## One Ticket = One Worktree = One Branch = One PR
+
+All work is tracked in Fibery (`Software Development/Ticket`, ids `CL-###`).
+
+- **Start from a ticket.** No ticket, no code: create one first (or ask Ron). A request that
+  covers several tickets becomes several worktrees.
+- **One worktree per ticket**, created by T3, Claude Code or `npm run worktree:add`. It gets its
+  own Convex backend and URL automatically (see `docs/worktrees.md`).
+- **One branch per ticket**, named after the ticket's `Git Branch` field:
+  `<assignee>/cl-<id>-<short-name>` (e.g. `ron/cl-778-application-seasons`). Rename an
+  auto-named branch (`t3/…`, `claude/…`) before the first push. Branch from `origin/main`.
+- **One PR per ticket**, titled `CL-###: <outcome>`, with the Fibery ticket link in the body.
+  Something unrelated found along the way gets its own ticket, not a commit in this branch.
+- **Keep the ticket current** as the work moves:
+  - worktree created → state `In Progress`, comment with the branch name;
+  - PR opened → state `Implemented`, comment with the PR link and the Vercel branch preview URL;
+  - Ron testing on the preview → `In Testing` → `Tested`;
+  - merged and deployed → `Done`, with a comment listing any deploy steps that were run (prod env
+    vars, data backfills, `syncRolePermissions --prod`, …).
+- **Clean up** after the merge: `npm run worktree:remove` (deletes the worktree's backend).
+
+## Backends: never share, never prod
+
+- In a worktree, `npx convex dev` / `npx convex run` / `npx convex data` already target the
+  worktree's own backend. Do not copy `.env.local` from the main checkout or another worktree, and
+  do not pass `--deployment good-echidna-357`: shared dev is for the main checkout only.
+- If `.env.local` is missing or points at `good-echidna-357`, run `npm run worktree:setup`.
+- Never use `--prod` (or the prod deployment) without Ron's explicit OK in the chat.
+- Test in the worktree URL (`http://<worktree>.localhost:<port>`), then on the PR's Vercel branch
+  preview. Both have their own copy of the dev data, so seed or change data freely there.
+
 ## Testing Policy (When To Run What)
 
 - **Tight loop (most edits)**:
