@@ -4,12 +4,12 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"predev": "bash scripts/ensure-worktree-ready.sh",
-		"dev": "vite dev",
+		"predev": "node scripts/worktree/cli.mjs ensure",
+		"dev": "node scripts/worktree/dev.mjs",
 		"dev:backend": "convex dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"postinstall": "bash scripts/postinstall-worktree.sh",
+		"postinstall": "node scripts/worktree/cli.mjs ensure",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -24,10 +24,13 @@
 		"test:e2e": "playwright test",
 		"test:e2e:local": "playwright test --config playwright.local.config.ts",
 		"convex:codegen": "convex codegen",
-		"worktree:seed": "bash scripts/setup-worktree.sh --seed-env",
-		"worktree:setup": "bash scripts/setup-worktree.sh",
-		"worktree:add": "bash scripts/add-worktree.sh",
-		"ci": "npm run check && npm run lint:ci && npm run build"
+		"ci": "npm run check && npm run lint:ci && npm run build",
+		"worktree:setup": "node scripts/worktree/cli.mjs setup",
+		"worktree:status": "node scripts/worktree/cli.mjs status",
+		"worktree:add": "node scripts/worktree/cli.mjs add",
+		"worktree:remove": "node scripts/worktree/cli.mjs remove",
+		"worktree:prune": "node scripts/worktree/cli.mjs prune",
+		"worktree:refresh-data": "node scripts/worktree/cli.mjs refresh-data"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^2.0.2",
