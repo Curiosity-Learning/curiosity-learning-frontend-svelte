@@ -90,7 +90,7 @@ branch on one, `git fetch` on the other.
 `vercel.json` runs `scripts/vercel-build.sh`. Production builds are unchanged
 (`npx convex deploy` to prod, then `npm run build`). Preview builds:
 
-1. deploy the branch's functions to its Convex preview backend (named after the branch, reused
+1. deploy the branch’s functions and schema to its Convex preview backend first (named after the branch, reused
    across pushes; Convex deletes inactive previews automatically);
 2. point that backend's `BETTER_AUTH_URL` at the branch's stable Vercel URL;
 3. on the branch's first build, copy shared dev data in (same field-dropping as worktrees);

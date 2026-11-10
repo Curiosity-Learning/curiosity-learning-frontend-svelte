@@ -673,8 +673,8 @@ async function refreshData() {
 	copyDevData(root, name);
 }
 
-// Vercel preview builds. Runs as `npx convex deploy --cmd …` (see scripts/vercel-build.sh), after
-// this branch's functions are on its preview backend and PUBLIC_CONVEX_URL points at it:
+// Vercel preview builds. scripts/vercel-build.sh runs this after `npx convex deploy` has pushed
+// this branch's functions and schema to its preview backend, with PUBLIC_CONVEX_URL pointing at it:
 //   1. point the preview backend's auth at the branch's stable Vercel URL,
 //   2. on the branch's first build, copy the shared dev data in (needs CONVEX_DEV_SEED_KEY),
 //   3. build the app with PUBLIC_CONVEX_SITE_URL derived for this preview.
