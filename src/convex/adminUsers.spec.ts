@@ -82,6 +82,33 @@ describe('adminUsers', () => {
 		).rejects.toThrow('Not authorized');
 	});
 
+	it('rejects signed-out callers', async () => {
+		const { t, childId } = await seedFamily();
+		await expect(t.query(api.adminUsers.searchUsers, { search: 'ada' })).rejects.toThrow(
+			'Unauthenticated'
+		);
+		await expect(t.query(api.adminUsers.getUserDetails, { profileId: childId })).rejects.toThrow(
+			'Unauthenticated'
+		);
+	});
+
+	it('rejects a suspended admin', async () => {
+		const { t, admin, childId } = await seedFamily();
+		await t.run(async (ctx) => {
+			const profile = await ctx.db
+				.query('profiles')
+				.withIndex('by_auth_user_id', (q) => q.eq('authUserId', 'admin-user'))
+				.unique();
+			await ctx.db.patch(profile!._id, { suspendedAt: Date.now(), suspendedReason: 'test' });
+		});
+		await expect(admin.query(api.adminUsers.searchUsers, { search: 'ada' })).rejects.toThrow(
+			'Account suspended'
+		);
+		await expect(
+			admin.query(api.adminUsers.getUserDetails, { profileId: childId })
+		).rejects.toThrow('Account suspended');
+	});
+
 	it('finds users by username, name and email, with their email', async () => {
 		const { admin, childId, parentId } = await seedFamily();
 

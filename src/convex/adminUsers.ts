@@ -4,11 +4,19 @@ import type { QueryCtx } from './_generated/server';
 import { query } from './_generated/server';
 import { getAuthUserEmailInfo, getAuthUserIdByEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
-import { requireGlobalAdmin } from './permissions';
+import { requireGlobalAdmin, requireProfile } from './permissions';
 
 // CL-782: admin user lookup with contact details, so staff can reach a member (or the member's
-// parent) outside the app. Every export here must call `requireGlobalAdmin` first — these reads
+// parent) outside the app. Every export here must call `requireActiveAdmin` first: these reads
 // expose auth emails, which no member-facing endpoint returns.
+
+// Signed in, globalRole 'admin', and not suspended. Stricter than plain `requireGlobalAdmin`,
+// which lets a suspended admin through; suspending an account must also cut off its access to
+// other people's emails.
+const requireActiveAdmin = async (ctx: QueryCtx) => {
+	const identity = await requireGlobalAdmin(ctx);
+	await requireProfile(ctx, identity.subject);
+};
 
 const SEARCH_LIMIT = 25;
 
@@ -45,7 +53,7 @@ const summarize = async (ctx: QueryCtx, profile: Doc<'profiles'>) => {
 export const searchUsers = query({
 	args: { search: v.string() },
 	handler: async (ctx, args) => {
-		await requireGlobalAdmin(ctx);
+		await requireActiveAdmin(ctx);
 		const term = args.search.trim().toLowerCase();
 		if (!term) {
 			return [];
@@ -99,7 +107,7 @@ export const searchUsers = query({
 export const getUserDetails = query({
 	args: { profileId: v.id('profiles') },
 	handler: async (ctx, args) => {
-		await requireGlobalAdmin(ctx);
+		await requireActiveAdmin(ctx);
 		const profile = await ctx.db.get(args.profileId);
 		if (!profile) {
 			return null;
