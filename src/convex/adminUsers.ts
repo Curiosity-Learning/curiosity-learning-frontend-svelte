@@ -3,6 +3,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { QueryCtx } from './_generated/server';
 import { query } from './_generated/server';
 import { getAuthUserEmailInfo, getAuthUserIdByEmail } from './authEmail';
+import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { requireGlobalAdmin } from './permissions';
 
 // CL-782: admin user lookup with contact details, so staff can reach a member (or the member's
@@ -11,15 +12,31 @@ import { requireGlobalAdmin } from './permissions';
 
 const SEARCH_LIMIT = 25;
 
-const summarize = async (ctx: QueryCtx, profile: Doc<'profiles'>) => ({
-	profileId: profile._id,
-	firstName: profile.firstName ?? null,
-	lastName: profile.lastName ?? null,
-	username: profile.username ?? null,
-	globalRole: profile.globalRole ?? null,
-	suspendedAt: profile.suspendedAt ?? null,
-	email: (await getAuthUserEmailInfo(ctx, profile.authUserId))?.email ?? null
-});
+// Child accounts sign in by username and carry a synthetic `@children.curiosity.local` auth
+// email that cannot receive mail, so it is never shown; their parent is the contact instead.
+const contactEmail = async (ctx: QueryCtx, profile: Doc<'profiles'>) => {
+	const info = await getAuthUserEmailInfo(ctx, profile.authUserId);
+	const isChildAccount = info?.email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`) ?? false;
+	return {
+		email: isChildAccount ? null : (info?.email ?? null),
+		emailVerified: info?.emailVerified ?? false,
+		isChildAccount
+	};
+};
+
+const summarize = async (ctx: QueryCtx, profile: Doc<'profiles'>) => {
+	const { email, isChildAccount } = await contactEmail(ctx, profile);
+	return {
+		profileId: profile._id,
+		firstName: profile.firstName ?? null,
+		lastName: profile.lastName ?? null,
+		username: profile.username ?? null,
+		globalRole: profile.globalRole ?? null,
+		suspendedAt: profile.suspendedAt ?? null,
+		email,
+		isChildAccount
+	};
+};
 
 // One box for username, name or email. An email finds the account with that address and every
 // child whose parental consent names it, so a parent's address leads to their children too.
@@ -88,7 +105,7 @@ export const getUserDetails = query({
 			return null;
 		}
 
-		const emailInfo = await getAuthUserEmailInfo(ctx, profile.authUserId);
+		const { email, emailVerified, isChildAccount } = await contactEmail(ctx, profile);
 
 		// Under-16 accounts: the consent row holds the parent's address even before the parent
 		// has an account, so it is the contact of record for a child.
@@ -139,8 +156,9 @@ export const getUserDetails = query({
 			firstName: profile.firstName ?? null,
 			lastName: profile.lastName ?? null,
 			username: profile.username ?? null,
-			email: emailInfo?.email ?? null,
-			emailVerified: emailInfo?.emailVerified ?? false,
+			email,
+			emailVerified,
+			isChildAccount,
 			dateOfBirth: profile.dateOfBirth ?? null,
 			signUpWith: profile.signUpWith ?? null,
 			locationAddress: profile.locationAddress ?? null,

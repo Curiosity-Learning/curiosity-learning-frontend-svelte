@@ -11,7 +11,7 @@ const modules = import.meta.glob('./**/*.ts');
 const { emails } = vi.hoisted(() => ({
 	emails: new Map<string, string>([
 		['admin-user', 'admin@example.com'],
-		['child-user', 'child@example.com'],
+		['child-user', 'child-user@children.curiosity.local'],
 		['parent-user', 'parent@example.com']
 	])
 }));
@@ -87,7 +87,7 @@ describe('adminUsers', () => {
 
 		const byUsername = await admin.query(api.adminUsers.searchUsers, { search: 'child' });
 		expect(byUsername.map((user) => user.profileId)).toEqual([childId]);
-		expect(byUsername[0]?.email).toBe('child@example.com');
+		expect(byUsername[0]).toMatchObject({ email: null, isChildAccount: true });
 
 		const byName = await admin.query(api.adminUsers.searchUsers, { search: 'ada love' });
 		expect(byName.map((user) => user.profileId)).toEqual([childId]);
@@ -104,7 +104,8 @@ describe('adminUsers', () => {
 
 		const details = await admin.query(api.adminUsers.getUserDetails, { profileId: childId });
 		expect(details).toMatchObject({
-			email: 'child@example.com',
+			email: null,
+			isChildAccount: true,
 			parentConsent: { parentEmail: 'parent@example.com', status: 'approved' },
 			parents: [{ profileId: parentId, email: 'parent@example.com' }],
 			children: []
