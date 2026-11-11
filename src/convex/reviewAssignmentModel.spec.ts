@@ -680,8 +680,10 @@ describe('assignment-gated review flow', () => {
 		await seedGuideClub(t, unassignedGuideProfileId, guideRoleId);
 
 		const applicantProfileId = await seedProfile(t, 'applicant-gate');
-		const applicationId = await seedApplication(t, applicantProfileId);
 		const seasonId = await seedSeason(t);
+		const applicationId = await seedApplication(t, applicantProfileId, {
+			reviewSeasonId: seasonId
+		});
 		await t.run((ctx) =>
 			ctx.db.insert('applicationReviewAssignments', {
 				applicationId,
@@ -694,13 +696,14 @@ describe('assignment-gated review flow', () => {
 		const assignedGuide = t.withIdentity({ subject: 'assigned-guide' });
 		const unassignedGuide = t.withIdentity({ subject: 'unassigned-guide' });
 
-		const assignedList = await assignedGuide.query(api.clubApplications.listReviewableApplications, {});
-		expect(assignedList).toHaveLength(1);
-		const unassignedList = await unassignedGuide.query(
-			api.clubApplications.listReviewableApplications,
-			{}
-		);
-		expect(unassignedList).toHaveLength(0);
+		const assignedQueue = await assignedGuide.query(api.clubApplications.getMyReviewQueue, {});
+		expect(assignedQueue.toReview).toHaveLength(1);
+		const unassignedQueue = await unassignedGuide.query(api.clubApplications.getMyReviewQueue, {});
+		expect(unassignedQueue.toReview).toHaveLength(0);
+		// Nothing assigned this season → no "Reviews" entry point at all.
+		expect(
+			await unassignedGuide.query(api.clubApplications.countReviewableApplications, {})
+		).toBeNull();
 
 		const assignedCount = await assignedGuide.query(
 			api.clubApplications.countReviewableApplications,
@@ -710,16 +713,19 @@ describe('assignment-gated review flow', () => {
 
 		await assignedGuide.mutation(api.clubApplications.upsertApplicationReview, {
 			applicationId,
-			principlesScore: 7,
-			safetyScore: 9,
+			alignmentScore: 4,
+			motivationScore: 3,
+			readinessScore: 3,
 			note: 'Solid application'
 		});
 
-		const afterReviewList = await assignedGuide.query(
-			api.clubApplications.listReviewableApplications,
-			{}
-		);
-		expect(afterReviewList).toHaveLength(0);
+		// CL-780: a reviewed application moves to "Reviewed" (with the viewer's score) instead of
+		// disappearing.
+		const afterReviewQueue = await assignedGuide.query(api.clubApplications.getMyReviewQueue, {});
+		expect(afterReviewQueue.toReview).toHaveLength(0);
+		expect(afterReviewQueue.reviewed).toEqual([
+			expect.objectContaining({ applicationId, myScore: 3.3 })
+		]);
 		const afterReviewCount = await assignedGuide.query(
 			api.clubApplications.countReviewableApplications,
 			{}
@@ -734,9 +740,64 @@ describe('assignment-gated review flow', () => {
 				)
 				.unique()
 		);
-		expect(review?.principlesScore).toBe(7);
-		expect(review?.safetyScore).toBe(9);
-		expect(review?.score).toBe(8);
+		expect(review?.alignmentScore).toBe(4);
+		expect(review?.motivationScore).toBe(3);
+		expect(review?.readinessScore).toBe(3);
+		expect(review?.score).toBe(3.3);
+	});
+
+	it('rejects scores outside 1-5 and scoring outside the application’s review window (CL-780)', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const guideProfileId = await seedProfile(t, 'scale-guide');
+		await seedGuideClub(t, guideProfileId, guideRoleId);
+		const applicantProfileId = await seedProfile(t, 'applicant-scale');
+		const openSeasonId = await seedSeason(t);
+		const applicationId = await seedApplication(t, applicantProfileId, {
+			reviewSeasonId: openSeasonId
+		});
+		await t.run((ctx) =>
+			ctx.db.insert('applicationReviewAssignments', {
+				applicationId,
+				reviewerProfileId: guideProfileId,
+				seasonId: openSeasonId,
+				assignedAt: Date.now()
+			})
+		);
+		const guide = t.withIdentity({ subject: 'scale-guide' });
+		const scores = { alignmentScore: 3, motivationScore: 3, readinessScore: 3, note: '' };
+
+		await expect(
+			guide.mutation(api.clubApplications.upsertApplicationReview, {
+				applicationId,
+				...scores,
+				alignmentScore: 0
+			})
+		).rejects.toThrow('Alignment must be a whole number from 1 to 5');
+		await expect(
+			guide.mutation(api.clubApplications.upsertApplicationReview, {
+				applicationId,
+				...scores,
+				readinessScore: 6
+			})
+		).rejects.toThrow('Readiness must be a whole number from 1 to 5');
+
+		// An empty "to clarify" note is fine.
+		await guide.mutation(api.clubApplications.upsertApplicationReview, {
+			applicationId,
+			...scores
+		});
+
+		const now = Date.now();
+		const closedSeasonId = await seedSeason(t, {
+			name: 'Closed',
+			reviewWindowOpen: now - 10 * DAY,
+			reviewWindowClose: now - 5 * DAY
+		});
+		await t.run((ctx) => ctx.db.patch(applicationId, { reviewSeasonId: closedSeasonId }));
+		await expect(
+			guide.mutation(api.clubApplications.upsertApplicationReview, { applicationId, ...scores })
+		).rejects.toThrow('Scoring for this application is closed');
 	});
 
 	it('rejects reviewing an application with no assignment and no existing review row', async () => {
@@ -745,15 +806,21 @@ describe('assignment-gated review flow', () => {
 		const guideProfileId = await seedProfile(t, 'no-assignment-guide');
 		await seedGuideClub(t, guideProfileId, guideRoleId);
 		const applicantProfileId = await seedProfile(t, 'applicant-no-assignment');
-		const applicationId = await seedApplication(t, applicantProfileId);
+		const seasonId = await seedSeason(t);
+		const applicationId = await seedApplication(t, applicantProfileId, {
+			reviewSeasonId: seasonId
+		});
 
 		await expect(
-			t.withIdentity({ subject: 'no-assignment-guide' }).mutation(api.clubApplications.upsertApplicationReview, {
-				applicationId,
-				principlesScore: 5,
-				safetyScore: 5,
-				note: 'Note'
-			})
+			t
+				.withIdentity({ subject: 'no-assignment-guide' })
+				.mutation(api.clubApplications.upsertApplicationReview, {
+					applicationId,
+					alignmentScore: 3,
+					motivationScore: 3,
+					readinessScore: 3,
+					note: 'Note'
+				})
 		).rejects.toThrow('This application is not assigned to you');
 	});
 
@@ -763,7 +830,10 @@ describe('assignment-gated review flow', () => {
 		const guideProfileId = await seedProfile(t, 'legacy-review-guide');
 		await seedGuideClub(t, guideProfileId, guideRoleId);
 		const applicantProfileId = await seedProfile(t, 'applicant-legacy');
-		const applicationId = await seedApplication(t, applicantProfileId);
+		const seasonId = await seedSeason(t);
+		const applicationId = await seedApplication(t, applicantProfileId, {
+			reviewSeasonId: seasonId
+		});
 
 		await t.run((ctx) => {
 			const now = Date.now();
@@ -783,18 +853,22 @@ describe('assignment-gated review flow', () => {
 			.withIdentity({ subject: 'legacy-review-guide' })
 			.mutation(api.clubApplications.upsertApplicationReview, {
 				applicationId,
-				principlesScore: 9,
-				safetyScore: 3,
+				alignmentScore: 5,
+				motivationScore: 4,
+				readinessScore: 3,
 				note: 'Updated note'
 			});
 
+		// Re-scored on the 1-5 scale (CL-780): the legacy 0-10 pair is dropped.
 		const review = await t.run((ctx) => ctx.db.get(result.reviewId));
-		expect(review?.score).toBe(6);
+		expect(review?.score).toBe(4);
+		expect(review?.principlesScore).toBeUndefined();
+		expect(review?.safetyScore).toBeUndefined();
 	});
 });
 
 describe('score discrepancy escalation', () => {
-	it('maintains the averaged score across dual-score reviews and posts a discrepancy alert once spread >= 4', async () => {
+	it('averages the three 1-5 scores and posts a discrepancy alert once the spread is >= 2', async () => {
 		const t = convexTest(schema, modules);
 		const { guideRoleId } = await seedRoles(t);
 		const guideAProfileId = await seedProfile(t, 'discrepancy-guide-a');
@@ -803,8 +877,10 @@ describe('score discrepancy escalation', () => {
 		await seedGuideClub(t, guideBProfileId, guideRoleId);
 
 		const applicantProfileId = await seedProfile(t, 'applicant-discrepancy');
-		const applicationId = await seedApplication(t, applicantProfileId);
 		const seasonId = await seedSeason(t);
+		const applicationId = await seedApplication(t, applicantProfileId, {
+			reviewSeasonId: seasonId
+		});
 		await t.run(async (ctx) => {
 			const now = Date.now();
 			await ctx.db.insert('applicationReviewAssignments', {
@@ -821,25 +897,31 @@ describe('score discrepancy escalation', () => {
 			});
 		});
 
-		// First review: principles 9, safety 9 -> average 9. No discrepancy yet (only 1 review).
-		await t.withIdentity({ subject: 'discrepancy-guide-a' }).mutation(api.clubApplications.upsertApplicationReview, {
-			applicationId,
-			principlesScore: 9,
-			safetyScore: 9,
-			note: 'Excellent'
-		});
+		// First review: 5/5/5 -> average 5. No discrepancy yet (only 1 review).
+		await t
+			.withIdentity({ subject: 'discrepancy-guide-a' })
+			.mutation(api.clubApplications.upsertApplicationReview, {
+				applicationId,
+				alignmentScore: 5,
+				motivationScore: 5,
+				readinessScore: 5,
+				note: 'Excellent'
+			});
 		let scheduledJobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect());
 		expect(scheduledJobs.some((j) => j.name.includes('notifyApplicationScoreDiscrepancy'))).toBe(
 			false
 		);
 
-		// Second review: principles 3, safety 5 -> average 4. Spread |9-4| = 5 >= 4: should alert.
-		await t.withIdentity({ subject: 'discrepancy-guide-b' }).mutation(api.clubApplications.upsertApplicationReview, {
-			applicationId,
-			principlesScore: 3,
-			safetyScore: 5,
-			note: 'Concerned'
-		});
+		// Second review: 2/3/4 -> average 3. Spread |5-3| = 2 >= 2: should alert.
+		await t
+			.withIdentity({ subject: 'discrepancy-guide-b' })
+			.mutation(api.clubApplications.upsertApplicationReview, {
+				applicationId,
+				alignmentScore: 2,
+				motivationScore: 3,
+				readinessScore: 4,
+				note: 'Concerned'
+			});
 
 		scheduledJobs = await t.run((ctx) => ctx.db.system.query('_scheduled_functions').collect());
 		expect(scheduledJobs.some((j) => j.name.includes('notifyApplicationScoreDiscrepancy'))).toBe(
@@ -852,7 +934,7 @@ describe('score discrepancy escalation', () => {
 				.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
 				.collect()
 		);
-		expect(reviews.map((r) => r.score).sort()).toEqual([4, 9]);
+		expect(reviews.map((r) => r.score).sort()).toEqual([3, 5]);
 
 		// Draining the scheduled action must not throw even with no webhook URL configured.
 		await t.finishAllScheduledFunctions(() => Promise.resolve());
@@ -864,22 +946,24 @@ describe('adminUpdateReviewSettings', () => {
 		const t = convexTest(schema, modules);
 		const { guideRoleId } = await seedRoles(t);
 		const adminProfileId = await seedProfile(t, 'admin-user');
-		await t.run((ctx) =>
-			ctx.db.patch(adminProfileId, { globalRole: 'admin' })
-		);
+		await t.run((ctx) => ctx.db.patch(adminProfileId, { globalRole: 'admin' }));
 		await seedProfile(t, 'non-admin-user');
 
 		await expect(
-			t.withIdentity({ subject: 'non-admin-user' }).mutation(api.reviewAssignmentModel.adminUpdateReviewSettings, {
-				reviewersPerApplication: 1,
-				maxReviewsPerGuidePerSeason: 1
-			})
+			t
+				.withIdentity({ subject: 'non-admin-user' })
+				.mutation(api.reviewAssignmentModel.adminUpdateReviewSettings, {
+					reviewersPerApplication: 1,
+					maxReviewsPerGuidePerSeason: 1
+				})
 		).rejects.toThrow('Not authorized');
 
-		await t.withIdentity({ subject: 'admin-user' }).mutation(api.reviewAssignmentModel.adminUpdateReviewSettings, {
-			reviewersPerApplication: 2,
-			maxReviewsPerGuidePerSeason: 5
-		});
+		await t
+			.withIdentity({ subject: 'admin-user' })
+			.mutation(api.reviewAssignmentModel.adminUpdateReviewSettings, {
+				reviewersPerApplication: 2,
+				maxReviewsPerGuidePerSeason: 5
+			});
 
 		const settings = await t
 			.withIdentity({ subject: 'admin-user' })

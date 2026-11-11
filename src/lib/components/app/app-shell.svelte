@@ -70,7 +70,13 @@
 	const topNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'top'));
 	const bottomNavItems = $derived(navigation.filter((n) => (n.placement ?? 'top') === 'bottom'));
 	const mobileNavItems = $derived(topNavItems.concat(bottomNavItems));
-	let mobileNavGridClass = $derived(mobileNavItems.length <= 3 ? 'grid-cols-3' : 'grid-cols-4');
+	let mobileNavGridClass = $derived(
+		mobileNavItems.length <= 3
+			? 'grid-cols-3'
+			: mobileNavItems.length === 4
+				? 'grid-cols-4'
+				: 'grid-cols-5'
+	);
 	// Auto mode chooses the most stable layout for current header width.
 	const SEARCH_INLINE_MIN_WIDTH = 920;
 	const SEARCH_COLLAPSIBLE_MIN_WIDTH = 680;

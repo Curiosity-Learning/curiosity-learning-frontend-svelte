@@ -294,7 +294,15 @@ export default defineSchema({
 		// practice every row has them going forward.
 		principlesScore: v.optional(v.number()),
 		safetyScore: v.optional(v.number()),
+		// CL-780: the reviewing guide (src/lib/domain/application-review-guide.ts) replaces the
+		// 0-10 principles/safety pair with three 1-5 dimensions. New reviews set these three and
+		// not the legacy pair; `score` becomes their average (still 1 decimal). Optional because
+		// reviews saved before CL-780 have only the legacy pair (prod had none on 2026-11-11).
+		alignmentScore: v.optional(v.number()),
+		motivationScore: v.optional(v.number()),
+		readinessScore: v.optional(v.number()),
 		score: v.number(),
+		// "To clarify in the interview" since CL-780 (may be empty); was a free review note.
 		note: v.string(),
 		createdAt: v.number(),
 		updatedAt: v.number()
