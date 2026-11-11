@@ -181,8 +181,8 @@ export const isApplicationReviewWindowOpen = async (
 // with its review window on the admin Seasons tab and scoring reappears on its own.
 //
 // CL-778: the scoring form and the review list's call to action now follow each application's
-// own review season (isApplicationReviewWindowOpen; getApplication / listReviewableApplications
-// return a per-application `reviewWindowOpen`). This platform-wide flag and getReviewWindowState
+// own review season (isApplicationReviewWindowOpen; getApplication returns a per-application
+// `reviewWindowOpen`, and CL-780's getMyReviewQueue shows the season once at the top). This platform-wide flag and getReviewWindowState
 // stay for member-app builds from before CL-778.
 export const isReviewWindowOpen = async (ctx: QueryCtx | MutationCtx, now = Date.now()) =>
 	Boolean(await getOpenReviewWindowSeason(ctx, now));
@@ -444,8 +444,13 @@ export const backfillDualScores = internalMutation({
 	}
 });
 
+// CL-780: reviews are scored 1-5 now (was 0-10), so the PRD's "spread >= 4 out of 10" becomes a
+// spread of >= 2 between the highest and lowest average score. Shared with admin.ts's pipeline
+// flag so the alert and the dashboard agree.
+export const SCORE_DISCREPANCY_SPREAD = 2;
+
 // Discrepancy escalation (PRD 6.9.2/6.13): when a review lands and the application now has >= 2
-// reviews with a max-min `score` spread >= 4, alert the Core Team via the Google Chat webhook
+// reviews with a max-min `score` spread >= SCORE_DISCREPANCY_SPREAD, alert the Core Team via the Google Chat webhook
 // (googleChat.ts's established pattern). Admins have no notification-recipient concept in this
 // app, so this is the only alert path; CL-732's dashboard flag (admin.ts adminApplicationsPipeline)
 // independently recomputes the same condition for display. No auto-decision is made either way.
@@ -461,7 +466,7 @@ export const maybeNotifyScoreDiscrepancy = async (
 
 	const scores = reviews.map((review) => review.score);
 	const spread = Math.max(...scores) - Math.min(...scores);
-	if (spread < 4) return;
+	if (spread < SCORE_DISCREPANCY_SPREAD) return;
 
 	const application = await ctx.db.get(applicationId);
 	await ctx.scheduler.runAfter(0, internal.googleChat.notifyApplicationScoreDiscrepancy, {

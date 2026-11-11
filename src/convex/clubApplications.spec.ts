@@ -606,8 +606,7 @@ describe('getApplication', () => {
 			// No season with an open review window seeded → scoring is hidden.
 			reviewWindowOpen: false,
 			myReview: null,
-			decision: null,
-			review: null
+			decision: null
 		});
 		// Nothing about who reviewed or what they wrote leaks through any field.
 		const serialized = JSON.stringify(result);
@@ -635,12 +634,13 @@ describe('getApplication', () => {
 
 		expect(result?.viewer).toEqual({ role: 'reviewer', hasReviewed: true, isAssigned: false });
 		expect(result?.myReview).toEqual({
-			principlesScore: null,
-			safetyScore: null,
+			alignmentScore: null,
+			motivationScore: null,
+			readinessScore: null,
 			note: 'Looks great'
 		});
 		expect(result?.decision).toEqual({ decidedByName: null, adminFollowUpFlag: null });
-		expect(result?.review).toBeNull();
+		expect(result).not.toHaveProperty('review');
 		const serialized = JSON.stringify(result);
 		expect(serialized).not.toContain('Secret second opinion');
 		expect(serialized).not.toContain('other-reviewer');
@@ -660,11 +660,12 @@ describe('getApplication', () => {
 		// assignReviewer seeds a season whose review window contains now.
 		expect(result?.reviewWindowOpen).toBe(true);
 		expect(result?.myReview).toBeNull();
-		expect(result?.review).toBeNull();
 		expect(JSON.stringify(result)).not.toContain('Looks great');
 	});
 
-	it('gives a global admin everything', async () => {
+	// CL-780: being a global admin doesn't change the member app. Every review and the roster are
+	// admin-portal only (admin.adminGetApplication).
+	it('gives an unassigned global admin a read-only view without other reviews', async () => {
 		const { reviewerProfileId, applicationId, t } = await seedApplicationFixture();
 		await addReview(t, applicationId, reviewerProfileId);
 		const admin = await seedAdmin(t);
@@ -673,10 +674,52 @@ describe('getApplication', () => {
 
 		expect(result?.viewer).toEqual({ role: 'admin', hasReviewed: false, isAssigned: false });
 		expect(result?.decision).toEqual({ decidedByName: null, adminFollowUpFlag: null });
-		expect(result?.review?.reviews).toEqual([
-			expect.objectContaining({ reviewerName: 'Rev Iewer', score: 8, note: 'Looks great' })
-		]);
-		expect(result?.review?.assignedReviewers).toEqual([]);
+		expect(result?.myReview).toBeNull();
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('Looks great');
+		expect(serialized).not.toContain('Rev Iewer');
+	});
+
+	it('treats an assigned global admin as a reviewer who can score (CL-780)', async () => {
+		const { applicationId, t } = await seedApplicationFixture();
+		const admin = await seedAdmin(t);
+		const adminProfileId = await t.run(async (ctx) => {
+			const profile = await ctx.db
+				.query('profiles')
+				.withIndex('by_auth_user_id', (q) => q.eq('authUserId', 'admin-user'))
+				.unique();
+			return profile!._id;
+		});
+		await assignReviewer(t, applicationId, adminProfileId);
+
+		const before = await admin.query(api.clubApplications.getApplication, { applicationId });
+		expect(before?.viewer).toEqual({ role: 'reviewer', hasReviewed: false, isAssigned: true });
+		expect(before?.reviewWindowOpen).toBe(true);
+
+		await admin.mutation(api.clubApplications.upsertApplicationReview, {
+			applicationId,
+			alignmentScore: 4,
+			motivationScore: 3,
+			readinessScore: 5,
+			note: 'Ask about the time commitment'
+		});
+		const after = await admin.query(api.clubApplications.getApplication, { applicationId });
+		expect(after?.viewer).toEqual({ role: 'reviewer', hasReviewed: true, isAssigned: true });
+		expect(after?.myReview).toEqual({
+			alignmentScore: 4,
+			motivationScore: 3,
+			readinessScore: 5,
+			note: 'Ask about the time commitment'
+		});
+		const review = await t.run((ctx) =>
+			ctx.db
+				.query('applicationReviews')
+				.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+					q.eq('applicationId', applicationId).eq('reviewerProfileId', adminProfileId)
+				)
+				.unique()
+		);
+		expect(review?.score).toBe(4);
 	});
 
 	it('rejects a Guide with no assignment and no review', async () => {
@@ -902,20 +945,21 @@ describe('getApplication scoring window (CL-778)', () => {
 		await t.run((ctx) => ctx.db.patch(applicationId, { reviewSeasonId: laterId }));
 		const later = await reviewer.query(api.clubApplications.getApplication, { applicationId });
 		expect(later?.reviewWindowOpen).toBe(false);
-		expect(later?.reviewSeason).toEqual({ seasonId: laterId, name: 'Spring 2027' });
-		const laterList = await reviewer.query(api.clubApplications.listReviewableApplications, {});
-		expect(laterList[0]?.reviewWindowOpen).toBe(false);
+		// CL-780: the queue shows the current review season (Winter 2026) once; an application
+		// reviewed in another season isn't in it.
+		const laterQueue = await reviewer.query(api.clubApplications.getMyReviewQueue, {});
+		expect(laterQueue.season).toMatchObject({ seasonId: openId, isScoringOpen: true });
+		expect(laterQueue.toReview).toEqual([]);
 
 		await t.run((ctx) => ctx.db.patch(applicationId, { reviewSeasonId: undefined }));
 		const unset = await reviewer.query(api.clubApplications.getApplication, { applicationId });
 		expect(unset?.reviewWindowOpen).toBe(false);
-		expect(unset?.reviewSeason).toBeNull();
 
 		await t.run((ctx) => ctx.db.patch(applicationId, { reviewSeasonId: openId }));
 		const open = await reviewer.query(api.clubApplications.getApplication, { applicationId });
 		expect(open?.reviewWindowOpen).toBe(true);
-		const openList = await reviewer.query(api.clubApplications.listReviewableApplications, {});
-		expect(openList[0]?.reviewWindowOpen).toBe(true);
+		const openQueue = await reviewer.query(api.clubApplications.getMyReviewQueue, {});
+		expect(openQueue.toReview.map((item) => item.applicationId)).toEqual([applicationId]);
 	});
 });
 

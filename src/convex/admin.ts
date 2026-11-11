@@ -15,7 +15,8 @@ import {
 import {
 	assignReviewsForApplicationIfWindowOpen,
 	pickCurrentReviewSeason,
-	resolveSeasonForManualAssignment
+	resolveSeasonForManualAssignment,
+	SCORE_DISCREPANCY_SPREAD
 } from './reviewAssignmentModel';
 import { getAuthUserEmail } from './authEmail';
 
@@ -498,9 +499,12 @@ export const adminApplicationsPipeline = query({
 			const scores = applicationReviews.map((r) => r.score);
 			const avgScore =
 				scores.length > 0 ? scores.reduce((sum, s) => sum + s, 0) / scores.length : null;
-			// PRD-defined discrepancy: at least 2 reviews and a max-min spread >= 4.
+			// PRD-defined discrepancy: at least 2 reviews and a max-min spread of at least
+			// SCORE_DISCREPANCY_SPREAD (2 on the 1-5 scale, CL-780).
 			const scoreDiscrepancyFlag =
-				scores.length >= 2 ? Math.max(...scores) - Math.min(...scores) >= 4 : false;
+				scores.length >= 2
+					? Math.max(...scores) - Math.min(...scores) >= SCORE_DISCREPANCY_SPREAD
+					: false;
 			const applicantProfile = await ctx.db.get(application.applicantProfileId);
 			const chatState = await getApplicationChatState(ctx, application);
 
