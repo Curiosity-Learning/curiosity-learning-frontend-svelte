@@ -26,6 +26,10 @@ SvelteKit frontend and Convex backend for Curiosity Learning.
 
 ## Local Setup
 
+Working on a ticket? Use a worktree: it gets its own Convex backend, test data and URL
+automatically. See [`docs/worktrees.md`](docs/worktrees.md) and the ticket rules in `AGENTS.md`.
+The steps below are for the main checkout (shared dev backend).
+
 1. Install dependencies:
 
 ```sh
@@ -81,7 +85,7 @@ Deploy the web app to Vercel using SvelteKit's Node runtime.
 
 - Adapter: `@sveltejs/adapter-vercel`
 - Runtime: Node.js 22
-- Build command: `npm run build`
+- Build command: `bash scripts/vercel-build.sh` (set in `vercel.json`; previews get their own Convex backend, see `docs/worktrees.md`)
 
 Vercel production env values:
 
