@@ -10,7 +10,8 @@ These instructions exist to keep iteration fast while still shipping production-
 
 ## One Ticket = One Worktree = One Branch = One PR
 
-All work is tracked in Fibery (`Software Development/Ticket`, ids `CL-###`).
+All work is tracked in Fibery (`Software Development/Ticket`, ids `CL-###`). The overall flow
+(who does what, when Ron tests, when to merge) is "How We Work" in `README.md`.
 
 - **Start from a ticket.** No ticket, no code: create one first (or ask Ron). A request that
   covers several tickets becomes several worktrees.
@@ -23,11 +24,16 @@ All work is tracked in Fibery (`Software Development/Ticket`, ids `CL-###`).
   Something unrelated found along the way gets its own ticket, not a commit in this branch.
 - **Keep the ticket current** as the work moves:
   - worktree created → state `In Progress`, comment with the branch name;
-  - PR opened → state `Implemented`, comment with the PR link and the Vercel branch preview URL;
+  - PR opened and the Vercel branch preview checked by you → state `Implemented`, comment with
+    the PR link, the preview URL and what to test (if you could not open the preview, say so);
   - Ron testing on the preview → `In Testing` → `Tested`;
   - merged and deployed → `Done`, with a comment listing any deploy steps that were run (prod env
     vars, data backfills, `syncRolePermissions --prod`, …).
-- **Clean up** after the merge: `npm run worktree:remove` (deletes the worktree's backend).
+- **Merge only when Ron says so**, then watch the production deploy. Production steps need
+  Ron's explicit OK in the chat.
+- **Clean up** after the merge, as the last step: `npm run worktree:remove` (deletes the
+  worktree's Convex backend, then the worktree; the branch is kept). Ron settles the T3 thread
+  afterwards, and settling runs no script, so skipping this leaves the backend running.
 
 ## Backends: never share, never prod
 
