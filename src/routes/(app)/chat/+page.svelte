@@ -104,7 +104,7 @@
 	// only (messages paginate 40 at a time via scroll-to-top), which is noted in the UI.
 	let messageSearchQuery = $state('');
 	let isDesktopViewport = $state(false);
-	let messageInputRef = $state<HTMLInputElement | null>(null);
+	let messageInputRef = $state<HTMLTextAreaElement | null>(null);
 	let messageScrollRef = $state<HTMLDivElement | null>(null);
 	let messageLimit = $state(INITIAL_MESSAGE_LIMIT);
 	let selectedRoomForScroll = $state<Id<'rooms'> | null>(null);
@@ -537,6 +537,16 @@
 		}
 	};
 
+	// CL-783: grow the composer with its text in browsers without `field-sizing: content`
+	// (Firefox, older Safari). Its max-height caps the growth; past that it scrolls.
+	$effect(() => {
+		void message;
+		const el = messageInputRef;
+		if (!el || CSS.supports('field-sizing', 'content')) return;
+		el.style.height = 'auto';
+		el.style.height = `${el.scrollHeight}px`;
+	});
+
 	const sendMessage = async () => {
 		const targetRoomId = selectedRoomId;
 		const trimmedMessage = message.trim();
@@ -580,7 +590,8 @@
 	};
 
 	const handleMessageComposerKeydown = (event: KeyboardEvent) => {
-		if (event.key !== 'Enter' || event.shiftKey) return;
+		// Shift+Enter inserts a new line; Enter while an IME is composing confirms the word.
+		if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
 		event.preventDefault();
 		void sendMessage();
 	};
@@ -1223,7 +1234,7 @@
 															}`}
 														>
 															<p
-																class={`break-words ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
+																class={`break-words whitespace-pre-wrap ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
 															>
 																{#each linkifySegments(entry.content) as segment, index (index)}
 																	{#if segment.type === 'url'}
@@ -1287,13 +1298,18 @@
 									: 'rounded-[1.1rem] bg-clip-padding shadow-sm ring-1 ring-black/5 [-moz-background-clip:padding]'
 							}`}
 						>
-							<Input
+							<!-- CL-783: multi-line so the whole message can be read before sending. Grows with
+							the text (field-sizing-content, plus autosizeComposer for browsers without it) up
+							to a max height, then scrolls. -->
+							<Textarea
 								bind:ref={messageInputRef}
 								bind:value={message}
 								placeholder="Send a message..."
 								maxlength={MAX_MESSAGE_LENGTH}
-								class={`border-0 bg-clip-padding text-[1.02rem] shadow-none ring-0 [-moz-background-clip:padding] focus-visible:ring-0 ${
-									isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
+								rows={1}
+								aria-label="Message"
+								class={`max-h-40 min-h-0 resize-none overflow-y-auto border-0 bg-transparent bg-clip-padding text-[1.02rem] shadow-none ring-0 [-moz-background-clip:padding] focus-visible:ring-0 ${
+									isDesktopViewport ? 'rounded-none px-0 py-1' : 'rounded-[1.1rem] px-4 pt-2.5 pb-0'
 								}`}
 								onkeydown={handleMessageComposerKeydown}
 							/>
