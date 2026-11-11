@@ -59,7 +59,8 @@ npm run worktree:remove [path]  # delete the worktree's backend and the worktree
 npm run worktree:prune [--yes]  # delete THIS machine's backends whose worktree is gone (dry run without --yes)
 ```
 
-Removing a worktree from T3 or Claude Code does not delete its backend; run
+Settling a T3 thread, or removing a worktree from T3 or Claude Code, does not delete its
+backend. Agents run `npm run worktree:remove` after the merge. For leftovers, run
 `npm run worktree:prune -- --yes` from time to time.
 
 ## Working from more than one machine
