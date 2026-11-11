@@ -554,6 +554,9 @@ const buildReviewQueue = async (ctx: Ctx, profileId: Id<'profiles'>, now: number
 		if (!application || application.reviewSeasonId !== season._id) continue;
 		if (application.status === 'incomplete') continue;
 		const review = await getApplicationReview(ctx, application._id, profileId);
+		// A review saved on the pre-CL-780 0-10 scale has to be scored again on 1-5, so it counts
+		// as still to review (its old `score` isn't comparable).
+		const currentReview = review && review.alignmentScore !== undefined ? review : null;
 		const item = {
 			applicationId: application._id,
 			name: application.name,
@@ -561,9 +564,9 @@ const buildReviewQueue = async (ctx: Ctx, profileId: Id<'profiles'>, now: number
 			description: application.description ?? null,
 			submittedAt: application.submittedAt ?? application.createdAt,
 			status: application.status,
-			myScore: review ? review.score : null
+			myScore: currentReview ? currentReview.score : null
 		};
-		if (review) {
+		if (currentReview) {
 			reviewed.push(item);
 		} else if (application.status === 'pending') {
 			toReview.push(item);
