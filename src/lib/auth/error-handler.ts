@@ -74,8 +74,10 @@ export function normalizeAuthError(error: unknown): NormalizedAuthError {
 		};
 	}
 
-	// Invalid email format
-	if (errorMessage.includes('invalid email')) {
+	// Invalid email format. Match the whole message: Better Auth's wrong-password answer
+	// ("Invalid email or password") also starts with "invalid email" and must fall through
+	// to invalid credentials below.
+	if (isInvalidEmailFormatMessage(errorMessage)) {
 		return {
 			type: 'invalid-email',
 			message: errorMessage,
@@ -164,6 +166,11 @@ export function normalizeAuthError(error: unknown): NormalizedAuthError {
 		message: errorMessage || 'Unknown error',
 		userMessage: 'auth.errors.unknownError'
 	};
+}
+
+function isInvalidEmailFormatMessage(errorMessage: string): boolean {
+	const message = errorMessage.replace(/[.!]+$/, '');
+	return message === 'invalid email' || message === 'invalid email address';
 }
 
 /**
