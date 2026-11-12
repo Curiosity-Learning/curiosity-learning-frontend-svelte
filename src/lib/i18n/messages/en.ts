@@ -46,7 +46,7 @@ const en = {
 		missingStorageReference: 'Upload completed, but no storage reference was returned.',
 		blockedBySafetyScreening:
 			'This image/video could not be uploaded. If you believe this is an error, please try a different file.',
-		videoTooLong: 'Videos must be 2 minutes or shorter. Please trim your video and try again.',
+		videoTooLong: 'Videos must be 3 minutes or shorter. Please trim your video and try again.',
 		fileTooLarge: 'This file is too large. The maximum size is {maxSizeMb}MB.'
 	},
 	settings: {
@@ -218,6 +218,19 @@ const en = {
 	sessionsHome: {
 		planNextSessionDescription: 'Plan your next session to get the club back on the calendar.',
 		planNextSessionAction: 'Plan next session'
+	},
+	emailUnsubscribe: {
+		title: 'Stop application reminders?',
+		description:
+			"You'll no longer get reminders about unfinished club applications at {email}. Other emails, such as account notices and application decisions, still arrive.",
+		submit: 'Unsubscribe',
+		submitting: 'Unsubscribing...',
+		doneTitle: "You're unsubscribed",
+		doneDescription: "We won't send application reminders to {email} again.",
+		invalidTitle: 'This unsubscribe link is not valid',
+		invalidDescription:
+			'It may have been copied incompletely. Use the link from the email again, or contact us.',
+		failure: 'Something went wrong. Please try again.'
 	},
 	authLayout: {
 		description: 'Sign in to continue your club experience.'
@@ -530,7 +543,9 @@ const en = {
 			uploading: 'Uploading',
 			videoUploading: 'Uploading your video...',
 			videoDropPrompt: 'Drag and drop or choose a video',
-			videoRequirements: 'MP4, MOV, WEBM, or M4V up to 100 MB.',
+			videoRequirements: 'MP4, MOV, WEBM, or M4V. Up to 3 minutes and 500 MB.',
+			needHelp: 'Having trouble with your application?',
+			messageUs: 'Message us',
 			videoRequired: 'Please upload a video before submitting your application.',
 			videoUploadingStatus: 'Uploading video...',
 			videoUploadedStatus: 'Video uploaded',
@@ -656,7 +671,10 @@ const en = {
 		membersCountLabel: '{count} members',
 		actionNeededBadge: 'Action needed',
 		openBadge: 'Open',
-		closedBadge: 'Closed'
+		closedBadge: 'Closed',
+		unreadBadgeLabel: '{count} unread messages',
+		todayLabel: 'Today',
+		yesterdayLabel: 'Yesterday'
 	},
 	suspendedScreen: {
 		title: 'Your account is suspended',
@@ -686,7 +704,8 @@ const en = {
 		pendingBannerTitle: 'New join request from {name}',
 		pendingBannerDescription: 'Review this request and decide below.',
 		pendingRequesterBannerTitle: 'Your request to join is pending',
-		pendingRequesterBannerDescription: 'A Guide will review your request. You can cancel it any time.',
+		pendingRequesterBannerDescription:
+			'A Guide will review your request. You can cancel it any time.',
 		acceptButton: 'Accept',
 		declineButton: 'Decline',
 		cancelButton: 'Cancel request',
@@ -740,6 +759,8 @@ const en = {
 		emptyState: 'You have not submitted a join request or a Start Club application yet.',
 		openChat: 'Open chat',
 		resumeApplication: 'Resume application',
+		messageUs: 'Message us',
+		messageUsFailure: 'Unable to open the chat. Please try again.',
 		startKindLabel: 'Start Club application',
 		joinKindLabel: 'Join request'
 	},
@@ -751,12 +772,9 @@ const en = {
 		rejecting: 'Rejecting...',
 		acceptFailure: 'Unable to accept this application.',
 		rejectFailure: 'Unable to reject this application.',
-		moveToInterviewButton: 'Move to interview',
-		movingToInterview: 'Moving...',
-		moveToInterviewFailure: 'Unable to move this application to interview.',
-		pendingBannerTitle: 'This application is assigned to you for review',
+		pendingBannerTitle: 'This application is in review',
 		pendingBannerDescription:
-			'Once reviewers have scored this application, move it to the interview stage to open scheduling here.',
+			'The Core Team moves applications to the interview stage once reviews are in. You can chat with the applicant here in the meantime.',
 		flagFollowUpButton: 'Flag for follow-up',
 		flaggingFollowUp: 'Flagging...',
 		followUpFailure: 'Unable to flag this application.',
@@ -780,6 +798,83 @@ const en = {
 			'This does not reject the application. It just marks it for Core Team attention (e.g. a no-show or scheduling issue).',
 		followUpDialogPlaceholder: 'Reason, e.g. "No-show / failed to schedule"'
 	},
+	applicationReviewList: {
+		title: 'Application reviews',
+		subtitle: 'Applications assigned to you for peer review.',
+		seasonTitle: '{season} review',
+		scoringOpenUntil: 'Scoring is open until {date}.',
+		scoringOpensOn: 'Scoring opens on {date}.',
+		scoringClosedOn: 'Scoring closed on {date}.',
+		guideTitle: 'How to review',
+		guideDescription:
+			'Read the full application, watch the whole video, then score Alignment, Motivation and Readiness from 1 to 5. A 3 is a positive score.',
+		guideLink: 'Read the review guide',
+		toReviewTitle: 'To review ({count})',
+		reviewedTitle: 'Reviewed ({count})',
+		allDone: "You're all caught up. You can still change a review until scoring closes.",
+		emptyTitle: 'No applications assigned',
+		emptyDescription: 'Nothing is assigned to you for review this season.',
+		noSeasonTitle: 'No reviews right now',
+		noSeasonDescription: 'Applications are reviewed after each season’s application deadline.',
+		reviewLink: 'Review',
+		viewLink: 'View',
+		editLink: 'Edit review',
+		yourScore: 'Your score {score}'
+	},
+	applicationReviewGuide: {
+		title: 'Review guide',
+		purposeTitle: 'Purpose',
+		overviewTitle: 'Overview',
+		processTitle: 'Process',
+		dimensionsTitle: 'Score from 1 to 5',
+		indicationsTitle: 'Some indications',
+		scaleTitle: 'The scale',
+		clarifyTitle: 'What to clarify in the interview',
+		clarifyIntro: 'Write down anything that should be clarified during the interview. For example:',
+		importantTitle: 'Important',
+		backToReviews: 'Back to reviews'
+	},
+	applicationDetail: {
+		title: 'Application',
+		notFoundTitle: 'Application not found',
+		notFoundDescription: 'This application no longer exists.',
+		noAccess: "You don't have access to this application.",
+		submittedOn: 'Submitted {date}',
+		openChat: 'Open chat',
+		openClub: 'Open club',
+		yourApplicationTitle: 'Your application',
+		statusTitle: 'Status',
+		detailsTitle: 'Application',
+		descriptionLabel: 'Why they want to start a club',
+		ownDescriptionLabel: 'Why you want to start a club',
+		locationLabel: 'Location',
+		applicantRoleLabel: 'Role',
+		applicantLabel: 'Applicant',
+		clubLabel: 'Club',
+		reviewFormTitle: 'Your review',
+		reviewFormDescription:
+			'Score each area from 1 (very weak) to 5 (very strong). A 3 is a positive score.',
+		reviewGuideLink: 'Review guide',
+		whatToLookFor: 'What to look for',
+		pickScore: 'Pick a score',
+		noteLabel: 'To clarify in the interview',
+		noteHint: 'Optional. Anything the interviewer should ask about.',
+		notePlaceholder:
+			'For example: they talk a lot about teaching, or want the club to focus on one topic.',
+		saveReview: 'Submit review',
+		updateReview: 'Update review',
+		savingReview: 'Saving...',
+		reviewSaved: 'Review saved',
+		reviewSaveFailure: 'Unable to save review',
+		legacyReviewHint:
+			'Your earlier review used the old 0-10 scale. Score it again on the new scale to update it.',
+		scoringClosed: 'Scoring is closed for this application.',
+		decisionTitle: 'Decision',
+		decidedByLabel: 'Decided by',
+		decidedAtLabel: 'Decided on',
+		rejectionNoteLabel: 'Note to the applicant',
+		followUpFlagLabel: 'Flagged for Core Team follow-up'
+	},
 	publicClubPreview: {
 		notFoundTitle: 'Club not found',
 		notFoundDescription: "This club isn't available for preview.",
@@ -794,6 +889,12 @@ const en = {
 		readOnlyBannerTitle: 'This chat is read-only',
 		readOnlyBannerDescription:
 			'You can still view the message history, but you can no longer send messages here.'
+	},
+	chatContext: {
+		openClub: 'Open club',
+		openProject: 'Open project',
+		viewApplication: 'View application',
+		viewClub: 'View club'
 	},
 	projectDetail: {
 		memberStateDone: 'Done',

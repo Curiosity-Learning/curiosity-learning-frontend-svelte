@@ -3,7 +3,7 @@ import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
-import { requireGlobalAdmin } from './permissions';
+import { requireGlobalAdmin, requireIdentity } from './permissions';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -21,7 +21,20 @@ type Ctx = QueryCtx | MutationCtx;
 // Applications submitted before a window opens, or after it closes, simply stay `pending` with
 // no assignment rows — they queue for the season whose window is/becomes open (PRD 6.9.2 point
 // 4: "roll into the next season's review cycle"). Nothing marks them specially; the queued state
-// *is* "pending with zero assignments". If a window is open but there are genuinely no eligible
+// *is* "pending with zero assignments".
+//
+// CL-778: "the season whose window is open" is no longer any season — it is the application's
+// own `reviewSeasonId` (the intake season when it was submitted, so a late submission waits for
+// the next season instead of being scored in the current one). An application is only assigned
+// while ITS review season's window is open; pending applications without a review season are not
+// assigned at all (clubApplications.backfillApplicationSeasons runs right after the CL-778
+// deploy, and an admin can set a season on anything left over). An application an admin moved to
+// another season (admin.adminSetApplicationReviewSeason) is never re-scored: once it has actual
+// reviews from Guides not assigned in this season, the assignment job leaves it alone (see
+// hasReviewHistoryOutsideSeason). Mere assignments booked against another season do not block —
+// prod's early assignments were booked against the bootstrap season.
+//
+// If a window is open but there are genuinely no eligible
 // Guides (e.g. a from-scratch platform bootstrap with no clubs yet), applications stay queued
 // until at least one Guide exists — this is an accepted operational reality, not a bug, and dev
 // data always has guides so it won't come up there.
@@ -86,14 +99,102 @@ export const adminUpdateReviewSettings = mutation({
 	}
 });
 
-// The season whose review window currently contains `now`, or null.
-const getOpenReviewWindowSeason = async (ctx: MutationCtx, now: number) => {
+// The season a MANUAL assignment (admin.adminAssignReviewer, leader-invite backfill) books
+// against: the one whose review window is open, else the most recent one. Manual assignments are
+// staff decisions and shouldn't fail just because no window is open right now — but they do need
+// a season row for the load-balancing indexes.
+//
+// CL-778: when the application has a review season, the assignment books against THAT season, so
+// a hand-picked reviewer counts toward the season the application is actually reviewed in (and
+// the assignment job, which leaves applications with reviewers in other seasons alone, does not
+// mistake it for an earlier season's review).
+export const resolveSeasonForManualAssignment = async (
+	ctx: QueryCtx | MutationCtx,
+	preferredSeasonId?: Id<'seasons'>
+) => {
+	if (preferredSeasonId) {
+		const preferred = await ctx.db.get(preferredSeasonId);
+		if (preferred) return preferred;
+	}
 	const seasons = await ctx.db.query('seasons').collect();
+	if (seasons.length === 0) return null;
+	// CL-778: otherwise the current review season (so an interviewer attached during the interview
+	// phase books against the season being interviewed), else the most recent one.
 	return (
-		seasons.find((season) => season.reviewWindowOpen <= now && now <= season.reviewWindowClose) ??
-		null
+		pickCurrentReviewSeason(seasons, Date.now()) ??
+		seasons.reduce((latest, season) =>
+			season.reviewWindowOpen > latest.reviewWindowOpen ? season : latest
+		)
 	);
 };
+
+// CL-778: "the current review season" — the season whose review cycle is under way: scoring has
+// opened and the season has not started yet (reviewWindowOpen <= now < startDate), so a season
+// stays current through its interview phase (Winter 2026: from applications closing on 7 Nov until
+// it starts on 5 Dec). Several → the one starting first. Else the next season whose scoring opens
+// in the future (earliest). Null when neither exists. The one definition used everywhere: the
+// admin applications page's default filter (admin.adminApplicationsPipeline) and the fallback of
+// resolveSeasonForManualAssignment above.
+export const pickCurrentReviewSeason = (seasons: Doc<'seasons'>[], now: number) => {
+	const inCycle = seasons
+		.filter((season) => season.reviewWindowOpen <= now && now < season.startDate)
+		.sort((a, b) => a.startDate - b.startDate);
+	if (inCycle[0]) return inCycle[0];
+	const upcoming = seasons
+		.filter((season) => season.reviewWindowOpen > now)
+		.sort((a, b) => a.reviewWindowOpen - b.reviewWindowOpen);
+	return upcoming[0] ?? null;
+};
+
+const isSeasonReviewWindowOpen = (season: Doc<'seasons'>, now: number) =>
+	season.reviewWindowOpen <= now && now <= season.reviewWindowClose;
+
+// The season whose review window currently contains `now`, or null.
+export const getOpenReviewWindowSeason = async (ctx: QueryCtx | MutationCtx, now: number) => {
+	const seasons = await ctx.db.query('seasons').collect();
+	return seasons.find((season) => isSeasonReviewWindowOpen(season, now)) ?? null;
+};
+
+// Every season whose review window contains `now` (normally zero or one; windows may overlap).
+const listOpenReviewWindowSeasons = async (ctx: QueryCtx | MutationCtx, now: number) => {
+	const seasons = await ctx.db.query('seasons').collect();
+	return seasons.filter((season) => isSeasonReviewWindowOpen(season, now));
+};
+
+// CL-778 (the original CL-765 ask): whether Guides are asked to score THIS application right now —
+// true only while its own review season's window is open. No review season (not submitted, or a
+// pre-CL-778 row the backfill could not place) counts as closed.
+export const isApplicationReviewWindowOpen = async (
+	ctx: QueryCtx | MutationCtx,
+	application: Doc<'clubApplications'>,
+	now = Date.now()
+) => {
+	if (!application.reviewSeasonId) return false;
+	const season = await ctx.db.get(application.reviewSeasonId);
+	return Boolean(season && isSeasonReviewWindowOpen(season, now));
+};
+
+// Whether Guides are currently being asked to score applications: true only while some season's
+// review window contains `now`. The member app hides the scoring form outside a window (Ron,
+// 2026-09-03: "we are past the 2 weeks since the opening of the reviewal period" — not asking
+// Guides for scores right now). Nothing to flip when the next season starts: create the season
+// with its review window on the admin Seasons tab and scoring reappears on its own.
+//
+// CL-778: the scoring form and the review list's call to action now follow each application's
+// own review season (isApplicationReviewWindowOpen; getApplication returns a per-application
+// `reviewWindowOpen`, and CL-780's getMyReviewQueue shows the season once at the top). This platform-wide flag and getReviewWindowState
+// stay for member-app builds from before CL-778.
+export const isReviewWindowOpen = async (ctx: QueryCtx | MutationCtx, now = Date.now()) =>
+	Boolean(await getOpenReviewWindowSeason(ctx, now));
+
+export const getReviewWindowState = query({
+	args: {},
+	returns: v.object({ open: v.boolean() }),
+	handler: async (ctx) => {
+		await requireIdentity(ctx);
+		return { open: await isReviewWindowOpen(ctx) };
+	}
+});
 
 // Eligible reviewer pool: active (non-left) Guide-role membership in a non-abandoned club. A
 // Guide is only counted once even if they Guide multiple clubs. The applicant exclusion happens
@@ -142,6 +243,33 @@ const countAssignmentsThisSeason = async (
 	return rows.length;
 };
 
+// CL-778: moving an application to another review season must not re-score it (Ron: an applicant
+// who missed her interview is considered next season — interviewed and decided, no new scoring).
+// An application has review history outside `seasonId` only when it has actual REVIEWS
+// (applicationReviews rows) from Guides who are not assigned to it in this season — scored in
+// another season, or by pre-CL-709 self-select. Assignments alone never block: an unscored
+// assignment booked against another season (prod's early assignments were booked against the
+// bootstrap season, and a never-scored application may be moved by an admin) is no scoring to
+// protect, so such applications are still topped up. Topping up within the same season (e.g. too
+// few Guides on day one) works too: reviews from this season's assignees don't count.
+const hasReviewHistoryOutsideSeason = async (
+	ctx: MutationCtx,
+	applicationId: Id<'clubApplications'>,
+	assignments: Doc<'applicationReviewAssignments'>[],
+	seasonId: Id<'seasons'>
+) => {
+	const assignedThisSeason = new Set(
+		assignments
+			.filter((assignment) => assignment.seasonId === seasonId)
+			.map((assignment) => assignment.reviewerProfileId)
+	);
+	const reviews = await ctx.db
+		.query('applicationReviews')
+		.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+		.collect();
+	return reviews.some((review) => !assignedThisSeason.has(review.reviewerProfileId));
+};
+
 // Assigns one pending application to as many additional eligible Guides as needed to reach
 // `reviewersPerApplication`, choosing the eligible Guide(s) with the fewest assignments this
 // season (ties broken by profile id), skipping anyone already at the per-guide cap. Safe to call
@@ -159,13 +287,15 @@ const assignReviewersForApplication = async (
 		.query('applicationReviewAssignments')
 		.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
 		.collect();
+	if (await hasReviewHistoryOutsideSeason(ctx, application._id, existingAssignments, seasonId)) {
+		return 0;
+	}
 	const alreadyAssigned = new Set(existingAssignments.map((row) => row.reviewerProfileId));
 	const needed = reviewersPerApplication - alreadyAssigned.size;
 	if (needed <= 0) return 0;
 
 	const candidates = eligibleGuideProfileIds.filter(
-		(profileId) =>
-			profileId !== application.applicantProfileId && !alreadyAssigned.has(profileId)
+		(profileId) => profileId !== application.applicantProfileId && !alreadyAssigned.has(profileId)
 	);
 
 	const loads = await Promise.all(
@@ -190,31 +320,32 @@ const assignReviewersForApplication = async (
 	return chosen.length;
 };
 
-// Distributes every pending, under-assigned application to eligible Guides for whichever
-// season's review window currently contains `now` (there should be at most one at a time in
-// practice, but nothing stops overlapping windows — each is processed independently). No-op
-// (returns zero counts) when no window is currently open. Called by the daily cron and inline
-// from submitApplication (mid-window rolling distribution, PRD 6.9.2 point 3).
+// Distributes every pending, under-assigned application to eligible Guides for each season whose
+// review window currently contains `now` (there should be at most one at a time in practice, but
+// nothing stops overlapping windows — each is processed independently). No-op (returns zero
+// counts) when no window is currently open. Called by the daily cron.
+//
+// CL-778: only applications whose `reviewSeasonId` is that season are assigned (read through the
+// by_review_season_id_and_status index). A pending application without a review season is never
+// assigned — the backfill sets it on existing rows right after deploy, and an admin can set it on
+// anything left. `seasonId` is the first open season (kept for the cron log and older callers);
+// `seasonIds` lists every season processed.
 export const assignReviewsForOpenWindow = internalMutation({
 	args: {},
 	returns: v.object({
 		seasonId: v.union(v.id('seasons'), v.null()),
+		seasonIds: v.array(v.id('seasons')),
 		applicationsProcessed: v.number(),
 		assignmentsCreated: v.number()
 	}),
 	handler: async (ctx) => {
 		const now = Date.now();
-		const season = await getOpenReviewWindowSeason(ctx, now);
-		if (!season) {
-			return { seasonId: null, applicationsProcessed: 0, assignmentsCreated: 0 };
+		const seasons = await listOpenReviewWindowSeasons(ctx, now);
+		if (seasons.length === 0) {
+			return { seasonId: null, seasonIds: [], applicationsProcessed: 0, assignmentsCreated: 0 };
 		}
 
 		const { reviewersPerApplication, maxReviewsPerGuidePerSeason } = await getReviewSettings(ctx);
-
-		const pendingApplications = await ctx.db
-			.query('clubApplications')
-			.withIndex('by_status_and_created_at', (q) => q.eq('status', 'pending'))
-			.collect();
 
 		// Computed once for the whole run — every pending application shares the same eligible
 		// pool (applicant exclusion happens per-application, in-memory), so this no longer
@@ -223,38 +354,59 @@ export const assignReviewsForOpenWindow = internalMutation({
 
 		let applicationsProcessed = 0;
 		let assignmentsCreated = 0;
-		for (const application of pendingApplications) {
-			const created = await assignReviewersForApplication(
-				ctx,
-				application,
-				season._id,
-				reviewersPerApplication,
-				maxReviewsPerGuidePerSeason,
-				eligibleGuideProfileIds
-			);
-			if (created > 0) {
-				applicationsProcessed += 1;
-				assignmentsCreated += created;
+		for (const season of seasons) {
+			const pendingApplications = await ctx.db
+				.query('clubApplications')
+				.withIndex('by_review_season_id_and_status', (q) =>
+					q.eq('reviewSeasonId', season._id).eq('status', 'pending')
+				)
+				.collect();
+			// Oldest first, as before (the by_status_and_created_at scan) — earlier applicants get
+			// the least-loaded Guides when the per-guide cap runs out.
+			pendingApplications.sort((a, b) => a.createdAt - b.createdAt);
+			for (const application of pendingApplications) {
+				const created = await assignReviewersForApplication(
+					ctx,
+					application,
+					season._id,
+					reviewersPerApplication,
+					maxReviewsPerGuidePerSeason,
+					eligibleGuideProfileIds
+				);
+				if (created > 0) {
+					applicationsProcessed += 1;
+					assignmentsCreated += created;
+				}
 			}
 		}
 
-		return { seasonId: season._id, applicationsProcessed, assignmentsCreated };
+		return {
+			seasonId: seasons[0]._id,
+			seasonIds: seasons.map((season) => season._id),
+			applicationsProcessed,
+			assignmentsCreated
+		};
 	}
 });
 
-// Inline trigger for a single just-submitted application (PRD 6.9.2 point 3: rolling
-// distribution during the window). No-op if no window is currently open for this application's
-// submission time, or if it's already fully assigned.
+// Inline trigger for a single application (PRD 6.9.2 point 3: rolling distribution during the
+// window) — called on submit and when an admin sets an application's review season. No-op unless
+// the application is pending and its OWN review season's window is open (CL-778), or if it's
+// already fully assigned / has review history in another season.
+//
+// CL-778 note: since a submission's review season is the intake season (whose deadline is still
+// ahead, and scoring opens at the deadline), a fresh submission is normally NOT assigned on the
+// spot any more; it waits for its season's window. The call stays for windows that open before
+// the deadline (seasons from raw-timestamp tooling) and for admin season moves.
 export const assignReviewsForApplicationIfWindowOpen = async (
 	ctx: MutationCtx,
 	applicationId: Id<'clubApplications'>
 ) => {
 	const now = Date.now();
-	const season = await getOpenReviewWindowSeason(ctx, now);
-	if (!season) return;
-
 	const application = await ctx.db.get(applicationId);
-	if (!application || application.status !== 'pending') return;
+	if (!application || application.status !== 'pending' || !application.reviewSeasonId) return;
+	const season = await ctx.db.get(application.reviewSeasonId);
+	if (!season || !isSeasonReviewWindowOpen(season, now)) return;
 
 	const { reviewersPerApplication, maxReviewsPerGuidePerSeason } = await getReviewSettings(ctx);
 	const eligibleGuideProfileIds = await listEligibleGuideProfileIds(ctx);
@@ -292,8 +444,13 @@ export const backfillDualScores = internalMutation({
 	}
 });
 
+// CL-780: reviews are scored 1-5 now (was 0-10), so the PRD's "spread >= 4 out of 10" becomes a
+// spread of >= 2 between the highest and lowest average score. Shared with admin.ts's pipeline
+// flag so the alert and the dashboard agree.
+export const SCORE_DISCREPANCY_SPREAD = 2;
+
 // Discrepancy escalation (PRD 6.9.2/6.13): when a review lands and the application now has >= 2
-// reviews with a max-min `score` spread >= 4, alert the Core Team via the Google Chat webhook
+// reviews with a max-min `score` spread >= SCORE_DISCREPANCY_SPREAD, alert the Core Team via the Google Chat webhook
 // (googleChat.ts's established pattern). Admins have no notification-recipient concept in this
 // app, so this is the only alert path; CL-732's dashboard flag (admin.ts adminApplicationsPipeline)
 // independently recomputes the same condition for display. No auto-decision is made either way.
@@ -309,7 +466,7 @@ export const maybeNotifyScoreDiscrepancy = async (
 
 	const scores = reviews.map((review) => review.score);
 	const spread = Math.max(...scores) - Math.min(...scores);
-	if (spread < 4) return;
+	if (spread < SCORE_DISCREPANCY_SPREAD) return;
 
 	const application = await ctx.db.get(applicationId);
 	await ctx.scheduler.runAfter(0, internal.googleChat.notifyApplicationScoreDiscrepancy, {

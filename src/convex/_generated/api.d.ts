@@ -9,20 +9,28 @@
  */
 
 import type * as admin from "../admin.js";
+import type * as adminInvites from "../adminInvites.js";
+import type * as adminUsers from "../adminUsers.js";
+import type * as applicationReminders from "../applicationReminders.js";
 import type * as auth from "../auth.js";
 import type * as authEmail from "../authEmail.js";
 import type * as booklet from "../booklet.js";
 import type * as chat from "../chat.js";
+import type * as chatEmail from "../chatEmail.js";
 import type * as chatModel from "../chatModel.js";
 import type * as childAccounts from "../childAccounts.js";
 import type * as childSignup from "../childSignup.js";
 import type * as clubApplications from "../clubApplications.js";
+import type * as clubApplicationsNode from "../clubApplicationsNode.js";
+import type * as clubCreationModel from "../clubCreationModel.js";
+import type * as clubLeaderInvites from "../clubLeaderInvites.js";
 import type * as clubScheduleSlots from "../clubScheduleSlots.js";
 import type * as clubs from "../clubs.js";
 import type * as cocModel from "../cocModel.js";
 import type * as crons from "../crons.js";
 import type * as email_resend from "../email/resend.js";
 import type * as email_templates from "../email/templates.js";
+import type * as emailUnsubscribe from "../emailUnsubscribe.js";
 import type * as forms from "../forms.js";
 import type * as googleChat from "../googleChat.js";
 import type * as http from "../http.js";
@@ -37,8 +45,8 @@ import type * as mediaNode from "../mediaNode.js";
 import type * as mediaPipeline from "../mediaPipeline.js";
 import type * as mediaShared from "../mediaShared.js";
 import type * as mediaStorage from "../mediaStorage.js";
-import type * as migrateCl710 from "../migrateCl710.js";
 import type * as moderation from "../moderation.js";
+import type * as moderationNode from "../moderationNode.js";
 import type * as monitoring from "../monitoring.js";
 import type * as notifications from "../notifications.js";
 import type * as notificationsModel from "../notificationsModel.js";
@@ -73,20 +81,28 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
+  adminInvites: typeof adminInvites;
+  adminUsers: typeof adminUsers;
+  applicationReminders: typeof applicationReminders;
   auth: typeof auth;
   authEmail: typeof authEmail;
   booklet: typeof booklet;
   chat: typeof chat;
+  chatEmail: typeof chatEmail;
   chatModel: typeof chatModel;
   childAccounts: typeof childAccounts;
   childSignup: typeof childSignup;
   clubApplications: typeof clubApplications;
+  clubApplicationsNode: typeof clubApplicationsNode;
+  clubCreationModel: typeof clubCreationModel;
+  clubLeaderInvites: typeof clubLeaderInvites;
   clubScheduleSlots: typeof clubScheduleSlots;
   clubs: typeof clubs;
   cocModel: typeof cocModel;
   crons: typeof crons;
   "email/resend": typeof email_resend;
   "email/templates": typeof email_templates;
+  emailUnsubscribe: typeof emailUnsubscribe;
   forms: typeof forms;
   googleChat: typeof googleChat;
   http: typeof http;
@@ -101,8 +117,8 @@ declare const fullApi: ApiFromModules<{
   mediaPipeline: typeof mediaPipeline;
   mediaShared: typeof mediaShared;
   mediaStorage: typeof mediaStorage;
-  migrateCl710: typeof migrateCl710;
   moderation: typeof moderation;
+  moderationNode: typeof moderationNode;
   monitoring: typeof monitoring;
   notifications: typeof notifications;
   notificationsModel: typeof notificationsModel;

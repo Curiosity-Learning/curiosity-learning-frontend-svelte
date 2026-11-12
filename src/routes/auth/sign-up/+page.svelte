@@ -350,9 +350,11 @@
 		return normalized.includes('already verified');
 	};
 
-	const isUnauthenticatedError = (message?: string) => {
+	// In production Convex redacts most server error messages to "Server Error",
+	// so only errors we throw ourselves (ConvexError data) can be classified.
+	const isFatalSignupProfileError = (message?: string) => {
 		const normalized = message?.toLowerCase() ?? '';
-		return normalized.includes('unauthenticated');
+		return normalized.includes('username is already taken');
 	};
 
 	type SignupDraft = {
@@ -1105,11 +1107,7 @@
 		return 1500;
 	};
 
-	const hasFreshAuthenticatedSession = async () => {
-		if (auth.isAuthenticated) {
-			return true;
-		}
-
+	const hasBetterAuthSession = async () => {
 		try {
 			const session = await authClient.getSession({
 				query: { disableCookieCache: true }
@@ -1126,32 +1124,27 @@
 		errorMessage = '';
 
 		try {
-			let hasSession = false;
 			let fallbackSignInAttempted = false;
 			for (let attempt = 0; attempt < EMAIL_POST_VERIFY_MAX_ATTEMPTS; attempt += 1) {
-				if (!hasSession) {
-					hasSession = await hasFreshAuthenticatedSession();
-				}
-
-				if (
-					!hasSession &&
-					!fallbackSignInAttempted &&
-					attempt >= 6 &&
-					email.trim() &&
-					password
-				) {
-					fallbackSignInAttempted = true;
-					const { error: signInError } = await authClient.signIn.email({
-						email: email.trim(),
-						password,
-						callbackURL: verificationCallbackPath
-					});
-					if (!signInError) {
-						hasSession = await hasFreshAuthenticatedSession();
+				// Wait for the Convex client itself to be authenticated. The Better Auth
+				// cookie session appears immediately after OTP verification, but the
+				// Convex JWT handshake completes later; calling the mutation in between
+				// fails with an unauthenticated error.
+				if (!auth.isAuthenticated) {
+					if (
+						!fallbackSignInAttempted &&
+						attempt >= 6 &&
+						email.trim() &&
+						password &&
+						!(await hasBetterAuthSession())
+					) {
+						fallbackSignInAttempted = true;
+						await authClient.signIn.email({
+							email: email.trim(),
+							password,
+							callbackURL: verificationCallbackPath
+						});
 					}
-				}
-
-				if (!hasSession) {
 					await delay(getEmailPostVerifyRetryDelay(attempt));
 					continue;
 				}
@@ -1168,11 +1161,10 @@
 							? profileError.message
 							: t('auth.signUp.unableSaveProfile');
 
-					if (!isUnauthenticatedError(message)) {
+					if (isFatalSignupProfileError(message)) {
 						throw profileError;
 					}
 
-					hasSession = false;
 					await delay(getEmailPostVerifyRetryDelay(attempt));
 				}
 			}

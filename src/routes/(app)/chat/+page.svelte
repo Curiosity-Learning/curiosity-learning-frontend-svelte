@@ -8,6 +8,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { api } from '$convex/_generated/api';
 	import {
+		ChatContextBanner,
 		LoadingState,
 		PageBottomNavVisibility,
 		PageContentMode,
@@ -29,11 +30,10 @@
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import noChatFoundImage from '$lib/assets/images/no_chat_found.png';
 	import { useConvexClient } from 'convex-svelte';
-	import { requestSignedMediaUrls } from '$lib/media/signed-media.svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { _, formatT, t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
-	import { formatClockTime } from '$lib/domain/date';
+	import { calendarDaysAgo, formatClockTime, formatShortDate, startOfDay } from '$lib/domain/date';
 
 	type RoomActionState = 'open' | 'action_needed' | 'closed';
 	type RoomSummary = {
@@ -43,11 +43,15 @@
 		// no messages yet, for rooms with a 1:1 counterpart — see roomPreviewText below.
 		roomSubtitle: string | null;
 		contextType: 'club' | 'project' | 'clubApplication' | 'joinRequest';
+		contextId: string;
+		contextName: string;
 		lastMessagePreview: string | null;
 		lastMessageAt: number;
 		canSend: boolean;
 		sendBlockedReason: 'archived' | 'not_participant' | null;
 		actionState: RoomActionState;
+		/** Last-read feature: messages newer than the viewer's read watermark, capped server-side. */
+		unreadCount: number;
 	};
 	type LocalMessage = {
 		localId: string;
@@ -100,7 +104,7 @@
 	// only (messages paginate 40 at a time via scroll-to-top), which is noted in the UI.
 	let messageSearchQuery = $state('');
 	let isDesktopViewport = $state(false);
-	let messageInputRef = $state<HTMLInputElement | null>(null);
+	let messageInputRef = $state<HTMLTextAreaElement | null>(null);
 	let messageScrollRef = $state<HTMLDivElement | null>(null);
 	let messageLimit = $state(INITIAL_MESSAGE_LIMIT);
 	let selectedRoomForScroll = $state<Id<'rooms'> | null>(null);
@@ -191,65 +195,6 @@
 	let rejectNote = $state('');
 	let followUpDialogOpen = $state(false);
 	let followUpReason = $state('');
-	// CL-710 CEO review item 2: the applicant's video, surfaced directly in the application chat.
-	// Failure is tracked PER URL: the direct URL may 403 (private bucket) before the signed URL
-	// arrives, and a boolean flag would keep the player hidden after the good URL lands.
-	let applicationVideoFailedUrl = $state<string | null>(null);
-	// CL-710 CEO review round 3 (Braga bug): applicationInfo.videoUrl is a direct storage URL that
-	// 403s once secure media delivery (CloudFront) is configured, because the bucket is then
-	// private. Prefer a signed delivery URL fetched via /api/media/refresh, falling back to the
-	// direct URL (works in local dev, where the bucket is public) if signing isn't available.
-	// Nothing renders until the signing request settles, so the browser never wastes a request
-	// (and an error state) on the direct URL in CDN-enabled environments.
-	let applicationSignedVideoUrl = $state<string | null>(null);
-	let applicationVideoRequestSettled = $state(false);
-	let applicationVideoRequestKey = $state<string | null>(null);
-
-	$effect(() => {
-		const info = applicationInfo;
-		const assetId = info?.videoMediaAssetId ?? null;
-		const applicationId = info?.applicationId ?? null;
-		if (!assetId || !applicationId) {
-			applicationSignedVideoUrl = null;
-			applicationVideoRequestKey = null;
-			applicationVideoRequestSettled = true;
-			return;
-		}
-
-		const requestKey = `${applicationId}:${assetId}`;
-		if (applicationVideoRequestKey === requestKey) {
-			return;
-		}
-		applicationVideoRequestKey = requestKey;
-		applicationVideoRequestSettled = false;
-
-		void (async () => {
-			try {
-				const assets = await requestSignedMediaUrls({
-					assetIds: [assetId],
-					context: { kind: 'club-application', applicationId }
-				});
-				if (applicationVideoRequestKey !== requestKey) return;
-				applicationSignedVideoUrl = assets[0]?.signedUrl ?? null;
-			} catch {
-				// Secure media delivery isn't configured (local dev) or the request failed — fall back
-				// to applicationInfo.videoUrl below rather than surfacing an error for a nice-to-have.
-				if (applicationVideoRequestKey !== requestKey) return;
-				applicationSignedVideoUrl = null;
-			} finally {
-				if (applicationVideoRequestKey === requestKey) {
-					applicationVideoRequestSettled = true;
-				}
-			}
-		})();
-	});
-
-	let applicationVideoUrl = $derived(
-		applicationVideoRequestSettled
-			? (applicationSignedVideoUrl ?? applicationInfo?.videoUrl ?? null)
-			: null
-	);
-
 	// CL-695/725 CEO review item A: chat member overview (header highlight + a "view members"
 	// dialog), backed by chat.getRoomParticipants.
 	const participantsResponse = useStableQuery(api.chat.getRoomParticipants, () =>
@@ -282,6 +227,41 @@
 	let hasMoreMessages = $derived(
 		isSelectedRoomMessagesFresh ? Boolean(messagesResponse.data?.hasMore) : false
 	);
+
+	// Last-read feature: while the viewer has a room open AND is actually looking at it, keep
+	// their read watermark current. Fires on room open and again whenever the live summaries
+	// subscription reports unread messages in the open room (i.e. a new inbound message arrives
+	// while it's on screen). Gated on the staleness check so a room is only marked read once its
+	// own messages are actually rendered — not while keepPreviousData is still showing the
+	// previous room's page — and on page attention: a chat tab left open in the background (or a
+	// visible-but-unfocused window on a second screen) must not consume unread batches, because
+	// "read" is what suppresses the new-messages email (chatEmail.ts). The watermark catches up
+	// the moment the tab becomes visible and focused again.
+	let isPageAttended = $state(true);
+	$effect(() => {
+		if (!browser) return;
+		const sync = () => {
+			isPageAttended = document.visibilityState === 'visible' && document.hasFocus();
+		};
+		sync();
+		document.addEventListener('visibilitychange', sync);
+		window.addEventListener('focus', sync);
+		window.addEventListener('blur', sync);
+		return () => {
+			document.removeEventListener('visibilitychange', sync);
+			window.removeEventListener('focus', sync);
+			window.removeEventListener('blur', sync);
+		};
+	});
+	$effect(() => {
+		const roomId = selectedRoomId;
+		if (!roomId || !isSelectedRoomMessagesFresh || !isPageAttended) return;
+		if ((activeRoom?.unreadCount ?? 0) === 0) return;
+		convexClient.mutation(api.chat.markRoomRead, { roomId }).catch(() => {
+			// Best-effort: a failed watermark write just leaves the badge in place; the effect
+			// re-runs on the next summaries update.
+		});
+	});
 	let visibleMessages = $derived.by(() => {
 		const serverIds = new Set(serverMessages.map((entry) => entry._id));
 		const localEntries = localMessages.filter(
@@ -320,6 +300,29 @@
 			: visibleMessages
 	);
 
+	const dayLabelFor = (dayStartTimestamp: number) => {
+		const daysAgo = calendarDaysAgo(dayStartTimestamp);
+		if (daysAgo === 0) return t('chat.todayLabel');
+		if (daysAgo === 1) return t('chat.yesterdayLabel');
+		return formatShortDate(dayStartTimestamp);
+	};
+
+	// Messages grouped by calendar day so each day gets its own separator label (the label used to
+	// be a hardcoded "Today" regardless of when the messages were sent).
+	let messageGroups = $derived.by(() => {
+		const groups: { dayStart: number; messages: VisibleMessage[] }[] = [];
+		for (const entry of displayedMessages) {
+			const dayStart = startOfDay(entry.createdAt);
+			const currentGroup = groups[groups.length - 1];
+			if (currentGroup && currentGroup.dayStart === dayStart) {
+				currentGroup.messages.push(entry);
+			} else {
+				groups.push({ dayStart, messages: [entry] });
+			}
+		}
+		return groups;
+	});
+
 	$effect(() => {
 		const serverIds = new Set(serverMessages.map((entry) => entry._id));
 		const nextLocalMessages = localMessages.filter(
@@ -338,7 +341,6 @@
 		shouldStickToBottom = true;
 		pendingPrependScrollHeight = null;
 		pendingPrependAnchor = null;
-		applicationVideoFailedUrl = null;
 	});
 
 	$effect(() => {
@@ -427,6 +429,43 @@
 	let headerSubtitle = $derived(activeRoom?.roomSubtitle ?? null);
 	let hasParticipantsToShow = $derived((participantsInfo?.participants.length ?? 0) > 0);
 
+	// Chat context banner: where "the thing this chat is about" lives. Club/project/application
+	// links come straight from `activeRoom` (listRoomSummaries carries contextId, and is keyed to
+	// the selected room, so there is no stale-room flicker). Join requests are role-aware and
+	// depend on the staleness-guarded `joinRequestInfo`: Guides (and an accepted requester) go to
+	// the club dashboard; a pending requester isn't a member yet, so they get the public club
+	// preview — only if the club is discoverable, since the preview page 404s otherwise.
+	let chatContextLink = $derived.by(() => {
+		const room = activeRoom;
+		if (!room) return null;
+		switch (room.contextType) {
+			case 'club':
+				return { href: routes.clubHome(room.contextId), label: $_('chatContext.openClub') };
+			case 'project':
+				return {
+					href: routes.projectDetail(room.contextId),
+					label: $_('chatContext.openProject')
+				};
+			case 'clubApplication':
+				return {
+					href: routes.applicationReviewDetail(room.contextId),
+					label: $_('chatContext.viewApplication')
+				};
+			case 'joinRequest': {
+				const info = joinRequestInfo;
+				if (!info) return null;
+				if (!info.isRequester || info.status === 'accepted') {
+					return { href: routes.clubHome(info.clubId), label: $_('chatContext.openClub') };
+				}
+				if (!info.clubDiscoverable) return null;
+				return {
+					href: routes.publicClubPreview(info.clubId),
+					label: $_('chatContext.viewClub')
+				};
+			}
+		}
+	});
+
 	const roomPreviewText = (room: RoomSummary) => {
 		const preview = room.lastMessagePreview?.trim();
 		if (preview) {
@@ -436,6 +475,10 @@
 		// club (matching the chat header's subtext) instead of the generic "No messages yet".
 		return room.roomSubtitle ?? 'No messages yet';
 	};
+
+	// Last-read feature: the summaries query caps unread counting server-side, so anything at or
+	// past the cap renders as "99+" (mirrors the notifications bell badge in profile/+page.svelte).
+	const formatUnreadBadge = (count: number) => (count > 99 ? '99+' : `${count}`);
 
 	const openRoom = async (roomId: Id<'rooms'>) => {
 		const params = new SvelteURLSearchParams(page.url.searchParams);
@@ -494,6 +537,16 @@
 		}
 	};
 
+	// CL-783: grow the composer with its text in browsers without `field-sizing: content`
+	// (Firefox, older Safari). Its max-height caps the growth; past that it scrolls.
+	$effect(() => {
+		void message;
+		const el = messageInputRef;
+		if (!el || CSS.supports('field-sizing', 'content')) return;
+		el.style.height = 'auto';
+		el.style.height = `${el.scrollHeight}px`;
+	});
+
 	const sendMessage = async () => {
 		const targetRoomId = selectedRoomId;
 		const trimmedMessage = message.trim();
@@ -537,7 +590,8 @@
 	};
 
 	const handleMessageComposerKeydown = (event: KeyboardEvent) => {
-		if (event.key !== 'Enter' || event.shiftKey) return;
+		// Shift+Enter inserts a new line; Enter while an IME is composing confirms the word.
+		if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
 		event.preventDefault();
 		void sendMessage();
 	};
@@ -587,22 +641,6 @@
 				error instanceof Error ? error.message : t('joinRequestChat.cancelFailure');
 		} finally {
 			joinRequestActionPending = false;
-		}
-	};
-
-	const moveToInterviewAction = async () => {
-		if (!applicationInfo) return;
-		applicationActionPending = true;
-		applicationActionError = '';
-		try {
-			await convexClient.mutation(api.clubApplications.moveToInterview, {
-				applicationId: applicationInfo.applicationId
-			});
-		} catch (error) {
-			applicationActionError =
-				error instanceof Error ? error.message : t('applicationChat.moveToInterviewFailure');
-		} finally {
-			applicationActionPending = false;
 		}
 	};
 
@@ -793,13 +831,35 @@
 										</p>
 									</div>
 									<div class="mt-1 flex items-center gap-2">
-										<p class="type-sm min-w-0 flex-1 truncate text-muted-foreground">
+										<p
+											class={`type-sm min-w-0 flex-1 truncate ${
+												room.unreadCount > 0 && selectedRoomId !== room.roomId
+													? 'font-semibold text-foreground'
+													: 'text-muted-foreground'
+											}`}
+										>
 											{roomPreviewText(room)}
 										</p>
+										<!-- Last-read feature: unread badge, hidden for the open room (its watermark
+										is being advanced by the mark-read effect, so a badge would only flash). -->
+										{#if room.unreadCount > 0 && selectedRoomId !== room.roomId}
+											<Badge
+												size="sm"
+												class="shrink-0 border-transparent bg-orange-500 text-white"
+												aria-label={formatT('chat.unreadBadgeLabel', {
+													count: room.unreadCount
+												})}
+											>
+												{formatUnreadBadge(room.unreadCount)}
+											</Badge>
+										{/if}
 										<!-- CL-695/725 CEO review item E: only call out the states worth a glance —
 										nothing rendered for the unremarkable "open, nothing pending" default. -->
 										{#if room.actionState === 'action_needed'}
-											<Badge size="sm" class="shrink-0 border-transparent bg-orange-100 text-orange-700">
+											<Badge
+												size="sm"
+												class="shrink-0 border-transparent bg-orange-100 text-orange-700"
+											>
 												{$_('chat.actionNeededBadge')}
 											</Badge>
 										{:else if room.actionState === 'closed'}
@@ -866,6 +926,18 @@
 						</div>
 					</div>
 
+					{#if activeRoom && chatContextLink}
+						<div class={isDesktopViewport ? 'px-4 pt-4' : 'pt-3'}>
+							<ChatContextBanner
+								contextType={activeRoom.contextType}
+								contextId={activeRoom.contextId}
+								contextName={activeRoom.contextName}
+								href={chatContextLink.href}
+								label={chatContextLink.label}
+							/>
+						</div>
+					{/if}
+
 					<div
 						bind:this={messageScrollRef}
 						onscroll={handleMessagesScroll}
@@ -875,46 +947,16 @@
 					>
 						<div class="flex min-h-full flex-col">
 							{#if activeRoom?.contextType === 'clubApplication' && applicationInfo}
-								<!-- CL-710 CEO review item 2: the application video, one of the most important
-								parts of the application, surfaced directly in the review/interview chat. -->
-								{#if applicationVideoUrl && applicationVideoFailedUrl !== applicationVideoUrl}
-									<div class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
-										<p class="type-sm mb-1.5 text-muted-foreground">
-											{$_('applicationChat.videoLabel')}
-										</p>
-										<div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
-											<!-- svelte-ignore a11y_media_has_caption -->
-											<video
-												src={applicationVideoUrl}
-												controls
-												preload="metadata"
-												class="h-44 w-full object-cover sm:h-52"
-												onerror={() => {
-													applicationVideoFailedUrl = applicationVideoUrl;
-												}}
-											></video>
-										</div>
-									</div>
-								{/if}
-								{#if applicationInfo.status === 'pending' && applicationInfo.canDecide}
-									<!-- CL-695/725 CEO review item D: actions live INSIDE the banner as a compact,
-									low-emphasis row instead of large standalone buttons floating above it. -->
+								<!-- The application itself (details + video) lives on the detail page behind the
+								context banner above; the chat only carries the workflow banners. Moving to the
+								interview stage is a Core Team action in the admin portal, so the pending banner is
+								informational for Guides. -->
+								{#if applicationInfo.status === 'pending' && !applicationInfo.isApplicant}
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
 										<AlertTitle>{$_('applicationChat.pendingBannerTitle')}</AlertTitle>
-										<AlertDescription>{$_('applicationChat.pendingBannerDescription')}</AlertDescription>
-										<div class="col-start-2 mt-3 flex flex-wrap gap-2">
-											<Button
-												type="button"
-												size="sm"
-												variant="secondary"
-												disabled={applicationActionPending}
-												onclick={() => void moveToInterviewAction()}
-											>
-												{applicationActionPending
-													? $_('applicationChat.movingToInterview')
-													: $_('applicationChat.moveToInterviewButton')}
-											</Button>
-										</div>
+										<AlertDescription
+											>{$_('applicationChat.pendingBannerDescription')}</AlertDescription
+										>
 									</Alert>
 								{:else if applicationInfo.status === 'interview' && applicationInfo.canDecide}
 									<Alert class={isDesktopViewport ? 'mb-4' : 'mt-4 mb-4'}>
@@ -1006,7 +1048,9 @@
 													name: joinRequestInfo.requesterName
 												})}
 											</AlertTitle>
-											<AlertDescription>{$_('joinRequestChat.pendingBannerDescription')}</AlertDescription>
+											<AlertDescription
+												>{$_('joinRequestChat.pendingBannerDescription')}</AlertDescription
+											>
 											<div class="col-start-2 mt-3 flex flex-wrap gap-2">
 												<Button
 													type="button"
@@ -1119,111 +1163,124 @@
 									<p class="type-body mt-auto px-4 text-center text-muted-foreground lg:px-0">
 										{$_('chat.messageSearchNoMatches')}
 									</p>
-								{:else if !isMessageSearching}
-									<p
-										class={`type-sm mt-auto text-center text-muted-foreground ${isDesktopViewport ? 'mb-3' : 'mt-4 mb-4'}`}
-									>
-										Today
-									</p>
 								{/if}
 								<div
-									class={`flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pb-3'} ${isMessageSearching ? 'mt-auto' : ''}`}
+									class={`mt-auto flex flex-col ${isDesktopViewport ? 'gap-3' : 'gap-4 pt-4 pb-3'}`}
 								>
-									{#each displayedMessages as entry (entry.key)}
-										{#if entry.profileId === null}
-											<div data-message-key={entry.key} class="flex justify-center">
-												<p
-													class="type-sm max-w-[85%] rounded-full bg-gray-100 px-3 py-1 text-center text-muted-foreground"
-												>
-													{entry.content}
-												</p>
-											</div>
-										{:else}
-											{@const isOwnMessage = entry.profileId === viewer.data?._id}
-											<div
-												data-message-key={entry.key}
-												class={`group flex items-end gap-1.5 ${
-													isOwnMessage
-														? isDesktopViewport
-															? 'justify-end'
-															: 'justify-end pl-11'
-														: isDesktopViewport
-															? 'justify-start'
-															: 'justify-start pr-11'
-												}`}
-											>
-												{#if entry.messageId && !isOwnMessage}
-													<span
-														class="opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
+									{#each messageGroups as group (group.dayStart)}
+										<p class="type-sm text-center text-muted-foreground">
+											{dayLabelFor(group.dayStart)}
+										</p>
+										{#each group.messages as entry (entry.key)}
+											{#if entry.profileId === null}
+												<div data-message-key={entry.key} class="flex justify-center">
+													<p
+														class="type-sm max-w-[85%] rounded-full bg-gray-100 px-3 py-1 text-center text-muted-foreground"
 													>
-														<ReportIssueDialog
-															targetType="chat_message"
-															targetId={entry.messageId}
-															contextText={entry.content}
-															triggerAriaLabel={$_('reportEntryPoints.chatMessageAction')}
-														/>
-													</span>
-												{/if}
-												{#if !isOwnMessage}
-													<!-- CL-695/725 CEO review item B: sender attribution on every inbound
+														{entry.content}
+													</p>
+												</div>
+											{:else}
+												{@const isOwnMessage = entry.profileId === viewer.data?._id}
+												<div
+													data-message-key={entry.key}
+													class={`group flex items-end gap-1.5 ${
+														isOwnMessage
+															? isDesktopViewport
+																? 'justify-end'
+																: 'justify-end pl-11'
+															: isDesktopViewport
+																? 'justify-start'
+																: 'justify-start pr-11'
+													}`}
+												>
+													{#if !isOwnMessage}
+														<!-- CL-695/725 CEO review item B: sender attribution on every inbound
 													message, even in a 1:1 chat. Own outgoing messages skip this — obvious. -->
-													<Avatar class="size-6 shrink-0 self-end bg-gray-200">
-														{#if entry.senderAvatarUrl}
-															<AvatarImage src={entry.senderAvatarUrl} alt={entry.senderName ?? ''} />
-														{/if}
-														<AvatarFallback class="text-[0.6rem] type-caption-bold">
-															{initialsFromName(entry.senderName ?? '?')}
-														</AvatarFallback>
-													</Avatar>
-												{/if}
-												<div class="flex min-w-0 flex-col">
-													{#if !isOwnMessage && entry.senderName}
-														<p class="type-xs px-1 text-muted-foreground">{entry.senderName}</p>
+														<Avatar class="size-6 shrink-0 self-end bg-gray-200">
+															{#if entry.senderAvatarUrl}
+																<AvatarImage
+																	src={entry.senderAvatarUrl}
+																	alt={entry.senderName ?? ''}
+																/>
+															{/if}
+															<AvatarFallback class="type-caption-bold text-[0.6rem]">
+																{initialsFromName(entry.senderName ?? '?')}
+															</AvatarFallback>
+														</Avatar>
 													{/if}
+													<!-- The width cap lives on this column wrapper, not the bubble: a capped
+													bubble inside an uncapped wrapper leaves dead space beside the bubble whenever
+													the message text wraps (the wrapper keeps its unwrapped intrinsic width),
+													pushing trailing siblings — the report flag — away from the bubble and
+													stranding own messages short of the right edge. -->
 													<div
-														class={`${
-															isDesktopViewport
-																? 'max-w-[85%] rounded-2xl px-3 py-2'
-																: 'w-full max-w-[18.75rem] rounded-[10px] px-[10px] pt-[10px] pb-1'
-														} ${
-															isOwnMessage
-																? 'bg-orange-100 text-foreground'
-																: 'bg-purple-100 text-foreground'
+														class={`flex min-w-0 flex-col ${
+															isDesktopViewport ? 'max-w-[85%]' : 'max-w-[18.75rem]'
 														}`}
 													>
-														<p
-															class={`break-words ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
+														{#if !isOwnMessage && entry.senderName}
+															<p class="type-xs px-1 text-muted-foreground">{entry.senderName}</p>
+														{/if}
+														<div
+															class={`${
+																isDesktopViewport
+																	? 'rounded-2xl px-3 py-2'
+																	: 'w-full rounded-[10px] px-[10px] pt-[10px] pb-1'
+															} ${
+																isOwnMessage
+																	? 'bg-orange-100 text-foreground'
+																	: 'bg-purple-100 text-foreground'
+															}`}
 														>
-															{#each linkifySegments(entry.content) as segment, index (index)}
-																{#if segment.type === 'url'}
-																	<a
-																		href={segment.value}
-																		target="_blank"
-																		rel="noopener noreferrer"
-																		class="underline underline-offset-2 hover:opacity-80"
-																	>
+															<p
+																class={`break-words whitespace-pre-wrap ${isDesktopViewport ? 'type-lead' : 'type-body'} ${entry.removedByModeration ? 'italic opacity-70' : ''}`}
+															>
+																{#each linkifySegments(entry.content) as segment, index (index)}
+																	{#if segment.type === 'url'}
+																		<a
+																			href={segment.value}
+																			target="_blank"
+																			rel="noopener noreferrer"
+																			class="underline underline-offset-2 hover:opacity-80"
+																		>
+																			{segment.value}
+																		</a>
+																	{:else}
 																		{segment.value}
-																	</a>
+																	{/if}
+																{/each}
+															</p>
+															<p
+																class={`text-right text-muted-foreground ${isDesktopViewport ? 'type-sm mt-1' : 'type-caption mt-[2px]'}`}
+															>
+																{#if entry.status === 'sending'}
+																	Sending...
+																{:else if entry.status === 'failed'}
+																	Failed to send
 																{:else}
-																	{segment.value}
+																	{formatClockTime(entry.createdAt)}
 																{/if}
-															{/each}
-														</p>
-														<p
-															class={`text-right text-muted-foreground ${isDesktopViewport ? 'type-sm mt-1' : 'type-caption mt-[2px]'}`}
-														>
-															{#if entry.status === 'sending'}
-																Sending...
-															{:else if entry.status === 'failed'}
-																Failed to send
-															{:else}
-																{formatClockTime(entry.createdAt)}
-															{/if}
-														</p>
+															</p>
+														</div>
 													</div>
+													{#if entry.messageId && !isOwnMessage}
+														<!-- The report affordance trails the message (reads left-to-right: sender,
+												message, actions) instead of leading it. -->
+														<span
+															class="opacity-100 transition-opacity lg:opacity-0 lg:group-focus-within:opacity-100 lg:group-hover:opacity-100"
+														>
+															<ReportIssueDialog
+																targetType="chat_message"
+																targetId={entry.messageId}
+																contextText={entry.content}
+																triggerAriaLabel={$_('reportEntryPoints.chatMessageAction')}
+															/>
+														</span>
+													{/if}
 												</div>
-											</div>
-										{/if}
+											{/if}
+										{/each}
 									{/each}
 								</div>
 							{/if}
@@ -1241,13 +1298,18 @@
 									: 'rounded-[1.1rem] bg-clip-padding shadow-sm ring-1 ring-black/5 [-moz-background-clip:padding]'
 							}`}
 						>
-							<Input
+							<!-- CL-783: multi-line so the whole message can be read before sending. Grows with
+							the text (field-sizing-content, plus autosizeComposer for browsers without it) up
+							to a max height, then scrolls. -->
+							<Textarea
 								bind:ref={messageInputRef}
 								bind:value={message}
 								placeholder="Send a message..."
 								maxlength={MAX_MESSAGE_LENGTH}
-								class={`border-0 bg-clip-padding text-[1.02rem] shadow-none ring-0 [-moz-background-clip:padding] focus-visible:ring-0 ${
-									isDesktopViewport ? 'rounded-none px-0' : 'h-10 rounded-[1.1rem] px-4 py-0'
+								rows={1}
+								aria-label="Message"
+								class={`max-h-40 min-h-0 resize-none overflow-y-auto border-0 bg-transparent bg-clip-padding text-[1.02rem] shadow-none ring-0 [-moz-background-clip:padding] focus-visible:ring-0 ${
+									isDesktopViewport ? 'rounded-none px-0 py-1' : 'rounded-[1.1rem] px-4 pt-2.5 pb-0'
 								}`}
 								onkeydown={handleMessageComposerKeydown}
 							/>

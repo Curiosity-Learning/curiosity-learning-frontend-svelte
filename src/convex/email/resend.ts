@@ -5,11 +5,24 @@ export type TransactionalEmailType =
 	| 'parent-consent'
 	| 'password-reset'
 	| 'verification-otp'
-	| 'notification';
+	| 'notification'
+	| 'application-reminder'
+	| 'admin-invite'
+	| 'club-leader-invite';
 
+export type SendEmailResult = { providerMessageId: string | null };
+
+// Resolves once Resend has ACCEPTED the email (HTTP 2xx) — delivery to the inbox is
+// asynchronous and only surfaces via the Resend webhook. Throws on any failure after reporting
+// it, so callers that track "was this sent?" (chat.sendChatEmail) can tell the two apart.
 export const sendEmail = async (
-	args: EmailContent & { to: string; type: TransactionalEmailType }
-) => {
+	args: EmailContent & {
+		to: string;
+		type: TransactionalEmailType;
+		// Extra MIME headers, e.g. List-Unsubscribe on application reminders (emailUnsubscribe.ts).
+		headers?: Record<string, string>;
+	}
+): Promise<SendEmailResult> => {
 	try {
 		const apiKey = process.env.RESEND_API_KEY;
 		if (!apiKey) {
@@ -30,6 +43,7 @@ export const sendEmail = async (
 				subject: args.subject,
 				html: args.html,
 				text: args.text,
+				...(args.headers ? { headers: args.headers } : {}),
 				tags: [{ name: 'email_type', value: args.type }]
 			})
 		});
@@ -37,6 +51,8 @@ export const sendEmail = async (
 		if (!response.ok) {
 			throw new Error(`Resend send failed: ${response.status} ${response.statusText}`);
 		}
+		const body = (await response.json().catch(() => null)) as { id?: unknown } | null;
+		return { providerMessageId: typeof body?.id === 'string' ? body.id : null };
 	} catch (error) {
 		await reportConvexError(error, {
 			area: 'email',

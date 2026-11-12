@@ -54,6 +54,17 @@
 		isAuthReady ? {} : 'skip'
 	);
 	const profileResponse = useStableQuery(api.profiles.getMe, () => (isAuthReady ? {} : 'skip'));
+	// Chat nav badge (CL-715 follow-up): total unread across the viewer's rooms. The query
+	// degrades to 0 server-side rather than throwing, so no error state is needed here.
+	const chatUnreadResponse = useStableQuery(api.chat.getTotalUnreadCount, () =>
+		isAuthReady ? {} : 'skip'
+	);
+	// CL-780: drives the "Reviews" nav item (shown only while the viewer has applications to
+	// review this season) and its badge.
+	const reviewCountResponse = useStableQuery(
+		api.clubApplications.countReviewableApplications,
+		() => (isAuthReady ? {} : 'skip')
+	);
 	let clubs = $derived(clubsResponse.data ?? []);
 	let sidebarProfileName = $derived.by(() => {
 		const profile = profileResponse.data;
@@ -188,7 +199,9 @@
 	let hasClubAccess = $derived(clubs.length > 0);
 	let navigation = $derived(
 		buildAppNavigation(clubIdForNav, {
-			hasClubAccess
+			hasClubAccess,
+			chatUnreadCount: chatUnreadResponse.data ?? 0,
+			reviewCount: reviewCountResponse.data ?? null
 		})
 	);
 	let navState = $derived(deriveNavState(navigation, activePath));
@@ -213,11 +226,41 @@
 			: navState.title
 	);
 
+	// Admin-invited leaders (clubLeaderInvites): the server-side claim in +layout.server.ts only
+	// runs inside the club-less redirect gate, which skips every allowlisted path — and a fresh
+	// sign-up lands directly on /new-club (allowlisted), with only allowlisted pages (chat,
+	// profile) reachable from there, so that claim never fired for the primary flow. This effect
+	// covers it: any signed-in club-less user triggers one claim attempt per session, wherever
+	// they are, and a successful claim drops them straight into their new club.
+	let leaderInviteClaimState = $state<'idle' | 'pending' | 'done'>('idle');
 	$effect(() => {
 		if (!browser) return;
 		if (!isAuthReady) return;
 		if (clubsResponse.isLoading) return;
 		if (clubs.length > 0) return;
+		if (leaderInviteClaimState !== 'idle') return;
+		leaderInviteClaimState = 'pending';
+		convexClient
+			.mutation(api.clubLeaderInvites.claimMyLeaderInvite, {})
+			.then((result) => {
+				if (result.status === 'claimed') {
+					void goto(routes.clubHome(result.clubId), { replaceState: true });
+				}
+			})
+			.catch(() => undefined)
+			.finally(() => {
+				leaderInviteClaimState = 'done';
+			});
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		if (!isAuthReady) return;
+		if (clubsResponse.isLoading) return;
+		if (clubs.length > 0) return;
+		// Let a pending leader-invite claim resolve before bouncing to /new-club, so an invited
+		// leader lands in their club instead of racing the redirect.
+		if (leaderInviteClaimState !== 'done') return;
 		if (isNoClubAllowedPath(activePath)) {
 			return;
 		}

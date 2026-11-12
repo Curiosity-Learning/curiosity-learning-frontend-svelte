@@ -47,7 +47,7 @@ const nl = {
 		blockedBySafetyScreening:
 			'Deze afbeelding/video kon niet worden geüpload. Als je denkt dat dit een fout is, probeer dan een ander bestand.',
 		videoTooLong:
-			"Video's mogen maximaal 2 minuten duren. Knip je video bij en probeer het opnieuw.",
+			"Video's mogen maximaal 3 minuten duren. Knip je video bij en probeer het opnieuw.",
 		fileTooLarge: 'Dit bestand is te groot. De maximale grootte is {maxSizeMb}MB.'
 	},
 	settings: {
@@ -222,6 +222,19 @@ const nl = {
 	sessionsHome: {
 		planNextSessionDescription: 'Plan je volgende sessie om de club weer op de kalender te zetten.',
 		planNextSessionAction: 'Volgende sessie plannen'
+	},
+	emailUnsubscribe: {
+		title: 'Geen herinneringen over aanmeldingen meer?',
+		description:
+			'Je krijgt dan op {email} geen herinneringen meer over onafgemaakte clubaanmeldingen. Andere e-mails, zoals accountberichten en besluiten over aanmeldingen, blijven komen.',
+		submit: 'Afmelden',
+		submitting: 'Bezig met afmelden...',
+		doneTitle: 'Je bent afgemeld',
+		doneDescription: 'We sturen geen herinneringen over aanmeldingen meer naar {email}.',
+		invalidTitle: 'Deze afmeldlink werkt niet',
+		invalidDescription:
+			'Misschien is hij niet helemaal gekopieerd. Gebruik de link uit de e-mail opnieuw, of neem contact met ons op.',
+		failure: 'Er ging iets mis. Probeer het opnieuw.'
 	},
 	authLayout: {
 		description: 'Log in om verder te gaan met je clubervaring.'
@@ -527,7 +540,9 @@ const nl = {
 			uploading: 'Uploaden',
 			videoUploading: 'Je video wordt geüpload...',
 			videoDropPrompt: 'Sleep een video hierheen of kies er een',
-			videoRequirements: 'MP4, MOV, WEBM of M4V tot 100 MB.',
+			videoRequirements: 'MP4, MOV, WEBM of M4V. Maximaal 3 minuten en 500 MB.',
+			needHelp: 'Lukt het niet met je aanvraag?',
+			messageUs: 'Stuur ons een bericht',
 			videoRequired: 'Upload een video voordat je je aanmelding verzendt.',
 			videoUploadingStatus: 'Video uploaden...',
 			videoUploadedStatus: 'Video geüpload',
@@ -653,7 +668,10 @@ const nl = {
 		membersCountLabel: '{count} leden',
 		actionNeededBadge: 'Actie vereist',
 		openBadge: 'Open',
-		closedBadge: 'Gesloten'
+		closedBadge: 'Gesloten',
+		unreadBadgeLabel: '{count} ongelezen berichten',
+		todayLabel: 'Vandaag',
+		yesterdayLabel: 'Gisteren'
 	},
 	suspendedScreen: {
 		title: 'Je account is geschorst',
@@ -683,7 +701,8 @@ const nl = {
 		pendingBannerTitle: 'Nieuw lidmaatschapsverzoek van {name}',
 		pendingBannerDescription: 'Bekijk dit verzoek en beslis hieronder.',
 		pendingRequesterBannerTitle: 'Je lidmaatschapsverzoek is in behandeling',
-		pendingRequesterBannerDescription: 'Een Guide beoordeelt je verzoek. Je kunt het op elk moment annuleren.',
+		pendingRequesterBannerDescription:
+			'Een Guide beoordeelt je verzoek. Je kunt het op elk moment annuleren.',
 		acceptButton: 'Accepteren',
 		declineButton: 'Afwijzen',
 		cancelButton: 'Verzoek annuleren',
@@ -737,6 +756,8 @@ const nl = {
 		emptyState: 'Je hebt nog geen lidmaatschapsverzoek of Start Club-aanvraag ingediend.',
 		openChat: 'Open chat',
 		resumeApplication: 'Aanvraag hervatten',
+		messageUs: 'Stuur ons een bericht',
+		messageUsFailure: 'Kan de chat niet openen. Probeer het opnieuw.',
 		startKindLabel: 'Start Club-aanvraag',
 		joinKindLabel: 'Lidmaatschapsverzoek'
 	},
@@ -748,12 +769,9 @@ const nl = {
 		rejecting: 'Afwijzen...',
 		acceptFailure: 'Kan deze aanvraag niet accepteren.',
 		rejectFailure: 'Kan deze aanvraag niet afwijzen.',
-		moveToInterviewButton: 'Verplaats naar interview',
-		movingToInterview: 'Verplaatsen...',
-		moveToInterviewFailure: 'Kan deze aanvraag niet naar de interviewfase verplaatsen.',
-		pendingBannerTitle: 'Deze aanvraag is aan jou toegewezen voor beoordeling',
+		pendingBannerTitle: 'Deze aanvraag wordt beoordeeld',
 		pendingBannerDescription:
-			'Zodra beoordelaars deze aanvraag hebben gescoord, verplaats je hem naar de interviewfase om hier te kunnen plannen.',
+			'Het Core Team verplaatst aanvragen naar de interviewfase zodra de beoordelingen binnen zijn. Je kunt hier intussen met de aanvrager chatten.',
 		flagFollowUpButton: 'Markeren voor opvolging',
 		flaggingFollowUp: 'Markeren...',
 		followUpFailure: 'Kan deze aanvraag niet markeren.',
@@ -778,6 +796,83 @@ const nl = {
 			'Dit wijst de aanvraag niet af. Het markeert deze alleen voor aandacht van het Core Team (bijv. niet komen opdagen of planningsprobleem).',
 		followUpDialogPlaceholder: 'Reden, bijv. "Niet komen opdagen / niet gepland"'
 	},
+	applicationReviewList: {
+		title: 'Aanvragen beoordelen',
+		subtitle: 'Aanvragen die aan jou zijn toegewezen voor beoordeling.',
+		seasonTitle: 'Beoordeling {season}',
+		scoringOpenUntil: 'Scoren kan tot {date}.',
+		scoringOpensOn: 'Scoren begint op {date}.',
+		scoringClosedOn: 'Scoren is gesloten sinds {date}.',
+		guideTitle: 'Zo beoordeel je',
+		guideDescription:
+			'Lees de hele aanvraag, bekijk de hele video en scoor daarna Aansluiting, Motivatie en Gereedheid van 1 tot 5. Een 3 is een positieve score.',
+		guideLink: 'Lees de beoordelingsgids',
+		toReviewTitle: 'Te beoordelen ({count})',
+		reviewedTitle: 'Beoordeeld ({count})',
+		allDone: 'Je bent helemaal bij. Je kunt een beoordeling nog aanpassen tot het scoren sluit.',
+		emptyTitle: 'Geen aanvragen toegewezen',
+		emptyDescription: 'Er is dit seizoen niets aan jou toegewezen.',
+		noSeasonTitle: 'Nu geen beoordelingen',
+		noSeasonDescription: 'Aanvragen worden beoordeeld na de aanvraagdeadline van elk seizoen.',
+		reviewLink: 'Beoordelen',
+		viewLink: 'Bekijken',
+		editLink: 'Beoordeling aanpassen',
+		yourScore: 'Jouw score {score}'
+	},
+	applicationReviewGuide: {
+		title: 'Beoordelingsgids',
+		purposeTitle: 'Doel',
+		overviewTitle: 'Overzicht',
+		processTitle: 'Werkwijze',
+		dimensionsTitle: 'Scoor van 1 tot 5',
+		indicationsTitle: 'Enkele aanwijzingen',
+		scaleTitle: 'De schaal',
+		clarifyTitle: 'Wat je in het gesprek wilt verduidelijken',
+		clarifyIntro: 'Schrijf op wat er in het gesprek verduidelijkt moet worden. Bijvoorbeeld:',
+		importantTitle: 'Belangrijk',
+		backToReviews: 'Terug naar beoordelingen'
+	},
+	applicationDetail: {
+		title: 'Aanvraag',
+		notFoundTitle: 'Aanvraag niet gevonden',
+		notFoundDescription: 'Deze aanvraag bestaat niet meer.',
+		noAccess: 'Je hebt geen toegang tot deze aanvraag.',
+		submittedOn: 'Ingediend op {date}',
+		openChat: 'Chat openen',
+		openClub: 'Club openen',
+		yourApplicationTitle: 'Jouw aanvraag',
+		statusTitle: 'Status',
+		detailsTitle: 'Aanvraag',
+		descriptionLabel: 'Waarom ze een club willen starten',
+		ownDescriptionLabel: 'Waarom je een club wilt starten',
+		locationLabel: 'Locatie',
+		applicantRoleLabel: 'Rol',
+		applicantLabel: 'Aanvrager',
+		clubLabel: 'Club',
+		reviewFormTitle: 'Jouw beoordeling',
+		reviewFormDescription:
+			'Scoor elk onderdeel van 1 (zeer zwak) tot 5 (zeer sterk). Een 3 is een positieve score.',
+		reviewGuideLink: 'Beoordelingsgids',
+		whatToLookFor: 'Waar je op let',
+		pickScore: 'Kies een score',
+		noteLabel: 'Te verduidelijken in het gesprek',
+		noteHint: 'Optioneel. Alles waar de interviewer naar moet vragen.',
+		notePlaceholder:
+			'Bijvoorbeeld: ze praten veel over lesgeven, of willen dat de club om één onderwerp draait.',
+		saveReview: 'Beoordeling indienen',
+		updateReview: 'Beoordeling bijwerken',
+		savingReview: 'Opslaan...',
+		reviewSaved: 'Beoordeling opgeslagen',
+		reviewSaveFailure: 'Kan beoordeling niet opslaan',
+		legacyReviewHint:
+			'Je eerdere beoordeling gebruikte de oude schaal van 0-10. Scoor opnieuw op de nieuwe schaal om bij te werken.',
+		scoringClosed: 'Scoren is gesloten voor deze aanvraag.',
+		decisionTitle: 'Beslissing',
+		decidedByLabel: 'Beslist door',
+		decidedAtLabel: 'Beslist op',
+		rejectionNoteLabel: 'Notitie voor de aanvrager',
+		followUpFlagLabel: 'Gemarkeerd voor opvolging door Core Team'
+	},
 	publicClubPreview: {
 		notFoundTitle: 'Club niet gevonden',
 		notFoundDescription: 'Deze club is niet beschikbaar om te bekijken.',
@@ -792,6 +887,12 @@ const nl = {
 		readOnlyBannerTitle: 'Deze chat is alleen-lezen',
 		readOnlyBannerDescription:
 			'Je kunt de berichtgeschiedenis nog wel bekijken, maar je kunt hier geen berichten meer sturen.'
+	},
+	chatContext: {
+		openClub: 'Club openen',
+		openProject: 'Project openen',
+		viewApplication: 'Aanvraag bekijken',
+		viewClub: 'Club bekijken'
 	},
 	projectDetail: {
 		memberStateDone: 'Klaar',

@@ -1,7 +1,24 @@
-import { query } from './_generated/server';
+import { ConvexError, v } from 'convex/values';
+import { mutation, query } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import type { QueryCtx } from './_generated/server';
-import { getClubRoleByKey, requireGlobalAdmin } from './permissions';
+import { getClubRoleByKey, requireGlobalAdmin, requireProfile } from './permissions';
+import { postRoomMessage } from './chatEmail';
+import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
+import { dispatchNotification } from './notificationsModel';
+import {
+	applicationHasReadyVideo,
+	buildApplicationReviewSummary,
+	createClubFromApplication,
+	resolveApplicationSeason
+} from './clubApplications';
+import {
+	assignReviewsForApplicationIfWindowOpen,
+	pickCurrentReviewSeason,
+	resolveSeasonForManualAssignment,
+	SCORE_DISCREPANCY_SPREAD
+} from './reviewAssignmentModel';
+import { getAuthUserEmail } from './authEmail';
 
 // ---------------------------------------------------------------------------
 // CL-732: Admin Operations Dashboard (PRD 6.14.1-6.14.3).
@@ -18,7 +35,8 @@ import { getClubRoleByKey, requireGlobalAdmin } from './permissions';
 // admin UI's Overview page has called `getDashboardOverview` since.)
 // ---------------------------------------------------------------------------
 
-const isActiveCuriosityClub = (club: Doc<'clubs'>) => club.kind === 'curiosity' && !club.abandonedAt;
+const isActiveCuriosityClub = (club: Doc<'clubs'>) =>
+	club.kind === 'curiosity' && !club.abandonedAt;
 
 // Distinct profiles holding an active (non-left) membership with the given role, across the
 // given set of clubs.
@@ -95,7 +113,9 @@ export const getDashboardOverview = query({
 
 		// Reuses the same "open" definition as moderation.listQueue: open reports + flagged media
 		// not yet reviewed by an admin.
-		const openFlaggedMediaCount = flaggedMedia.filter((asset) => !asset.moderationReviewedAt).length;
+		const openFlaggedMediaCount = flaggedMedia.filter(
+			(asset) => !asset.moderationReviewedAt
+		).length;
 		const openSafeguardingAlertCount = openReports.length + openFlaggedMediaCount;
 
 		// Feedback completion: for seasons whose collection window is currently open, responses
@@ -195,9 +215,7 @@ export const adminClubsHealth = query({
 		// Scale-1-10 questions per form, used for the "quality rating" pragmatic average below.
 		const scaleQuestionIdsByForm = new Map<Id<'forms'>, Set<string>>();
 		for (const form of forms) {
-			const ids = new Set(
-				form.questions.filter((q) => q.kind === 'scale_1_10').map((q) => q.id)
-			);
+			const ids = new Set(form.questions.filter((q) => q.kind === 'scale_1_10').map((q) => q.id));
 			if (ids.size > 0) scaleQuestionIdsByForm.set(form._id, ids);
 		}
 
@@ -285,7 +303,8 @@ export const adminClubsHealth = query({
 			const flags: ClubHealthFlag[] = [];
 			if (club.abandonedAt) flags.push('abandoned');
 			if (sessionsRun === 0) flags.push('no_sessions_yet');
-			if (qualityRating !== null && qualityRating < LOW_QUALITY_THRESHOLD) flags.push('low_quality');
+			if (qualityRating !== null && qualityRating < LOW_QUALITY_THRESHOLD)
+				flags.push('low_quality');
 			if (
 				!club.abandonedAt &&
 				(lastActivityAt === null || now - lastActivityAt > INACTIVITY_THRESHOLD_MS)
@@ -323,18 +342,38 @@ export const adminClubsHealth = query({
 
 // CL-710 CEO review: `accepted` is now terminal (club created immediately, no onboarding-call
 // wait), so it's no longer "in-flight" here — only applications still awaiting a decision are.
-const IN_FLIGHT_STATUSES: Doc<'clubApplications'>['status'][] = ['incomplete', 'pending', 'interview'];
+const IN_FLIGHT_STATUSES: Doc<'clubApplications'>['status'][] = [
+	'incomplete',
+	'pending',
+	'interview'
+];
 
 export type ApplicationPipelineItem = {
 	applicationId: Id<'clubApplications'>;
 	name: string;
+	applicantName: string | null;
+	applicantEmail: string | null;
 	clubName: string | null;
 	status: Doc<'clubApplications'>['status'];
 	createdAt: number;
+	// CL-778: "Season started" / "Season for review" (names from the seasons table), null when
+	// unset.
+	startedSeasonId: Id<'seasons'> | null;
+	startedSeasonName: string | null;
+	reviewSeasonId: Id<'seasons'> | null;
+	reviewSeasonName: string | null;
+	submittedAt: number | null;
+	// Set for decided applications only (see `decidedItems` below).
+	decidedAt: number | null;
 	reviewCount: number;
 	avgScore: number | null;
 	scoreDiscrepancyFlag: boolean;
 	adminFollowUpFlag: Doc<'clubApplications'>['adminFollowUpFlag'] | null;
+	chatLastMessageAt: number | null;
+	// The latest human message in the application chat is the applicant's — i.e. nobody (staff or
+	// reviewer) has responded yet. While staff run the pipeline from the portal, this is the "you
+	// have a reply waiting" signal; no per-admin read state, any reply clears it for everyone.
+	chatAwaitingReply: boolean;
 };
 
 const getClubName = async (ctx: QueryCtx, clubId: Id<'clubs'> | undefined) => {
@@ -343,22 +382,96 @@ const getClubName = async (ctx: QueryCtx, clubId: Id<'clubs'> | undefined) => {
 	return club?.name ?? null;
 };
 
+const getApplicationChatState = async (ctx: QueryCtx, application: Doc<'clubApplications'>) => {
+	const room = await ctx.db
+		.query('rooms')
+		.withIndex('by_club_application_id', (q) => q.eq('clubApplicationId', application._id))
+		.first();
+	if (!room) {
+		return { chatLastMessageAt: null, chatAwaitingReply: false };
+	}
+	// System messages (no profileId, e.g. the automated decision notice) don't count as a reply:
+	// scan past them to the latest human message. 20 is more than enough — system messages are
+	// posted one at a time around a decision, never in runs.
+	const recent = await ctx.db
+		.query('messages')
+		.withIndex('by_room', (q) => q.eq('roomId', room._id))
+		.order('desc')
+		.take(20);
+	const lastHumanMessage = recent.find((message) => message.profileId !== undefined);
+	return {
+		chatLastMessageAt: recent[0]?._creationTime ?? null,
+		chatAwaitingReply: lastHumanMessage?.profileId === application.applicantProfileId
+	};
+};
+
+const SUBMITTED_STATUSES: Doc<'clubApplications'>['status'][] = [
+	'pending',
+	'interview',
+	'accepted',
+	'rejected'
+];
+
+// CL-778 season filter. A season's applications are the SUBMITTED ones whose "Season for review"
+// is that season plus the INCOMPLETE ones STARTED in it (an incomplete application has no review
+// season yet). 'none' lists what has no season link (submitted without a review season, incomplete
+// without a started season) so staff can place them. 'current' resolves to
+// reviewAssignmentModel.pickCurrentReviewSeason (the season in its review cycle — scoring opened,
+// not started yet — else the next one to open; all seasons when there is neither). No argument means every season — what admin portal builds from
+// before CL-778 get.
+const pipelineSeasonFilterValidator = v.union(
+	v.literal('current'),
+	v.literal('all'),
+	v.literal('none'),
+	v.id('seasons')
+);
+
+const loadApplicationsForSeason = async (ctx: QueryCtx, seasonId: Id<'seasons'> | undefined) => {
+	const submitted = (
+		await ctx.db
+			.query('clubApplications')
+			.withIndex('by_review_season_id_and_status', (q) => q.eq('reviewSeasonId', seasonId))
+			.collect()
+	).filter((application) => SUBMITTED_STATUSES.includes(application.status));
+	const incomplete = await ctx.db
+		.query('clubApplications')
+		.withIndex('by_started_season_id_and_status', (q) =>
+			q.eq('startedSeasonId', seasonId).eq('status', 'incomplete')
+		)
+		.collect();
+	return [...submitted, ...incomplete];
+};
+
 export const adminApplicationsPipeline = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		season: v.optional(pipelineSeasonFilterValidator)
+	},
+	handler: async (ctx, args) => {
 		await requireGlobalAdmin(ctx);
 
-		const [applications, reviews] = await Promise.all([
-			ctx.db.query('clubApplications').collect(),
-			ctx.db.query('applicationReviews').collect()
-		]);
+		// Seasons for the filter (newest start first, Season 0 included) and for row labels.
+		const seasons = await ctx.db
+			.query('seasons')
+			.withIndex('by_start_date')
+			.order('desc')
+			.collect();
+		const seasonsById = new Map(seasons.map((season) => [season._id, season]));
+		const currentReviewSeason = pickCurrentReviewSeason(seasons, Date.now());
 
-		const reviewsByApplication = new Map<Id<'clubApplications'>, Doc<'applicationReviews'>[]>();
-		for (const review of reviews) {
-			const list = reviewsByApplication.get(review.applicationId) ?? [];
-			list.push(review);
-			reviewsByApplication.set(review.applicationId, list);
+		const requested = args.season ?? 'all';
+		let selectedSeason: Id<'seasons'> | 'all' | 'none' =
+			requested === 'current' ? (currentReviewSeason?._id ?? 'all') : requested;
+		if (selectedSeason !== 'all' && selectedSeason !== 'none' && !seasonsById.has(selectedSeason)) {
+			selectedSeason = 'all';
 		}
+
+		const applications =
+			selectedSeason === 'all'
+				? await ctx.db.query('clubApplications').collect()
+				: await loadApplicationsForSeason(
+						ctx,
+						selectedSeason === 'none' ? undefined : selectedSeason
+					);
 
 		const statusCounts: Record<Doc<'clubApplications'>['status'], number> = {
 			incomplete: 0,
@@ -371,37 +484,128 @@ export const adminApplicationsPipeline = query({
 			statusCounts[application.status] += 1;
 		}
 
+		const seasonNameOf = (seasonId: Id<'seasons'> | undefined) =>
+			seasonId ? (seasonsById.get(seasonId)?.name ?? null) : null;
+
+		const toPipelineItem = async (
+			application: Doc<'clubApplications'>
+		): Promise<ApplicationPipelineItem> => {
+			// Per application through the index (rather than the whole reviews table), now that a
+			// season filter usually narrows the list.
+			const applicationReviews = await ctx.db
+				.query('applicationReviews')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
+				.collect();
+			const scores = applicationReviews.map((r) => r.score);
+			const avgScore =
+				scores.length > 0 ? scores.reduce((sum, s) => sum + s, 0) / scores.length : null;
+			// PRD-defined discrepancy: at least 2 reviews and a max-min spread of at least
+			// SCORE_DISCREPANCY_SPREAD (2 on the 1-5 scale, CL-780).
+			const scoreDiscrepancyFlag =
+				scores.length >= 2
+					? Math.max(...scores) - Math.min(...scores) >= SCORE_DISCREPANCY_SPREAD
+					: false;
+			const applicantProfile = await ctx.db.get(application.applicantProfileId);
+			const chatState = await getApplicationChatState(ctx, application);
+
+			return {
+				applicationId: application._id,
+				name: application.name,
+				applicantName: applicantProfile ? profileDisplayName(applicantProfile) : null,
+				// Auth email (Better Auth user record) — staff reach applicants outside the app too.
+				applicantEmail: applicantProfile
+					? await getAuthUserEmail(ctx, applicantProfile.authUserId)
+					: null,
+				clubName: await getClubName(ctx, application.createdClubId),
+				status: application.status,
+				createdAt: application.createdAt,
+				startedSeasonId: application.startedSeasonId ?? null,
+				startedSeasonName: seasonNameOf(application.startedSeasonId),
+				reviewSeasonId: application.reviewSeasonId ?? null,
+				reviewSeasonName: seasonNameOf(application.reviewSeasonId),
+				submittedAt: application.submittedAt ?? null,
+				decidedAt: application.decidedAt ?? null,
+				reviewCount: applicationReviews.length,
+				avgScore,
+				scoreDiscrepancyFlag,
+				adminFollowUpFlag: application.adminFollowUpFlag ?? null,
+				chatLastMessageAt: chatState.chatLastMessageAt,
+				chatAwaitingReply: chatState.chatAwaitingReply
+			};
+		};
+
 		const inFlight = applications.filter((application) =>
 			IN_FLIGHT_STATUSES.includes(application.status)
 		);
-
-		const items: ApplicationPipelineItem[] = await Promise.all(
-			inFlight.map(async (application) => {
-				const applicationReviews = reviewsByApplication.get(application._id) ?? [];
-				const scores = applicationReviews.map((r) => r.score);
-				const avgScore =
-					scores.length > 0 ? scores.reduce((sum, s) => sum + s, 0) / scores.length : null;
-				// PRD-defined discrepancy: at least 2 reviews and a max-min spread >= 4.
-				const scoreDiscrepancyFlag =
-					scores.length >= 2 ? Math.max(...scores) - Math.min(...scores) >= 4 : false;
-
-				return {
-					applicationId: application._id,
-					name: application.name,
-					clubName: await getClubName(ctx, application.createdClubId),
-					status: application.status,
-					createdAt: application.createdAt,
-					reviewCount: applicationReviews.length,
-					avgScore,
-					scoreDiscrepancyFlag,
-					adminFollowUpFlag: application.adminFollowUpFlag ?? null
-				};
-			})
-		);
-
+		const items: ApplicationPipelineItem[] = await Promise.all(inFlight.map(toPipelineItem));
 		items.sort((a, b) => b.createdAt - a.createdAt);
 
-		return { statusCounts, items };
+		// Decided (accepted/rejected) applications stay listed so staff can still open them — the
+		// application chat deliberately stays sendable after a decision (CL-710 CEO review item 4),
+		// and the admin portal's review page is now a chat surface too.
+		const decided = applications.filter(
+			(application) => application.status === 'accepted' || application.status === 'rejected'
+		);
+		const decidedItems: ApplicationPipelineItem[] = await Promise.all(decided.map(toPipelineItem));
+		decidedItems.sort((a, b) => (b.decidedAt ?? b.createdAt) - (a.decidedAt ?? a.createdAt));
+
+		return {
+			statusCounts,
+			items,
+			decidedItems,
+			// CL-778: what the list is filtered to (with 'current' resolved), the season the page
+			// opens on, and the options for the filter.
+			selectedSeason,
+			currentReviewSeasonId: currentReviewSeason?._id ?? null,
+			seasons: seasons.map((season) => ({
+				seasonId: season._id,
+				name: season.name,
+				startDate: season.startDate
+			}))
+		};
+	}
+});
+
+// Lightweight per-application rows for the admin portal's analytics page (charts grouped by
+// season). Raw values only — referral-source alias normalization is a presentation concern and
+// lives in the admin app. CL-778: grouping is by the application's linked seasons
+// (startedSeasonId for "started per season", reviewSeasonId for "in review per season") instead
+// of the admin app's former month-based cohort rule; names come from the seasons table.
+export type AdminAnalyticsApplicationRow = {
+	createdAt: number;
+	status: Doc<'clubApplications'>['status'];
+	referralSource: string | null;
+	referralOther: string | null;
+	startedSeasonId: Id<'seasons'> | null;
+	startedSeasonName: string | null;
+	reviewSeasonId: Id<'seasons'> | null;
+	reviewSeasonName: string | null;
+	submittedAt: number | null;
+};
+
+export const adminAnalyticsApplications = query({
+	args: {},
+	handler: async (ctx): Promise<AdminAnalyticsApplicationRow[]> => {
+		await requireGlobalAdmin(ctx);
+
+		const [applications, seasons] = await Promise.all([
+			ctx.db.query('clubApplications').collect(),
+			ctx.db.query('seasons').collect()
+		]);
+		const seasonNames = new Map(seasons.map((season) => [season._id, season.name]));
+		const nameOf = (seasonId: Id<'seasons'> | undefined) =>
+			seasonId ? (seasonNames.get(seasonId) ?? null) : null;
+		return applications.map((application) => ({
+			createdAt: application.createdAt,
+			status: application.status,
+			referralSource: application.referralSource ?? null,
+			referralOther: application.referralOther ?? null,
+			startedSeasonId: application.startedSeasonId ?? null,
+			startedSeasonName: nameOf(application.startedSeasonId),
+			reviewSeasonId: application.reviewSeasonId ?? null,
+			reviewSeasonName: nameOf(application.reviewSeasonId),
+			submittedAt: application.submittedAt ?? null
+		}));
 	}
 });
 
@@ -466,5 +670,374 @@ export const adminListQualityFlags = query({
 		}
 
 		return rows;
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 5. Application review (staff decisions + review page data).
+//
+// Until peer review is fully staffed, applications are accepted/declined by staff from the admin
+// portal. These mirror clubApplications.ts's moveToInterview/decideApplication — same status
+// transitions, same chat/system messages, same notifications, same accept side effects
+// (createClubFromApplication) — but are gated on requireGlobalAdmin instead of the
+// deciding-reviewer rule, and accept a decision straight from `pending` (staff don't have to
+// stage through `interview` unless they want the call). The staff↔applicant conversation uses
+// the application's existing chat room via the regular chat.* functions — admins get read+send
+// there through chatModel.getClubApplicationAccess's globalRole check, so the applicant sees
+// staff messages in the member app's chat exactly like reviewer messages.
+// ---------------------------------------------------------------------------
+
+const DECIDABLE_STATUSES: Doc<'clubApplications'>['status'][] = ['pending', 'interview'];
+
+export const adminGetApplication = query({
+	args: {
+		applicationId: v.id('clubApplications')
+	},
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			return null;
+		}
+
+		const applicantProfile = await ctx.db.get(application.applicantProfileId);
+		const room = await ctx.db
+			.query('rooms')
+			.withIndex('by_club_application_id', (q) => q.eq('clubApplicationId', application._id))
+			.first();
+
+		// Reviews + assigned reviewers: shared with the member app's clubApplications.getApplication.
+		const { reviews, assignedReviewers } = await buildApplicationReviewSummary(
+			ctx,
+			application._id
+		);
+
+		const decidedByProfile = application.decidedByProfileId
+			? await ctx.db.get(application.decidedByProfileId)
+			: null;
+
+		return {
+			applicationId: application._id,
+			status: application.status,
+			name: application.name,
+			description: application.description ?? null,
+			location: application.location ?? null,
+			applicantRole: application.applicantRole ?? null,
+			referralSource: application.referralSource ?? null,
+			referralOther: application.referralOther ?? null,
+			createdAt: application.createdAt,
+			// CL-778: "Season started" / "Season for review" ({ seasonId, name } or null); the
+			// review season is editable via adminSetApplicationReviewSeason.
+			startedSeason: await resolveApplicationSeason(ctx, application.startedSeasonId),
+			reviewSeason: await resolveApplicationSeason(ctx, application.reviewSeasonId),
+			submittedAt: application.submittedAt ?? null,
+			decidedAt: application.decidedAt ?? null,
+			decidedByName: decidedByProfile ? profileDisplayName(decidedByProfile) : null,
+			rejectionNote: application.rejectionNote ?? null,
+			adminFollowUpFlag: application.adminFollowUpFlag ?? null,
+			applicant: applicantProfile
+				? {
+						profileId: applicantProfile._id,
+						name: profileDisplayName(applicantProfile),
+						username: applicantProfile.username ?? null,
+						email: await getAuthUserEmail(ctx, applicantProfile.authUserId)
+					}
+				: null,
+			clubName: await getClubName(ctx, application.createdClubId),
+			createdClubId: application.createdClubId ?? null,
+			// Whether a ready video exists. The admin portal fetches the playable URL separately via
+			// clubApplicationsNode.getApplicationVideoSignedUrl — a direct storage URL here would 403
+			// in any environment with secure media delivery (private bucket + CloudFront signing).
+			hasVideo: await applicationHasReadyVideo(ctx, application),
+			roomId: room?._id ?? null,
+			reviews,
+			assignedReviewers
+		};
+	}
+});
+
+// Manually assign a reviewer/interviewer to an application — the same applicationReviewAssignments
+// row the auto-assignment cron creates, so everything downstream (review page, chat access per
+// PRD 6.11 "Applicant + assigned interviewers", chat list) just works. Primary use: attaching an
+// interviewer to an admin-invited leader's application, which the cron never touches.
+export const adminAssignReviewer = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		profileId: v.id('profiles')
+	},
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		const reviewerProfile = await ctx.db.get(args.profileId);
+		if (!reviewerProfile) {
+			throw new ConvexError('User not found');
+		}
+		if (application.applicantProfileId === args.profileId) {
+			throw new ConvexError('The applicant cannot review their own application');
+		}
+		const existing = await ctx.db
+			.query('applicationReviewAssignments')
+			.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+				q.eq('applicationId', args.applicationId).eq('reviewerProfileId', args.profileId)
+			)
+			.first();
+		if (existing) {
+			throw new ConvexError('That user is already assigned to this application');
+		}
+		const season = await resolveSeasonForManualAssignment(ctx, application.reviewSeasonId);
+		if (!season) {
+			throw new ConvexError('No seasons configured — create a season first (Seasons & Booklet)');
+		}
+		// Make sure the room exists so the assignment is immediately usable for chat (incomplete
+		// applications may not have one yet).
+		await ensureClubApplicationRoom(ctx, args.applicationId);
+		await ctx.db.insert('applicationReviewAssignments', {
+			applicationId: args.applicationId,
+			reviewerProfileId: args.profileId,
+			seasonId: season._id,
+			assignedAt: Date.now()
+		});
+		return null;
+	}
+});
+
+export const adminUnassignReviewer = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		profileId: v.id('profiles')
+	},
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const existing = await ctx.db
+			.query('applicationReviewAssignments')
+			.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+				q.eq('applicationId', args.applicationId).eq('reviewerProfileId', args.profileId)
+			)
+			.first();
+		if (!existing) {
+			throw new ConvexError('That user is not assigned to this application');
+		}
+		const review = await ctx.db
+			.query('applicationReviews')
+			.withIndex('by_application_id_and_reviewer_profile_id', (q) =>
+				q.eq('applicationId', args.applicationId).eq('reviewerProfileId', args.profileId)
+			)
+			.first();
+		if (review) {
+			throw new ConvexError(
+				'That reviewer has already submitted a review and cannot be unassigned'
+			);
+		}
+		await ctx.db.delete(existing._id);
+		return null;
+	}
+});
+
+// Staff-initiated chat with an applicant whose application is still incomplete — e.g. to nudge
+// them to finish, or help with a failing video upload. Rooms historically only existed from
+// submission onward; this creates one on demand (idempotent), and the applicant's app picks it up
+// automatically (chat.listRoomSummaries enumerates all own applications regardless of status).
+// Applicant-initiated counterpart: clubApplications.ensureMyApplicationRoom.
+export const adminEnsureApplicationRoom = mutation({
+	args: {
+		applicationId: v.id('clubApplications')
+	},
+	returns: v.object({ roomId: v.id('rooms') }),
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		const roomId = await ensureClubApplicationRoom(ctx, application._id);
+		return { roomId };
+	}
+});
+
+// CL-778: move a submitted application to another "Season for review". Only the season changes —
+// status, reviews and reviewer assignments stay, so the application is NOT re-scored (Ron: an
+// applicant who missed her interview wants to be considered next season → she shows up in that
+// season's list to be interviewed and decided). The assignment job leaves applications with
+// actual reviews from another season alone (reviewAssignmentModel.hasReviewHistoryOutsideSeason);
+// a pending application that has never been scored is assigned right away if the new season's
+// window is open, exactly as the daily cron would. "Season started" is never editable.
+export const adminSetApplicationReviewSeason = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		seasonId: v.id('seasons')
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		if (application.status === 'incomplete') {
+			throw new ConvexError('Only submitted applications have a season for review');
+		}
+		const season = await ctx.db.get(args.seasonId);
+		if (!season) {
+			throw new ConvexError('Season not found');
+		}
+		if (application.reviewSeasonId === args.seasonId) {
+			return null;
+		}
+		await ctx.db.patch(application._id, {
+			reviewSeasonId: args.seasonId,
+			updatedAt: Date.now()
+		});
+		await assignReviewsForApplicationIfWindowOpen(ctx, application._id);
+		return null;
+	}
+});
+
+export const adminMoveToInterview = mutation({
+	args: {
+		applicationId: v.id('clubApplications')
+	},
+	returns: v.object({ success: v.boolean() }),
+	handler: async (ctx, args) => {
+		const identity = await requireGlobalAdmin(ctx);
+		const adminProfile = await requireProfile(ctx, identity.subject);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		if (application.status !== 'pending') {
+			throw new ConvexError('Only applications in review can move to interview');
+		}
+
+		const now = Date.now();
+		await ctx.db.patch(application._id, {
+			status: 'interview',
+			movedToInterviewAt: now,
+			movedToInterviewByProfileId: adminProfile._id,
+			updatedAt: now
+		});
+		await ensureClubApplicationRoom(ctx, application._id);
+
+		await dispatchNotification(ctx, {
+			recipientProfileId: application.applicantProfileId,
+			kind: 'application_status',
+			title: 'Your application moved to interview',
+			message: 'Your application moved to interview — expect a message to schedule a call.'
+		});
+
+		return { success: true };
+	}
+});
+
+export const adminDecideApplication = mutation({
+	args: {
+		applicationId: v.id('clubApplications'),
+		decision: v.union(v.literal('accepted'), v.literal('rejected')),
+		rejectionNote: v.optional(v.string())
+	},
+	returns: v.object({ success: v.boolean() }),
+	handler: async (ctx, args) => {
+		const identity = await requireGlobalAdmin(ctx);
+		const adminProfile = await requireProfile(ctx, identity.subject);
+		const application = await ctx.db.get(args.applicationId);
+		if (!application) {
+			throw new ConvexError('Application not found');
+		}
+		if (!DECIDABLE_STATUSES.includes(application.status)) {
+			throw new ConvexError('This application is not awaiting a decision');
+		}
+
+		const now = Date.now();
+		const trimmedNote = args.rejectionNote?.trim();
+		const rejectionNote = args.decision === 'rejected' && trimmedNote ? trimmedNote : undefined;
+
+		await ctx.db.patch(application._id, {
+			status: args.decision,
+			decidedAt: now,
+			decidedByProfileId: adminProfile._id,
+			rejectionNote,
+			updatedAt: now
+		});
+
+		const roomId = await ensureClubApplicationRoom(ctx, application._id);
+		const room = await ctx.db.get(roomId);
+		if (!room) {
+			throw new ConvexError('Room not found');
+		}
+
+		if (args.decision === 'rejected') {
+			if (rejectionNote) {
+				// Decision notices are announced by the 'application_status' notification below;
+				// emailing the room on top would double up, so these posts do not notify.
+				await postRoomMessage(ctx, {
+					room,
+					profileId: adminProfile._id,
+					content: rejectionNote,
+					notify: false
+				});
+			}
+			await postRoomMessage(ctx, {
+				room,
+				content: 'This application was not accepted.',
+				notify: false
+			});
+			await dispatchNotification(ctx, {
+				recipientProfileId: application.applicantProfileId,
+				kind: 'application_status',
+				title: 'Application update',
+				message: 'Your application was not accepted this time.'
+			});
+		} else {
+			const patchedApplication = await ctx.db.get(application._id);
+			if (!patchedApplication) {
+				throw new ConvexError('Application not found');
+			}
+			await createClubFromApplication(ctx, patchedApplication);
+
+			await postRoomMessage(ctx, {
+				room,
+				content: 'This application was accepted — the club is live!',
+				notify: false
+			});
+			await dispatchNotification(ctx, {
+				recipientProfileId: application.applicantProfileId,
+				kind: 'application_status',
+				title: 'Application accepted',
+				message: 'Congratulations! Your application was accepted and your club is now live.'
+			});
+		}
+
+		return { success: true };
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 6. Club Interest Form signups (read-only list for the admin portal).
+//
+// These are the public "keep me posted" signups from the marketing/site flow
+// (clubs.submitClubInterestSignup) — email + location, no account attached.
+// ---------------------------------------------------------------------------
+
+export const adminListClubInterestSignups = query({
+	args: {},
+	handler: async (ctx) => {
+		await requireGlobalAdmin(ctx);
+
+		const signups = await ctx.db
+			.query('clubInterestSignups')
+			.withIndex('by_created_at')
+			.order('desc')
+			.collect();
+
+		return signups.map((signup) => ({
+			signupId: signup._id,
+			email: signup.email,
+			location: signup.location,
+			createdAt: signup.createdAt,
+			updatedAt: signup.updatedAt
+		}));
 	}
 });

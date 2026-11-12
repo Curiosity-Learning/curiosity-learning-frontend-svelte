@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Component } from 'svelte';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { formatT } from '$lib/i18n';
 	import { cn } from '$lib/utils.js';
 
 	export type AppNavVariant = 'bottom' | 'side' | 'side-sub';
@@ -12,9 +14,13 @@
 		Icon?: Component<{ class?: string }>;
 		nav: AppNavVariant;
 		disabled?: boolean;
+		badgeCount?: number;
 	};
 
-	let { href, label, active, Icon, nav, disabled }: Props = $props();
+	let { href, label, active, Icon, nav, disabled, badgeCount = 0 }: Props = $props();
+
+	// Same cap presentation as the chat list's per-room badge (chat/+page.svelte).
+	let badgeText = $derived(badgeCount > 99 ? '99+' : `${badgeCount}`);
 
 	let base = $derived(
 		nav === 'bottom'
@@ -58,6 +64,16 @@
 			{#if Icon}
 				<Icon class="size-6" />
 			{/if}
+			{#if badgeCount > 0}
+				<!-- Dot-style count pinned to the icon: the bottom nav has no horizontal room for an
+				     inline badge, mirroring how messaging apps badge their tab icons. -->
+				<span
+					class="absolute -top-1.5 left-full flex h-4 min-w-4 -translate-x-1.5 items-center justify-center rounded-full bg-orange-500 px-1 text-[0.625rem] leading-none font-semibold text-white"
+					aria-label={formatT('chat.unreadBadgeLabel', { count: badgeCount })}
+				>
+					{badgeText}
+				</span>
+			{/if}
 		</div>
 		<span class="type-caption-medium">{label}</span>
 	{:else if nav === 'side'}
@@ -66,6 +82,16 @@
 				<Icon class="size-4 shrink-0" />
 			{/if}
 			<span class="truncate">{label}</span>
+			{#if badgeCount > 0}
+				<!-- Same styling as the chat list's per-room unread badge (chat/+page.svelte). -->
+				<Badge
+					size="sm"
+					class="ml-auto shrink-0 border-transparent bg-orange-500 text-white"
+					aria-label={formatT('chat.unreadBadgeLabel', { count: badgeCount })}
+				>
+					{badgeText}
+				</Badge>
+			{/if}
 		</div>
 	{:else}
 		<span>{label}</span>

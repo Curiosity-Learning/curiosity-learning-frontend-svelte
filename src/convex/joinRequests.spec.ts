@@ -355,7 +355,12 @@ describe('getJoinRequestForRoom', () => {
 		const asRequester = await requester.query(api.joinRequests.getJoinRequestForRoom, { roomId });
 		const asGuide = await guide.query(api.joinRequests.getJoinRequestForRoom, { roomId });
 
-		expect(asRequester).toMatchObject({ isRequester: true, canDecide: false, status: 'pending' });
+		expect(asRequester).toMatchObject({
+			isRequester: true,
+			canDecide: false,
+			status: 'pending',
+			clubDiscoverable: true
+		});
 		expect(asGuide).toMatchObject({ isRequester: false, canDecide: true, status: 'pending' });
 	});
 });
@@ -531,7 +536,6 @@ describe('autoCreateJoinRequestFromNextPath', () => {
 	});
 });
 
-
 // CL-690 CEO review item F: the no-club page needs to list join requests alongside Start Club
 // applications, each with a roomId to link straight to its chat.
 describe('listMyJoinRequests', () => {
@@ -553,7 +557,7 @@ describe('listMyJoinRequests', () => {
 		});
 	});
 
-	it('does not surface another profile\'s join requests', async () => {
+	it("does not surface another profile's join requests", async () => {
 		const { guide, clubId } = await seedClubFixture();
 		await guide.query(api.joinRequests.listMyJoinRequests, {}).then((result) => {
 			expect(result).toHaveLength(0);
@@ -608,7 +612,9 @@ describe('join request chat overview and action state', () => {
 		const guideSummaries = await guide.query(api.chat.listRoomSummaries, {});
 		const requesterSummaries = await requester.query(api.chat.listRoomSummaries, {});
 
-		expect(guideSummaries).toContainEqual(expect.objectContaining({ roomId, actionState: 'closed' }));
+		expect(guideSummaries).toContainEqual(
+			expect.objectContaining({ roomId, actionState: 'closed' })
+		);
 		expect(requesterSummaries).toContainEqual(
 			expect.objectContaining({ roomId, actionState: 'closed' })
 		);

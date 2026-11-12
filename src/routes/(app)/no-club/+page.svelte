@@ -9,6 +9,8 @@
 	import { Card, CardDescription, CardTitle } from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import { EmptyState, LoadingState, PageHeaderTitle } from '$lib/components/app';
+	import { goto } from '$app/navigation';
+	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
@@ -25,7 +27,32 @@
 		location: string | null;
 		status: string;
 		createdAt: number;
+		applicationId: string | null;
 		roomId: Id<'rooms'> | null;
+	};
+
+	const convexClient = useConvexClient();
+
+	// Applicant-side support chat for a still-incomplete application: the room normally only
+	// exists from submission onward, so the first "Message us" click creates it on demand
+	// (clubApplications.ensureMyApplicationRoom) before opening the chat. Once it exists the
+	// item's roomId is set and the regular "Open chat" button takes over.
+	let supportChatPending = $state(false);
+	let supportChatFailed = $state(false);
+	const openSupportChat = async () => {
+		supportChatFailed = false;
+		supportChatPending = true;
+		try {
+			const { roomId } = await convexClient.mutation(
+				api.clubApplications.ensureMyApplicationRoom,
+				{}
+			);
+			await goto(`${routes.chat}?room=${roomId}`);
+		} catch {
+			supportChatFailed = true;
+		} finally {
+			supportChatPending = false;
+		}
 	};
 
 	const applicationsResponse = useStableQuery(api.clubApplications.listMyApplications, {});
@@ -48,6 +75,7 @@
 				location: application.location ?? null,
 				status: application.status,
 				createdAt: application.createdAt,
+				applicationId: application._id,
 				roomId: application.roomId ?? null
 			})
 		);
@@ -59,6 +87,7 @@
 				location: null,
 				status: joinRequest.status,
 				createdAt: joinRequest.createdAt,
+				applicationId: null,
 				roomId: joinRequest.roomId
 			})
 		);
@@ -117,13 +146,17 @@
 		}
 	};
 	const itemStatusLabel = (item: ApplicationListItem) =>
-		item.kind === 'start' ? applicationStatusLabel(item.status) : joinRequestStatusLabel(item.status);
+		item.kind === 'start'
+			? applicationStatusLabel(item.status)
+			: joinRequestStatusLabel(item.status);
 	const itemStatusDescription = (item: ApplicationListItem) =>
 		item.kind === 'start'
 			? applicationStatusDescription(item.status)
 			: joinRequestStatusDescription(item.status);
 	const itemKindLabel = (item: ApplicationListItem) =>
-		item.kind === 'start' ? $_('noClubApplications.startKindLabel') : $_('noClubApplications.joinKindLabel');
+		item.kind === 'start'
+			? $_('noClubApplications.startKindLabel')
+			: $_('noClubApplications.joinKindLabel');
 	const applicationDateLabel = (timestamp: number | undefined) => {
 		if (!timestamp) return null;
 		return new Date(timestamp).toLocaleDateString(undefined, {
@@ -230,13 +263,55 @@
 									{itemStatusDescription(item)}
 								</p>
 								{#if item.kind === 'start' && item.status === 'incomplete'}
-									<Button href={routes.newClubStartVideo} variant="outline" class="mt-3 h-9 px-3">
-										{$_('noClubApplications.resumeApplication')}
-									</Button>
-								{:else if item.roomId}
-									<Button href={`${routes.chat}?room=${item.roomId}`} variant="outline" class="mt-3 h-9 px-3">
-										{$_('noClubApplications.openChat')}
-									</Button>
+									<div class="mt-3 flex flex-wrap gap-2">
+										<Button href={routes.newClubStartVideo} variant="outline" class="h-9 px-3">
+											{$_('noClubApplications.resumeApplication')}
+										</Button>
+										{#if item.roomId}
+											<Button
+												href={`${routes.chat}?room=${item.roomId}`}
+												variant="outline"
+												class="h-9 px-3"
+											>
+												{$_('noClubApplications.openChat')}
+											</Button>
+										{:else}
+											<Button
+												variant="outline"
+												class="h-9 px-3"
+												disabled={supportChatPending}
+												onclick={() => void openSupportChat()}
+											>
+												{$_('noClubApplications.messageUs')}
+											</Button>
+										{/if}
+									</div>
+									{#if supportChatFailed}
+										<p class="type-sm mt-2 text-red-600">
+											{$_('noClubApplications.messageUsFailure')}
+										</p>
+									{/if}
+								{:else if item.roomId || item.applicationId}
+									<div class="mt-3 flex flex-wrap gap-2">
+										{#if item.applicationId}
+											<Button
+												href={routes.applicationReviewDetail(item.applicationId)}
+												variant="outline"
+												class="h-9 px-3"
+											>
+												{$_('chatContext.viewApplication')}
+											</Button>
+										{/if}
+										{#if item.roomId}
+											<Button
+												href={`${routes.chat}?room=${item.roomId}`}
+												variant="outline"
+												class="h-9 px-3"
+											>
+												{$_('noClubApplications.openChat')}
+											</Button>
+										{/if}
+									</div>
 								{/if}
 							</div>
 						{/each}

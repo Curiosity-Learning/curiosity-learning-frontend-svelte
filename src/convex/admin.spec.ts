@@ -1,10 +1,31 @@
 import { convexTest } from 'convex-test';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
+
+// The betterAuth component is not available in convex-test, so the auth-email lookup module is
+// mocked with a fixed map — same pattern as adminInvites.spec.ts / parentAccounts.spec.ts.
+const { authEmailByUserId } = vi.hoisted(() => ({
+	authEmailByUserId: new Map<string, string>([['applicant-user', 'applicant@example.com']])
+}));
+
+vi.mock('./authEmail', () => ({
+	getAuthUserEmail: async (_ctx: unknown, authUserId: string) =>
+		authEmailByUserId.get(authUserId) ?? null,
+	getAuthUserEmailInfo: async (_ctx: unknown, authUserId: string) => {
+		const email = authEmailByUserId.get(authUserId);
+		return email ? { email, emailVerified: true, name: null } : null;
+	},
+	getAuthUserIdByEmail: async (_ctx: unknown, email: string) => {
+		for (const [authUserId, candidate] of authEmailByUserId) {
+			if (candidate === email) return authUserId;
+		}
+		return null;
+	}
+}));
 
 const seedProfile = async (
 	t: ReturnType<typeof convexTest>,
@@ -478,5 +499,596 @@ describe('admin.adminApplicationsPipeline', () => {
 		const agreeable = result.items.find((item) => item.applicationId === agreeableApplicationId);
 		expect(agreeable?.scoreDiscrepancyFlag).toBe(false);
 		expect(agreeable?.avgScore).toBeCloseTo(7.5);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Staff application review (adminGetApplication / adminMoveToInterview /
+// adminDecideApplication) + admin chat access + interest signups.
+// ---------------------------------------------------------------------------
+
+const seedPendingApplication = async (t: ReturnType<typeof convexTest>) =>
+	t.run(async (ctx) => {
+		const now = Date.now();
+		const applicantProfileId = await ctx.db.insert('profiles', {
+			authUserId: 'applicant-user',
+			username: 'applicant',
+			firstName: 'App',
+			lastName: 'Licant',
+			isVerified: true,
+			firstLoginCompleted: true,
+			updatedAt: now
+		});
+		const applicationId = await ctx.db.insert('clubApplications', {
+			applicantProfileId,
+			status: 'pending',
+			name: 'Braga Curiosity Club',
+			description: 'A great club',
+			location: 'Braga',
+			createdAt: now,
+			updatedAt: now
+		});
+		const roomId = await ctx.db.insert('rooms', {
+			contextType: 'clubApplication',
+			clubApplicationId: applicationId
+		});
+		return { applicantProfileId, applicationId, roomId };
+	});
+
+describe('admin.adminApplicationsPipeline chat state', () => {
+	it('flags applications whose latest human chat message is from the applicant', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicantProfileId, applicationId, roomId } = await seedPendingApplication(t);
+
+		const readPipelineItem = async () => {
+			const result = await t
+				.withIdentity({ subject: 'admin-user' })
+				.query(api.admin.adminApplicationsPipeline, {});
+			return result.items.find((item) => item.applicationId === applicationId);
+		};
+
+		// No messages yet: nothing awaiting.
+		let item = await readPipelineItem();
+		expect(item?.chatLastMessageAt).toBeNull();
+		expect(item?.chatAwaitingReply).toBe(false);
+
+		// Applicant writes: awaiting a reply.
+		await t.run(async (ctx) => {
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: applicantProfileId,
+				content: 'Hi, any update?'
+			});
+		});
+		item = await readPipelineItem();
+		expect(item?.chatLastMessageAt).not.toBeNull();
+		expect(item?.chatAwaitingReply).toBe(true);
+
+		// A system message (no profileId) after it does not count as a reply.
+		await t.run(async (ctx) => {
+			await ctx.db.insert('messages', { roomId, content: 'Automated notice' });
+		});
+		item = await readPipelineItem();
+		expect(item?.chatAwaitingReply).toBe(true);
+
+		// Staff reply clears it.
+		await t.run(async (ctx) => {
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: adminProfileId,
+				content: 'On it!'
+			});
+		});
+		item = await readPipelineItem();
+		expect(item?.chatAwaitingReply).toBe(false);
+	});
+});
+
+describe('admin application review', () => {
+	it('rejects non-admin callers on every entry point', async () => {
+		const t = convexTest(schema, modules);
+		await seedProfile(t, 'regular-user');
+		const { applicationId } = await seedPendingApplication(t);
+		const regular = t.withIdentity({ subject: 'regular-user' });
+
+		await expect(regular.query(api.admin.adminGetApplication, { applicationId })).rejects.toThrow(
+			'Not authorized'
+		);
+		await expect(
+			regular.mutation(api.admin.adminMoveToInterview, { applicationId })
+		).rejects.toThrow('Not authorized');
+		await expect(
+			regular.mutation(api.admin.adminDecideApplication, { applicationId, decision: 'accepted' })
+		).rejects.toThrow('Not authorized');
+		await expect(regular.query(api.admin.adminListClubInterestSignups, {})).rejects.toThrow(
+			'Not authorized'
+		);
+	});
+
+	it('creates a chat room on demand for an incomplete application, idempotently', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		// An incomplete draft — no room exists yet (rooms are otherwise only created at submission).
+		const applicationId = await t.run(async (ctx) => {
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'draft-user',
+				username: 'draft-applicant',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: Date.now()
+			});
+			return await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'incomplete',
+				name: 'Draft Curiosity Club',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			});
+		});
+		const admin = t.withIdentity({ subject: 'admin-user' });
+
+		await expect(
+			t
+				.withIdentity({ subject: 'draft-user' })
+				.mutation(api.admin.adminEnsureApplicationRoom, { applicationId })
+		).rejects.toThrow('Not authorized');
+
+		const first = await admin.mutation(api.admin.adminEnsureApplicationRoom, { applicationId });
+		const second = await admin.mutation(api.admin.adminEnsureApplicationRoom, { applicationId });
+		expect(second.roomId).toBe(first.roomId);
+
+		const detail = await admin.query(api.admin.adminGetApplication, { applicationId });
+		expect(detail?.roomId).toBe(first.roomId);
+	});
+
+	it('returns application detail including the chat room id', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicationId, roomId } = await seedPendingApplication(t);
+
+		const detail = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminGetApplication, { applicationId });
+
+		expect(detail?.status).toBe('pending');
+		expect(detail?.name).toBe('Braga Curiosity Club');
+		expect(detail?.applicant?.name).toBe('App Licant');
+		expect(detail?.applicant?.email).toBe('applicant@example.com');
+		expect(detail?.roomId).toBe(roomId);
+		expect(detail?.reviews).toHaveLength(0);
+		expect(detail?.hasVideo).toBe(false);
+	});
+
+	it('lets an admin move a pending application to interview', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicationId, applicantProfileId } = await seedPendingApplication(t);
+
+		await t
+			.withIdentity({ subject: 'admin-user' })
+			.mutation(api.admin.adminMoveToInterview, { applicationId });
+
+		const { application, notifications } = await t.run(async (ctx) => ({
+			application: await ctx.db.get(applicationId),
+			notifications: await ctx.db.query('notifications').collect()
+		}));
+		expect(application?.status).toBe('interview');
+		expect(application?.movedToInterviewByProfileId).toBe(adminProfileId);
+		expect(
+			notifications.some((notification) => notification.profileId === applicantProfileId)
+		).toBe(true);
+	});
+
+	it('accepts straight from pending: creates the club, guide membership, and system message', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		await seedClubRoles(t);
+		const { applicationId, applicantProfileId, roomId } = await seedPendingApplication(t);
+
+		await t
+			.withIdentity({ subject: 'admin-user' })
+			.mutation(api.admin.adminDecideApplication, { applicationId, decision: 'accepted' });
+
+		const { application, club, membership, messages } = await t.run(async (ctx) => {
+			const applicationDoc = await ctx.db.get(applicationId);
+			const clubDoc = applicationDoc?.createdClubId
+				? await ctx.db.get(applicationDoc.createdClubId)
+				: null;
+			const membershipDoc = applicationDoc?.createdClubId
+				? await ctx.db
+						.query('clubMembers')
+						.withIndex('by_club_and_profile', (q) =>
+							q
+								.eq('clubId', applicationDoc.createdClubId as Id<'clubs'>)
+								.eq('profileId', applicantProfileId)
+						)
+						.first()
+				: null;
+			const messageDocs = await ctx.db
+				.query('messages')
+				.withIndex('by_room', (q) => q.eq('roomId', roomId))
+				.collect();
+			return {
+				application: applicationDoc,
+				club: clubDoc,
+				membership: membershipDoc,
+				messages: messageDocs
+			};
+		});
+
+		expect(application?.status).toBe('accepted');
+		expect(application?.decidedByProfileId).toBe(adminProfileId);
+		expect(club?.name).toBe('Braga Curiosity Club');
+		expect(membership).not.toBeNull();
+		expect(messages.some((message) => message.content.includes('accepted'))).toBe(true);
+	});
+
+	it('rejects with a note: note lands in the chat attributed to the admin', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicationId, roomId } = await seedPendingApplication(t);
+
+		await t.withIdentity({ subject: 'admin-user' }).mutation(api.admin.adminDecideApplication, {
+			applicationId,
+			decision: 'rejected',
+			rejectionNote: 'Not enough learners in the area yet.'
+		});
+
+		const { application, messages } = await t.run(async (ctx) => ({
+			application: await ctx.db.get(applicationId),
+			messages: await ctx.db
+				.query('messages')
+				.withIndex('by_room', (q) => q.eq('roomId', roomId))
+				.collect()
+		}));
+
+		expect(application?.status).toBe('rejected');
+		expect(application?.rejectionNote).toBe('Not enough learners in the area yet.');
+		expect(
+			messages.some(
+				(message) =>
+					message.profileId === adminProfileId &&
+					message.content === 'Not enough learners in the area yet.'
+			)
+		).toBe(true);
+		expect(messages.some((message) => !message.profileId)).toBe(true);
+	});
+
+	it('refuses to decide an already-decided application', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { applicationId } = await seedPendingApplication(t);
+		await t.run((ctx) => ctx.db.patch(applicationId, { status: 'rejected' }));
+
+		await expect(
+			t.withIdentity({ subject: 'admin-user' }).mutation(api.admin.adminDecideApplication, {
+				applicationId,
+				decision: 'accepted'
+			})
+		).rejects.toThrow('not awaiting a decision');
+	});
+});
+
+describe('admin chat access to application rooms', () => {
+	it('admin can read and send in an application chat; a random user cannot', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		await seedProfile(t, 'random-user');
+		const { roomId } = await seedPendingApplication(t);
+
+		const admin = t.withIdentity({ subject: 'admin-user' });
+		await admin.mutation(api.chat.sendMessage, {
+			roomId,
+			content: 'Hi! We had a look at your application.'
+		});
+		const listed = await admin.query(api.chat.listMessages, { roomId });
+		expect(listed.messages.some((m) => m.content.includes('had a look'))).toBe(true);
+
+		await expect(
+			t.withIdentity({ subject: 'random-user' }).query(api.chat.listMessages, { roomId })
+		).rejects.toThrow('cannot access');
+	});
+
+	it('the applicant sees the admin message in their own chat surface', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { roomId } = await seedPendingApplication(t);
+
+		await t.withIdentity({ subject: 'admin-user' }).mutation(api.chat.sendMessage, {
+			roomId,
+			content: 'Hello from the Curiosity team!'
+		});
+
+		const applicantView = await t
+			.withIdentity({ subject: 'applicant-user' })
+			.query(api.chat.listMessages, { roomId });
+		expect(applicantView.messages.some((m) => m.content === 'Hello from the Curiosity team!')).toBe(
+			true
+		);
+	});
+});
+
+describe('admin.adminListClubInterestSignups', () => {
+	it('lists signups newest-first for an admin', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		await t.run(async (ctx) => {
+			await ctx.db.insert('clubInterestSignups', {
+				email: 'older@example.com',
+				location: 'Porto',
+				createdAt: 1000,
+				updatedAt: 1000
+			});
+			await ctx.db.insert('clubInterestSignups', {
+				email: 'newer@example.com',
+				location: 'Braga',
+				createdAt: 2000,
+				updatedAt: 2000
+			});
+		});
+
+		const signups = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminListClubInterestSignups, {});
+
+		expect(signups).toHaveLength(2);
+		expect(signups[0].email).toBe('newer@example.com');
+		expect(signups[1].location).toBe('Porto');
+	});
+});
+
+describe('admin.adminAnalyticsApplications', () => {
+	it('rejects a non-admin caller', async () => {
+		const t = convexTest(schema, modules);
+		await seedProfile(t, 'regular-user');
+		await expect(
+			t.withIdentity({ subject: 'regular-user' }).query(api.admin.adminAnalyticsApplications, {})
+		).rejects.toThrow('Not authorized');
+	});
+
+	it('returns raw referral fields per application, defaulting missing ones to null', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'applicant-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'pending',
+				name: 'With referral',
+				referralSource: 'instagram',
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubApplications', {
+				applicantProfileId,
+				status: 'accepted',
+				name: 'Without referral',
+				createdAt: now + 1,
+				updatedAt: now + 1
+			});
+		});
+
+		const rows = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminAnalyticsApplications, {});
+
+		expect(rows).toHaveLength(2);
+		const withReferral = rows.find((row) => row.referralSource === 'instagram');
+		expect(withReferral?.status).toBe('pending');
+		expect(withReferral?.referralOther).toBeNull();
+		const withoutReferral = rows.find((row) => row.referralSource === null);
+		expect(withoutReferral?.status).toBe('accepted');
+	});
+});
+
+// CL-778: applications linked to seasons ("Season started" / "Season for review").
+describe('admin application seasons (CL-778)', () => {
+	const DAY = 24 * 60 * 60 * 1000;
+
+	const seedSeasons = async (t: ReturnType<typeof convexTest>) => {
+		const now = Date.now();
+		const season = (name: string, reviewWindowOpen: number) =>
+			t.mutation(internal.seasons.createSeason, {
+				name,
+				reviewWindowOpen,
+				reviewWindowClose: reviewWindowOpen + 10 * DAY,
+				startDate: reviewWindowOpen + 20 * DAY,
+				endDate: reviewWindowOpen + 100 * DAY,
+				feedbackDeadline: reviewWindowOpen + 120 * DAY
+			});
+		const currentId = await season('Winter 2026', now - DAY);
+		const nextId = await season('Spring 2027', now + 90 * DAY);
+		return { currentId, nextId };
+	};
+
+	const seedApplications = async (
+		t: ReturnType<typeof convexTest>,
+		currentId: Id<'seasons'>,
+		nextId: Id<'seasons'>
+	) =>
+		t.run(async (ctx) => {
+			const now = Date.now();
+			const applicantProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'applicant-user',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			const base = { applicantProfileId, createdAt: now, updatedAt: now };
+			return {
+				current: await ctx.db.insert('clubApplications', {
+					...base,
+					status: 'pending',
+					name: 'In current review',
+					startedSeasonId: currentId,
+					reviewSeasonId: currentId,
+					submittedAt: now
+				}),
+				// Started during the current intake, submitted late → next season.
+				late: await ctx.db.insert('clubApplications', {
+					...base,
+					status: 'pending',
+					name: 'Late submission',
+					startedSeasonId: currentId,
+					reviewSeasonId: nextId,
+					submittedAt: now
+				}),
+				draft: await ctx.db.insert('clubApplications', {
+					...base,
+					status: 'incomplete',
+					name: 'Current draft',
+					startedSeasonId: currentId
+				}),
+				unlinked: await ctx.db.insert('clubApplications', {
+					...base,
+					status: 'interview',
+					name: 'No season'
+				})
+			};
+		});
+
+	it('filters the pipeline by season, defaulting to the open review season when asked for current', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { currentId, nextId } = await seedSeasons(t);
+		const ids = await seedApplications(t, currentId, nextId);
+		const admin = t.withIdentity({ subject: 'admin-user' });
+
+		const current = await admin.query(api.admin.adminApplicationsPipeline, { season: 'current' });
+		expect(current.selectedSeason).toBe(currentId);
+		expect(current.currentReviewSeasonId).toBe(currentId);
+		expect(current.items.map((item) => item.applicationId).sort()).toEqual(
+			[ids.current, ids.draft].sort()
+		);
+		expect(current.statusCounts).toMatchObject({ pending: 1, incomplete: 1, interview: 0 });
+		const row = current.items.find((item) => item.applicationId === ids.current);
+		expect(row).toMatchObject({
+			startedSeasonName: 'Winter 2026',
+			reviewSeasonName: 'Winter 2026',
+			reviewSeasonId: currentId
+		});
+		// Seasons for the filter, newest start first.
+		expect(current.seasons.map((season) => season.name)).toEqual(['Spring 2027', 'Winter 2026']);
+
+		const next = await admin.query(api.admin.adminApplicationsPipeline, { season: nextId });
+		expect(next.items.map((item) => item.applicationId)).toEqual([ids.late]);
+		expect(next.items[0]).toMatchObject({
+			startedSeasonName: 'Winter 2026',
+			reviewSeasonName: 'Spring 2027'
+		});
+
+		const none = await admin.query(api.admin.adminApplicationsPipeline, { season: 'none' });
+		expect(none.items.map((item) => item.applicationId)).toEqual([ids.unlinked]);
+		expect(none.items[0].reviewSeasonName).toBeNull();
+
+		// No argument (admin builds from before CL-778) and 'all': everything.
+		const all = await admin.query(api.admin.adminApplicationsPipeline, {});
+		expect(all.selectedSeason).toBe('all');
+		expect(all.items).toHaveLength(4);
+	});
+
+	it('falls back to the next season to open when no season is in its review cycle', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { currentId, nextId } = await seedSeasons(t);
+		await t.run((ctx) =>
+			ctx.db.patch(currentId, {
+				reviewWindowOpen: Date.now() - 30 * DAY,
+				reviewWindowClose: Date.now() - 20 * DAY,
+				// Already started: past its review cycle.
+				startDate: Date.now() - 10 * DAY
+			})
+		);
+		const result = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.admin.adminApplicationsPipeline, { season: 'current' });
+		expect(result.selectedSeason).toBe(nextId);
+	});
+
+	it('keeps a season current through its interview phase, until it starts', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { currentId, nextId } = await seedSeasons(t);
+		const now = Date.now();
+		const admin = t.withIdentity({ subject: 'admin-user' });
+		// Scoring closed yesterday, the season starts in two weeks: still the current review season.
+		await t.run((ctx) =>
+			ctx.db.patch(currentId, {
+				reviewWindowOpen: now - 15 * DAY,
+				reviewWindowClose: now - DAY,
+				startDate: now + 14 * DAY
+			})
+		);
+		expect(
+			(await admin.query(api.admin.adminApplicationsPipeline, { season: 'current' })).selectedSeason
+		).toBe(currentId);
+
+		// Once it has started, the next season to open takes over.
+		await t.run((ctx) => ctx.db.patch(currentId, { startDate: now - DAY }));
+		expect(
+			(await admin.query(api.admin.adminApplicationsPipeline, { season: 'current' })).selectedSeason
+		).toBe(nextId);
+
+		// Two seasons in their review cycle: the one starting first.
+		await t.run(async (ctx) => {
+			await ctx.db.patch(currentId, { startDate: now + 20 * DAY });
+			await ctx.db.patch(nextId, { reviewWindowOpen: now - DAY, startDate: now + 10 * DAY });
+		});
+		expect(
+			(await admin.query(api.admin.adminApplicationsPipeline, { season: 'current' })).selectedSeason
+		).toBe(nextId);
+	});
+
+	it('returns both seasons on the admin application detail and in analytics rows', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const { currentId, nextId } = await seedSeasons(t);
+		const ids = await seedApplications(t, currentId, nextId);
+		const admin = t.withIdentity({ subject: 'admin-user' });
+
+		const detail = await admin.query(api.admin.adminGetApplication, { applicationId: ids.late });
+		expect(detail?.startedSeason).toEqual({ seasonId: currentId, name: 'Winter 2026' });
+		expect(detail?.reviewSeason).toEqual({ seasonId: nextId, name: 'Spring 2027' });
+		expect(detail?.submittedAt).toEqual(expect.any(Number));
+
+		const rows = await admin.query(api.admin.adminAnalyticsApplications, {});
+		const late = rows.find((row) => row.reviewSeasonId === nextId);
+		expect(late).toMatchObject({
+			startedSeasonId: currentId,
+			startedSeasonName: 'Winter 2026',
+			reviewSeasonName: 'Spring 2027',
+			submittedAt: expect.any(Number)
+		});
+		const unlinked = rows.find((row) => row.status === 'interview');
+		expect(unlinked).toMatchObject({
+			startedSeasonId: null,
+			startedSeasonName: null,
+			reviewSeasonId: null,
+			reviewSeasonName: null,
+			submittedAt: null
+		});
 	});
 });

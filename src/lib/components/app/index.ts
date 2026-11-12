@@ -2,6 +2,9 @@ import HeaderTabs from './header-tabs.svelte';
 import ActionMenu from './action-menu.svelte';
 import AutoFitCardGrid from './auto-fit-card-grid.svelte';
 import AppShell from './app-shell.svelte';
+import ApplicationVideo from './applications/application-video.svelte';
+import ReviewScoreInput from './applications/review-score-input.svelte';
+import ChatContextBanner from './chat/chat-context-banner.svelte';
 import ConfirmDialog from './confirm-dialog.svelte';
 import EmptyState from './empty-state.svelte';
 import LoadingState from './loading-state.svelte';
@@ -31,6 +34,9 @@ export {
 	ActionMenu,
 	AutoFitCardGrid,
 	AppShell,
+	ApplicationVideo,
+	ReviewScoreInput,
+	ChatContextBanner,
 	ConfirmDialog,
 	EmptyState,
 	LoadingState,

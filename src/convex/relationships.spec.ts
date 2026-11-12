@@ -204,16 +204,18 @@ describe('relational integrity', () => {
 				createdAt: now,
 				updatedAt: now
 			});
+			const day = 24 * 60 * 60 * 1000;
 			const seasonId = await ctx.db.insert('seasons', {
 				name: 'Test season',
-				startDate: now,
-				endDate: now + 1,
-				reviewWindowOpen: now - 1,
-				reviewWindowClose: now + 1,
-				feedbackDeadline: now + 2,
+				startDate: now + 30 * day,
+				endDate: now + 120 * day,
+				reviewWindowOpen: now - day,
+				reviewWindowClose: now + day,
+				feedbackDeadline: now + 150 * day,
 				createdAt: now,
 				updatedAt: now
 			});
+			await ctx.db.patch(applicationId, { reviewSeasonId: seasonId });
 			await ctx.db.insert('applicationReviewAssignments', {
 				applicationId,
 				reviewerProfileId: guideProfileId,
@@ -224,13 +226,14 @@ describe('relational integrity', () => {
 		});
 		const guide = t.withIdentity({ subject: 'guide-user' });
 
-		const reviewable = await guide.query(api.clubApplications.listReviewableApplications, {});
-		expect(reviewable).toHaveLength(1);
+		const queue = await guide.query(api.clubApplications.getMyReviewQueue, {});
+		expect(queue.toReview).toHaveLength(1);
 
 		const result = await guide.mutation(api.clubApplications.upsertApplicationReview, {
 			applicationId: ids.applicationId,
-			principlesScore: 8,
-			safetyScore: 8,
+			alignmentScore: 4,
+			motivationScore: 4,
+			readinessScore: 4,
 			note: 'Strong application'
 		});
 		const review = await t.run((ctx) => ctx.db.get(result.reviewId));

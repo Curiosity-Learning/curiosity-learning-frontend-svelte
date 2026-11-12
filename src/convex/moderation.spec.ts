@@ -107,6 +107,10 @@ describe('moderation.listQueue', () => {
 		const adminProfileId = await seedProfile(t, 'admin-user');
 		await makeAdmin(t, adminProfileId);
 		const reporterProfileId = await seedProfile(t, 'reporter');
+		const ownerProfileId = await seedProfile(t, 'some-user');
+		await t.run((ctx) =>
+			ctx.db.patch(ownerProfileId, { firstName: 'Sam', lastName: 'Owner' })
+		);
 
 		const { reportId, mediaAssetId } = await t.run(async (ctx) => {
 			const now = Date.now();
@@ -122,12 +126,15 @@ describe('moderation.listQueue', () => {
 				ownerUserId: 'some-user',
 				mediaKind: 'image',
 				status: 'ready',
+				originalFilename: 'holiday.png',
 				acceptedContentTypes: ['image/png'],
 				maxBytes: 1000,
 				enableCompression: false,
 				enableSafetyScreening: true,
 				storageProvider: 's3',
 				sourceObjectRevision: 1,
+				contentType: 'image/png',
+				sizeBytes: 512,
 				moderation: { status: 'flagged', labels: [{ name: 'Suggestive', confidence: 60 }] },
 				pipelineVersion: 1,
 				attemptCount: 1,
@@ -140,8 +147,48 @@ describe('moderation.listQueue', () => {
 
 		const queue = await t.withIdentity({ subject: 'admin-user' }).query(api.moderation.listQueue, {});
 		expect(queue).toHaveLength(2);
-		expect(queue[0]).toMatchObject({ kind: 'flagged_media', mediaAssetId });
+		expect(queue[0]).toMatchObject({
+			kind: 'flagged_media',
+			mediaAssetId,
+			ownerProfileId,
+			ownerName: 'Sam Owner',
+			originalFilename: 'holiday.png',
+			contentType: 'image/png',
+			sizeBytes: 512,
+			status: 'ready'
+		});
 		expect(queue[1]).toMatchObject({ kind: 'report', reportId });
+	});
+
+	it('reports an unknown owner without a profile row', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			await ctx.db.insert('mediaAssets', {
+				ownerUserId: 'ghost-user',
+				mediaKind: 'image',
+				status: 'ready',
+				acceptedContentTypes: ['image/png'],
+				maxBytes: 1000,
+				enableCompression: false,
+				enableSafetyScreening: true,
+				storageProvider: 's3',
+				sourceObjectRevision: 1,
+				moderation: { status: 'flagged', labels: [] },
+				pipelineVersion: 1,
+				attemptCount: 1,
+				stepResults: [],
+				createdAt: now,
+				updatedAt: now
+			});
+		});
+
+		const queue = await t.withIdentity({ subject: 'admin-user' }).query(api.moderation.listQueue, {});
+		expect(queue).toHaveLength(1);
+		expect(queue[0]).toMatchObject({ ownerProfileId: null, ownerName: 'Unknown' });
 	});
 
 	it('excludes reviewed flagged media', async () => {
@@ -173,6 +220,64 @@ describe('moderation.listQueue', () => {
 
 		const queue = await t.withIdentity({ subject: 'admin-user' }).query(api.moderation.listQueue, {});
 		expect(queue).toHaveLength(0);
+	});
+});
+
+describe('moderation.getFlaggedMediaDeliveryAsset', () => {
+	const seedFlaggedAsset = (t: ReturnType<typeof convexTest>) =>
+		t.run(async (ctx) => {
+			const now = Date.now();
+			return await ctx.db.insert('mediaAssets', {
+				ownerUserId: 'some-user',
+				mediaKind: 'image',
+				status: 'ready',
+				acceptedContentTypes: ['image/png'],
+				maxBytes: 1000,
+				enableCompression: false,
+				enableSafetyScreening: true,
+				storageProvider: 's3',
+				sourceBucket: 'source-bucket',
+				sourceObjectKey: 'source/key.png',
+				sourceObjectRevision: 1,
+				processedBucket: 'processed-bucket',
+				processedObjectKey: 'processed/key.png',
+				contentType: 'image/png',
+				moderation: { status: 'flagged', labels: [] },
+				pipelineVersion: 1,
+				attemptCount: 1,
+				stepResults: [],
+				createdAt: now,
+				updatedAt: now
+			});
+		});
+
+	it('rejects a non-admin caller', async () => {
+		const t = convexTest(schema, modules);
+		await seedProfile(t, 'regular-user');
+		const mediaAssetId = await seedFlaggedAsset(t);
+		await expect(
+			t
+				.withIdentity({ subject: 'regular-user' })
+				.query(api.moderation.getFlaggedMediaDeliveryAsset, { mediaAssetId })
+		).rejects.toThrow('Not authorized');
+	});
+
+	it('returns the processed rendition when present', async () => {
+		const t = convexTest(schema, modules);
+		const adminProfileId = await seedProfile(t, 'admin-user');
+		await makeAdmin(t, adminProfileId);
+		const mediaAssetId = await seedFlaggedAsset(t);
+
+		const asset = await t
+			.withIdentity({ subject: 'admin-user' })
+			.query(api.moderation.getFlaggedMediaDeliveryAsset, { mediaAssetId });
+		expect(asset).toMatchObject({
+			assetId: mediaAssetId,
+			deliveryBucket: 'processed-bucket',
+			deliveryObjectKey: 'processed/key.png',
+			mediaKind: 'image',
+			contentType: 'image/png'
+		});
 	});
 });
 

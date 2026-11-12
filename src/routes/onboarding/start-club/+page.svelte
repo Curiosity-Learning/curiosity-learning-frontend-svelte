@@ -237,6 +237,26 @@
 		await convexClient.mutation(api.clubApplications.saveIncompleteApplication, startClubApplicationDraft());
 	};
 
+	// Support chat for the in-progress application (step 2 always has a saved draft — see
+	// goToStepTwo). Creates the application's chat room on demand and opens it, so an applicant
+	// stuck on e.g. a failing video upload can reach staff before submitting.
+	let supportChatPending = $state(false);
+	const openSupportChat = async () => {
+		errorMessage = '';
+		supportChatPending = true;
+		try {
+			const { roomId } = await convexClient.mutation(
+				api.clubApplications.ensureMyApplicationRoom,
+				{}
+			);
+			await goto(`${routes.chat}?room=${roomId}`);
+		} catch {
+			errorMessage = t('noClubApplications.messageUsFailure');
+		} finally {
+			supportChatPending = false;
+		}
+	};
+
 	const goBack = async () => {
 		errorMessage = '';
 		if (step === 2) {
@@ -654,6 +674,18 @@
 					{errorMessage}
 				</p>
 			{/if}
+
+			<p class="text-center text-sm text-gray-500">
+				{$_('onboarding.startClub.needHelp')}
+				<button
+					type="button"
+					class="font-medium text-primary underline underline-offset-2 disabled:opacity-50"
+					disabled={supportChatPending}
+					onclick={() => void openSupportChat()}
+				>
+					{$_('onboarding.startClub.messageUs')}
+				</button>
+			</p>
 
 			<div class={actionClass}>
 				<Button

@@ -42,6 +42,54 @@ export default defineSchema({
 		.index('by_username', ['username'])
 		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
 
+	// PRD 5.10 follow-up: the only path that grants `profiles.globalRole = 'admin'` besides the
+	// CLI-only `profiles.setGlobalRole`. An existing admin records an invite for an email; the
+	// invitee claims it (adminInvites.claimAdminInvite) after signing in with a *verified* Better
+	// Auth account whose email matches. Rows are never deleted — accepted/revoked/expired states
+	// are kept as an audit trail of who was granted admin by whom.
+	adminInvites: defineTable({
+		// Normalized (trimmed, lowercased) — matches Better Auth's stored email casing.
+		email: v.string(),
+		// Absent only for bootstrap invites seeded via the CLI (adminInvites.seedInvite),
+		// before any admin exists to do the inviting.
+		invitedByProfileId: v.optional(v.id('profiles')),
+		createdAt: v.number(),
+		expiresAt: v.number(),
+		acceptedAt: v.optional(v.number()),
+		acceptedByProfileId: v.optional(v.id('profiles')),
+		revokedAt: v.optional(v.number()),
+		revokedByProfileId: v.optional(v.id('profiles'))
+	}).index('by_email', ['email']),
+
+	// Admin-issued invitation for someone who already runs a club in the real world: staff create
+	// the club record up front (as draft fields on this row) and the invitee skips the whole
+	// application pipeline. Claimed exactly like adminInvites — the invitee signs up on the member
+	// app with a *verified* Better Auth account whose email matches, and
+	// clubLeaderInvites.claimMyLeaderInvite founds the club with them as its Guide. This is a
+	// deliberate, admin-only exception to the CL-714 rule that promoteMember is the only path to
+	// Guide: that rule bans shareable guide *codes* on existing clubs; this is a single-use,
+	// email-addressed grant that creates a brand-new club (a founder is necessarily a Guide, same
+	// as an accepted applicant). Rows are never deleted — audit trail like adminInvites.
+	clubLeaderInvites: defineTable({
+		// Normalized (trimmed, lowercased) — matches Better Auth's stored email casing.
+		email: v.string(),
+		invitedByProfileId: v.id('profiles'),
+		// Club draft, filled in by the inviting admin; becomes the clubs row on claim.
+		clubName: v.string(),
+		clubDescription: v.optional(v.string()),
+		clubLocation: v.optional(v.string()),
+		clubLocationLatitude: v.optional(v.number()),
+		clubLocationLongitude: v.optional(v.number()),
+		createdAt: v.number(),
+		expiresAt: v.number(),
+		acceptedAt: v.optional(v.number()),
+		acceptedByProfileId: v.optional(v.id('profiles')),
+		// Set together with acceptedAt when the claim founds the club.
+		createdClubId: v.optional(v.id('clubs')),
+		revokedAt: v.optional(v.number()),
+		revokedByProfileId: v.optional(v.id('profiles'))
+	}).index('by_email', ['email']),
+
 	// PRD 5.6: replaces the old `profiles.pendingClubCode`/`pendingRole` mechanism (which deferred
 	// a club join until an onboarding gate — pledge agreement, or under-16 parental consent —
 	// cleared). One row per deferred join intent, keyed by profileId; `source` distinguishes a
@@ -197,12 +245,43 @@ export default defineSchema({
 				createdByProfileId: v.id('profiles')
 			})
 		),
+		// CL-770: which completion reminders this (incomplete) application has had, so each goes
+		// out at most once. `closingSoonSeasonId` is the season whose "applications close
+		// tomorrow" email it got (applicationReminders.ts).
+		reminders: v.optional(
+			v.object({
+				closingSoonSeasonId: v.optional(v.id('seasons')),
+				closingSoonSentAt: v.optional(v.number())
+			})
+		),
+		// CL-778: which seasons an application belongs to (Ron, 2026-11-06). Both are "the season
+		// taking applications" (seasons.getApplicationIntakeSeason) at a moment:
+		//   - `startedSeasonId` ("Season started"): at the moment the row was CREATED. Set on every
+		//     insert path, never changed afterwards. Analytics' "started per season" groups by it.
+		//   - `reviewSeasonId` ("Season for review"): at the moment it was SUBMITTED, so an
+		//     application submitted after a season's deadline lands in the NEXT season. Review
+		//     assignment only hands an application to Guides during its own review season's window,
+		//     and the scoring form shows only then. Admins can move it to another season
+		//     (admin.adminSetApplicationReviewSeason) without re-scoring it — e.g. an applicant who
+		//     missed her interview is considered again next season.
+		// Unset when no season with a future deadline existed at that moment (and on rows from
+		// before CL-778 until clubApplications.backfillApplicationSeasons has run). Such pending
+		// applications are not assigned until an admin picks a season.
+		startedSeasonId: v.optional(v.id('seasons')),
+		reviewSeasonId: v.optional(v.id('seasons')),
+		// CL-778: when the applicant submitted (status became `pending`). Unknown — so unset — for
+		// applications submitted before CL-778.
+		submittedAt: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
 		.index('by_applicant_profile_id', ['applicantProfileId'])
 		.index('by_status_and_created_at', ['status', 'createdAt'])
-		.index('by_created_club_id', ['createdClubId']),
+		.index('by_created_club_id', ['createdClubId'])
+		// CL-778: per-season lists (review assignment's pending scan, the admin pipeline's season
+		// filter) without scanning the whole table.
+		.index('by_review_season_id_and_status', ['reviewSeasonId', 'status'])
+		.index('by_started_season_id_and_status', ['startedSeasonId', 'status']),
 
 	applicationReviews: defineTable({
 		applicationId: v.id('clubApplications'),
@@ -215,7 +294,15 @@ export default defineSchema({
 		// practice every row has them going forward.
 		principlesScore: v.optional(v.number()),
 		safetyScore: v.optional(v.number()),
+		// CL-780: the reviewing guide (src/lib/domain/application-review-guide.ts) replaces the
+		// 0-10 principles/safety pair with three 1-5 dimensions. New reviews set these three and
+		// not the legacy pair; `score` becomes their average (still 1 decimal). Optional because
+		// reviews saved before CL-780 have only the legacy pair (prod had none on 2026-11-11).
+		alignmentScore: v.optional(v.number()),
+		motivationScore: v.optional(v.number()),
+		readinessScore: v.optional(v.number()),
 		score: v.number(),
+		// "To clarify in the interview" since CL-780 (may be empty); was a free review note.
 		note: v.string(),
 		createdAt: v.number(),
 		updatedAt: v.number()
@@ -782,7 +869,84 @@ export default defineSchema({
 				reason: v.optional(v.string())
 			})
 		)
-	}).index('by_room', ['roomId']),
+	})
+		.index('by_room', ['roomId'])
+		// Rooms a profile has written in — powers staff's message-derived chat list (chat.ts
+		// listRoomSummaries): staff access application rooms via globalRole, not membership, so
+		// their sent messages are the only record tying them to the room.
+		.index('by_profile', ['profileId']),
+
+	// Per-viewer "last read" watermark for a chat room. One row per (profile, room) pair, created
+	// lazily the first time a viewer opens the room. Everything in the room with a _creationTime
+	// after `lastReadAt` counts as unread for that viewer (chat.listRoomSummaries derives the
+	// per-room unread badge from it). Deliberately not a membership table — room visibility stays
+	// fully derived from context (clubMembers/projectMembers/applications/joinRequests), and a
+	// marker row grants nothing by itself.
+	roomReadMarkers: defineTable({
+		roomId: v.id('rooms'),
+		profileId: v.id('profiles'),
+		lastReadAt: v.number()
+	}).index('by_profile_and_room', ['profileId', 'roomId']),
+
+	// Chat email notifications (CL-764): per-(profile, room) email-delivery state, kept separate
+	// from roomReadMarkers so the read watermark stays single-purpose.
+	// - `coveredThroughAt`: _creationTime of the newest message the last SUCCESSFULLY sent
+	//   "new messages" email told this profile about. Written only once Resend accepted the
+	//   email, so a failed send never silences the room. Unread messages at/under this watermark
+	//   are "already emailed"; anything newer is a fresh batch. Opening the room moves lastReadAt
+	//   to at least this value, which is what re-arms the notification.
+	// - `lastEmailedAt`: wall-clock time of that successful send — the 12h anti-nag cap for a
+	//   recipient who still hasn't read the emailed batch. Rows from before coveredThroughAt
+	//   existed carry only this field; chatEmail.ts falls back to it as the coverage watermark.
+	// - `scheduledFor`: a pending grace-period delivery check (postRoomMessage schedules one per
+	//   recipient per unread batch); a value in the past is treated as stale, so a crashed delivery
+	//   job self-heals on the next message instead of silencing the room forever.
+	// - `sendingSince`: a delivery check has handed an email to the send action and is waiting
+	//   for its result; a second check inside CHAT_EMAIL_SEND_TIMEOUT_MS skips instead of
+	//   double-sending. Cleared by the result callback; stale values are ignored.
+	roomEmailMarkers: defineTable({
+		roomId: v.id('rooms'),
+		profileId: v.id('profiles'),
+		lastEmailedAt: v.optional(v.number()),
+		coveredThroughAt: v.optional(v.number()),
+		scheduledFor: v.optional(v.number()),
+		sendingSince: v.optional(v.number())
+	}).index('by_profile_and_room', ['profileId', 'roomId']),
+
+	// One row per notification email handed to the provider (notifications.sendNotificationEmail
+	// and chat.sendChatEmail), sent or failed. Support/debugging only — "was this person emailed
+	// about this room, when, and did it go through?" — nothing reads it on the hot path. `to` is
+	// the resolved address (the approved parent's for child accounts). For chat emails, `roomId`
+	// and `coveredThroughAt` say which batch the email covered.
+	// CL-770: application reminders also record the sends they deliberately skipped (status
+	// 'skipped' + `skipReason`, `to` empty when no address could be resolved), so "did they get
+	// it?" has an answer for e.g. a child whose parent consent is still pending.
+	emailDeliveries: defineTable({
+		recipientProfileId: v.id('profiles'),
+		to: v.string(),
+		kind: v.string(),
+		subject: v.string(),
+		status: v.union(v.literal('sent'), v.literal('failed'), v.literal('skipped')),
+		skipReason: v.optional(v.string()),
+		error: v.optional(v.string()),
+		providerMessageId: v.optional(v.string()),
+		roomId: v.optional(v.id('rooms')),
+		coveredThroughAt: v.optional(v.number()),
+		createdAt: v.number()
+	})
+		.index('by_recipient', ['recipientProfileId', 'createdAt'])
+		.index('by_room', ['roomId', 'createdAt']),
+
+	// CL-770: addresses that unsubscribed from a kind of non-essential email (one-click link or
+	// List-Unsubscribe header, see emailUnsubscribe.ts). Keyed by the lowercased ADDRESS, not a
+	// profile: a parent whose consent is still pending has no account. Critical emails (account
+	// notices, decisions, consent) never check this.
+	emailSuppressions: defineTable({
+		email: v.string(),
+		kind: v.string(),
+		source: v.union(v.literal('link'), v.literal('one_click')),
+		createdAt: v.number()
+	}).index('by_email_and_kind', ['email', 'kind']),
 
 	rateLimits: defineTable({
 		key: v.string(),
@@ -798,8 +962,16 @@ export default defineSchema({
 	// timestamps (UTC), same convention as `sessions.startTime`/`endTime` — no per-club timezone
 	// concept at this level. Foundation only here: internal CRUD + authenticated read queries, no
 	// admin UI and no overlap/validation beyond what createSeason/updateSeason enforce.
+	//
+	// CL-770 season model (Ron, 2026-11-05): people apply all year; a season's intake runs from
+	// the previous season's `applicationDeadline` to its own, so there is no separate "open" date.
+	// Review (scoring) follows, interviews happen before `startDate`. Admins enter calendar DATES
+	// only; lib/domain/season-dates.ts turns them into the official moments (closing dates 23:55
+	// GMT, start 00:00 GMT). `applicationDeadline` is optional only for the pre-CL-770 bootstrap
+	// season; the admin form requires it.
 	seasons: defineTable({
 		name: v.string(),
+		applicationDeadline: v.optional(v.number()),
 		startDate: v.number(),
 		endDate: v.number(),
 		reviewWindowOpen: v.number(),

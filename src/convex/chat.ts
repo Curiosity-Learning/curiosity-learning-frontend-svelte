@@ -1,22 +1,49 @@
 import { ConvexError, v } from 'convex/values';
+import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { mutation, query } from './_generated/server';
+import { internalAction, internalMutation, mutation, query } from './_generated/server';
+import { getAuthUserEmail } from './authEmail';
 import {
+	CHAT_EMAIL_REPEAT_AFTER_MS,
+	CHAT_EMAIL_SEND_TIMEOUT_MS,
+	getCoveredThroughAt,
+	getEmailMarker,
+	getReadMarker,
+	getUnreadFloor,
+	postRoomMessage
+} from './chatEmail';
+import { CHILD_EMAIL_DOMAIN } from './childAccounts';
+import {
+	getChatEmailCopy,
+	getChatEmailCopyForParent,
+	getChatEmailKind,
 	getRoomAccess,
 	getRoomActionState,
 	getRoomCounterpart,
+	getRoomJoinedAt,
+	getRoomContext,
 	getRoomName,
+	listRoomRecipientProfileIds,
 	summarizeProfileForChat,
 	type ChatParticipantSummary,
 	type RoomActionState,
 	type SendBlockedReason
 } from './chatModel';
-import { getRelatedProfile, requireIdentity, requireProfile } from './permissions';
+import { deliverNotificationEmail, emailDeliveryResultValidator, recordEmailDelivery } from './notifications';
+import { isKindMuted, notificationKindConfig } from './notificationsModel';
+import {
+	getProfileByAuthUserId,
+	getRelatedProfile,
+	requireIdentity,
+	requireProfile
+} from './permissions';
 import { listAttributedClubIds } from './projectsModel';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
+// Unread counting stops scanning here; the UI renders anything at/over the cap as "99+".
+const UNREAD_COUNT_CAP = 100;
 type Ctx = QueryCtx | MutationCtx;
 
 const requireRoomAccess = async (
@@ -39,6 +66,26 @@ const requireRoomAccess = async (
 	}
 
 	return room;
+};
+
+// Messages the viewer hasn't seen yet: everything after their last-read watermark except their
+// own messages (you can't have "unread" messages you wrote yourself — this also keeps a viewer's
+// very first message in a room from counting as unread before any marker row exists). System
+// messages (no profileId, e.g. decision notices) deliberately DO count. For viewers with no
+// marker yet, the caller passes their context-join time (getRoomJoinedAt) as the floor.
+const countUnreadMessages = async (
+	ctx: Ctx,
+	roomId: Id<'rooms'>,
+	profileId: Id<'profiles'>,
+	lastReadAt: number,
+	cap: number = UNREAD_COUNT_CAP
+) => {
+	const unread = await ctx.db
+		.query('messages')
+		.withIndex('by_room', (q) => q.eq('roomId', roomId).gt('_creationTime', lastReadAt))
+		.filter((q) => q.neq(q.field('profileId'), profileId))
+		.take(cap);
+	return unread.length;
 };
 
 const addRoomByClub = async (
@@ -89,79 +136,119 @@ const addRoomByJoinRequest = async (
 	if (room) rooms.set(room._id, room);
 };
 
+// Every room the given profile's chat list can surface, keyed by room id. Shared by
+// listRoomSummaries (the chat list) and getTotalUnreadCount (the nav badge) so the two can never
+// disagree about which rooms exist for a viewer. Callers still re-check getRoomAccess per room:
+// enumeration is derived from (possibly stale/left) associations, access is the source of truth.
+const collectVisibleRooms = async (ctx: QueryCtx, profile: Doc<'profiles'>) => {
+	const rooms = new Map<Id<'rooms'>, Doc<'rooms'>>();
+
+	const clubMemberships = await ctx.db
+		.query('clubMembers')
+		.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+		.collect();
+	for (const membership of clubMemberships) {
+		await addRoomByClub(ctx, rooms, membership.clubId);
+
+		const role = await ctx.db.get(membership.roleId);
+		if (role?.permissions.includes('project:read')) {
+			const attributionRows = await ctx.db
+				.query('projectAttributions')
+				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+				.collect();
+			const projectIds = new Set(attributionRows.map((row) => row.projectId));
+			for (const projectId of projectIds) {
+				await addRoomByProject(ctx, rooms, projectId);
+			}
+		}
+
+		// Only current (not-left) Guides surface join-request chats for their club: a Guide
+		// who has left shouldn't keep seeing new applicants' rooms, though history for chats
+		// they already participated in is preserved by getJoinRequestAccess's own check.
+		if (!membership.leftAt && role?.permissions.includes('club_join_request:decide')) {
+			const joinRequests = await ctx.db
+				.query('joinRequests')
+				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
+				.collect();
+			for (const joinRequest of joinRequests) {
+				await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
+			}
+		}
+	}
+
+	const projectMemberships = await ctx.db
+		.query('projectMembers')
+		.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+		.collect();
+	for (const membership of projectMemberships) {
+		await addRoomByProject(ctx, rooms, membership.projectId);
+	}
+
+	const applications = await ctx.db
+		.query('clubApplications')
+		.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', profile._id))
+		.collect();
+	for (const application of applications) {
+		await addRoomByClubApplication(ctx, rooms, application._id);
+	}
+
+	const reviews = await ctx.db
+		.query('applicationReviews')
+		.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
+		.collect();
+	for (const review of reviews) {
+		await addRoomByClubApplication(ctx, rooms, review.applicationId);
+	}
+
+	// PRD 6.11: assigned interviewers are club_application chat participants, so assignments
+	// surface the room even before a review is submitted (reviews above cover the escape-
+	// hatch case of a review without an assignment row).
+	const assignments = await ctx.db
+		.query('applicationReviewAssignments')
+		.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
+		.collect();
+	for (const assignment of assignments) {
+		await addRoomByClubApplication(ctx, rooms, assignment.applicationId);
+	}
+
+	// Own join requests: surfaced regardless of club membership, so a user with no club
+	// membership at all still sees their pending/decided join-request chats (PRD 6.8).
+	const ownJoinRequests = await ctx.db
+		.query('joinRequests')
+		.withIndex('by_requester_profile_id', (q) => q.eq('requesterProfileId', profile._id))
+		.collect();
+	for (const joinRequest of ownJoinRequests) {
+		await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
+	}
+
+	// Staff: conversations they've actually written in belong in their personal chat list too.
+	// Staff reach application rooms via profiles.globalRole (chatModel), not membership, so the
+	// walks above never find those rooms — their sent messages are the only record tying them
+	// to the conversation. Message-derived on purpose: merely *being* staff surfaces nothing
+	// (getClubApplicationAccess deliberately keeps admin-readable rooms out of this list);
+	// having spoken in a room makes it theirs like any other participant's. Admin-only guard:
+	// members' rooms are already covered by the membership walks, so they skip the scan.
+	if (profile.globalRole === 'admin') {
+		const sentMessages = await ctx.db
+			.query('messages')
+			.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
+			.collect();
+		for (const message of sentMessages) {
+			if (rooms.has(message.roomId)) continue;
+			const room = await ctx.db.get(message.roomId);
+			if (room) rooms.set(room._id, room);
+		}
+	}
+
+	return rooms;
+};
+
 export const listRoomSummaries = query({
 	args: {},
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		const rooms = new Map<Id<'rooms'>, Doc<'rooms'>>();
-
-		const clubMemberships = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
-			.collect();
-		for (const membership of clubMemberships) {
-			await addRoomByClub(ctx, rooms, membership.clubId);
-
-			const role = await ctx.db.get(membership.roleId);
-			if (role?.permissions.includes('project:read')) {
-				const attributionRows = await ctx.db
-					.query('projectAttributions')
-					.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
-					.collect();
-				const projectIds = new Set(attributionRows.map((row) => row.projectId));
-				for (const projectId of projectIds) {
-					await addRoomByProject(ctx, rooms, projectId);
-				}
-			}
-
-			// Only current (not-left) Guides surface join-request chats for their club: a Guide
-			// who has left shouldn't keep seeing new applicants' rooms, though history for chats
-			// they already participated in is preserved by getJoinRequestAccess's own check.
-			if (!membership.leftAt && role?.permissions.includes('club_join_request:decide')) {
-				const joinRequests = await ctx.db
-					.query('joinRequests')
-					.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
-					.collect();
-				for (const joinRequest of joinRequests) {
-					await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
-				}
-			}
-		}
-
-		const projectMemberships = await ctx.db
-			.query('projectMembers')
-			.withIndex('by_profile', (q) => q.eq('profileId', profile._id))
-			.collect();
-		for (const membership of projectMemberships) {
-			await addRoomByProject(ctx, rooms, membership.projectId);
-		}
-
-		const applications = await ctx.db
-			.query('clubApplications')
-			.withIndex('by_applicant_profile_id', (q) => q.eq('applicantProfileId', profile._id))
-			.collect();
-		for (const application of applications) {
-			await addRoomByClubApplication(ctx, rooms, application._id);
-		}
-
-		const reviews = await ctx.db
-			.query('applicationReviews')
-			.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
-			.collect();
-		for (const review of reviews) {
-			await addRoomByClubApplication(ctx, rooms, review.applicationId);
-		}
-
-		// Own join requests: surfaced regardless of club membership, so a user with no club
-		// membership at all still sees their pending/decided join-request chats (PRD 6.8).
-		const ownJoinRequests = await ctx.db
-			.query('joinRequests')
-			.withIndex('by_requester_profile_id', (q) => q.eq('requesterProfileId', profile._id))
-			.collect();
-		for (const joinRequest of ownJoinRequests) {
-			await addRoomByJoinRequest(ctx, rooms, joinRequest._id);
-		}
+		const rooms = await collectVisibleRooms(ctx, profile);
 
 		const summaries: Array<{
 			roomId: Id<'rooms'>;
@@ -172,12 +259,20 @@ export const listRoomSummaries = query({
 			// their own room, where the preview area keeps the plain "no messages yet" copy.
 			roomSubtitle: string | null;
 			contextType: Doc<'rooms'>['contextType'];
+			// Chat context banner: the entity this room belongs to (club/project/application/join
+			// request id) and its display name, so the chat page can link to it without a second
+			// per-room query.
+			contextId: string;
+			contextName: string;
 			lastMessagePreview: string | null;
 			lastMessageAt: number;
 			canSend: boolean;
 			sendBlockedReason: SendBlockedReason;
 			// CL-695/725 CEO review item E: powers the chat-list open/action-needed/closed badge.
 			actionState: RoomActionState;
+			// Last-read feature: messages newer than the viewer's roomReadMarkers watermark, capped
+			// at UNREAD_COUNT_CAP (rendered as "99+"). Own messages never count.
+			unreadCount: number;
 		}> = [];
 
 		for (const room of rooms.values()) {
@@ -195,20 +290,65 @@ export const listRoomSummaries = query({
 			// there is one). Club/project rooms have no counterpart, so they keep their plain name.
 			const genericName = await getRoomName(ctx, room);
 			const counterpart = await getRoomCounterpart(ctx, room, profile._id);
+			const readMarker = await getReadMarker(ctx, profile._id, room._id);
+			// No marker = the viewer never opened this room: unread counting starts when they
+			// became associated with the room's context, not at the beginning of history — a new
+			// member of an old club shouldn't meet a 99+ badge of backlog from before they joined.
+			const unreadFloor = readMarker?.lastReadAt ?? (await getRoomJoinedAt(ctx, room, profile._id));
+			const unreadCount = await countUnreadMessages(ctx, room._id, profile._id, unreadFloor);
+			const context = await getRoomContext(ctx, room);
 			summaries.push({
 				roomId: room._id,
 				roomName: counterpart?.name ?? genericName,
 				roomSubtitle: counterpart ? genericName : null,
 				contextType: room.contextType,
+				contextId: context.contextId,
+				contextName: context.contextName,
 				lastMessagePreview: latestMessage?.content ?? null,
 				lastMessageAt: latestMessage?._creationTime ?? room._creationTime,
 				canSend: access.canSend,
 				sendBlockedReason: access.sendBlockedReason,
-				actionState: await getRoomActionState(ctx, room, profile._id, access)
+				actionState: await getRoomActionState(ctx, room, profile._id, access),
+				unreadCount
 			});
 		}
 
 		return summaries.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+	}
+});
+
+// Total unread messages across every room the viewer can read, for the global "Chat" nav badge.
+// Deliberately NOT listRoomSummaries: the badge subscription lives in the app layout and re-runs
+// on every message anywhere in the viewer's rooms, so it skips everything the chat list needs
+// beyond the count (latest message, names, counterparts, action states) and stops scanning at
+// UNREAD_COUNT_CAP total (rendered "99+"). Same degradation contract as notifications.unreadCount:
+// returns 0 instead of throwing for unauthenticated callers, missing profiles, and suspended
+// accounts (see the suspension-bypass note there and in permissions.ts).
+export const getTotalUnreadCount = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return 0;
+		const profile = await getProfileByAuthUserId(ctx, identity.subject);
+		if (!profile) return 0;
+
+		const rooms = await collectVisibleRooms(ctx, profile);
+		let total = 0;
+		for (const room of rooms.values()) {
+			const access = await getRoomAccess(ctx, room, profile._id);
+			if (!access.canRead) continue;
+			const readMarker = await getReadMarker(ctx, profile._id, room._id);
+			const unreadFloor = readMarker?.lastReadAt ?? (await getRoomJoinedAt(ctx, room, profile._id));
+			total += await countUnreadMessages(
+				ctx,
+				room._id,
+				profile._id,
+				unreadFloor,
+				UNREAD_COUNT_CAP - total
+			);
+			if (total >= UNREAD_COUNT_CAP) return UNREAD_COUNT_CAP;
+		}
+		return total;
 	}
 });
 
@@ -217,9 +357,9 @@ export const listRoomSummaries = query({
 // obviously self-attributed), but resolving it here for every distinct sender keeps the frontend
 // from needing a second round-trip per message.
 const attachSenderSummaries = async (ctx: QueryCtx, records: Doc<'messages'>[]) => {
-	const profileIds = [...new Set(records.map((record) => record.profileId).filter(Boolean))] as Id<
-		'profiles'
-	>[];
+	const profileIds = [
+		...new Set(records.map((record) => record.profileId).filter(Boolean))
+	] as Id<'profiles'>[];
 	const summaries = new Map<Id<'profiles'>, ChatParticipantSummary>();
 	for (const profileId of profileIds) {
 		const profile = await getRelatedProfile(ctx, profileId);
@@ -395,13 +535,57 @@ export const getRoomParticipants = query({
 						.query('applicationReviews')
 						.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
 						.collect();
+					const reviewerProfileIds = new Set<Id<'profiles'>>();
 					for (const review of reviews) {
 						const reviewerProfile = await getRelatedProfile(ctx, review.reviewerProfileId);
 						if (!reviewerProfile) continue;
+						reviewerProfileIds.add(review.reviewerProfileId);
+						participants.push(await summarizeProfileForChat(ctx, reviewerProfile, 'Reviewer'));
+					}
+					// Assigned reviewers are chat participants per PRD 6.11, even before submitting
+					// scores (chatModel.getClubApplicationAccess grants them access) — without this
+					// they could write in the chat while being invisible in the members dialog.
+					const assignments = await ctx.db
+						.query('applicationReviewAssignments')
+						.withIndex('by_application_id', (q) => q.eq('applicationId', application._id))
+						.collect();
+					for (const assignment of assignments) {
+						if (reviewerProfileIds.has(assignment.reviewerProfileId)) continue;
+						const reviewerProfile = await getRelatedProfile(ctx, assignment.reviewerProfileId);
+						if (!reviewerProfile) continue;
+						reviewerProfileIds.add(assignment.reviewerProfileId);
 						participants.push(await summarizeProfileForChat(ctx, reviewerProfile, 'Reviewer'));
 					}
 				}
 				break;
+			}
+		}
+
+		// Anyone who has actually written in the room is a participant, even without a
+		// context-derived role — today that's staff running the application pipeline from the admin
+		// portal (chatModel grants them send access via profiles.globalRole, so no membership or
+		// review row ever lists them, and they'd otherwise be invisible senders). Derived from the
+		// messages themselves rather than a membership table, matching how every other participant
+		// list here is derived. Scoped to the 1:1-style contexts staff write in: club/project rooms
+		// derive membership fully and can hold thousands of messages, so they skip the scan.
+		if (room.contextType === 'clubApplication' || room.contextType === 'joinRequest') {
+			const listedProfileIds = new Set(participants.map((participant) => participant.profileId));
+			const roomMessages = await ctx.db
+				.query('messages')
+				.withIndex('by_room', (q) => q.eq('roomId', room._id))
+				.collect();
+			for (const message of roomMessages) {
+				if (!message.profileId || listedProfileIds.has(message.profileId)) continue;
+				listedProfileIds.add(message.profileId);
+				const senderProfile = await getRelatedProfile(ctx, message.profileId);
+				if (!senderProfile) continue;
+				participants.push(
+					await summarizeProfileForChat(
+						ctx,
+						senderProfile,
+						senderProfile.globalRole === 'admin' ? 'Staff' : 'Member'
+					)
+				);
 			}
 		}
 
@@ -419,7 +603,7 @@ export const sendMessage = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
-		await requireRoomAccess(ctx, args.roomId, profile._id, 'send');
+		const room = await requireRoomAccess(ctx, args.roomId, profile._id, 'send');
 
 		const content = args.content.trim();
 		if (!content) {
@@ -429,11 +613,225 @@ export const sendMessage = mutation({
 			throw new ConvexError(`Messages cannot exceed ${MAX_MESSAGE_LENGTH} characters`);
 		}
 
-		const messageId = await ctx.db.insert('messages', {
-			roomId: args.roomId,
+		const messageId = await postRoomMessage(ctx, {
+			room,
 			profileId: profile._id,
-			content
+			content,
+			notify: true
 		});
 		return await ctx.db.get(messageId);
+	}
+});
+
+// Last-read feature: moves the viewer's watermark for a room up to "now". Called by the chat page
+// whenever the viewer has the room open and the summaries subscription reports unread messages.
+// Requires only READ access on purpose: closed/archived chats stay readable, and reading them
+// should still clear their badge. The parent "View as Child" surfaces (parentAccounts.ts) never
+// call this — a parent reading a child's chat must not silently mark it read for the child.
+export const markRoomRead = mutation({
+	args: {
+		roomId: v.id('rooms')
+	},
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const profile = await requireProfile(ctx, identity.subject);
+		await requireRoomAccess(ctx, args.roomId, profile._id, 'read');
+
+		// Watermark = the newest message's _creationTime, not Date.now(): "read" means "seen
+		// everything currently in the room", and message _creationTime carries sub-millisecond
+		// precision that a wall-clock watermark taken in the same millisecond would sort below.
+		const latestMessage = await ctx.db
+			.query('messages')
+			.withIndex('by_room', (q) => q.eq('roomId', args.roomId))
+			.order('desc')
+			.first();
+		const lastReadAt = latestMessage?._creationTime ?? Date.now();
+		const marker = await getReadMarker(ctx, profile._id, args.roomId);
+		if (marker) {
+			// Guard against out-of-order calls (two tabs, retries) regressing the watermark.
+			if (marker.lastReadAt < lastReadAt) {
+				await ctx.db.patch(marker._id, { lastReadAt });
+			}
+			return null;
+		}
+		await ctx.db.insert('roomReadMarkers', {
+			roomId: args.roomId,
+			profileId: profile._id,
+			lastReadAt
+		});
+		return null;
+	}
+});
+
+// Chat email notifications (CL-764): the delayed delivery check, fired CHAT_EMAIL_DELAY_MS after
+// the first message of an unread batch (see chatEmail.ts for the invariant). Decides whether an
+// email is owed and, if so, hands it to sendChatEmail; coverage is only advanced by that
+// action's result callback once Resend accepted the email. Email-only by design: chat gets no
+// in-app notification rows (the nav unread badge is the in-app signal), so this bypasses
+// dispatchNotification while reusing the kind config (chatModel.getChatEmailKind: muteable
+// chat_activity for club/project rooms, critical review_chat_activity for application and
+// join-request rooms) and the same email channel — the tier is also what decides child-account
+// routing: critical chat email goes to the approved parent, high resolves to no deliverable
+// address for children.
+export const deliverChatEmailNotification = internalMutation({
+	args: {
+		roomId: v.id('rooms'),
+		profileId: v.id('profiles')
+	},
+	handler: async (ctx, args) => {
+		const now = Date.now();
+		const marker = await getEmailMarker(ctx, args.profileId, args.roomId);
+		// Clear the pending flag no matter what happens below, so future sends can schedule again.
+		if (marker?.scheduledFor) {
+			await ctx.db.patch(marker._id, { scheduledFor: undefined });
+		}
+		// A send for this recipient/room is in flight (two checks can race when a stale
+		// scheduledFor was rescheduled): let it finish rather than double-email.
+		if (marker?.sendingSince && now - marker.sendingSince < CHAT_EMAIL_SEND_TIMEOUT_MS) return null;
+
+		const room = await ctx.db.get(args.roomId);
+		if (!room) return null;
+		// Re-derive recipients: someone who left the context during the grace window keeps read
+		// access to history but is no longer part of the conversation.
+		const recipients = await listRoomRecipientProfileIds(ctx, room);
+		if (!recipients.has(args.profileId)) return null;
+
+		const unreadFloor = await getUnreadFloor(ctx, room, args.profileId);
+		// Read during the grace window: they saw it in-app, no email.
+		const newestUnread = await ctx.db
+			.query('messages')
+			.withIndex('by_room', (q) => q.eq('roomId', args.roomId).gt('_creationTime', unreadFloor))
+			.order('desc')
+			.filter((q) => q.neq(q.field('profileId'), args.profileId))
+			.first();
+		if (!newestUnread) return null;
+		// Everything unread was already in the last email: nothing new to say.
+		const coveredThroughAt = getCoveredThroughAt(marker);
+		if (coveredThroughAt !== undefined && newestUnread._creationTime <= coveredThroughAt) return null;
+		// Newer messages exist, but the recipient hasn't read the batch they were last emailed
+		// about and that email is recent: don't nag. Reading the room lifts this immediately;
+		// otherwise new activity past the window re-emails.
+		if (
+			coveredThroughAt !== undefined &&
+			marker?.lastEmailedAt &&
+			unreadFloor < coveredThroughAt &&
+			now - marker.lastEmailedAt < CHAT_EMAIL_REPEAT_AFTER_MS
+		)
+			return null;
+		const kind = getChatEmailKind(room);
+		const kindConfig = notificationKindConfig[kind];
+		if (
+			kindConfig.preferenceKey &&
+			(await isKindMuted(ctx, args.profileId, kindConfig.preferenceKey))
+		)
+			return null;
+
+		// Wording lives in chatModel.getChatEmailCopy — an exhaustive per-contextType switch, so a
+		// future room type is a compile error there rather than a silently-wrong subject. No
+		// message bodies in the email, deliberately. A child account's critical chat email is read
+		// by their approved parent, so it gets parent-facing copy and links to the parent's
+		// read-only view of the child's chats (chat?room= would resolve to nothing for them).
+		const recipientProfile = await ctx.db.get(args.profileId);
+		if (!recipientProfile) return null;
+		const recipientEmail = await getAuthUserEmail(ctx, recipientProfile.authUserId);
+		const isChildAccount = Boolean(
+			recipientEmail?.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)
+		);
+		const critical = kindConfig.tier === 'critical';
+		if (isChildAccount && !critical) return null;
+		const { title, chatLabel } = isChildAccount
+			? await getChatEmailCopyForParent(ctx, room, recipientProfile)
+			: await getChatEmailCopy(ctx, room, args.profileId);
+		const url = isChildAccount
+			? `/child/${args.profileId}?room=${args.roomId}`
+			: `/chat?room=${args.roomId}`;
+
+		if (marker) {
+			await ctx.db.patch(marker._id, { sendingSince: now });
+		} else {
+			await ctx.db.insert('roomEmailMarkers', {
+				roomId: args.roomId,
+				profileId: args.profileId,
+				sendingSince: now
+			});
+		}
+		await ctx.scheduler.runAfter(0, internal.chat.sendChatEmail, {
+			recipientProfileId: args.profileId,
+			roomId: args.roomId,
+			coveredThroughAt: newestUnread._creationTime,
+			critical,
+			kind,
+			title,
+			message: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
+			url
+		});
+		return null;
+	}
+});
+
+// Sends one chat email and reports the outcome back to recordChatEmailResult. Separate from
+// notifications.sendNotificationEmail because chat needs to know whether the send SUCCEEDED
+// before advancing coverage — a generic fire-and-forget email would turn every provider hiccup
+// into 12 hours of silence for that room.
+export const sendChatEmail = internalAction({
+	args: {
+		recipientProfileId: v.id('profiles'),
+		roomId: v.id('rooms'),
+		coveredThroughAt: v.number(),
+		critical: v.boolean(),
+		kind: v.string(),
+		title: v.string(),
+		message: v.string(),
+		url: v.string()
+	},
+	handler: async (ctx, args) => {
+		const result = await deliverNotificationEmail(ctx, args);
+		await ctx.runMutation(internal.chat.recordChatEmailResult, {
+			recipientProfileId: args.recipientProfileId,
+			roomId: args.roomId,
+			coveredThroughAt: args.coveredThroughAt,
+			kind: args.kind,
+			subject: args.title,
+			result
+		});
+	}
+});
+
+// Result callback of sendChatEmail: always releases the in-flight flag; advances coverage only
+// on success. After a failure the marker is unchanged, so the batch stays owed and the next
+// message in the room schedules a fresh attempt. Both outcomes land on emailDeliveries.
+export const recordChatEmailResult = internalMutation({
+	args: {
+		recipientProfileId: v.id('profiles'),
+		roomId: v.id('rooms'),
+		coveredThroughAt: v.number(),
+		kind: v.string(),
+		subject: v.string(),
+		result: emailDeliveryResultValidator
+	},
+	handler: async (ctx, args) => {
+		const marker = await getEmailMarker(ctx, args.recipientProfileId, args.roomId);
+		if (marker) {
+			await ctx.db.patch(
+				marker._id,
+				args.result.status === 'sent'
+					? {
+							sendingSince: undefined,
+							lastEmailedAt: Date.now(),
+							// Never move coverage backwards if two sends completed out of order.
+							coveredThroughAt: Math.max(marker.coveredThroughAt ?? 0, args.coveredThroughAt)
+						}
+					: { sendingSince: undefined }
+			);
+		}
+		await recordEmailDelivery(ctx, {
+			recipientProfileId: args.recipientProfileId,
+			kind: args.kind,
+			subject: args.subject,
+			result: args.result,
+			roomId: args.roomId,
+			coveredThroughAt: args.coveredThroughAt
+		});
+		return null;
 	}
 });

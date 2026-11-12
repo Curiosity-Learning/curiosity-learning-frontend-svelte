@@ -207,7 +207,11 @@ export const getJoinRequestForRoom = query({
 			requesterProfileId: v.id('profiles'),
 			requesterName: v.string(),
 			isRequester: v.boolean(),
-			canDecide: v.boolean()
+			canDecide: v.boolean(),
+			// Chat context banner: whether the club's public preview page (/clubs/{id}) resolves —
+			// clubs.getClubPreviewById only serves discoverable, non-abandoned clubs, so a pending
+			// requester of a code-only club gets no link rather than a "not found".
+			clubDiscoverable: v.boolean()
 		})
 	),
 	handler: async (ctx, args) => {
@@ -233,6 +237,7 @@ export const getJoinRequestForRoom = query({
 		}
 
 		const requesterProfile = await ctx.db.get(joinRequest.requesterProfileId);
+		const club = await ctx.db.get(joinRequest.clubId);
 
 		return {
 			roomId: args.roomId,
@@ -242,7 +247,8 @@ export const getJoinRequestForRoom = query({
 			requesterProfileId: joinRequest.requesterProfileId,
 			requesterName: requesterProfile ? profileDisplayName(requesterProfile) : 'Someone',
 			isRequester,
-			canDecide
+			canDecide,
+			clubDiscoverable: Boolean(club && club.discoverable && !club.abandonedAt)
 		};
 	}
 });

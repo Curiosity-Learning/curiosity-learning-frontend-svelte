@@ -57,8 +57,14 @@ type QueueMediaItem = {
 	kind: 'flagged_media';
 	mediaAssetId: Id<'mediaAssets'>;
 	ownerUserId: string;
+	ownerProfileId: Id<'profiles'> | null;
+	ownerName: string;
 	mediaKind: Doc<'mediaAssets'>['mediaKind'];
 	moderationLabels: Doc<'mediaAssets'>['moderation'];
+	originalFilename: string | null;
+	contentType: string | null;
+	sizeBytes: number | null;
+	status: Doc<'mediaAssets'>['status'];
 	createdAt: number;
 };
 
@@ -102,19 +108,30 @@ export const listQueue = query({
 			.withIndex('by_moderation_status', (q) => q.eq('moderation.status', 'flagged'))
 			.collect();
 
-		const mediaItems: QueueMediaItem[] = flaggedMedia
-			// Already-reviewed assets are dismissed but keep `moderation.status: 'flagged'` history
-			// unless explicitly re-scanned; `moderationReviewedAt` is what actually removes them
-			// from the open queue.
-			.filter((asset) => !asset.moderationReviewedAt)
-			.map((asset) => ({
-				kind: 'flagged_media' as const,
-				mediaAssetId: asset._id,
-				ownerUserId: asset.ownerUserId,
-				mediaKind: asset.mediaKind,
-				moderationLabels: asset.moderation,
-				createdAt: asset.createdAt
-			}));
+		const mediaItems: QueueMediaItem[] = await Promise.all(
+			flaggedMedia
+				// Already-reviewed assets are dismissed but keep `moderation.status: 'flagged'` history
+				// unless explicitly re-scanned; `moderationReviewedAt` is what actually removes them
+				// from the open queue.
+				.filter((asset) => !asset.moderationReviewedAt)
+				.map(async (asset) => {
+					const owner = await getProfileByAuthUserId(ctx, asset.ownerUserId);
+					return {
+						kind: 'flagged_media' as const,
+						mediaAssetId: asset._id,
+						ownerUserId: asset.ownerUserId,
+						ownerProfileId: owner?._id ?? null,
+						ownerName: profileDisplayName(owner),
+						mediaKind: asset.mediaKind,
+						moderationLabels: asset.moderation,
+						originalFilename: asset.originalFilename ?? null,
+						contentType: asset.contentType ?? asset.clientContentType ?? null,
+						sizeBytes: asset.sizeBytes ?? asset.clientSizeBytes ?? null,
+						status: asset.status,
+						createdAt: asset.createdAt
+					};
+				})
+		);
 
 		return [...reportItems, ...mediaItems].sort((a, b) => b.createdAt - a.createdAt);
 	}
@@ -362,6 +379,31 @@ export const dismissFlaggedMedia = mutation({
 		});
 		await recordAction(ctx, admin._id, 'dismiss_flagged_media', 'media_asset', asset._id, args.note);
 		return { ok: true as const };
+	}
+});
+
+// Delivery half of the flagged-media preview: the object key the admin portal's signing action
+// (moderationNode.getFlaggedMediaSignedUrl) turns into a CloudFront-signed URL. Same split as
+// clubApplications.getApplicationVideoDeliveryAsset / clubApplicationsNode. No status gate —
+// a flagged asset is exactly what an admin needs to see, ready or not, so serve the processed
+// rendition when it exists and fall back to the original upload.
+export const getFlaggedMediaDeliveryAsset = query({
+	args: { mediaAssetId: v.id('mediaAssets') },
+	handler: async (ctx, args) => {
+		await requireGlobalAdmin(ctx);
+		const asset = await ctx.db.get(args.mediaAssetId);
+		if (!asset) {
+			return null;
+		}
+		return {
+			assetId: asset._id,
+			storageProvider: asset.storageProvider,
+			deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
+			deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
+			mediaKind: asset.mediaKind ?? null,
+			contentType: asset.contentType ?? asset.clientContentType ?? null,
+			durationSeconds: asset.durationSeconds ?? null
+		};
 	}
 });
 
