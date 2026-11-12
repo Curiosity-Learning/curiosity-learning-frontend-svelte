@@ -451,7 +451,7 @@ describe('approveConsent', () => {
 						.collect();
 					return { parentProfileId: parentProfile?._id, links };
 				});
-			return { t, approve, rowsFor, signInWithPassword, getParentUser, getParentLinks };
+			return { t, now, approve, rowsFor, signInWithPassword, getParentUser, getParentLinks };
 		};
 
 		it('an unverified one loses its password and sessions before it becomes the parent account', async () => {
@@ -467,9 +467,9 @@ describe('approveConsent', () => {
 			expect(await rowsFor('session')).toHaveLength(0);
 			const user = await getParentUser();
 			expect(user?.emailVerified).toBe(true);
-			// The registrant's self-chosen identity does not carry over either.
+			// The registrant's self-chosen name does not carry over either. The username stays (see
+			// the second-adoption test below); with no password account it cannot sign in.
 			expect(user?.name).toBe('parent');
-			expect(user?.username ?? null).toBeNull();
 			// Still the same user, and still linked to the child.
 			const { parentProfileId, links } = await getParentLinks();
 			expect(parentProfileId).toBeDefined();
@@ -478,6 +478,82 @@ describe('approveConsent', () => {
 			const signIn = await signInWithPassword();
 			expect(signIn.status).toBe(401);
 			expect(signIn.headers.get('set-cookie') ?? '').not.toContain('better-auth.session_token=');
+		});
+
+		// Found in QA on CL-784: the first version cleared `username` to null, and the auth adapter's
+		// uniqueness check treats null as a value, so the second adoption on a deployment threw
+		// "user username already exists" and that child stayed pending.
+		it('a second unverified account on the same deployment is adopted too', async () => {
+			const { t, now, approve } = await setup({ parentVerified: false });
+			await approve();
+
+			const laterAt = now + 1;
+			const secondParent = (await t.mutation(components.betterAuth.adapter.create, {
+				input: {
+					model: 'user',
+					data: {
+						email: 'second-parent@example.com',
+						emailVerified: false,
+						name: 'Also Chosen By A Registrant',
+						username: 'sneaky_two',
+						displayUsername: 'sneaky_two',
+						createdAt: laterAt,
+						updatedAt: laterAt
+					}
+				}
+			})) as { _id: string };
+			await t.mutation(components.betterAuth.adapter.create, {
+				input: {
+					model: 'account',
+					data: {
+						accountId: secondParent._id,
+						providerId: 'credential',
+						userId: secondParent._id,
+						password: await hashPassword(PASSWORD),
+						createdAt: laterAt,
+						updatedAt: laterAt
+					}
+				}
+			});
+			const secondChildAuthUser = (await t.mutation(components.betterAuth.adapter.create, {
+				input: {
+					model: 'user',
+					data: {
+						email: 'kid-two@children.curiosity.local',
+						emailVerified: false,
+						name: 'Kid Two',
+						createdAt: laterAt,
+						updatedAt: laterAt
+					}
+				}
+			})) as { _id: string };
+			const secondChildProfileId = await t.run(async (ctx) => {
+				const seeded = await seedPendingChild(ctx, { createdAt: laterAt });
+				await ctx.db.patch(seeded.profileId, { authUserId: secondChildAuthUser._id });
+				await ctx.db.patch(seeded.consentId, { parentEmail: 'second-parent@example.com' });
+				return seeded.profileId;
+			});
+
+			await t.mutation(api.childSignup.approveConsent, {
+				token: `token-${laterAt}`,
+				acceptedTerms: true,
+				acceptedPrivacyPolicy: true
+			});
+
+			const accounts = (await t.query(components.betterAuth.adapter.findMany, {
+				model: 'account',
+				where: [{ field: 'userId', value: secondParent._id }],
+				paginationOpts: { cursor: null, numItems: 10 }
+			})) as { page: unknown[] };
+			expect(accounts.page).toHaveLength(0);
+			const second = (await t.query(components.betterAuth.adapter.findOne, {
+				model: 'user',
+				where: [{ field: '_id', value: secondParent._id }]
+			})) as { emailVerified: boolean; name: string } | null;
+			expect(second?.emailVerified).toBe(true);
+			expect(second?.name).toBe('second-parent');
+			const child = await t.run((ctx) => ctx.db.get(secondChildProfileId));
+			expect(child?.isVerified).toBe(true);
 		});
 
 		it('a verified one is adopted unchanged: password, sessions and name stay', async () => {

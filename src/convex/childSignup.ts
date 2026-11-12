@@ -405,9 +405,14 @@ export const approveConsent = mutation({
 			// not inherit anything that registrant set up: marking the row verified while its
 			// password (credential account) or sessions survive would hand them a working login to
 			// the parent account, which is linked to the child below. Strip every sign-in method and
-			// session first, and reset the self-chosen name/username, then verify. The user row
+			// session first, and reset the self-chosen name and image, then verify. The user row
 			// itself is kept (not deleted and recreated) because a profiles row may already point at
 			// its id; that profile is adopted below like any other.
+			//
+			// The registrant's username is left alone on purpose (CL-784 QA): the auth adapter's
+			// uniqueness check treats null as a value, so clearing it to null made every later
+			// adoption on the same deployment throw "user username already exists". Without a
+			// password account that username cannot sign in.
 			await deleteAuthRowsForUser(ctx, existingParentAuthUser._id);
 			await ctx.runMutation(components.betterAuth.adapter.updateOne, {
 				input: {
@@ -417,8 +422,6 @@ export const approveConsent = mutation({
 						emailVerified: true,
 						name: displayNameFromEmail(consent.parentEmail),
 						image: null,
-						username: null,
-						displayUsername: null,
 						updatedAt: now
 					}
 				}
