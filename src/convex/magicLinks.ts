@@ -8,8 +8,7 @@ import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import {
 	MAGIC_LINK_INTERSTITIAL_PATH,
 	buildMagicLinkInterstitialFragment,
-	isMagicLinkCallbackPath,
-	maskEmail
+	isMagicLinkCallbackPath
 } from '../lib/auth/magic-link';
 
 // Server-side minting of Better Auth magic sign-in links, for emails WE send (parent chat and
@@ -89,7 +88,7 @@ export const buildMagicLinkInterstitialUrl = (
 	`${appOrigin}${MAGIC_LINK_INTERSTITIAL_PATH}#${buildMagicLinkInterstitialFragment({
 		token: link.token,
 		next: link.next,
-		as: maskEmail(link.email)
+		as: link.email.trim()
 	})}`;
 
 // Who may sign in by email link at all (CL-768, review B1/S11). Shared by mintMagicLink and the

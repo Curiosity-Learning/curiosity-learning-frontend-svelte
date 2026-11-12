@@ -33,7 +33,7 @@ export type MagicLinkInterstitial = {
 	token: string;
 	// App path to continue to once signed in.
 	next: string;
-	// Masked address the link signs in, shown as "Sign in as p…@x.com?".
+	// The address the link signs in, shown on the page so the owner can recognise the account.
 	as: string;
 };
 
@@ -45,11 +45,16 @@ export const maskEmail = (email: string) => {
 	return `${local[0]}…@${domain}`;
 };
 
-// The exact shape maskEmail produces for a real address: one character, "…@", a domain without
-// spaces. The fragment is attacker-controllable (anyone can build /auth/link#t=…&as=…), so any
-// other `as` is dropped instead of shown on our origin (review nice-to-have 4).
+// The fragment is attacker-controllable (anyone can build /auth/link#t=…&as=…), so `as` is only
+// shown when it is shaped like an email address, never as free text on our origin (review
+// nice-to-have 4). The address is shown in full (Ron, 2026-11-12): the masked "p…@x.com" made the
+// page useless for telling which account a link signs in to, and the link only ever goes to that
+// same inbox. Like before, the page text is a hint, not proof: the token decides the account.
+// Masked addresses from links sent before this change are still accepted.
+const SIGN_IN_ADDRESS_PATTERN = /^[^\s@<>"'…]{1,64}@[^\s@<>"']+\.[^\s@<>"']{2,}$/;
 const MASKED_EMAIL_PATTERN = /^[^\s@…]…@[^\s@]{1,253}$/;
-export const isMaskedEmail = (value: string) => MASKED_EMAIL_PATTERN.test(value);
+export const isDisplayableSignInAddress = (value: string) =>
+	value.length <= 254 && (SIGN_IN_ADDRESS_PATTERN.test(value) || MASKED_EMAIL_PATTERN.test(value));
 
 export const buildMagicLinkInterstitialFragment = (link: MagicLinkInterstitial) =>
 	new URLSearchParams({ t: link.token, next: link.next, as: link.as }).toString();
@@ -64,7 +69,7 @@ export const parseMagicLinkInterstitialFragment = (hash: string): MagicLinkInter
 	return {
 		token,
 		next: isMagicLinkCallbackPath(next) ? next : '/',
-		as: isMaskedEmail(params.get('as') ?? '') ? params.get('as')! : ''
+		as: isDisplayableSignInAddress(params.get('as') ?? '') ? params.get('as')! : ''
 	};
 };
 

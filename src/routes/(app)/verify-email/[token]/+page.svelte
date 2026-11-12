@@ -80,8 +80,8 @@
 		<LoadingState class="min-h-48" label={t('verifyEmail.title')} />
 	{:else if verification.status === 'valid'}
 		<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
-			<p class="type-body-bold text-foreground">
-				{t('verifyEmail.validQuestion').replace('{email}', verification.emailMasked ?? '')}
+			<p class="type-body-bold wrap-anywhere text-foreground">
+				{t('verifyEmail.validQuestion').replace('{email}', verification.email ?? '')}
 			</p>
 			<p class="type-sm text-muted-foreground">
 				{t(

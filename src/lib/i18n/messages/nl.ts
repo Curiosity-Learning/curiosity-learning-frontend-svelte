@@ -326,7 +326,8 @@ const nl = {
 			}
 		},
 		signInLink: {
-			title: 'Inloggen als {email}?',
+			heading: 'Inloggen met deze link?',
+			signingInAs: 'Je logt in als',
 			titleNoEmail: 'Inloggen en doorgaan?',
 			description:
 				'Met deze link log je in bij Curiosity Learning en open je de pagina waarvoor hij is verstuurd. De link werkt één keer.',

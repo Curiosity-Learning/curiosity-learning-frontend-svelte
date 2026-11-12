@@ -555,7 +555,7 @@ describe('confirmChildEmail / getChildEmailVerification', () => {
 		).toEqual({
 			status: 'valid',
 			username: 'kiddo',
-			emailMasked: 'k…@example.com',
+			email: 'kiddo@example.com',
 			addedBySelf: false
 		});
 

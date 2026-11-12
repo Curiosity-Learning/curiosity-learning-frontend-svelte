@@ -2,9 +2,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { Field, FieldError, FieldLabel } from '$lib/components/ui/field';
+	import { Field, FieldError, FieldLabel, FieldTitle } from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import { LoadingState } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
@@ -242,18 +241,23 @@
 						childEmailServerError = '';
 					}}
 				>
-					<div class="flex items-center gap-3">
-						<RadioGroup.Item value="parent" id="routing-parent" />
-						<Label for="routing-parent" class="font-normal text-gray-700">
-							{formatT('onboarding.parentConsent.routingParent', { parentEmail })}
-						</Label>
-					</div>
-					<div class="flex items-center gap-3">
-						<RadioGroup.Item value="child" id="routing-child" />
-						<Label for="routing-child" class="font-normal text-gray-700">
-							{formatT('onboarding.parentConsent.routingChild', { child: childName })}
-						</Label>
-					</div>
+					<!-- Option cards: an easy-to-miss question for a parent skimming the page. -->
+					<FieldLabel for="routing-parent">
+						<Field orientation="horizontal">
+							<RadioGroup.Item value="parent" id="routing-parent" />
+							<FieldTitle class="min-w-0 text-base wrap-anywhere text-gray-900">
+								{formatT('onboarding.parentConsent.routingParent', { parentEmail })}
+							</FieldTitle>
+						</Field>
+					</FieldLabel>
+					<FieldLabel for="routing-child">
+						<Field orientation="horizontal">
+							<RadioGroup.Item value="child" id="routing-child" />
+							<FieldTitle class="text-base text-gray-900">
+								{formatT('onboarding.parentConsent.routingChild', { child: childName })}
+							</FieldTitle>
+						</Field>
+					</FieldLabel>
 				</RadioGroup.Root>
 				{#if routing === 'child'}
 					<Field class="flex flex-col gap-2 pl-7">

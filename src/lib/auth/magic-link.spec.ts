@@ -101,13 +101,18 @@ describe('interstitial fragment', () => {
 		expect(parseMagicLinkInterstitialFragment('#t=abc')?.next).toBe('/');
 	});
 
-	it('drops an `as` that is not a masked address (no free text on our origin)', () => {
+	it('shows `as` only when it is an email address (no free text on our origin)', () => {
 		const as = (value: string) =>
 			parseMagicLinkInterstitialFragment(`#t=abc&as=${encodeURIComponent(value)}`)?.as;
+		expect(as('ron+parent3989@curiositylearning.org')).toBe('ron+parent3989@curiositylearning.org');
+		// Masked addresses from links sent before the full address was shown still display.
 		expect(as(maskEmail('parent@example.com'))).toBe('p…@example.com');
 		expect(as('Your bank account is locked. Call 555-0100')).toBe('');
-		expect(as('parent@example.com')).toBe('');
+		expect(as('Call us now@example.com')).toBe('');
 		expect(as('p…@exa mple.com')).toBe('');
+		expect(as('<b>x</b>@example.com')).toBe('');
+		expect(as('parent@localhost')).toBe('');
+		expect(as(`${'a'.repeat(250)}@example.com`)).toBe('');
 		expect(as('')).toBe('');
 	});
 

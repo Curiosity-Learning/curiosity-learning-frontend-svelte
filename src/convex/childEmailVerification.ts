@@ -382,7 +382,9 @@ export const getChildEmailVerification = query({
 			v.literal('wrongAccount')
 		),
 		username: v.optional(v.string()),
-		emailMasked: v.optional(v.string()),
+		// In full: this is only ever returned to the signed-in child the link is for, and a masked
+		// "k…@x.com" did not let them tell whether it was really their address (Ron, 2026-11-12).
+		email: v.optional(v.string()),
 		// The child added the address themselves (16+, Settings) rather than their parent: only
 		// changes the wording. Only ever returned to the child the link is for.
 		addedBySelf: v.optional(v.boolean())
@@ -397,7 +399,7 @@ export const getChildEmailVerification = query({
 		return {
 			status,
 			username: child.username ?? undefined,
-			emailMasked: maskEmail(row.email),
+			email: row.email,
 			addedBySelf
 		};
 	}

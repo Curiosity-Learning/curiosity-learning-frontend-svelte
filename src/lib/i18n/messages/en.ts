@@ -334,7 +334,8 @@ const en = {
 			}
 		},
 		signInLink: {
-			title: 'Sign in as {email}?',
+			heading: 'Sign in with this link?',
+			signingInAs: 'Signing in as',
 			titleNoEmail: 'Sign in and continue?',
 			description:
 				'This link signs you in to Curiosity Learning and opens the page it was sent for. It works once.',

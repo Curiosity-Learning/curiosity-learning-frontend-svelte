@@ -123,7 +123,7 @@ const mint = (
 describe('mintMagicLink', () => {
 	// Review S1: never the verify endpoint itself (mail scanners would consume the token), and
 	// the token only in the fragment (never sent to a server).
-	it('hands out the /auth/link interstitial with token, next and masked address in the fragment', async () => {
+	it('hands out the /auth/link interstitial with token, next and the address in the fragment', async () => {
 		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const t = await setup();
 
@@ -135,7 +135,7 @@ describe('mintMagicLink', () => {
 		const parsed = parseMagicLinkInterstitialFragment(url.hash);
 		expect(parsed?.token).toMatch(/^[a-zA-Z]{32}$/);
 		expect(parsed?.next).toBe('/child/abc?room=xyz');
-		expect(parsed?.as).toBe('p…@example.com');
+		expect(parsed?.as).toBe('parent@example.com');
 		// What the interstitial's button opens: the verify endpoint with callbacks whose extra
 		// decodeURIComponent() yields exactly the intended paths.
 		const verify = new URL(interstitialToVerifyPath(link!), 'https://app.example.com');

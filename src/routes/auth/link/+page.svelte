@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
-	import { _, formatT } from '$lib/i18n';
+	import { _ } from '$lib/i18n';
 	import {
 		buildMagicLinkVerifyPath,
 		parseMagicLinkInterstitialFragment,
@@ -48,13 +48,18 @@
 	{#if link}
 		<div class="flex flex-col gap-4">
 			<div class="flex flex-col gap-2">
-				<h1 class="type-step-title text-gray-900">
-					{link.as
-						? formatT('auth.signInLink.title', { email: link.as })
-						: $_('auth.signInLink.titleNoEmail')}
+				<h1 class="type-h4-bold text-gray-900">
+					{link.as ? $_('auth.signInLink.heading') : $_('auth.signInLink.titleNoEmail')}
 				</h1>
 				<p class="text-sm leading-6 text-gray-600">{$_('auth.signInLink.description')}</p>
 			</div>
+			{#if link.as}
+				<!-- The account matters most on this page, so it gets its own line, in full. -->
+				<div class="flex flex-col gap-1 rounded-lg border border-border bg-white px-4 py-3">
+					<span class="text-sm text-gray-600">{$_('auth.signInLink.signingInAs')}</span>
+					<span class="text-base font-semibold wrap-anywhere text-gray-900">{link.as}</span>
+				</div>
+			{/if}
 			<Button class="h-12 w-full" size="xl" disabled={pending} onclick={continueSignIn}>
 				{pending ? $_('auth.signInLink.submitting') : $_('auth.signInLink.submit')}
 			</Button>
