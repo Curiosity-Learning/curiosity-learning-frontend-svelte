@@ -4,6 +4,7 @@
 	import HeartHandshakeIcon from '@lucide/svelte/icons/heart-handshake';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import { onMount } from 'svelte';
+	import type { Attachment } from 'svelte/attachments';
 	import { Button } from '$lib/components/ui/button';
 	import { clearOnboardingFlowState } from '$lib/auth/onboarding-state';
 	import { _ } from '$lib/i18n';
@@ -39,20 +40,34 @@
 
 	onMount(() => {
 		clearOnboardingFlowState();
+	});
 
+	// Desktop only: stop rubber-banding, and stop scrolling altogether while the whole page fits
+	// the viewport. When it does not fit (short laptop screens), the page scrolls so no button or
+	// card is ever out of reach.
+	const desktopScrollLock: Attachment<HTMLElement> = (page) => {
+		const root = document.documentElement;
 		const desktopQuery = window.matchMedia('(min-width: 1024px)');
-		const syncDesktopLock = () => {
-			document.documentElement.classList.toggle('get-started-lock', desktopQuery.matches);
+		const sync = () => {
+			const desktop = desktopQuery.matches;
+			root.classList.toggle('get-started-desktop', desktop);
+			root.classList.toggle(
+				'get-started-lock',
+				desktop && page.getBoundingClientRect().height <= root.clientHeight + 1
+			);
 		};
 
-		syncDesktopLock();
-		desktopQuery.addEventListener('change', syncDesktopLock);
+		const pageObserver = new ResizeObserver(sync);
+		pageObserver.observe(page);
+		window.addEventListener('resize', sync);
+		sync();
 
 		return () => {
-			desktopQuery.removeEventListener('change', syncDesktopLock);
-			document.documentElement.classList.remove('get-started-lock');
+			pageObserver.disconnect();
+			window.removeEventListener('resize', sync);
+			root.classList.remove('get-started-desktop', 'get-started-lock');
 		};
-	});
+	};
 </script>
 
 <svelte:head>
@@ -81,17 +96,17 @@
 	</filter>
 </svg>
 
-<div class="get-started">
-	<div class="get-started__decor" aria-hidden="true">
-		<div class="get-started__blob get-started__blob--pink"></div>
-		<div class="chalk-filter get-started__blob get-started__blob--sun">
-			<div class="doodle-sun"></div>
-		</div>
-		<div class="chalk-filter get-started__blob get-started__blob--green"></div>
-		<div class="chalk-filter get-started__blob get-started__blob--stroke"></div>
-	</div>
-
+<div class="get-started" {@attach desktopScrollLock}>
 	<div class="get-started__frame">
+		<div class="get-started__decor" aria-hidden="true">
+			<div class="get-started__blob get-started__blob--pink"></div>
+			<div class="chalk-filter get-started__blob get-started__blob--sun">
+				<div class="doodle-sun"></div>
+			</div>
+			<div class="chalk-filter get-started__blob get-started__blob--green"></div>
+			<div class="chalk-filter get-started__blob get-started__blob--stroke"></div>
+		</div>
+
 		<header class="get-started__header">
 			<a href={routes.onboardingGetStarted} aria-label={$_('common.appName')} class="shrink-0">
 				<img
@@ -165,17 +180,15 @@
 </div>
 
 <style>
-	/* Desktop-only: stop document rubber-banding while this page is mounted. */
-	:global(html.get-started-lock),
-	:global(html.get-started-lock body) {
-		height: 100%;
-		overflow: hidden;
+	/* Desktop only, toggled from onMount: no rubber-banding past the texture, and no scrolling
+	   at all while the whole page fits the viewport. */
+	:global(html.get-started-desktop),
+	:global(html.get-started-desktop body) {
 		overscroll-behavior: none;
 	}
 
-	:global(html.get-started-lock #main-content),
-	:global(html.get-started-lock #main-content > .app-texture-background) {
-		height: 100%;
+	:global(html.get-started-lock),
+	:global(html.get-started-lock body) {
 		overflow: hidden;
 	}
 
@@ -195,6 +208,8 @@
 		position: relative;
 		isolation: isolate;
 		box-sizing: border-box;
+		display: flex;
+		flex-direction: column;
 		min-height: 100dvh;
 		overflow-x: clip;
 		padding: 1rem;
@@ -208,17 +223,16 @@
 
 	@media (min-width: 1024px) {
 		.get-started {
-			height: 100dvh;
-			max-height: 100dvh;
-			overflow: clip;
-			overscroll-behavior: none;
 			padding: 1.25rem 3rem;
 		}
 	}
 
+	/* Spans the content column plus 1rem of the page padding on each side (the padding is never
+	   less than 1rem), so the doodles sit where they do in the content but are clipped before
+	   they can cause horizontal scrolling. Offsets below are the content offsets + 1rem. */
 	.get-started__decor {
 		position: absolute;
-		inset: 0;
+		inset: 0 -1rem;
 		overflow: clip;
 		pointer-events: none;
 	}
@@ -241,7 +255,7 @@
 		right: 1.75rem;
 		width: 7rem;
 		height: 7rem;
-		color: rgb(250 204 21 / 0.9);
+		color: color-mix(in oklab, var(--color-yellow-400) 90%, transparent);
 	}
 
 	.get-started__blob--green {
@@ -252,40 +266,32 @@
 		width: 10rem;
 		height: 10rem;
 		border-radius: 46%;
-		background: rgb(22 163 74 / 0.75);
+		background: color-mix(in oklab, var(--color-green-600) 75%, transparent);
 	}
 
 	.get-started__blob--stroke {
 		position: absolute;
 		bottom: 14rem;
-		left: 38%;
+		left: calc(1rem + (100% - 2rem) * 0.38);
 		display: none;
 		width: 5rem;
 		height: 1rem;
 		rotate: -18deg;
 		border-radius: 9999px;
-		border: 4px solid rgb(22 163 74 / 0.8);
+		border: 4px solid color-mix(in oklab, var(--color-green-600) 80%, transparent);
 		border-right: 0;
 		border-left: 0;
 	}
 
 	@media (min-width: 640px) {
 		.get-started__blob--sun {
-			right: 3rem;
+			right: 3.25rem;
 			width: 9rem;
 			height: 9rem;
 		}
 	}
 
 	@media (min-width: 1024px) {
-		.get-started__blob--pink {
-			left: 3rem;
-		}
-
-		.get-started__blob--sun {
-			right: 4rem;
-		}
-
 		.get-started__blob--green,
 		.get-started__blob--stroke {
 			display: block;
@@ -296,19 +302,20 @@
 		position: relative;
 		z-index: 10;
 		display: grid;
+		flex: 1 0 auto;
+		grid-template-rows: auto 1fr auto;
 		width: 100%;
 		max-width: 80rem;
-		min-height: inherit;
 		margin-inline: auto;
 		gap: 0;
 	}
 
-	@media (min-width: 1024px) {
-		.get-started__frame {
-			height: 100%;
-			min-height: 0;
-			grid-template-rows: auto minmax(0, 1fr) auto;
-		}
+	/* Rows grow with their content, so nothing can be clipped: when the viewport is too short
+	   the page scrolls instead (the lock in onMount then stays off). */
+	.get-started__header,
+	.get-started__hero,
+	.get-started__footer {
+		position: relative;
 	}
 
 	.get-started__header {
@@ -318,6 +325,7 @@
 
 	.get-started__hero {
 		display: grid;
+		align-content: center;
 		gap: 2rem;
 		padding-block: 4rem 2.5rem;
 	}
@@ -330,13 +338,10 @@
 
 	@media (min-width: 1024px) {
 		.get-started__hero {
-			height: 100%;
-			min-height: 0;
 			grid-template-columns: 1fr 1fr;
 			align-items: center;
 			gap: 2.5rem;
-			overflow: clip;
-			padding-block: 0.75rem;
+			padding-block: 0.5rem;
 		}
 	}
 
@@ -370,8 +375,6 @@
 	@media (min-width: 1024px) {
 		.get-started__art {
 			display: flex;
-			height: 100%;
-			max-height: 100%;
 		}
 	}
 
@@ -386,7 +389,7 @@
 		width: 2.5rem;
 		height: 2.5rem;
 		border-radius: 9999px;
-		background: rgb(250 204 21 / 0.85);
+		background: color-mix(in oklab, var(--color-yellow-400) 85%, transparent);
 	}
 
 	.get-started__art-dot--purple {
@@ -395,7 +398,7 @@
 		width: 2.25rem;
 		height: 2.25rem;
 		border-radius: 9999px;
-		background: rgb(168 85 247 / 0.75);
+		background: color-mix(in oklab, var(--color-purple-500) 75%, transparent);
 	}
 
 	.get-started__art-stroke {
@@ -406,7 +409,7 @@
 		height: 1.25rem;
 		rotate: -18deg;
 		border-radius: 9999px;
-		border: 4px solid rgb(21 128 61 / 0.8);
+		border: 4px solid color-mix(in oklab, var(--color-green-700) 80%, transparent);
 		border-right: 0;
 		border-left: 0;
 	}
