@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { afterNavigate, replaceState } from '$app/navigation';
+	import { afterNavigate } from '$app/navigation';
+	import { replaceUrlAfterRouterStart } from '$lib/navigation/replace-url';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { SIGNED_IN_VIA_LINK_PARAM, SIGNED_IN_VIA_LINK_VALUE } from '$lib/auth/magic-link';
@@ -24,8 +25,8 @@
 			// Storage unavailable: only a `via=link` arrival (below) shows the notice.
 		}
 	});
-	// afterNavigate, not onMount: this sits in the app layout, which mounts before the router is
-	// initialised on a fresh load, and replaceState throws until it is.
+	// afterNavigate sees every arrival, including the first page load; on that one the router is
+	// not started yet, so the address bar is rewritten a task later (replaceUrlAfterRouterStart).
 	afterNavigate(({ to }) => {
 		const url = to?.url;
 		if (url?.searchParams.get(SIGNED_IN_VIA_LINK_PARAM) !== SIGNED_IN_VIA_LINK_VALUE) return;
@@ -37,7 +38,11 @@
 		}
 		const cleaned = new URL(url);
 		cleaned.searchParams.delete(SIGNED_IN_VIA_LINK_PARAM);
-		replaceState(`${cleaned.pathname}${cleaned.search}${cleaned.hash}`, {});
+		const pathname = cleaned.pathname;
+		replaceUrlAfterRouterStart(
+			`${cleaned.pathname}${cleaned.search}${cleaned.hash}`,
+			() => window.location.pathname === pathname
+		);
 	});
 
 	const dismiss = () => {
