@@ -1,5 +1,6 @@
 import { betterAuth } from 'better-auth';
 import { emailOTP, magicLink, username } from 'better-auth/plugins';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { createClient } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
 import type { GenericCtx } from '@convex-dev/better-auth';
@@ -19,6 +20,7 @@ import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from '.
 import { setPendingClubJoin } from './pendingClubJoinsModel';
 import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
 import { autoCreateJoinRequestFromNextPath } from './joinRequests';
+import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 
 export const authComponent = createClient(components.betterAuth);
 
@@ -178,6 +180,64 @@ const hasPasswordAccount = async (
 	return accounts.page.some((account) => account.providerId === 'credential');
 };
 
+// CL-775: a username never becomes an email address in the browser. "Forgot password?" and
+// "Resend verification" accept a username: the browser sends it as `email` and this hook swaps in
+// the account's address on the server. Both endpoints already answer the same whether or not an
+// address has an account, so an unknown username gets that same answer here (and nothing is
+// sent). Usernames match the username plugin's rules below (lowercase a-z, 0-9, _).
+const USERNAME_AS_EMAIL_PATHS: Record<string, Record<string, unknown>> = {
+	'/request-password-reset': {
+		status: true,
+		message: 'If this email exists in our system, check your email for the reset link'
+	},
+	'/send-verification-email': { status: true }
+};
+
+// CL-775: the sign-in page's "a parent needs to approve this account" message. A child account
+// is unverified until its parent consents (childSignup.approveConsent verifies it), and the
+// username plugin answers FORBIDDEN (email not verified) only after the password matched. So
+// this code reaches only someone who knows the child's password; the old public lookup told
+// anyone whether a username existed and whether its consent was pending.
+export const PARENT_CONSENT_PENDING_CODE = 'PARENT_CONSENT_PENDING';
+
+const normalizeUsernameIdentifier = (value: unknown) =>
+	typeof value === 'string' ? value.trim().toLowerCase() : '';
+
+const authHooks = {
+	before: createAuthMiddleware(async (ctx) => {
+		const unknownUsernameAnswer = USERNAME_AS_EMAIL_PATHS[ctx.path];
+		if (!unknownUsernameAnswer) return;
+		const body = (ctx.body ?? {}) as Record<string, unknown>;
+		const identifier = normalizeUsernameIdentifier(body.email);
+		if (!identifier || identifier.includes('@')) return;
+		const user = /^[a-z0-9_]+$/.test(identifier)
+			? await ctx.context.adapter.findOne<{ email: string }>({
+					model: 'user',
+					where: [{ field: 'username', value: identifier }]
+				})
+			: null;
+		if (!user) return ctx.json(unknownUsernameAnswer);
+		return { context: { body: { ...body, email: user.email } } };
+	}),
+	after: createAuthMiddleware(async (ctx) => {
+		if (ctx.path !== '/sign-in/username') return;
+		// An APIError; compared by its status so a second copy of better-call cannot break it.
+		const returned = ctx.context.returned as { status?: unknown } | undefined;
+		if (returned?.status !== 'FORBIDDEN') return;
+		const identifier = normalizeUsernameIdentifier((ctx.body as { username?: unknown })?.username);
+		if (!identifier) return;
+		const user = await ctx.context.adapter.findOne<{ email: string; emailVerified?: boolean }>({
+			model: 'user',
+			where: [{ field: 'username', value: identifier }]
+		});
+		if (!user || user.emailVerified === true || !isSyntheticChildEmail(user.email)) return;
+		throw new APIError('FORBIDDEN', {
+			message: 'A parent or guardian needs to approve this account first',
+			code: PARENT_CONSENT_PENDING_CODE
+		});
+	})
+};
+
 export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 	betterAuth({
 		baseURL: process.env.BETTER_AUTH_URL,
@@ -185,6 +245,7 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 		session: {
 			expiresIn: REMEMBERED_SESSION_SECONDS
 		},
+		hooks: authHooks,
 		databaseHooks: {
 			session: {
 				create: {
@@ -378,135 +439,82 @@ export const getMySignInMethods = query({
 	}
 });
 
-export const getSignupAccountStatusByEmail = query({
+// CL-775: the sign-up page's "this email already has an account" lookup. Anyone can call it,
+// so it says no more than sign-up needs, and is rate-limited.
+// - Sign-up has to say "this address already has an account" (Better Auth's own sign-up endpoint
+//   says so too), whether to send a verification code, where to continue after signing in, and
+//   whether to send the visitor to Google.
+// - It does not say whether an account has a password: password-only and password-less (sign-in
+//   link only, i.e. every parent created at consent approval) look the same. The sign-in page
+//   offers "Email me a sign-in link" for any address instead of only for password-less ones.
+// - A child's synthetic address is never reported as an account, and nothing here returns an
+//   email address, username or id.
+// - A mutation, not a query, so it can count calls: there is no client IP in a Convex function,
+//   so the cap is global. Over the cap the answer is "no account" and sign-up carries on; Better
+//   Auth's sign-up endpoint then catches the existing account (the page sends a verification
+//   code or says to sign in instead).
+export const SIGNUP_EMAIL_LOOKUP_RATE_LIMIT = { maxAttempts: 60, windowMs: 10 * 60 * 1000 };
+const SIGNUP_EMAIL_LOOKUP_RATE_LIMIT_KEY = 'signupEmailLookup';
+
+const signupEmailStatusValidator = v.object({
+	exists: v.boolean(),
+	isVerified: v.boolean(),
+	firstLoginCompleted: v.boolean(),
+	hasGoogle: v.boolean(),
+	googleOnly: v.boolean()
+});
+
+const NO_SIGNUP_ACCOUNT = {
+	exists: false,
+	isVerified: false,
+	firstLoginCompleted: false,
+	hasGoogle: false,
+	googleOnly: false
+};
+
+export const checkSignupEmail = mutation({
 	args: {
 		email: v.string()
 	},
+	returns: signupEmailStatusValidator,
 	handler: async (ctx, args) => {
 		const normalizedEmail = args.email.trim().toLowerCase();
-		if (!normalizedEmail) {
-			return {
-				exists: false,
-				isVerified: false,
-				firstLoginCompleted: false,
-				hasPassword: false,
-				hasGoogle: false
-			};
+		if (!normalizedEmail.includes('@')) return NO_SIGNUP_ACCOUNT;
+
+		if (
+			await isRateLimited(ctx, SIGNUP_EMAIL_LOOKUP_RATE_LIMIT_KEY, SIGNUP_EMAIL_LOOKUP_RATE_LIMIT)
+		) {
+			return NO_SIGNUP_ACCOUNT;
 		}
+		await recordRateLimitAttempt(
+			ctx,
+			SIGNUP_EMAIL_LOOKUP_RATE_LIMIT_KEY,
+			SIGNUP_EMAIL_LOOKUP_RATE_LIMIT
+		);
+
+		if (isSyntheticChildEmail(normalizedEmail)) return NO_SIGNUP_ACCOUNT;
 
 		const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
 			model: 'user',
 			where: [{ field: 'email', value: normalizedEmail }]
 		})) as { _id: string; emailVerified?: boolean } | null;
+		if (!authUser) return NO_SIGNUP_ACCOUNT;
 
-		const profile = authUser?._id ? await getProfileByAuthUserId(ctx, authUser._id) : null;
-
-		if (!authUser) {
-			return {
-				exists: false,
-				isVerified: false,
-				firstLoginCompleted: false,
-				hasPassword: false,
-				hasGoogle: false
-			};
-		}
-
-		let hasPassword = false;
-		let hasGoogle = false;
-
-		if (authUser?._id) {
-			const accounts = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
-				model: 'account',
-				where: [{ field: 'userId', value: authUser._id }],
-				paginationOpts: {
-					cursor: null,
-					numItems: 20
-				}
-			})) as { page: Array<{ providerId: string }> };
-
-			hasPassword = accounts.page.some((account) => account.providerId === 'credential');
-			hasGoogle = accounts.page.some((account) => account.providerId === 'google');
-		}
+		const profile = await getProfileByAuthUserId(ctx, authUser._id);
+		const accounts = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+			model: 'account',
+			where: [{ field: 'userId', value: authUser._id }],
+			paginationOpts: { cursor: null, numItems: 20 }
+		})) as { page: Array<{ providerId: string }> };
+		const hasPassword = accounts.page.some((account) => account.providerId === 'credential');
+		const hasGoogle = accounts.page.some((account) => account.providerId === 'google');
 
 		return {
 			exists: true,
-			isVerified: Boolean(profile?.isVerified ?? authUser?.emailVerified ?? false),
+			isVerified: Boolean(profile?.isVerified ?? authUser.emailVerified ?? false),
 			firstLoginCompleted: Boolean(profile?.firstLoginCompleted),
-			hasPassword,
-			hasGoogle
-		};
-	}
-});
-
-export const resolveAuthIdentifier = query({
-	args: {
-		identifier: v.string()
-	},
-	handler: async (ctx, args) => {
-		const normalizedIdentifier = args.identifier.trim().toLowerCase();
-		if (!normalizedIdentifier) {
-			return { email: null };
-		}
-
-		if (normalizedIdentifier.includes('@')) {
-			return { email: normalizedIdentifier };
-		}
-
-		const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-			model: 'user',
-			where: [{ field: 'username', value: normalizedIdentifier }]
-		})) as { email?: string } | null;
-
-		return {
-			email: authUser?.email ?? null
-		};
-	}
-});
-
-export const getAuthUserByUsername = query({
-	args: {
-		username: v.string()
-	},
-	returns: v.any(),
-	handler: async (ctx, args) => {
-		const normalizedUsername = args.username.trim().toLowerCase();
-		if (!normalizedUsername) return null;
-
-		return (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-			model: 'user',
-			where: [{ field: 'username', value: normalizedUsername }]
-		})) as { _id: string; email: string; emailVerified?: boolean; username?: string | null } | null;
-	}
-});
-
-export const getUsernameLoginStatus = query({
-	args: {
-		username: v.string()
-	},
-	returns: v.object({
-		exists: v.boolean(),
-		parentConsentStatus: v.optional(v.union(v.literal('pending'), v.literal('approved')))
-	}),
-	handler: async (ctx, args) => {
-		const normalizedUsername = args.username.trim().toLowerCase();
-		if (!normalizedUsername) {
-			return { exists: false };
-		}
-		const profile = await ctx.db
-			.query('profiles')
-			.withIndex('by_username', (q) => q.eq('username', normalizedUsername))
-			.first();
-		if (!profile) {
-			return { exists: false };
-		}
-		const consent = await ctx.db
-			.query('parentChildConsents')
-			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', profile._id))
-			.order('desc')
-			.first();
-		return {
-			exists: true,
-			parentConsentStatus: consent?.status
+			hasGoogle,
+			googleOnly: hasGoogle && !hasPassword
 		};
 	}
 });

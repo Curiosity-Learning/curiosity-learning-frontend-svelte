@@ -329,9 +329,8 @@ const en = {
 					"You can get 5 links an hour. If you've asked several times, wait a little and check your spam folder.",
 				invalidEmail: 'Enter a valid email address.',
 				failure: 'Could not send a new link. Please try again.',
-				passwordlessTitle: 'No password on this account',
-				passwordlessDescription:
-					"This email already has a Curiosity Learning account, for example from approving a child's account. It has no password: we'll email a sign-in link to {email}.",
+				passwordlessHint:
+					"No password, for example because you approved a child's account? We can email you a sign-in link.",
 				passwordlessSubmit: 'Email me a sign-in link'
 			}
 		},

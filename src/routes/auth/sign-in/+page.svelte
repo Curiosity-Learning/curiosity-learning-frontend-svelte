@@ -20,18 +20,14 @@
 		buildMagicLinkErrorPath,
 		isMagicLinkCallbackPath,
 		isMagicLinkFailure,
-		isPasswordlessSignInAccount,
 		toMagicLinkCallbackParam
 	} from '$lib/auth/magic-link';
 	import { routes } from '$lib/routes';
 	import { navigateBack } from '$lib/navigation/back';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
-	import { useConvexClient } from 'convex-svelte';
-	import { api } from '$convex/_generated/api';
 	import loginIllustration from '$lib/assets/svg/login.svg';
 
 	const auth = useAuth();
-	const convexClient = useConvexClient();
 
 	let identifier = $state('');
 	let password = $state('');
@@ -44,16 +40,10 @@
 	let existingGoogleAccountHandled = $state(false);
 	let handledForcedExistingGoogleAccount = $state(false);
 	let dismissGoogleAuthCallbackError = $state(false);
-	let resolvedCredentialEmail = $state<string | null>(null);
 	let magicLinkEmail = $state('');
 	let magicLinkPending = $state(false);
 	let magicLinkError = $state('');
 	let magicLinkSentTo = $state<string | null>(null);
-	// Review S9 / CL-768: an email address whose account has no password (every parent account
-	// created at consent approval) can only sign in by link. Offer it as soon as such an address
-	// is typed, not only after an expired link — "sign in again" on the child page sends parents
-	// here. Same lookup the sign-up flow already uses (auth.getSignupAccountStatusByEmail).
-	let passwordlessEmail = $state<string | null>(null);
 
 	const normalizePostSignInPath = (value: string | null) => {
 		if (!value?.startsWith('/')) return '/';
@@ -87,6 +77,16 @@
 
 	const normalizeIdentifier = (value: string) => value.trim().toLowerCase();
 	const isEmailLike = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+	// Review S9 / CL-768 / CL-775: an account without a password (every parent account created at
+	// consent approval) can only sign in by link, and "sign in again" on the child page sends
+	// parents here. The link is offered for any typed email address: asking the server which
+	// addresses have no password would tell anyone which addresses belong to parents. The
+	// plugin's endpoint answers the same for every address and only emails real accounts.
+	let typedEmail = $derived.by(() => {
+		const normalized = normalizeIdentifier(identifier);
+		return isEmailLike(normalized) ? normalized : null;
+	});
 
 	const normalizeGoogleAuthError = (value: string | null | undefined) =>
 		(value ?? '')
@@ -151,30 +151,9 @@
 		return normalized === 'invalid email' || normalized === 'invalid email address';
 	};
 
-	const resolveIdentifierEmail = async (rawIdentifier: string) => {
-		const normalizedIdentifier = normalizeIdentifier(rawIdentifier);
-		if (!normalizedIdentifier) {
-			return null;
-		}
-		if (isEmailLike(normalizedIdentifier)) {
-			return normalizedIdentifier;
-		}
-		const result = await convexClient.query(api.auth.resolveAuthIdentifier, {
-			identifier: normalizedIdentifier
-		});
-		return result.email;
-	};
-
-	const isPendingConsentLogin = async (rawIdentifier: string) => {
-		const normalizedIdentifier = normalizeIdentifier(rawIdentifier);
-		if (!normalizedIdentifier || isEmailLike(normalizedIdentifier)) {
-			return false;
-		}
-		const status = await convexClient.query(api.auth.getUsernameLoginStatus, {
-			username: normalizedIdentifier
-		});
-		return status.parentConsentStatus === 'pending';
-	};
+	// Set by the server (auth.ts PARENT_CONSENT_PENDING_CODE) on a username sign-in with the right
+	// password for a child whose parent has not approved the account yet (CL-775).
+	const PARENT_CONSENT_PENDING_CODE = 'PARENT_CONSENT_PENDING';
 
 	$effect(() => {
 		if (!existingGoogleAccount) return;
@@ -294,16 +273,13 @@
 						rememberMe
 					});
 			const { error } = result;
-			resolvedCredentialEmail = emailMode
-				? normalizedIdentifier
-				: await resolveIdentifierEmail(normalizedIdentifier);
 
 			if (error) {
 				if (isInvalidEmailError(error.message)) {
 					errorMessage = t('auth.signIn.invalidLoginDescription');
 					return;
 				}
-				if (await isPendingConsentLogin(normalizedIdentifier)) {
+				if (error.code === PARENT_CONSENT_PENDING_CODE) {
 					errorMessage = t('auth.signIn.parentConsentPending');
 					return;
 				}
@@ -324,32 +300,8 @@
 		}
 	};
 
-	// Debounced from the identifier field's input handler (an async lookup, not derived state).
-	let accountLookupTimer: ReturnType<typeof setTimeout> | undefined;
-	let accountLookupSeq = 0;
-	const lookUpPasswordlessAccount = () => {
-		clearTimeout(accountLookupTimer);
-		const email = normalizeIdentifier(identifier);
-		const seq = ++accountLookupSeq;
-		if (!isEmailLike(email)) {
-			passwordlessEmail = null;
-			return;
-		}
-		accountLookupTimer = setTimeout(() => {
-			void convexClient
-				.query(api.auth.getSignupAccountStatusByEmail, { email })
-				.then((status) => {
-					if (seq !== accountLookupSeq) return;
-					passwordlessEmail = isPasswordlessSignInAccount(status) ? email : null;
-				})
-				.catch(() => {
-					if (seq === accountLookupSeq) passwordlessEmail = null;
-				});
-		}, 400);
-	};
-
-	const requestMagicLink = async (typedEmail?: string) => {
-		const email = normalizeIdentifier(typedEmail ?? magicLinkEmail);
+	const requestMagicLink = async (emailOverride?: string) => {
+		const email = normalizeIdentifier(emailOverride ?? magicLinkEmail);
 		if (!isEmailLike(email)) {
 			magicLinkError = t('auth.signIn.magicLink.invalidEmail');
 			return;
@@ -389,13 +341,15 @@
 		dismissGoogleAuthCallbackError = true;
 		pending = true;
 		try {
-			const resolvedEmail = resolvedCredentialEmail ?? (await resolveIdentifierEmail(identifier));
-			if (!resolvedEmail) {
+			// A username is sent as is: the server swaps in the account's address (auth.ts hooks,
+			// CL-775), so the browser never learns it.
+			const resendIdentifier = normalizeIdentifier(identifier);
+			if (!resendIdentifier) {
 				errorMessage = t('auth.signIn.resendIdentifierRequired');
 				return;
 			}
 			const { error } = await authClient.sendVerificationEmail({
-				email: resolvedEmail,
+				email: resendIdentifier,
 				callbackURL: resolvedNextPath
 			});
 			if (error) {
@@ -499,15 +453,14 @@
 								id="email"
 								type="text"
 								bind:value={identifier}
-								oninput={lookUpPasswordlessAccount}
 								autocomplete="username"
 								placeholder={$_('auth.signIn.identifierPlaceholder')}
 								class="h-12 border-gray-300 bg-input-background px-4 text-base"
 							/>
 						</Field>
 
-						{#if passwordlessEmail && !magicLinkFailed}
-							{#if magicLinkSentTo === passwordlessEmail}
+						{#if typedEmail && !magicLinkFailed}
+							{#if magicLinkSentTo === typedEmail}
 								<Alert>
 									<AlertTitle>{$_('common.checkEmail')}</AlertTitle>
 									<AlertDescription>
@@ -518,31 +471,25 @@
 									</AlertDescription>
 								</Alert>
 							{:else}
-								<Alert>
-									<AlertTitle>{$_('auth.signIn.magicLink.passwordlessTitle')}</AlertTitle>
-									<AlertDescription class="flex flex-col gap-3">
-										<p>
-											{formatT('auth.signIn.magicLink.passwordlessDescription', {
-												email: passwordlessEmail
-											})}
-										</p>
-										{#if magicLinkError}
-											<p class="text-sm text-destructive" role="alert">{magicLinkError}</p>
-										{/if}
-										<Button
-											type="button"
-											variant="outline"
-											size="xl"
-											class="h-12 w-full"
-											disabled={magicLinkPending}
-											onclick={() => void requestMagicLink(passwordlessEmail ?? undefined)}
-										>
-											{magicLinkPending
-												? $_('auth.signIn.magicLink.submitting')
-												: $_('auth.signIn.magicLink.passwordlessSubmit')}
-										</Button>
-									</AlertDescription>
-								</Alert>
+								<div class="flex flex-col items-start gap-1">
+									<p class="text-sm text-gray-600">
+										{$_('auth.signIn.magicLink.passwordlessHint')}
+									</p>
+									<Button
+										type="button"
+										variant="link"
+										class="text-sm"
+										disabled={magicLinkPending}
+										onclick={() => void requestMagicLink(typedEmail ?? undefined)}
+									>
+										{magicLinkPending
+											? $_('auth.signIn.magicLink.submitting')
+											: $_('auth.signIn.magicLink.passwordlessSubmit')}
+									</Button>
+									{#if magicLinkError}
+										<p class="text-sm text-destructive" role="alert">{magicLinkError}</p>
+									{/if}
+								</div>
 							{/if}
 						{/if}
 

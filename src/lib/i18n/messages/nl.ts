@@ -321,9 +321,8 @@ const nl = {
 					'Je kunt 5 links per uur krijgen. Heb je er al een paar keer om gevraagd? Wacht dan even en kijk in je spammap.',
 				invalidEmail: 'Voer een geldig e-mailadres in.',
 				failure: 'Kon geen nieuwe link verzenden. Probeer het opnieuw.',
-				passwordlessTitle: 'Geen wachtwoord voor dit account',
-				passwordlessDescription:
-					'Dit e-mailadres heeft al een account bij Curiosity Learning, bijvoorbeeld van het goedkeuren van het account van een kind. Er hoort geen wachtwoord bij: we sturen een inloglink naar {email}.',
+				passwordlessHint:
+					'Geen wachtwoord, bijvoorbeeld omdat je het account van een kind hebt goedgekeurd? We kunnen je een inloglink e-mailen.',
 				passwordlessSubmit: 'Stuur me een inloglink'
 			}
 		},
