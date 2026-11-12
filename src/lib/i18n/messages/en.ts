@@ -1134,6 +1134,8 @@ const en = {
 		clubAction: 'Report an issue'
 	},
 	profileDetail: {
+		reportAction: 'Report this person',
+		actionsAriaLabel: 'Profile actions',
 		fallbackName: 'Curiosity learner',
 		loadErrorTitle: 'Could not load profile',
 		clubsTitle: 'Clubs',

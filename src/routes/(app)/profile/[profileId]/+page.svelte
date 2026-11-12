@@ -1,8 +1,15 @@
 <script lang="ts">
+	import FlagIcon from '@lucide/svelte/icons/flag';
 	import LockIcon from '@lucide/svelte/icons/lock';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
-	import { EmptyState, PageHeaderTitle } from '$lib/components/app';
+	import {
+		ActionMenu,
+		EmptyState,
+		PageHeaderActions,
+		PageHeaderTitle
+	} from '$lib/components/app';
+	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
 	import UpdateCard from '$lib/components/app/feed/update-card.svelte';
 	import type { UpdateCardMediaItem } from '$lib/components/app/feed/update-card.svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
@@ -27,6 +34,23 @@
 	let displayName = $derived(fullName || profile?.username || t('profileDetail.fallbackName'));
 	const handle = $derived(profile?.username ? `@${profile.username}` : '');
 	const fallback = $derived((profile?.username ?? profile?.firstName ?? '?').slice(0, 2).toUpperCase());
+
+	// The server load redirects your own profile to /profile; the isSelf check keeps the
+	// Report entry off it even if that redirect ever changes.
+	let reportDialogOpen = $state(false);
+	let headerActionItems = $derived(
+		profile && !profile.isSelf
+			? [
+					{
+						id: 'report-user',
+						label: t('profileDetail.reportAction'),
+						Icon: FlagIcon,
+						onSelect: () => (reportDialogOpen = true)
+					}
+				]
+			: []
+	);
+
 	const bio = $derived(profile?.about?.trim() ?? '');
 
 	const profileImageUrl = $derived.by(() => {
@@ -73,6 +97,20 @@
 </script>
 
 <PageHeaderTitle title={displayName} />
+
+<PageHeaderActions none={headerActionItems.length === 0}>
+	<ActionMenu items={headerActionItems} ariaLabel={t('profileDetail.actionsAriaLabel')} />
+</PageHeaderActions>
+
+{#if profile && !profile.isSelf}
+	<ReportIssueDialog
+		bind:open={reportDialogOpen}
+		showTrigger={false}
+		targetType="user"
+		targetId={profile.profileId}
+		contextText={displayName}
+	/>
+{/if}
 
 <div class="flex w-full flex-col gap-4 py-4">
 	{#if profileResponse.error}
