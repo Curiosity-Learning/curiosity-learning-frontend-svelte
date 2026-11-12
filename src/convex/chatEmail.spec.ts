@@ -468,8 +468,13 @@ describe('chat email notifications', () => {
 			"This button signs you in — please don't forward this email."
 		);
 		expect(parentCall.text).toContain(
-			'Add an email address for kiddo. Once they confirm it, chat notifications like this one will go to them directly.'
+			'Prefer kiddo to receive these updates directly? Add their email address.'
 		);
+		// CL-807: a parent cannot switch these off in Settings, so the footer does not say so.
+		expect(parentCall.html).toContain(
+			'You received this email because you are the parent or guardian on kiddo&#39;s Curiosity Learning account.'
+		);
+		expect(parentCall.html).not.toContain('in Settings');
 		// The messages wait for the child, not for the parent reading about them.
 		expect(parentCall.text).toContain(
 			"There are new messages in kiddo's Curiosity Club chat waiting for kiddo."
@@ -562,7 +567,7 @@ describe('chat email notifications', () => {
 			.map(([call]) => call)
 			.find((call) => call.to === 'parent@example.com')!;
 		expect(parentCall.text).toContain(
-			'Waiting for kiddo to confirm their email address. Once they do, chat notifications like this one will go to them directly.'
+			'kiddo will receive these updates directly once they confirm their email address.'
 		);
 	});
 
@@ -1188,7 +1193,7 @@ describe('chat email audiences for child accounts', () => {
 		for (const call of calls) expect(typeof call.to).toBe('string');
 		const parentCall = calls.find((call) => call.to === 'parent@example.com')!;
 		expect(parentCall.text).toContain(
-			"You're getting a copy because you chose to receive kiddo's chat emails too. You can turn this off on kiddo's page."
+			"You're getting a copy of kiddo's updates because you chose to. You can turn this off on kiddo's page."
 		);
 		expect(magicLinksIn(parentCall.text)).toHaveLength(1);
 		const childCall = calls.find((call) => call.to === 'kiddo@example.com')!;

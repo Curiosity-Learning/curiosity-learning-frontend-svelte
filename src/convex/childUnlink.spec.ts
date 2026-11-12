@@ -247,7 +247,7 @@ describe('setMyNotificationEmail: the 16+ child owns their own address', () => {
 		// The linked parent hears about it, as for any routing change (review S5).
 		expect(sentTo('parent@example.com').map((email) => email.text)).toEqual([
 			expect.stringContaining(
-				"teen's notification emails will go to t…@example.com once teen confirms it."
+				"teen's notification emails will go to teen@example.com once teen confirms it."
 			)
 		]);
 

@@ -3,7 +3,7 @@ import { emailOTP, magicLink, username } from 'better-auth/plugins';
 import { createClient } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
 import type { GenericCtx } from '@convex-dev/better-auth';
-import type { GenericDataModel } from 'convex/server';
+import type { GenericActionCtx, GenericDataModel } from 'convex/server';
 import { ConvexError, v } from 'convex/values';
 import { components, internal } from './_generated/api';
 import { mutation, query } from './_generated/server';
@@ -164,6 +164,20 @@ const extractPendingJoinCode = (nextPath?: string | null): string | undefined =>
 	return undefined;
 };
 
+// A `credential` account row is what makes a password sign-in possible (Better Auth's password
+// reset creates it when it is missing).
+const hasPasswordAccount = async (
+	ctx: { runQuery: GenericActionCtx<GenericDataModel>['runQuery'] },
+	authUserId: string
+) => {
+	const accounts = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+		model: 'account',
+		where: [{ field: 'userId', value: authUserId }],
+		paginationOpts: { cursor: null, numItems: 20 }
+	})) as { page: Array<{ providerId: string }> };
+	return accounts.page.some((account) => account.providerId === 'credential');
+};
+
 export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 	betterAuth({
 		baseURL: process.env.BETTER_AUTH_URL,
@@ -212,10 +226,13 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 				// request like any other instead of failing it, so the endpoint does not reveal
 				// which usernames are child accounts. Children have no self-service reset yet.
 				if (user.email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) return;
+				// An account without a password (a parent created at consent approval) is setting
+				// one, not resetting it: the email says so (CL-807). Undefined when we cannot tell.
+				const hasPassword = 'runQuery' in ctx ? await hasPasswordAccount(ctx, user.id) : undefined;
 				await sendEmail({
 					type: 'password-reset',
 					to: user.email,
-					...passwordResetEmail({ url, token })
+					...passwordResetEmail({ url, token, hasPassword })
 				});
 			}
 		},

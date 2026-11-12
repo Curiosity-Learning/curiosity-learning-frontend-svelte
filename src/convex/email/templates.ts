@@ -160,8 +160,32 @@ export const verificationOtpEmail = (args: { otp: string; type: OtpEmailType }):
 	};
 };
 
-export const passwordResetEmail = (args: { url: string; token: string }): EmailContent => {
+// `hasPassword: false` (CL-807): parent accounts are created without a password at consent
+// approval, and Settings' "Set a password" uses this same reset flow to create one. Calling that
+// a reset confused people, so those accounts get "set a password" wording. Defaults to the reset
+// wording when the caller could not tell.
+export const passwordResetEmail = (args: {
+	url: string;
+	token: string;
+	hasPassword?: boolean;
+}): EmailContent => {
 	const url = absoluteUrl(args.url);
+	if (args.hasPassword === false) {
+		return {
+			subject: 'Set a password for Curiosity Learning',
+			text: `Choose a password for your Curiosity Learning account:\n\n${url}\n\nToken: ${args.token}`,
+			html: layout({
+				preheader: 'Choose a password for your Curiosity Learning account.',
+				title: 'Set a password',
+				children: `
+				${paragraph('We received a request to set a password for your Curiosity Learning account. Once it is set, you can sign in with your email and password. Emailed sign-in links keep working too.')}
+				${button(url, 'Set password')}
+				${rawLink(url)}
+				${paragraph('If you did not request this, you can ignore this email.')}
+			`
+			})
+		};
+	}
 	return {
 		subject: 'Reset your password',
 		text: `Reset your Curiosity Learning password:\n\n${url}\n\nToken: ${args.token}`,
@@ -310,6 +334,9 @@ export const notificationEmail = (args: {
 	// The CTA is a one-time sign-in link (parent emails, see notifications.deliverNotificationEmail):
 	// say so right under the button, so the parent knows not to forward it (review edge case 15).
 	ctaSignsIn?: boolean;
+	// Overrides the default footer, which points to Settings. A parent's copy about their child
+	// says why it came instead: a parent cannot switch those emails off in Settings (CL-807).
+	footer?: string;
 }): EmailContent => {
 	const message = escapeHtml(args.message);
 	const signInNotice = args.ctaUrl && args.ctaSignsIn ? SIGN_IN_LINK_NOTICE : undefined;
@@ -340,6 +367,7 @@ export const notificationEmail = (args: {
 				${noteHtml}
 			`,
 			footer:
+				args.footer ??
 				'You received this email because of activity on your Curiosity Learning account. You can adjust which notifications you receive in Settings.'
 		})
 	};
@@ -406,13 +434,15 @@ export const parentUnlinkedEmail = (args: { childName: string }): EmailContent =
 // child's page, never a sign-in link.
 export const childEmailPendingReminderEmail = (args: {
 	childName: string;
-	maskedEmail: string;
+	// In full (CL-807): this goes to the parent who entered it, and a masked "k…@x.com" could
+	// not be told apart from a sibling's address.
+	email: string;
 	days: number;
 	childPageUrl?: string;
 }): EmailContent => {
-	const { childName, maskedEmail, days } = args;
+	const { childName, email, days } = args;
 	const subject = `${childName} hasn't confirmed their email address yet`;
-	const message = `We sent a confirmation link to ${maskedEmail} ${days} days ago, and ${childName} hasn't confirmed it yet. Until they do, emails about ${childName}'s chats keep coming to you.`;
+	const message = `We sent a confirmation link to ${email} ${days} days ago, and ${childName} hasn't confirmed it yet. Until they do, emails about ${childName}'s chats keep coming to you.`;
 	const action = `Check that the address is right, or send a new link from ${childName}'s page.`;
 	return {
 		subject,
@@ -439,22 +469,24 @@ export type ChildRoutingChange = 'pending' | 'confirmed' | 'removed';
 export const childRoutingChangedEmail = (args: {
 	childName: string;
 	change: ChildRoutingChange;
-	maskedEmail?: string;
+	// In full (CL-807): it goes to the approving parent, who can see the address on the child's
+	// page anyway, and a masked "k…@x.com" could not be told apart from a sibling's address.
+	email?: string;
 	childPageUrl?: string;
 }): EmailContent => {
-	const { childName, maskedEmail } = args;
+	const { childName, email } = args;
 	const subject =
 		args.change === 'removed'
 			? `${childName}'s notification emails come to you again`
 			: args.change === 'confirmed'
-				? `${childName}'s notification emails now go to ${maskedEmail}`
+				? `${childName}'s notification emails now go to ${email}`
 				: `${childName}'s notification emails are changing`;
 	const message =
 		args.change === 'removed'
 			? `${childName}'s notification emails now come to you again.`
 			: args.change === 'confirmed'
-				? `${childName}'s notification emails now go to ${maskedEmail}.`
-				: `${childName}'s notification emails will go to ${maskedEmail} once ${childName} confirms it.`;
+				? `${childName}'s notification emails now go to ${email}.`
+				: `${childName}'s notification emails will go to ${email} once ${childName} confirms it.`;
 	const undo = `Not you? Open ${childName}'s page to undo.`;
 	return {
 		subject,

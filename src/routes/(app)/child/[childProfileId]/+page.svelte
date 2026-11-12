@@ -25,6 +25,7 @@
 	import { replaceUrlAfterRouterStart } from '$lib/navigation/replace-url';
 	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
 	import { authClient } from '$lib/auth-client';
+	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import {
 		FRESH_SESSION_REQUIRED,
 		NOTIFICATION_EMAIL_IS_PARENT,
@@ -55,8 +56,15 @@
 	// re-run when its read set changes. Costs one round trip before the page loads. The claim is
 	// caller-scoped (it only ever links consents approved under the caller's own email, and never
 	// one the child has unlinked), so running it on any /child/x URL is harmless.
+	// Waits for the Convex client's own sign-in: a sign-in link lands here with a full page load,
+	// where the session exists before Convex has its token, and claiming right away failed with
+	// "Unauthenticated" (CL-807).
+	const auth = useAuth();
 	let parentLinksClaimSettled = $state(false);
-	onMount(() => {
+	let parentLinksClaimStarted = false;
+	$effect(() => {
+		if (parentLinksClaimStarted || auth.isLoading || !auth.isAuthenticated) return;
+		parentLinksClaimStarted = true;
 		void convexClient
 			.mutation(api.parentAccounts.syncParentLinks, {})
 			.catch(() => {

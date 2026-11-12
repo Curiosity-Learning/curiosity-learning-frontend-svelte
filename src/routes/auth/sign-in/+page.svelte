@@ -440,7 +440,10 @@
 								<Alert>
 									<AlertTitle>{$_('common.checkEmail')}</AlertTitle>
 									<AlertDescription>
-										{formatT('auth.signIn.magicLink.sentDescription', { email: magicLinkSentTo })}
+										<p>
+											{formatT('auth.signIn.magicLink.sentDescription', { email: magicLinkSentTo })}
+										</p>
+										<p>{$_('auth.signIn.magicLink.sentLimitHint')}</p>
 									</AlertDescription>
 								</Alert>
 							{:else}
@@ -508,7 +511,10 @@
 								<Alert>
 									<AlertTitle>{$_('common.checkEmail')}</AlertTitle>
 									<AlertDescription>
-										{formatT('auth.signIn.magicLink.sentDescription', { email: magicLinkSentTo })}
+										<p>
+											{formatT('auth.signIn.magicLink.sentDescription', { email: magicLinkSentTo })}
+										</p>
+										<p>{$_('auth.signIn.magicLink.sentLimitHint')}</p>
 									</AlertDescription>
 								</Alert>
 							{:else}

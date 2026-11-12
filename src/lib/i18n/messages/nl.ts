@@ -317,6 +317,8 @@ const nl = {
 				submitting: 'Verzenden...',
 				sentDescription:
 					'Als er een account is voor {email}, is er een nieuwe inloglink onderweg. De link werkt één keer.',
+				sentLimitHint:
+					'Je kunt 5 links per uur krijgen. Heb je er al een paar keer om gevraagd? Wacht dan even en kijk in je spammap.',
 				invalidEmail: 'Voer een geldig e-mailadres in.',
 				failure: 'Kon geen nieuwe link verzenden. Probeer het opnieuw.',
 				passwordlessTitle: 'Geen wachtwoord voor dit account',
@@ -439,6 +441,8 @@ const nl = {
 			successAlt: 'Succesvolle accountverificatie',
 			successTitle: 'Hoera!',
 			successDescription: 'Je e-mailaccount is succesvol aangemaakt en geverifieerd.',
+			successDescriptionMinor:
+				'We hebben een toestemmingslink naar je ouder of voogd gestuurd. Je kunt inloggen zodra die je account heeft goedgekeurd.',
 			existingGoogleProcessingTitle: 'Je wordt ingelogd',
 			existingGoogleProcessingDescription:
 				'Dit Google-account bestaat al. We gaan verder met je bestaande account.',
@@ -1171,6 +1175,8 @@ const nl = {
 		ownEmailTitle: 'Je e-mailadres',
 		ownEmailDescription:
 			'Voeg je eigen e-mailadres toe om e-mails van Curiosity Learning zelf te ontvangen, zoals chatberichten en belangrijke meldingen. Er wordt niets naartoe gestuurd totdat je het bevestigt.',
+		ownEmailDescriptionConfirmed:
+			'Je e-mails van Curiosity Learning, zoals chatberichten en belangrijke meldingen, gaan naar dit adres.',
 		ownEmailLabel: 'Je e-mailadres',
 		ownEmailPlaceholder: 'naam@voorbeeld.nl',
 		ownEmailSave: 'E-mailadres opslaan',
@@ -1269,7 +1275,7 @@ const nl = {
 			'Je ouder of voogd heeft het toegevoegd voor meldingen van Curiosity Learning voor {username}. Zodra je het bevestigt, gaan chatmeldingen naar dit adres in plaats van naar je ouder.',
 		validDescriptionSelf:
 			'Je hebt het toegevoegd voor meldingen van Curiosity Learning voor {username}. Zodra je het bevestigt, gaan je e-mails naar dit adres.',
-		confirm: 'Ja, dit is mijn e-mailadres',
+		confirm: 'Bevestig dit e-mailadres',
 		confirming: 'Bezig met bevestigen...',
 		confirmedSnackbar: 'E-mailadres bevestigd',
 		confirmedTitle: 'E-mailadres bevestigd',

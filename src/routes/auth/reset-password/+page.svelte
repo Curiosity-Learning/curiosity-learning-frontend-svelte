@@ -26,6 +26,10 @@
 	let signInHref = $derived(`/auth/sign-in?next=${encodeURIComponent(nextPath)}`);
 	const signUpHref = '/onboarding/get-started';
 	const convexClient = useConvexClient();
+	// Someone already signed in (setting a password from Settings) is not new here: no
+	// "I'm new, sign me up" link for them (CL-807).
+	const session = authClient.useSession();
+	let showSignUpLink = $derived(!$session.isPending && !$session.data);
 
 	let identifier = $state('');
 	let newPassword = $state('');
@@ -124,7 +128,7 @@
 	total={1}
 	showSideIllustration={true}
 	showProgressBar={false}
-	showAccountLink={true}
+	showAccountLink={showSignUpLink}
 	accountLabel={$_('common.newSignUp')}
 	accountHref={signUpHref}
 >

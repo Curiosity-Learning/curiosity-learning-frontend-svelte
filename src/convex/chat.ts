@@ -773,11 +773,12 @@ const deliverChatEmailToAudience = async (
 			recipientProfile.notificationEmailVerifiedAt !== undefined;
 		const pendingConfirmation = Boolean(recipientProfile.notificationEmail);
 		note = {
+			// Ron's wording (CL-807): a friendly question first, then the one step to take.
 			text: childEmailConfirmed
-				? `You're getting a copy because you chose to receive ${childName}'s chat emails too. You can turn this off on ${childName}'s page.`
+				? `You're getting a copy of ${childName}'s updates because you chose to. You can turn this off on ${childName}'s page.`
 				: pendingConfirmation
-					? `Waiting for ${childName} to confirm their email address. Once they do, chat notifications like this one will go to them directly.`
-					: `Add an email address for ${childName}. Once they confirm it, chat notifications like this one will go to them directly.`,
+					? `${childName} will receive these updates directly once they confirm their email address.`
+					: `Prefer ${childName} to receive these updates directly? Add their email address.`,
 			url: `/child/${args.profileId}`,
 			linkLabel: `Open ${childName}'s page`
 		};
@@ -807,6 +808,7 @@ const deliverChatEmailToAudience = async (
 			: `There are new messages in ${chatLabel} waiting for you. Open the chat to catch up.`,
 		url: appUrl,
 		ctaLabel: parentAudience ? `Open ${childName}'s chats` : undefined,
+		childName,
 		to: recipient.to,
 		audience: args.audience,
 		note
@@ -850,6 +852,8 @@ export const sendChatEmail = internalAction({
 		message: v.string(),
 		url: v.string(),
 		ctaLabel: v.optional(v.string()),
+		// The child a parent's copy is about (footer wording, CL-807).
+		childName: v.optional(v.string()),
 		to: v.string(),
 		// 'parent': `url` is the app path; deliverNotificationEmail turns it into a sign-in link.
 		audience: v.optional(v.union(v.literal('self'), v.literal('parent'))),

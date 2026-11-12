@@ -301,7 +301,7 @@ describe('pending child email reminder (review edge case 4)', () => {
 		expect(emails.map((email) => [email.to, email.subject])).toEqual([
 			['parent@example.com', "kiddo hasn't confirmed their email address yet"]
 		]);
-		expect(emails[0].text).toContain('We sent a confirmation link to k…@example.com 7 days ago');
+		expect(emails[0].text).toContain('We sent a confirmation link to kiddo@example.com 7 days ago');
 		expect(emails[0].text).toContain(`https://app.example.com/child/${childProfileId}`);
 		expect(emails[0].text).not.toMatch(/auth\/link/);
 		const [delivery] = await t.run((ctx) => ctx.db.query('emailDeliveries').collect());

@@ -23,6 +23,7 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { authClient } from '$lib/auth-client';
+	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
 	import { routes } from '$lib/routes';
 	import { Badge } from '$lib/components/ui/badge';
@@ -40,6 +41,7 @@
 	let { data }: PageProps = $props();
 
 	const session = authClient.useSession();
+	const auth = useAuth();
 	const convexClient = useConvexClient();
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
 	const preferencesResponse = useStableQuery(api.preferences.get, {});
@@ -54,7 +56,10 @@
 	let parentLinksSynced = $state(false);
 	$effect(() => {
 		if (parentLinksSynced) return;
-		if (!$session.data) return;
+		// Wait for the Convex client's own sign-in, not just the Better Auth session: right after
+		// a sign-in link the session exists before Convex has its token, and the claim failed
+		// with "Unauthenticated" (CL-807).
+		if (auth.isLoading || !auth.isAuthenticated) return;
 		parentLinksSynced = true;
 		void convexClient.mutation(api.parentAccounts.syncParentLinks, {}).catch(() => {
 			// Best-effort: if this fails, getMyLinkedChildren just returns whatever was already
@@ -666,7 +671,11 @@
 						<Badge variant="secondary">{$_('parentAccounts.ownEmailConfirmed')}</Badge>
 					{/if}
 				</div>
-				<CardDescription>{$_('parentAccounts.ownEmailDescription')}</CardDescription>
+				<CardDescription>
+					{myEmailConfirmed && !editingMyEmail
+						? $_('parentAccounts.ownEmailDescriptionConfirmed')
+						: $_('parentAccounts.ownEmailDescription')}
+				</CardDescription>
 			</CardHeader>
 			<CardContent class="flex flex-col gap-3">
 				{#if myEmail.notificationEmail && !editingMyEmail}
