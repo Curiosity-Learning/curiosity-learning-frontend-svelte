@@ -242,7 +242,13 @@ export const deliverNotificationEmail = async (
 				ctaUrl,
 				ctaLabel,
 				note,
-				ctaSignsIn
+				ctaSignsIn,
+				// A parent cannot switch these off in Settings (the default footer's advice), so
+				// say why they got it instead (CL-807).
+				footer:
+					args.audience === 'parent'
+						? `You received this email because you are the parent or guardian on ${args.childName ?? 'your child'}'s Curiosity Learning account.`
+						: undefined
 			})
 		});
 		return { status: 'sent', to, providerMessageId };

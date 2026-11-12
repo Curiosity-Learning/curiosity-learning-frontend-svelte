@@ -417,6 +417,56 @@ describe('POST /sign-in/magic-link (expired-link fallback)', () => {
 	});
 });
 
+// CL-807: Settings' "Set a password" runs Better Auth's reset flow. An account without a password
+// (a parent created at consent approval) gets "set a password" wording, not "reset".
+describe('POST /request-password-reset wording', () => {
+	const requestReset = (t: Awaited<ReturnType<typeof setup>>) =>
+		t.fetch('/api/auth/request-password-reset', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ email: 'parent@example.com', redirectTo: '/auth/reset-password' })
+		});
+
+	it('asks an account without a password to set one', async () => {
+		stubAuthEnv();
+		const t = await setup();
+
+		expect((await requestReset(t)).status).toBe(200);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock.mock.calls[0][0]).toMatchObject({
+			subject: 'Set a password for Curiosity Learning',
+			text: expect.stringContaining('Choose a password for your Curiosity Learning account')
+		});
+	});
+
+	it('keeps the reset wording for an account that has a password', async () => {
+		stubAuthEnv();
+		const t = await setup();
+		const now = Date.now();
+		const user = (await t.query(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: 'email', value: 'parent@example.com' }]
+		})) as { _id: string };
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'account',
+				data: {
+					accountId: user._id,
+					providerId: 'credential',
+					userId: user._id,
+					password: await hashPassword('a-long-password-1'),
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+
+		expect((await requestReset(t)).status).toBe(200);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock.mock.calls[0][0]).toMatchObject({ subject: 'Reset your password' });
+	});
+});
+
 describe('POST /sign-in/magic-link per-address rate limit', () => {
 	const requestLink = (t: Awaited<ReturnType<typeof setup>>, email: string) =>
 		t.fetch('/api/auth/sign-in/magic-link', {

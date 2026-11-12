@@ -21,7 +21,6 @@ import {
 import { generateMagicLinkToken, hashMagicLinkToken } from './magicLinks';
 import type { NotificationEmailResult } from './notifications';
 import { requireIdentity, requireProfile } from './permissions';
-import { maskEmail } from '../lib/auth/magic-link';
 import { VERIFY_EMAIL_PATH_PREFIX } from '../lib/domain/child-notification-email';
 
 // Child notification email confirmation (CL-768, review B2/B3).
@@ -131,7 +130,7 @@ export const scheduleRoutingChangedNotice = async (
 	await ctx.scheduler.runAfter(0, internal.childEmailVerification.sendRoutingChangedNotice, {
 		childProfileId: args.childProfileId,
 		change: args.change,
-		maskedEmail: args.email ? maskEmail(args.email) : undefined
+		email: args.email
 	});
 };
 
@@ -255,6 +254,9 @@ export const sendRoutingChangedNotice = internalAction({
 	args: {
 		childProfileId: v.id('profiles'),
 		change: v.union(v.literal('pending'), v.literal('confirmed'), v.literal('removed')),
+		// In full since CL-807 (the email goes to the approving parent). `maskedEmail` is only
+		// still accepted for notices scheduled before that change.
+		email: v.optional(v.string()),
 		maskedEmail: v.optional(v.string())
 	},
 	returns: v.null(),
@@ -268,7 +270,7 @@ export const sendRoutingChangedNotice = internalAction({
 		const content = childRoutingChangedEmail({
 			childName: recipient.childName,
 			change: args.change,
-			maskedEmail: args.maskedEmail,
+			email: args.email ?? args.maskedEmail,
 			// A plain link: no sign-in link in this email, ever (see the template).
 			childPageUrl: baseUrl ? `${baseUrl}/child/${args.childProfileId}` : undefined
 		});
@@ -527,7 +529,7 @@ export const sendPendingEmailReminder = internalAction({
 		const baseUrl = getAppBaseUrl();
 		const content = childEmailPendingReminderEmail({
 			childName: reminder.childName,
-			maskedEmail: maskEmail(args.email),
+			email: args.email,
 			days: Math.max(3, Math.floor((Date.now() - reminder.setAt) / (24 * 60 * 60 * 1000))),
 			childPageUrl: baseUrl ? `${baseUrl}/child/${args.childProfileId}` : undefined
 		});

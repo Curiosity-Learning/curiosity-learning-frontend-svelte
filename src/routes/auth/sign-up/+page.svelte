@@ -1424,7 +1424,7 @@
 			</h1>
 			<p class="text-base leading-7 text-gray-600">
 				{isMinor
-					? 'We sent a consent link to your parent or guardian. You can log in after they approve your account.'
+					? $_('auth.signUp.successDescriptionMinor')
 					: $_('auth.signUp.successDescription')}
 			</p>
 			<Button

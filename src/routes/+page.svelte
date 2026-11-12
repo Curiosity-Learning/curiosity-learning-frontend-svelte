@@ -6,6 +6,11 @@
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { clubLessLandingPath } from '$lib/auth/no-club-allowlist';
+	import {
+		SIGNED_IN_VIA_LINK_PARAM,
+		SIGNED_IN_VIA_LINK_VALUE,
+		withSignedInViaLinkMarker
+	} from '$lib/auth/magic-link';
 
 	const auth = useAuth();
 	let isAuthReady = $derived(!auth.isLoading && auth.isAuthenticated);
@@ -62,7 +67,14 @@
 				: firstLinkedChildResponse.data;
 			if (firstLinkedChildId === undefined) return;
 			redirected = true;
-			void goto(clubLessLandingPath(firstLinkedChildId));
+			const landingPath = clubLessLandingPath(firstLinkedChildId);
+			// A sign-in link to `/` (the sign-in page's own links) arrives as `/?via=link`: pass the
+			// marker on, so the child page offers "Not your device?" (CL-807).
+			const viaLink =
+				page.url.searchParams.get(SIGNED_IN_VIA_LINK_PARAM) === SIGNED_IN_VIA_LINK_VALUE;
+			void goto(
+				viaLink && firstLinkedChildId ? withSignedInViaLinkMarker(landingPath) : landingPath
+			);
 			return;
 		}
 

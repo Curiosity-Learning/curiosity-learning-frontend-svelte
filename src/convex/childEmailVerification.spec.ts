@@ -255,14 +255,14 @@ describe('setChildNotificationEmail: pending address and its confirmation email'
 		await settle(t);
 
 		const [notice] = noticeEmails();
+		// In full (CL-807): only the approving parent gets this notice.
 		expect(notice.text).toContain(
-			"kiddo's notification emails will go to k…@example.com once kiddo confirms it."
+			"kiddo's notification emails will go to kiddo@example.com once kiddo confirms it."
 		);
 		expect(notice.text).toContain("Not you? Open kiddo's page to undo.");
 		expect(notice.text).toContain(`https://app.example.com/child/${childProfileId}`);
 		expect(notice.text).not.toMatch(/auth\/link|magic-link/);
 		expect(notice.html).not.toMatch(/auth\/link|magic-link/);
-		expect(notice.text).not.toContain('kiddo@example.com');
 
 		const deliveries = await t.run((ctx) => ctx.db.query('emailDeliveries').collect());
 		expect(deliveries.map((row) => [row.kind, row.to, row.status]).sort()).toEqual([
@@ -566,7 +566,7 @@ describe('confirmChildEmail / getChildEmailVerification', () => {
 		const [row] = await t.run((ctx) => ctx.db.query('childEmailVerifications').collect());
 		expect(row.consumedAt).toEqual(expect.any(Number));
 		const notice = noticeEmails().at(-1)!;
-		expect(notice.text).toContain("kiddo's notification emails now go to k…@example.com.");
+		expect(notice.text).toContain("kiddo's notification emails now go to kiddo@example.com.");
 		expect(notice.text).not.toMatch(/auth\/link|magic-link/);
 
 		// Used once.

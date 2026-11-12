@@ -325,6 +325,8 @@ const en = {
 				submitting: 'Sending...',
 				sentDescription:
 					'If there is an account for {email}, a new sign-in link is on its way. It works once.',
+				sentLimitHint:
+					"You can get 5 links an hour. If you've asked several times, wait a little and check your spam folder.",
 				invalidEmail: 'Enter a valid email address.',
 				failure: 'Could not send a new link. Please try again.',
 				passwordlessTitle: 'No password on this account',
@@ -443,6 +445,8 @@ const en = {
 			successAlt: 'Account verification success',
 			successTitle: 'Hooray!',
 			successDescription: 'Your email account has been successfully created and verified.',
+			successDescriptionMinor:
+				'We sent a consent link to your parent or guardian. You can log in after they approve your account.',
 			existingGoogleProcessingTitle: 'Signing you in',
 			existingGoogleProcessingDescription:
 				'This Google account already exists. We are continuing with your existing account.',
@@ -1174,6 +1178,8 @@ const en = {
 		ownEmailTitle: 'Your email address',
 		ownEmailDescription:
 			'Add your own email address to get Curiosity Learning emails yourself, such as chat messages and important notices. Nothing is sent there until you confirm it.',
+		ownEmailDescriptionConfirmed:
+			'Your Curiosity Learning emails, such as chat messages and important notices, go to this address.',
 		ownEmailLabel: 'Your email address',
 		ownEmailPlaceholder: 'name@example.com',
 		ownEmailSave: 'Save email address',
@@ -1271,7 +1277,7 @@ const en = {
 			'Your parent or guardian added it for Curiosity Learning notifications for {username}. Once you confirm, chat notifications go there instead of to your parent.',
 		validDescriptionSelf:
 			'You added it for Curiosity Learning notifications for {username}. Once you confirm, your emails go there.',
-		confirm: 'Yes, this is my email',
+		confirm: 'Confirm this email',
 		confirming: 'Confirming...',
 		confirmedSnackbar: 'Email confirmed',
 		confirmedTitle: 'Email confirmed',
