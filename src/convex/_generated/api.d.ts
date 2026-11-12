@@ -33,6 +33,7 @@ import type * as email_resend from "../email/resend.js";
 import type * as email_templates from "../email/templates.js";
 import type * as emailUnsubscribe from "../emailUnsubscribe.js";
 import type * as forms from "../forms.js";
+import type * as functions from "../functions.js";
 import type * as googleChat from "../googleChat.js";
 import type * as http from "../http.js";
 import type * as joinRequests from "../joinRequests.js";
@@ -76,6 +77,7 @@ import type * as sessions from "../sessions.js";
 import type * as updateComments from "../updateComments.js";
 import type * as updates from "../updates.js";
 import type * as usernameValidator from "../usernameValidator.js";
+import type * as viewAs from "../viewAs.js";
 
 import type {
   ApiFromModules,
@@ -109,6 +111,7 @@ declare const fullApi: ApiFromModules<{
   "email/templates": typeof email_templates;
   emailUnsubscribe: typeof emailUnsubscribe;
   forms: typeof forms;
+  functions: typeof functions;
   googleChat: typeof googleChat;
   http: typeof http;
   joinRequests: typeof joinRequests;
@@ -152,6 +155,7 @@ declare const fullApi: ApiFromModules<{
   updateComments: typeof updateComments;
   updates: typeof updates;
   usernameValidator: typeof usernameValidator;
+  viewAs: typeof viewAs;
 }>;
 
 /**

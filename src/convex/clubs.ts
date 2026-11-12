@@ -1,7 +1,8 @@
 import { ConvexError, v } from 'convex/values';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import type { GenericDataModel } from 'convex/server';
-import { internalMutation, mutation, query } from './_generated/server';
+import { internalMutation, query } from './_generated/server';
+import { mutation, parentScopedMutation } from './functions';
 import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
@@ -17,7 +18,9 @@ import {
 	requireIdentity,
 	requirePermission,
 	requireProfile,
-	roleFromPermissions
+	roleFromPermissions,
+	getRealIdentity,
+	getViewerIdentity
 } from './permissions';
 import { authComponent } from './auth';
 import { ensureClubRoom } from './chatModel';
@@ -444,7 +447,7 @@ export const getClubPreviewById = query({
 			.withIndex('by_club', (q) => q.eq('clubId', club._id))
 			.collect();
 
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getViewerIdentity(ctx);
 		let viewerIsMember = false;
 		let viewerPendingJoinRequestId: Id<'joinRequests'> | null = null;
 		if (identity) {
@@ -491,12 +494,15 @@ export const getClubPreviewById = query({
 // Callers must invoke this before running the preview query and stop if it reports
 // `rate_limited`. Returns a structured result instead of throwing so the attempt
 // counter write always commits (a throwing mutation rolls back all of its writes).
-export const checkClubCodeLookupRateLimit = mutation({
+// Parent-scoped (CL-801): it only counts the caller's own lookups, under the caller's REAL
+// identity, so the damping keeps working (and join-code pages keep loading) while a parent is
+// viewing as their child. Joining itself stays refused.
+export const checkClubCodeLookupRateLimit = parentScopedMutation({
 	args: {
 		code: v.string()
 	},
 	handler: async (ctx, args) => {
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getRealIdentity(ctx);
 		const normalizedCode = normalizeInviteCode(args.code);
 		const { key, limit } = clubCodeRateLimitScope(normalizedCode, identity?.subject ?? null);
 

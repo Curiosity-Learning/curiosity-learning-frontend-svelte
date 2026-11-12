@@ -2,13 +2,8 @@ import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
-import {
-	internalAction,
-	internalMutation,
-	internalQuery,
-	mutation,
-	query
-} from './_generated/server';
+import { internalAction, internalMutation, internalQuery, query } from './_generated/server';
+import { mutation } from './functions';
 import { profileDisplayName } from './chatModel';
 import { sendEmail } from './email/resend';
 import {
@@ -21,11 +16,14 @@ import {
 import { generateMagicLinkToken, hashMagicLinkToken } from './magicLinks';
 import type { NotificationEmailResult } from './notifications';
 import { requireIdentity, requireProfile } from './permissions';
-import { VERIFY_EMAIL_PATH_PREFIX } from '../lib/domain/child-notification-email';
+import {
+	VERIFY_EMAIL_PATH_PREFIX,
+	childEmailSettingsPath
+} from '../lib/domain/child-notification-email';
 
 // Child notification email confirmation (CL-768, review B2/B3).
 //
-// A parent enters an address for their child on the child's page (parentAccounts
+// A parent enters an address for their child in their Settings (parentAccounts
 // .setChildNotificationEmail) or on the consent screen (childSignup.approveConsent, same issue
 // path below); a child aged 16+ can enter their own from Settings (parentAccounts
 // .setMyNotificationEmail, CL-769 review D4 / edge case 13, same pending flow). Until the CHILD
@@ -272,7 +270,9 @@ export const sendRoutingChangedNotice = internalAction({
 			change: args.change,
 			email: args.email ?? args.maskedEmail,
 			// A plain link: no sign-in link in this email, ever (see the template).
-			childPageUrl: baseUrl ? `${baseUrl}/child/${args.childProfileId}` : undefined
+			emailSettingsUrl: baseUrl
+				? `${baseUrl}${childEmailSettingsPath(args.childProfileId)}`
+				: undefined
 		});
 		const result = await sendResult(
 			() => sendEmail({ to: recipient.to, type: 'notification', ...content }),
@@ -531,7 +531,9 @@ export const sendPendingEmailReminder = internalAction({
 			childName: reminder.childName,
 			email: args.email,
 			days: Math.max(3, Math.floor((Date.now() - reminder.setAt) / (24 * 60 * 60 * 1000))),
-			childPageUrl: baseUrl ? `${baseUrl}/child/${args.childProfileId}` : undefined
+			emailSettingsUrl: baseUrl
+				? `${baseUrl}${childEmailSettingsPath(args.childProfileId)}`
+				: undefined
 		});
 		const result = await sendResult(
 			() => sendEmail({ to: reminder.to, type: 'notification', ...content }),

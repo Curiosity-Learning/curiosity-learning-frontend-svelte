@@ -44,6 +44,40 @@ export default defineConfig(
 		}
 	},
 	{
+		// Parent "View as Child" (CL-801): public mutations and actions must use the guarded
+		// builders in src/convex/functions.ts, which refuse every write while a parent is viewing
+		// as their child. (This block replaces the rule options above for these files, so it
+		// repeats them.)
+		files: ['src/convex/**/*.ts'],
+		ignores: ['src/convex/functions.ts', 'src/convex/_generated/**'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					paths: [
+						{
+							name: 'convex-svelte',
+							importNames: ['useQuery'],
+							message: 'Use useStableQuery from $lib/convex/use-stable-query.svelte.'
+						},
+						...['./_generated/server', '../_generated/server'].map((name) => ({
+							name,
+							importNames: ['mutation', 'action', 'mutationGeneric', 'actionGeneric'],
+							message:
+								"Import public mutations and actions from './functions' (View as Child guard, CL-801)."
+						})),
+						{
+							name: 'convex/server',
+							importNames: ['mutationGeneric', 'actionGeneric'],
+							message:
+								"Import public mutations and actions from './functions' (View as Child guard, CL-801)."
+						}
+					]
+				}
+			]
+		}
+	},
+	{
 		files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
 		languageOptions: {
 			parserOptions: {

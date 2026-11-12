@@ -457,6 +457,20 @@ export default defineSchema({
 		.index('by_child', ['childProfileId'])
 		.index('by_parent_and_child', ['parentProfileId', 'childProfileId']),
 
+	// Parent "View as Child" (CL-801): a parent's login session that is viewing the app as one of
+	// their linked children. Keyed by the Better Auth session id, so each device switches on its
+	// own. See permissions.ts (`resolveViewingAsChild`) for how queries answer as the child, and
+	// functions.ts for how every write is refused meanwhile.
+	parentViewSessions: defineTable({
+		parentAuthUserId: v.string(),
+		sessionId: v.string(),
+		parentProfileId: v.id('profiles'),
+		childProfileId: v.id('profiles'),
+		startedAt: v.number()
+	})
+		.index('by_parent_auth_user_and_session', ['parentAuthUserId', 'sessionId'])
+		.index('by_started_at', ['startedAt']),
+
 	// A linked parent's own choices about the emails they get for ONE child (CL-768/CL-769,
 	// review S6/D3/D7). Only meaningful once the child has a confirmed notificationEmail: until
 	// then chat emails about the child are the parent's (mandatory, or nobody would hear) and
