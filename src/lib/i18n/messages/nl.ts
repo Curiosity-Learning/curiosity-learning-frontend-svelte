@@ -1130,6 +1130,8 @@ const nl = {
 		clubAction: 'Een probleem melden'
 	},
 	profileDetail: {
+		reportAction: 'Deze persoon melden',
+		actionsAriaLabel: 'Profielacties',
 		fallbackName: 'Curiosity-leerling',
 		loadErrorTitle: 'Profiel kon niet worden geladen',
 		clubsTitle: 'Clubs',
