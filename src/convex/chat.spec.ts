@@ -3,6 +3,7 @@
 import { convexTest } from 'convex-test';
 import { describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
+import { listRoomRecipientProfileIds } from './chatModel';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
@@ -446,7 +447,7 @@ describe('context room chat', () => {
 			const guideRoleId = await ctx.db.insert('clubRoles', {
 				key: 'guide',
 				name: 'Guide',
-				permissions: ['project:read'],
+				permissions: ['project:read', 'project_chat:observe'],
 				order: 0,
 				createdAt: now
 			});
@@ -605,7 +606,7 @@ describe('context room chat', () => {
 			const guideRoleId = await ctx.db.insert('clubRoles', {
 				key: 'guide',
 				name: 'Guide',
-				permissions: ['project:read'],
+				permissions: ['project:read', 'project_chat:observe'],
 				order: 0,
 				createdAt: now
 			});
@@ -1159,7 +1160,7 @@ describe('unread floor at context join', () => {
 			const guideRoleId = await ctx.db.insert('clubRoles', {
 				key: 'guide',
 				name: 'Guide',
-				permissions: ['project:read'],
+				permissions: ['project:read', 'project_chat:observe'],
 				order: 0,
 				createdAt: now
 			});
@@ -1477,5 +1478,192 @@ describe('unread floor at context join', () => {
 		// Only the applicant's reply AFTER the staff member first wrote counts as unread; the
 		// pre-involvement message does not.
 		expect(staffSummary?.unreadCount).toBe(1);
+	});
+});
+
+// CL-767: observing an attributed project's chat is a Guide capability (PRD 6.6.9/6.6.10), keyed
+// off the dedicated `project_chat:observe` flag. `project:read` alone (which Learners carry so they
+// can browse projects) must not open the chat.
+describe('attributed project chat observers (CL-767)', () => {
+	const seedAttributedProjectFixture = async () => {
+		const base = convexTest(schema, modules);
+		const ids = await base.run(async (ctx) => {
+			const now = Date.now();
+			const guideRoleId = await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['club:read', 'project:read', 'project:update', 'project_chat:observe'],
+				order: 0,
+				createdAt: now
+			});
+			const learnerRoleId = await ctx.db.insert('clubRoles', {
+				key: 'learner',
+				name: 'Learner',
+				permissions: ['club:read', 'project:read'],
+				order: 100,
+				createdAt: now
+			});
+			const contributorRoleId = await ctx.db.insert('projectRoles', {
+				key: 'contributor',
+				name: 'Contributor',
+				permissions: ['project:read'],
+				order: 0,
+				createdAt: now
+			});
+			const insertProfile = (key: string) =>
+				ctx.db.insert('profiles', {
+					authUserId: `${key}-user`,
+					username: key,
+					isVerified: true,
+					firstLoginCompleted: true,
+					updatedAt: now
+				});
+			const guideProfileId = await insertProfile('guide');
+			const learnerProfileId = await insertProfile('learner');
+			const memberProfileId = await insertProfile('member');
+			const formerProfileId = await insertProfile('former');
+			const clubId = await ctx.db.insert('clubs', {
+				name: 'Attributed club',
+				discoverable: false,
+				createdByProfileId: guideProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('clubMembers', {
+				clubId,
+				profileId: guideProfileId,
+				roleId: guideRoleId,
+				createdAt: now
+			});
+			for (const profileId of [learnerProfileId, memberProfileId, formerProfileId]) {
+				await ctx.db.insert('clubMembers', {
+					clubId,
+					profileId,
+					roleId: learnerRoleId,
+					createdAt: now
+				});
+			}
+			const projectId = await ctx.db.insert('projects', {
+				name: 'Attributed project',
+				dueDate: now + 7 * 24 * 60 * 60 * 1000,
+				visibility: 'clubs',
+				createdByProfileId: memberProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+			await ctx.db.insert('projectAttributions', {
+				projectId,
+				profileId: memberProfileId,
+				clubId,
+				createdAt: now
+			});
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: memberProfileId,
+				roleId: contributorRoleId,
+				createdAt: now
+			});
+			await ctx.db.insert('projectMembers', {
+				projectId,
+				profileId: formerProfileId,
+				roleId: contributorRoleId,
+				leftAt: now,
+				createdAt: now
+			});
+			const roomId = await ctx.db.insert('rooms', { contextType: 'project', projectId });
+			await ctx.db.insert('messages', {
+				roomId,
+				profileId: memberProfileId,
+				content: 'Project plan'
+			});
+			return { guideProfileId, learnerProfileId, memberProfileId, formerProfileId, roomId };
+		});
+		return {
+			base,
+			ids,
+			guide: base.withIdentity({ subject: 'guide-user' }),
+			learner: base.withIdentity({ subject: 'learner-user' }),
+			member: base.withIdentity({ subject: 'member-user' }),
+			former: base.withIdentity({ subject: 'former-user' })
+		};
+	};
+
+	it('keeps a learner of the attributed club who is not a project member out of the chat', async () => {
+		const { ids, learner } = await seedAttributedProjectFixture();
+
+		const summaries = await learner.query(api.chat.listRoomSummaries, {});
+
+		expect(summaries.map((entry) => entry.roomId)).not.toContain(ids.roomId);
+		expect(await learner.query(api.chat.getTotalUnreadCount, {})).toBe(0);
+		await expect(learner.query(api.chat.listMessages, { roomId: ids.roomId })).rejects.toThrow(
+			'You cannot access this chat'
+		);
+		await expect(
+			learner.mutation(api.chat.sendMessage, { roomId: ids.roomId, content: 'Sneaking in' })
+		).rejects.toThrow('You cannot access this chat');
+	});
+
+	it('leaves a learner who left the project with read-only history, not observer send access', async () => {
+		const { ids, former } = await seedAttributedProjectFixture();
+
+		const summary = (await former.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+		const history = await former.query(api.chat.listMessages, { roomId: ids.roomId });
+
+		expect(summary).toMatchObject({ canSend: false, sendBlockedReason: 'not_participant' });
+		expect(history.messages.map((entry) => entry.content)).toEqual(['Project plan']);
+		await expect(
+			former.mutation(api.chat.sendMessage, { roomId: ids.roomId, content: 'Still here?' })
+		).rejects.toThrow('You can no longer send messages in this chat');
+	});
+
+	it('lets a guide of the attributed club observe and write without project membership', async () => {
+		const { ids, guide } = await seedAttributedProjectFixture();
+
+		const summary = (await guide.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+		const sent = await guide.mutation(api.chat.sendMessage, {
+			roomId: ids.roomId,
+			content: 'Guide check-in'
+		});
+
+		expect(summary).toMatchObject({ canSend: true, unreadCount: 1 });
+		expect(sent).toMatchObject({ profileId: ids.guideProfileId, content: 'Guide check-in' });
+	});
+
+	it('lets a learner who is a project member read and write', async () => {
+		const { ids, member } = await seedAttributedProjectFixture();
+
+		const summary = (await member.query(api.chat.listRoomSummaries, {})).find(
+			(entry) => entry.roomId === ids.roomId
+		);
+		const sent = await member.mutation(api.chat.sendMessage, {
+			roomId: ids.roomId,
+			content: 'Member update'
+		});
+
+		expect(summary).toMatchObject({ canSend: true });
+		expect(sent).toMatchObject({ profileId: ids.memberProfileId, content: 'Member update' });
+	});
+
+	it('lists the guide but not the non-member learner as participants and email recipients', async () => {
+		const { base, ids, member } = await seedAttributedProjectFixture();
+
+		const participants = await member.query(api.chat.getRoomParticipants, {
+			roomId: ids.roomId
+		});
+		const recipients = await base.run(async (ctx) => {
+			const room = await ctx.db.get(ids.roomId);
+			return [...(await listRoomRecipientProfileIds(ctx, room!))];
+		});
+
+		const participantIds = participants.participants.map((entry) => entry.profileId);
+		expect(participantIds).toContain(ids.guideProfileId);
+		expect(participantIds).toContain(ids.memberProfileId);
+		expect(participantIds).not.toContain(ids.learnerProfileId);
+		expect(recipients).toEqual(expect.arrayContaining([ids.guideProfileId, ids.memberProfileId]));
+		expect(recipients).not.toContain(ids.learnerProfileId);
 	});
 });

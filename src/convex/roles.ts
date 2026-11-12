@@ -59,6 +59,9 @@ const canonicalGuidePermissions = [
 	'project:update',
 	'project:link',
 	'project:unlink',
+	// CL-767: observe (read and write in) the chat of every project attributed to the club.
+	// Guide-only on purpose: Learners have `project:read` to browse projects, not to join chats.
+	'project_chat:observe',
 	'updates:read',
 	'updates:create',
 	'updates:update'
