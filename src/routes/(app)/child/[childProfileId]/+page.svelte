@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -23,6 +22,7 @@
 	import { formatClockTime } from '$lib/domain/date';
 	import { SIGNED_IN_VIA_LINK_PARAM, SIGNED_IN_VIA_LINK_VALUE } from '$lib/auth/magic-link';
 	import { SIGNED_IN_VIA_LINK_STORAGE_KEY } from '$lib/auth/onboarding-state';
+	import { replaceUrlAfterRouterStart } from '$lib/navigation/replace-url';
 	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
 	import { authClient } from '$lib/auth-client';
 	import {
@@ -83,9 +83,15 @@
 			signedInViaLink = viaLink;
 		}
 		if (viaLink) {
+			// A sign-in link lands here with a full page load, where the router is not ready yet
+			// during onMount.
 			const url = new URL(page.url);
 			url.searchParams.delete(SIGNED_IN_VIA_LINK_PARAM);
-			replaceState(`${url.pathname}${url.search}${url.hash}`, {});
+			const pathname = url.pathname;
+			replaceUrlAfterRouterStart(
+				`${url.pathname}${url.search}${url.hash}`,
+				() => window.location.pathname === pathname
+			);
 		}
 	});
 	const dismissSignedInViaLink = () => {

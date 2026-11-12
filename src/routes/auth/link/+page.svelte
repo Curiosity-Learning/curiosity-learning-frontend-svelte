@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -10,6 +9,7 @@
 		parseMagicLinkInterstitialFragment,
 		type MagicLinkInterstitial
 	} from '$lib/auth/magic-link';
+	import { replaceUrlAfterRouterStart } from '$lib/navigation/replace-url';
 
 	// Interstitial for every sign-in link we email or show (review S1; see lib/auth/magic-link.ts):
 	// the token sits in the URL fragment, which never reaches a server, and the verify endpoint —
@@ -22,9 +22,11 @@
 	onMount(() => {
 		link = parseMagicLinkInterstitialFragment(window.location.hash);
 		ready = true;
-		// Drop the token from the address bar and from this history entry once read.
+		// Drop the token from the address bar and from this history entry once read. An emailed
+		// link is always a first page load, where the router is not ready yet during onMount.
 		if (window.location.hash) {
-			replaceState(page.url.pathname, {});
+			const pathname = page.url.pathname;
+			replaceUrlAfterRouterStart(pathname, () => window.location.pathname === pathname);
 		}
 	});
 
