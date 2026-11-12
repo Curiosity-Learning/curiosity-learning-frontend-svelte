@@ -59,6 +59,12 @@
 	const chatUnreadResponse = useStableQuery(api.chat.getTotalUnreadCount, () =>
 		isAuthReady ? {} : 'skip'
 	);
+	// CL-780: drives the "Reviews" nav item (shown only while the viewer has applications to
+	// review this season) and its badge.
+	const reviewCountResponse = useStableQuery(
+		api.clubApplications.countReviewableApplications,
+		() => (isAuthReady ? {} : 'skip')
+	);
 	let clubs = $derived(clubsResponse.data ?? []);
 	// Edge case 14: only asked for club-less accounts (see clubLessLandingPath).
 	const firstLinkedChildResponse = useStableQuery(api.parentAccounts.getMyFirstLinkedChildId, () =>
@@ -198,7 +204,8 @@
 	let navigation = $derived(
 		buildAppNavigation(clubIdForNav, {
 			hasClubAccess,
-			chatUnreadCount: chatUnreadResponse.data ?? 0
+			chatUnreadCount: chatUnreadResponse.data ?? 0,
+			reviewCount: reviewCountResponse.data ?? null
 		})
 	);
 	let navState = $derived(deriveNavState(navigation, activePath));

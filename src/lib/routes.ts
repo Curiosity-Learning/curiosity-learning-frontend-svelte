@@ -20,6 +20,7 @@ export const routes = {
 	notifications: '/notifications',
 	applications: '/applications',
 	applicationsReview: '/applications/review',
+	applicationReviewGuide: '/applications/review/guide',
 	feedback: '/feedback',
 	child: '/child',
 

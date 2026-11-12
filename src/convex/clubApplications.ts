@@ -3,12 +3,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
-import {
-	getProfileByAuthUserId,
-	listMembershipsForProfile,
-	requireIdentity,
-	requireProfile
-} from './permissions';
+import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
 import { postRoomMessage } from './chatEmail';
 import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
@@ -16,9 +11,11 @@ import { createClubForFounder } from './clubCreationModel';
 import { resolveMediaAssetFileUrl } from './mediaStorage';
 import {
 	assignReviewsForApplicationIfWindowOpen,
-	isReviewWindowOpen,
-	maybeNotifyScoreDiscrepancy
+	isApplicationReviewWindowOpen,
+	maybeNotifyScoreDiscrepancy,
+	pickCurrentReviewSeason
 } from './reviewAssignmentModel';
+import { getApplicationIntakeSeason, pickApplicationIntakeSeason } from './seasons';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -40,27 +37,6 @@ type ApplicationDraft = {
 	applicantRole?: string;
 	referralSource?: string;
 	referralOther?: string;
-};
-
-const isGuideSomewhere = async (ctx: Ctx, userId: string) => {
-	const profile = await requireProfile(ctx, userId);
-	const memberships = await listMembershipsForProfile(ctx, profile);
-
-	for (const membership of memberships) {
-		if (membership.leftAt) continue;
-		const role = await ctx.db.get(membership.roleId);
-		if (role?.key === 'guide') {
-			return true;
-		}
-	}
-
-	return false;
-};
-
-const requireGuideSomewhere = async (ctx: Ctx, userId: string) => {
-	if (!(await isGuideSomewhere(ctx, userId))) {
-		throw new ConvexError('Only Guides can review applications');
-	}
 };
 
 // A "deciding Guide" for an application is any Guide who has reviewed it (has an
@@ -156,6 +132,12 @@ export const applicationHasReadyVideo = async (ctx: Ctx, application: Doc<'clubA
 // before scores are submitted — and the hand-assigned reviewers of a season where no guides
 // existed when applications came in). Returns null for everyone else. Used by the video delivery
 // gate, the chat page's getApplicationForRoom, and the application detail page's getApplication.
+//
+// CL-780 (Ron, 2026-11-11): being a global admin must not change how someone uses the member app;
+// it only opens the admin portal. So reviewing comes first: an admin who is assigned to (or has
+// reviewed) an application is a `reviewer` like any other Guide and gets the scoring form. Only
+// an admin with no part in the review falls through to `admin`, which in the member app is a
+// read-only view (no scores, no roster: those live in the admin portal).
 export type ApplicationViewer =
 	| { role: 'applicant'; hasReviewed: false; isAssigned: false }
 	| { role: 'admin'; hasReviewed: false; isAssigned: false }
@@ -169,15 +151,15 @@ export const resolveApplicationViewer = async (
 	if (application.applicantProfileId === profile._id) {
 		return { role: 'applicant', hasReviewed: false, isAssigned: false };
 	}
+	const review = await getApplicationReview(ctx, application._id, profile._id);
+	const assignment = await getAssignment(ctx, application._id, profile._id);
+	if (review || assignment) {
+		return { role: 'reviewer', hasReviewed: Boolean(review), isAssigned: Boolean(assignment) };
+	}
 	if (profile.globalRole === 'admin') {
 		return { role: 'admin', hasReviewed: false, isAssigned: false };
 	}
-	const review = await getApplicationReview(ctx, application._id, profile._id);
-	const assignment = await getAssignment(ctx, application._id, profile._id);
-	if (!review && !assignment) {
-		return null;
-	}
-	return { role: 'reviewer', hasReviewed: Boolean(review), isAssigned: Boolean(assignment) };
+	return null;
 };
 
 const canAccessApplicationVideo = async (
@@ -203,6 +185,11 @@ export const buildApplicationReviewSummary = async (
 			return {
 				reviewId: review._id,
 				reviewerName: reviewerProfile ? profileDisplayName(reviewerProfile) : 'Unknown reviewer',
+				// CL-780: the three 1-5 dimensions of the reviewing guide. Null on reviews saved
+				// before CL-780, which have the legacy 0-10 principles/safety pair instead.
+				alignmentScore: review.alignmentScore ?? null,
+				motivationScore: review.motivationScore ?? null,
+				readinessScore: review.readinessScore ?? null,
 				principlesScore: review.principlesScore ?? null,
 				safetyScore: review.safetyScore ?? null,
 				score: review.score,
@@ -292,10 +279,13 @@ const upsertIncompleteApplication = async (
 		return { applicationId: existing._id };
 	}
 
+	// CL-778: "Season started" — the season taking applications right now. Never changed later.
+	const startedSeason = await getApplicationIntakeSeason(ctx, now);
 	const applicationId = await ctx.db.insert('clubApplications', {
 		applicantProfileId: args.profileId,
 		status: 'incomplete',
 		...normalized,
+		startedSeasonId: startedSeason?._id,
 		createdAt: now,
 		updatedAt: now
 	});
@@ -363,9 +353,16 @@ export const submitApplication = mutation({
 
 		const now = Date.now();
 		const existing = await getLatestIncompleteApplication(ctx, profile._id);
+		// CL-778: "Season for review" — the season taking applications at the moment of submission.
+		// A submission after a season's deadline therefore goes to the NEXT season (and is scored in
+		// that season's window). Unset when no upcoming season has a deadline yet; an admin can set
+		// it later (admin.adminSetApplicationReviewSeason).
+		const reviewSeason = await getApplicationIntakeSeason(ctx, now);
 		const payload = {
 			applicantProfileId: profile._id,
 			status: 'pending',
+			reviewSeasonId: reviewSeason?._id,
+			submittedAt: now,
 			name: args.name.trim(),
 			description: args.description,
 			location: args.location,
@@ -395,8 +392,10 @@ export const submitApplication = mutation({
 			return { applicationId: existing._id };
 		}
 
+		// No draft row: started and submitted in the same moment, so both seasons are the same.
 		const applicationId = await ctx.db.insert('clubApplications', {
 			...payload,
+			startedSeasonId: reviewSeason?._id,
 			createdAt: now
 		});
 		await ensureClubApplicationRoom(ctx, applicationId);
@@ -490,44 +489,120 @@ const getAssignment = async (
 		.unique();
 };
 
-// CL-709: assignment-based. Only applications ASSIGNED to the current Guide (still pending, not
-// yet reviewed by them) show up — this replaces the old self-select "every pending application"
-// list.
-export const listReviewableApplications = query({
+const applicationStatusValidator = v.union(
+	v.literal('incomplete'),
+	v.literal('pending'),
+	v.literal('interview'),
+	v.literal('accepted'),
+	v.literal('rejected')
+);
+
+// CL-780: the Guide's review queue for the current review season. Ron, 2026-11-11: every
+// application a Guide reviews belongs to the same season, so the season and its scoring deadline
+// are shown once, at the top of the queue, not on every application. "Current review season" is
+// the one shared definition (reviewAssignmentModel.pickCurrentReviewSeason): scoring has opened
+// and the season hasn't started yet, else the next season whose scoring opens.
+//
+// The queue is assignment-based (CL-709): an application shows up when it is assigned to the
+// viewer AND its own review season is the current one. Ones the viewer already scored stay in the
+// queue, under "Reviewed", so the score can be revisited until scoring closes (previously they
+// vanished and the page couldn't tell "nothing assigned" from "all done").
+const reviewQueueItemValidator = v.object({
+	applicationId: v.id('clubApplications'),
+	name: v.string(),
+	location: v.union(v.string(), v.null()),
+	description: v.union(v.string(), v.null()),
+	submittedAt: v.number(),
+	status: applicationStatusValidator,
+	// Average of the viewer's own scores, null when they haven't reviewed it yet.
+	myScore: v.union(v.number(), v.null())
+});
+
+const reviewQueueValidator = v.object({
+	season: v.union(
+		v.null(),
+		v.object({
+			seasonId: v.id('seasons'),
+			name: v.string(),
+			reviewWindowOpen: v.number(),
+			reviewWindowClose: v.number(),
+			isScoringOpen: v.boolean()
+		})
+	),
+	toReview: v.array(reviewQueueItemValidator),
+	reviewed: v.array(reviewQueueItemValidator)
+});
+
+const buildReviewQueue = async (ctx: Ctx, profileId: Id<'profiles'>, now: number) => {
+	const seasons = await ctx.db.query('seasons').collect();
+	const season = pickCurrentReviewSeason(seasons, now);
+	if (!season) {
+		return { season: null, toReview: [], reviewed: [] };
+	}
+	const assignments = await ctx.db
+		.query('applicationReviewAssignments')
+		.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profileId))
+		.collect();
+
+	const toReview = [];
+	const reviewed = [];
+	const seen = new Set<Id<'clubApplications'>>();
+	for (const assignment of assignments) {
+		if (seen.has(assignment.applicationId)) continue;
+		seen.add(assignment.applicationId);
+		const application = await ctx.db.get(assignment.applicationId);
+		if (!application || application.reviewSeasonId !== season._id) continue;
+		if (application.status === 'incomplete') continue;
+		const review = await getApplicationReview(ctx, application._id, profileId);
+		// A review saved on the pre-CL-780 0-10 scale has to be scored again on 1-5, so it counts
+		// as still to review (its old `score` isn't comparable).
+		const currentReview = review && review.alignmentScore !== undefined ? review : null;
+		const item = {
+			applicationId: application._id,
+			name: application.name,
+			location: application.location ?? null,
+			description: application.description ?? null,
+			submittedAt: application.submittedAt ?? application.createdAt,
+			status: application.status,
+			myScore: currentReview ? currentReview.score : null
+		};
+		if (currentReview) {
+			reviewed.push(item);
+		} else if (application.status === 'pending') {
+			toReview.push(item);
+		}
+		// Assigned, never scored, and already moved on (interview/decided): nothing left to do.
+	}
+	toReview.sort((a, b) => a.submittedAt - b.submittedAt);
+	reviewed.sort((a, b) => a.submittedAt - b.submittedAt);
+
+	return {
+		season: {
+			seasonId: season._id,
+			name: season.name,
+			reviewWindowOpen: season.reviewWindowOpen,
+			reviewWindowClose: season.reviewWindowClose,
+			isScoringOpen: season.reviewWindowOpen <= now && now <= season.reviewWindowClose
+		},
+		toReview,
+		reviewed
+	};
+};
+
+export const getMyReviewQueue = query({
 	args: {},
-	returns: v.any(),
+	returns: reviewQueueValidator,
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
-		await requireGuideSomewhere(ctx, identity.subject);
 		const profile = await requireProfile(ctx, identity.subject);
-
-		const assignments = await ctx.db
-			.query('applicationReviewAssignments')
-			.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
-			.collect();
-
-		const items = [];
-		for (const assignment of assignments) {
-			const application = await ctx.db.get(assignment.applicationId);
-			if (!application || application.status !== 'pending') continue;
-			const existingReview = await getApplicationReview(ctx, application._id, profile._id);
-			if (existingReview) continue;
-			items.push({
-				...application,
-				myReview: null,
-				// CL-710 CEO review item 2: the video is one of the most important parts of the
-				// application — surface it directly on the review card.
-				videoUrl: await resolveApplicationVideoUrl(ctx, application)
-			});
-		}
-		items.sort((a, b) => b.createdAt - a.createdAt);
-		return items;
+		return await buildReviewQueue(ctx, profile._id, Date.now());
 	}
 });
 
-// Count of assigned-but-unreviewed applications for the current Guide. Powers the badge on the
-// Application Reviews entry point (PRD 6.13: no per-review notifications, just a count badge).
-// Returns null when the viewer is not a Guide anywhere (the entry point is hidden for them).
+// Count of applications still waiting on the viewer's score in the current review season. Powers
+// the badge on the "Reviews" nav item and the profile card (PRD 6.13: no per-review
+// notifications, just a count badge). Null when the viewer has nothing assigned this season, so
+// the entry points stay hidden for Guides who aren't reviewing.
 export const countReviewableApplications = query({
 	args: {},
 	returns: v.union(v.number(), v.null()),
@@ -536,27 +611,22 @@ export const countReviewableApplications = query({
 		if (!identity) return null;
 		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) return null;
-		if (!(await isGuideSomewhere(ctx, identity.subject))) return null;
-
-		const assignments = await ctx.db
-			.query('applicationReviewAssignments')
-			.withIndex('by_reviewer_profile_id', (q) => q.eq('reviewerProfileId', profile._id))
-			.collect();
-
-		let count = 0;
-		for (const assignment of assignments) {
-			const application = await ctx.db.get(assignment.applicationId);
-			if (!application || application.status !== 'pending') continue;
-			const existingReview = await getApplicationReview(ctx, application._id, profile._id);
-			if (!existingReview) count += 1;
-		}
-		return count;
+		const queue = await buildReviewQueue(ctx, profile._id, Date.now());
+		if (queue.toReview.length === 0 && queue.reviewed.length === 0) return null;
+		return queue.toReview.length;
 	}
 });
 
+// CL-780: the reviewing guide scores three dimensions from 1 (very weak) to 5 (very strong); 3
+// ("good enough") is a positive score. See src/lib/domain/application-review-guide.ts.
+const REVIEW_SCORE_MIN = 1;
+const REVIEW_SCORE_MAX = 5;
+
 const clampScore = (value: number, label: string) => {
-	if (!Number.isInteger(value) || value < 0 || value > 10) {
-		throw new ConvexError(`${label} must be an integer from 0 to 10`);
+	if (!Number.isInteger(value) || value < REVIEW_SCORE_MIN || value > REVIEW_SCORE_MAX) {
+		throw new ConvexError(
+			`${label} must be a whole number from ${REVIEW_SCORE_MIN} to ${REVIEW_SCORE_MAX}`
+		);
 	}
 	return value;
 };
@@ -564,8 +634,10 @@ const clampScore = (value: number, label: string) => {
 export const upsertApplicationReview = mutation({
 	args: {
 		applicationId: v.id('clubApplications'),
-		principlesScore: v.number(),
-		safetyScore: v.number(),
+		alignmentScore: v.number(),
+		motivationScore: v.number(),
+		readinessScore: v.number(),
+		// "Anything to clarify in the interview" (guide step 5). May be empty.
 		note: v.string()
 	},
 	returns: v.object({
@@ -573,7 +645,6 @@ export const upsertApplicationReview = mutation({
 	}),
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		await requireGuideSomewhere(ctx, identity.subject);
 		const profile = await requireProfile(ctx, identity.subject);
 		const application = await ctx.db.get(args.applicationId);
 		if (!application) {
@@ -585,12 +656,15 @@ export const upsertApplicationReview = mutation({
 		if (application.applicantProfileId === profile._id) {
 			throw new ConvexError('You cannot review your own application');
 		}
-		const principlesScore = clampScore(args.principlesScore, 'Guiding Principles score');
-		const safetyScore = clampScore(args.safetyScore, 'Safety score');
-		const note = args.note.trim();
-		if (!note) {
-			throw new ConvexError('Review note is required');
+		// CL-780: scoring follows the application's own review season (CL-778). The form was
+		// already hidden outside it; the server now agrees.
+		if (!(await isApplicationReviewWindowOpen(ctx, application))) {
+			throw new ConvexError('Scoring for this application is closed');
 		}
+		const alignmentScore = clampScore(args.alignmentScore, 'Alignment');
+		const motivationScore = clampScore(args.motivationScore, 'Motivation');
+		const readinessScore = clampScore(args.readinessScore, 'Readiness');
+		const note = args.note.trim();
 
 		const existing = await getApplicationReview(ctx, args.applicationId, profile._id);
 		// CL-709: reviewing requires an assignment — unless a review row already exists (ops/admin
@@ -604,14 +678,20 @@ export const upsertApplicationReview = mutation({
 			}
 		}
 
-		const score = Math.round(((principlesScore + safetyScore) / 2) * 10) / 10;
+		// `score` stays the single number the decision flow, the admin pipeline and the
+		// discrepancy alert read: the average of the three, rounded to 1 decimal.
+		const score = Math.round(((alignmentScore + motivationScore + readinessScore) / 3) * 10) / 10;
 		const now = Date.now();
 
 		if (existing) {
 			await ctx.db.patch(existing._id, {
 				reviewerProfileId: profile._id,
-				principlesScore,
-				safetyScore,
+				alignmentScore,
+				motivationScore,
+				readinessScore,
+				// A review re-saved on the new scale drops the legacy 0-10 pair.
+				principlesScore: undefined,
+				safetyScore: undefined,
 				score,
 				note,
 				updatedAt: now
@@ -624,8 +704,9 @@ export const upsertApplicationReview = mutation({
 		const reviewId = await ctx.db.insert('applicationReviews', {
 			applicationId: args.applicationId,
 			reviewerProfileId: profile._id,
-			principlesScore,
-			safetyScore,
+			alignmentScore,
+			motivationScore,
+			readinessScore,
 			score,
 			note,
 			createdAt: now,
@@ -879,13 +960,12 @@ export const getApplicationForRoom = query({
 	}
 });
 
-const applicationStatusValidator = v.union(
-	v.literal('incomplete'),
-	v.literal('pending'),
-	v.literal('interview'),
-	v.literal('accepted'),
-	v.literal('rejected')
-);
+// CL-778: { seasonId, name } of a linked season, null when unset (or the row is gone).
+export const resolveApplicationSeason = async (ctx: Ctx, seasonId: Id<'seasons'> | undefined) => {
+	if (!seasonId) return null;
+	const season = await ctx.db.get(seasonId);
+	return season ? { seasonId: season._id, name: season.name } : null;
+};
 
 const applicationDecisionValidator = v.object({
 	decidedByName: v.union(v.string(), v.null()),
@@ -898,38 +978,17 @@ const applicationDecisionValidator = v.object({
 	)
 });
 
-const applicationReviewSummaryValidator = v.object({
-	reviews: v.array(
-		v.object({
-			reviewId: v.id('applicationReviews'),
-			reviewerName: v.string(),
-			principlesScore: v.union(v.number(), v.null()),
-			safetyScore: v.union(v.number(), v.null()),
-			score: v.number(),
-			note: v.string(),
-			createdAt: v.number()
-		})
-	),
-	assignedReviewers: v.array(
-		v.object({
-			profileId: v.id('profiles'),
-			name: v.string(),
-			username: v.union(v.string(), v.null()),
-			assignedAt: v.number(),
-			hasReviewed: v.boolean()
-		})
-	)
-});
-
 // Application detail page (/applications/review/{id}) — the member-app counterpart of
 // admin.adminGetApplication. Same audience as the application chat (resolveApplicationViewer),
 // with strictly tiered visibility (Ron, 2026-09-03: "other reviews should never be seen by other
 // reviewers — you only see what YOU reviewed, not the average, nor the rating per person"):
-//   - applicant: own details and video only; `myReview`, `decision`, `review` are all null.
+//   - applicant: own details, video and status only; `myReview` and `decision` are null.
 //   - reviewer (assigned or reviewed): plus `myReview` (their own scores/note, editable while the
-//     window is open) and `decision`; `review` stays null — no other reviewer's scores, notes,
-//     names, or progress.
-//   - admin: everything, including `review` (all reviews + assigned reviewers).
+//     window is open) and `decision` — never another reviewer's scores, notes, names, or progress.
+//   - admin who isn't reviewing it: the same read-only view as a reviewer without a review.
+// CL-780: global admins see the member app like everyone else; every review, the reviewer roster,
+// the referral source and the seasons live in the admin portal (admin.adminGetApplication), and
+// the season is shown once on the review queue rather than per application.
 export const getApplication = query({
 	args: {
 		applicationId: v.id('clubApplications')
@@ -943,9 +1002,8 @@ export const getApplication = query({
 			description: v.union(v.string(), v.null()),
 			location: v.union(v.string(), v.null()),
 			applicantRole: v.union(v.string(), v.null()),
-			referralSource: v.union(v.string(), v.null()),
-			referralOther: v.union(v.string(), v.null()),
 			createdAt: v.number(),
+			submittedAt: v.union(v.number(), v.null()),
 			decidedAt: v.union(v.number(), v.null()),
 			// Already posted into the application chat on rejection, so applicant-visible.
 			rejectionNote: v.union(v.string(), v.null()),
@@ -966,22 +1024,22 @@ export const getApplication = query({
 				hasReviewed: v.boolean(),
 				isAssigned: v.boolean()
 			}),
-			// Season-driven: the scoring form only renders while a review window is open (see
-			// reviewAssignmentModel.isReviewWindowOpen).
+			// Season-driven: the scoring form only renders while the application's OWN review
+			// season's window is open (CL-778; reviewAssignmentModel.isApplicationReviewWindowOpen).
 			reviewWindowOpen: v.boolean(),
 			myReview: v.union(
 				v.null(),
 				v.object({
-					principlesScore: v.union(v.number(), v.null()),
-					safetyScore: v.union(v.number(), v.null()),
+					// CL-780 1-5 scores; null on a review saved on the legacy 0-10 scale (which then
+					// has to be re-scored to be saved again).
+					alignmentScore: v.union(v.number(), v.null()),
+					motivationScore: v.union(v.number(), v.null()),
+					readinessScore: v.union(v.number(), v.null()),
 					note: v.string()
 				})
 			),
 			// Reviewer/admin: who decided and any Core Team follow-up flag. Null for the applicant.
-			decision: v.union(v.null(), applicationDecisionValidator),
-			// Admin only: every review and the assigned-reviewer roster. Null for reviewers and the
-			// applicant.
-			review: v.union(v.null(), applicationReviewSummaryValidator)
+			decision: v.union(v.null(), applicationDecisionValidator)
 		})
 	),
 	handler: async (ctx, args) => {
@@ -1020,8 +1078,6 @@ export const getApplication = query({
 					: null
 			};
 		}
-		const review =
-			viewer.role === 'admin' ? await buildApplicationReviewSummary(ctx, application._id) : null;
 		const ownReview =
 			viewer.role === 'reviewer' && viewer.hasReviewed
 				? await getApplicationReview(ctx, application._id, profile._id)
@@ -1034,9 +1090,8 @@ export const getApplication = query({
 			description: application.description ?? null,
 			location: application.location ?? null,
 			applicantRole: application.applicantRole ?? null,
-			referralSource: application.referralSource ?? null,
-			referralOther: application.referralOther ?? null,
 			createdAt: application.createdAt,
+			submittedAt: application.submittedAt ?? null,
 			decidedAt: application.decidedAt ?? null,
 			rejectionNote: application.rejectionNote ?? null,
 			createdClubId: application.createdClubId ?? null,
@@ -1054,16 +1109,16 @@ export const getApplication = query({
 				hasReviewed: viewer.hasReviewed,
 				isAssigned: viewer.isAssigned
 			},
-			reviewWindowOpen: await isReviewWindowOpen(ctx),
+			reviewWindowOpen: await isApplicationReviewWindowOpen(ctx, application),
 			myReview: ownReview
 				? {
-						principlesScore: ownReview.principlesScore ?? null,
-						safetyScore: ownReview.safetyScore ?? null,
+						alignmentScore: ownReview.alignmentScore ?? null,
+						motivationScore: ownReview.motivationScore ?? null,
+						readinessScore: ownReview.readinessScore ?? null,
 						note: ownReview.note
 					}
 				: null,
-			decision,
-			review
+			decision
 		};
 	}
 });
@@ -1101,6 +1156,193 @@ export const getApplicationVideoDeliveryAsset = query({
 			mediaKind: asset.mediaKind ?? null,
 			contentType: asset.contentType ?? null,
 			durationSeconds: asset.durationSeconds ?? null
+		};
+	}
+});
+
+// ---------------------------------------------------------------------------
+// CL-778 backfill: link applications created before CL-778 to seasons.
+//
+//   npx convex run clubApplications:backfillApplicationSeasons \
+//     '{"dryRun": true, "legacySeasonId": "<Season 0 id>", "legacyCutoff": 1785542400000}' [--prod]
+//
+// (legacyCutoff = Date.UTC(2026, 7, 1), 1 Aug 2026: everything created before the season system
+// belongs to the bootstrap "Season 0".) Run with dryRun first and read the per-application list.
+// Rules (Ron, 2026-11-06):
+//   - Only fills fields that are unset — idempotent, never overwrites (so it is safe to re-run,
+//     and it never touches anything set on create/submit or by an admin).
+//   - startedSeasonId: createdAt < legacyCutoff → legacySeasonId; otherwise the season taking
+//     applications at createdAt (seasons.getApplicationIntakeSeason); none → left unset.
+//   - reviewSeasonId: submitted statuses only (pending, interview, accepted, rejected); incomplete
+//     applications get none.
+//       - submittedAt set (submitted after CL-778 shipped, e.g. a re-run after a new season was
+//         created): the season taking applications at submittedAt — exactly what submitApplication
+//         would have set. No legacy-cutoff or decided-early rule; a late (8 Nov) submission stays in
+//         Spring 2027, never Winter 2026.
+//       - pending/interview without submittedAt: still being reviewed or interviewed, so never the
+//         closed legacy season — the season taking applications at max(createdAt, legacyCutoff),
+//         i.e. the season in its review cycle when the season system started (Winter 2026 on prod).
+//       - accepted/rejected without submittedAt: the date rule on createdAt (submission moment
+//         unknown). Exception: decided before that season's review window opened → it was not
+//         reviewed in that season → legacySeasonId.
+//   - submittedAt is NOT backfilled (unknown), and no past seasons are created.
+// ---------------------------------------------------------------------------
+
+const SUBMITTED_STATUSES: Doc<'clubApplications'>['status'][] = [
+	'pending',
+	'interview',
+	'accepted',
+	'rejected'
+];
+
+const backfillSeasonCountValidator = v.array(
+	v.object({ seasonName: v.string(), count: v.number() })
+);
+
+export const backfillApplicationSeasons = internalMutation({
+	args: {
+		dryRun: v.boolean(),
+		legacySeasonId: v.id('seasons'),
+		legacyCutoff: v.number()
+	},
+	returns: v.object({
+		dryRun: v.boolean(),
+		scanned: v.number(),
+		startedSeasonSet: v.number(),
+		reviewSeasonSet: v.number(),
+		// Seasons this run set (or, in a dry run, would set), per field.
+		startedSeasonCounts: backfillSeasonCountValidator,
+		reviewSeasonCounts: backfillSeasonCountValidator,
+		applications: v.array(
+			v.object({
+				applicationId: v.id('clubApplications'),
+				status: v.string(),
+				createdAt: v.number(),
+				// The resulting season names (existing or newly set), null when still unset.
+				startedSeason: v.union(v.string(), v.null()),
+				reviewSeason: v.union(v.string(), v.null()),
+				startedSeasonChanged: v.boolean(),
+				reviewSeasonChanged: v.boolean(),
+				skippedReason: v.union(v.string(), v.null())
+			})
+		)
+	}),
+	handler: async (ctx, args) => {
+		const legacySeason = await ctx.db.get(args.legacySeasonId);
+		if (!legacySeason) {
+			throw new ConvexError('legacySeasonId is not a season');
+		}
+		const seasons = await ctx.db.query('seasons').collect();
+		const seasonsById = new Map(seasons.map((season) => [season._id, season]));
+		const seasonName = (seasonId: Id<'seasons'> | undefined) =>
+			seasonId ? (seasonsById.get(seasonId)?.name ?? 'Unknown season') : null;
+
+		// The date rule shared by both fields.
+		const seasonForCreatedAt = (createdAt: number) =>
+			createdAt < args.legacyCutoff
+				? legacySeason
+				: pickApplicationIntakeSeason(seasons, createdAt);
+
+		const startedCounts = new Map<string, number>();
+		const reviewCounts = new Map<string, number>();
+		const bump = (counts: Map<string, number>, name: string) =>
+			counts.set(name, (counts.get(name) ?? 0) + 1);
+
+		const applications = await ctx.db.query('clubApplications').collect();
+		applications.sort((a, b) => a.createdAt - b.createdAt);
+
+		const rows = [];
+		let startedSeasonSet = 0;
+		let reviewSeasonSet = 0;
+		for (const application of applications) {
+			const reasons: string[] = [];
+			const patch: { startedSeasonId?: Id<'seasons'>; reviewSeasonId?: Id<'seasons'> } = {};
+
+			if (application.startedSeasonId) {
+				reasons.push('season started already set');
+			} else {
+				const season = seasonForCreatedAt(application.createdAt);
+				if (season) {
+					patch.startedSeasonId = season._id;
+				} else {
+					reasons.push('season started: no season was taking applications at createdAt');
+				}
+			}
+
+			if (application.reviewSeasonId) {
+				reasons.push('season for review already set');
+			} else if (!SUBMITTED_STATUSES.includes(application.status)) {
+				reasons.push('season for review: not submitted');
+			} else {
+				let season: Doc<'seasons'> | null;
+				let moment: string;
+				if (application.submittedAt !== undefined) {
+					// Known submission moment: same answer submitApplication gives.
+					season = pickApplicationIntakeSeason(seasons, application.submittedAt);
+					moment = 'submittedAt';
+				} else if (application.status === 'pending' || application.status === 'interview') {
+					// Still in review/interview: the season in its review cycle, never the legacy one.
+					season = pickApplicationIntakeSeason(
+						seasons,
+						Math.max(application.createdAt, args.legacyCutoff)
+					);
+					moment = 'max(createdAt, legacyCutoff)';
+				} else {
+					season = seasonForCreatedAt(application.createdAt);
+					moment = 'createdAt';
+					if (
+						season &&
+						season._id !== legacySeason._id &&
+						application.decidedAt !== undefined &&
+						application.decidedAt < season.reviewWindowOpen
+					) {
+						// Decided before that season's scoring even opened: not reviewed in it.
+						season = legacySeason;
+					}
+				}
+				if (season) {
+					patch.reviewSeasonId = season._id;
+				} else {
+					reasons.push(`season for review: no season was taking applications at ${moment}`);
+				}
+			}
+
+			if (patch.startedSeasonId) {
+				startedSeasonSet += 1;
+				bump(startedCounts, seasonName(patch.startedSeasonId) ?? 'Unknown season');
+			}
+			if (patch.reviewSeasonId) {
+				reviewSeasonSet += 1;
+				bump(reviewCounts, seasonName(patch.reviewSeasonId) ?? 'Unknown season');
+			}
+			if (!args.dryRun && (patch.startedSeasonId || patch.reviewSeasonId)) {
+				// updatedAt deliberately untouched: this is bookkeeping, not an applicant edit.
+				await ctx.db.patch(application._id, patch);
+			}
+
+			rows.push({
+				applicationId: application._id,
+				status: application.status,
+				createdAt: application.createdAt,
+				startedSeason: seasonName(patch.startedSeasonId ?? application.startedSeasonId),
+				reviewSeason: seasonName(patch.reviewSeasonId ?? application.reviewSeasonId),
+				startedSeasonChanged: Boolean(patch.startedSeasonId),
+				reviewSeasonChanged: Boolean(patch.reviewSeasonId),
+				skippedReason: reasons.length > 0 ? reasons.join('; ') : null
+			});
+		}
+
+		const toCounts = (counts: Map<string, number>) =>
+			[...counts.entries()].map(([name, count]) => ({ seasonName: name, count }));
+
+		return {
+			dryRun: args.dryRun,
+			scanned: applications.length,
+			startedSeasonSet,
+			reviewSeasonSet,
+			startedSeasonCounts: toCounts(startedCounts),
+			reviewSeasonCounts: toCounts(reviewCounts),
+			applications: rows
 		};
 	}
 });

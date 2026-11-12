@@ -24,7 +24,44 @@ SvelteKit frontend and Convex backend for Curiosity Learning.
 - Authenticated shell routes: `/club/[clubId]`, `/feed`, `/chat`, `/profile`, `/settings`, `/notifications`
 - `/privacy`, `/terms`: policy pages backed by active Convex policy content
 
+## How We Work (Ron + AI agents)
+
+Ron decides what to build and tests it; agents do the rest. Every step is tracked on the Fibery
+ticket. The detailed rules for agents are in `AGENTS.md`.
+
+1. **Ron picks a ticket** in Fibery (`CL-###`) and tells an agent "do CL-123". The ticket says
+   what should be true when it is done. Several things at once means several tickets, each in
+   its own T3 thread and worktree.
+2. **The agent builds and tests locally.** It works in its own worktree and branch (its own Convex
+   backend, test data and `*.localhost` URL, see [`docs/worktrees.md`](docs/worktrees.md)) and
+   moves the ticket to `In Progress`. It tests on the worktree URL by signing in as the
+   `cl-e2e-*` test accounts and running the checks in "Testing Policy" (`AGENTS.md`). Ron does
+   not test locally.
+3. **The agent opens a PR and checks the preview.** It opens the PR, waits for the Vercel branch
+   preview, and clicks through it. Then it moves the ticket to `Implemented` and sends Ron the PR
+   link, the preview link and a short "what to test" list. Until the Vercel protection bypass is
+   set up, agents cannot open previews; they say so instead of claiming the preview was checked.
+4. **Ron tests on the preview.** This is the QA that matters. It is the real build with its own
+   copy of the dev data, so nothing can break shared dev or production. Problems go back to the
+   same thread: the agent fixes them on the same branch and the same preview URL updates. When
+   it is right, Ron moves the ticket to `Tested` or says "merge".
+5. **The agent merges and deploys.** It merges only when Ron says so, watches the production
+   deploy, and runs any production steps (env vars, backfills, `syncRolePermissions --prod`)
+   only after Ron OKs them in the chat. Then it moves the ticket to `Done`, with a comment
+   listing what was deployed and run.
+6. **The agent cleans up.** It deletes the worktree's Convex backend and the worktree with
+   `npm run worktree:remove`. Ron then settles the thread in T3. Settling does not run any script,
+   so a backend is only deleted if the agent removes it. To find leftovers, run
+   `npm run worktree:status` in the main checkout. Then use `npm run worktree:remove <path>` for
+   a finished worktree, or `npm run worktree:prune -- --yes` for backends whose worktree is already gone.
+
+Production is only ever changed by merging to `main`. Nobody tests on shared dev or production.
+
 ## Local Setup
+
+Working on a ticket? Use a worktree: it gets its own Convex backend, test data and URL
+automatically. See [`docs/worktrees.md`](docs/worktrees.md) and the ticket rules in `AGENTS.md`.
+The steps below are for the main checkout (shared dev backend).
 
 1. Install dependencies:
 
@@ -81,7 +118,7 @@ Deploy the web app to Vercel using SvelteKit's Node runtime.
 
 - Adapter: `@sveltejs/adapter-vercel`
 - Runtime: Node.js 22
-- Build command: `npm run build`
+- Build command: `bash scripts/vercel-build.sh` (set in `vercel.json`; previews get their own Convex backend, see `docs/worktrees.md`)
 
 Vercel production env values:
 

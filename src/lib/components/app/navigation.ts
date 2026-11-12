@@ -3,9 +3,10 @@ import UsersIcon from '@lucide/svelte/icons/users';
 import NewspaperIcon from '@lucide/svelte/icons/newspaper';
 import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 import UserRoundIcon from '@lucide/svelte/icons/user-round';
+import ClipboardCheckIcon from '@lucide/svelte/icons/clipboard-check';
 import { routes } from '$lib/routes';
 
-export type AppNavKey = 'club' | 'noClub' | 'feed' | 'chat' | 'profile';
+export type AppNavKey = 'club' | 'noClub' | 'feed' | 'chat' | 'reviews' | 'profile';
 
 export type AppNavPlacement = 'top' | 'bottom';
 
@@ -29,6 +30,10 @@ export type AppNavItem = {
 export type AppNavigationOptions = {
 	hasClubAccess?: boolean;
 	chatUnreadCount?: number;
+	// CL-780: applications still waiting on the viewer's score this review season. null/undefined
+	// = not reviewing this season, so no "Reviews" item at all (it used to live only on the
+	// profile page, where Guides couldn't find it).
+	reviewCount?: number | null;
 };
 
 // Route structure:
@@ -86,6 +91,16 @@ export const buildAppNavigation = (
 				badgeCount: chatUnreadCount
 			}
 		);
+	}
+
+	if (options.reviewCount !== null && options.reviewCount !== undefined) {
+		items.push({
+			key: 'reviews',
+			label: 'Reviews',
+			href: routes.applicationsReview,
+			icon: ClipboardCheckIcon,
+			badgeCount: options.reviewCount
+		});
 	}
 
 	items.push({

@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as adminInvites from "../adminInvites.js";
+import type * as adminUsers from "../adminUsers.js";
 import type * as applicationReminders from "../applicationReminders.js";
 import type * as auth from "../auth.js";
 import type * as authEmail from "../authEmail.js";
@@ -85,6 +86,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   adminInvites: typeof adminInvites;
+  adminUsers: typeof adminUsers;
   applicationReminders: typeof applicationReminders;
   auth: typeof auth;
   authEmail: typeof authEmail;
