@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import * as FileDropZone from '$lib/components/ui/file-drop-zone';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
@@ -23,7 +23,6 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { authClient } from '$lib/auth-client';
-	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
 	import { routes } from '$lib/routes';
 	import { Badge } from '$lib/components/ui/badge';
@@ -34,14 +33,15 @@
 		OWN_EMAIL_REQUIRED,
 		RESEND_LIMIT_REACHED,
 		UNLINK_REQUIRES_CONFIRMED_EMAIL,
+		CHILD_NOTIFICATIONS_ANCHOR,
 		hasErrorCode
 	} from '$lib/domain/child-notification-email';
+	import ChildEmailSettings from '$lib/components/app/child-email-settings.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
 	const session = authClient.useSession();
-	const auth = useAuth();
 	const convexClient = useConvexClient();
 	const profileResponse = useStableQuery(api.profiles.getMe, {});
 	const preferencesResponse = useStableQuery(api.preferences.get, {});
@@ -49,23 +49,10 @@
 		$session.data ? {} : 'skip'
 	);
 
-	// PRD 2.4/6.1.10 (CL-703): "View as Child". Parent side: lazily claim any approved
-	// parentChildConsents rows into parentLinks once per settings page load, then list them.
-	// Child side: whether this account has a linked parent, and whether they're old enough (>=16)
-	// to unlink it themselves.
-	let parentLinksSynced = $state(false);
-	$effect(() => {
-		if (parentLinksSynced) return;
-		// Wait for the Convex client's own sign-in, not just the Better Auth session: right after
-		// a sign-in link the session exists before Convex has its token, and the claim failed
-		// with "Unauthenticated" (CL-807).
-		if (auth.isLoading || !auth.isAuthenticated) return;
-		parentLinksSynced = true;
-		void convexClient.mutation(api.parentAccounts.syncParentLinks, {}).catch(() => {
-			// Best-effort: if this fails, getMyLinkedChildren just returns whatever was already
-			// claimed on a prior visit.
-		});
-	});
+	// Parent side (CL-801): the parent's email settings for each linked child. Viewing the app as
+	// a child lives in the bar above the app; links are claimed by the app layout. Child side:
+	// whether this account has a linked parent, and whether they're old enough (>=16) to unlink it
+	// themselves.
 	const linkedChildrenResponse = useStableQuery(api.parentAccounts.getMyLinkedChildren, () =>
 		$session.data ? {} : 'skip'
 	);
@@ -73,6 +60,18 @@
 		$session.data ? {} : 'skip'
 	);
 	let linkedChildren = $derived(linkedChildrenResponse.data ?? []);
+	// Emails about a child link to #child-notifications (through /child/[id]?settings=emails); the
+	// card only renders once the query loads, so the browser's own jump to the anchor misses it.
+	// Scroll once it exists.
+	let scrolledToChildNotifications = false;
+	$effect(() => {
+		if (scrolledToChildNotifications || linkedChildren.length === 0) return;
+		if (window.location.hash !== `#${CHILD_NOTIFICATIONS_ANCHOR}`) return;
+		scrolledToChildNotifications = true;
+		void tick().then(() =>
+			document.getElementById(CHILD_NOTIFICATIONS_ANCHOR)?.scrollIntoView({ block: 'start' })
+		);
+	});
 	let myParentLink = $derived(myParentLinkResponse.data ?? null);
 
 	const childDisplayName = (child: {
@@ -637,26 +636,22 @@
 	</Card>
 
 	{#if linkedChildren.length > 0}
-		<Card>
+		<Card id={CHILD_NOTIFICATIONS_ANCHOR} class="scroll-mt-40">
 			<CardHeader class="flex flex-col gap-2">
-				<CardTitle>{$_('parentAccounts.linkedChildrenTitle')}</CardTitle>
-				<CardDescription>{$_('parentAccounts.linkedChildrenDescription')}</CardDescription>
+				<CardTitle>{$_('parentAccounts.childrenTitle')}</CardTitle>
+				<CardDescription>{$_('parentAccounts.childrenDescription')}</CardDescription>
+				<CardDescription>{$_('parentAccounts.notificationEmailCriticalNote')}</CardDescription>
 			</CardHeader>
-			<CardContent class="flex flex-col gap-2">
+			<CardContent class="flex flex-col gap-3">
 				{#each linkedChildren as child (child.childProfileId)}
-					<div
-						class="flex items-center justify-between gap-4 rounded-lg border border-border/70 p-3"
-					>
-						<div class="flex flex-col">
-							<p class="type-sm-bold text-foreground">{childDisplayName(child)}</p>
-							{#if child.username}
-								<p class="type-body-compact text-muted-foreground">@{child.username}</p>
-							{/if}
-						</div>
-						<Button href={routes.childOverview(child.childProfileId)} variant="outline">
-							{t('parentAccounts.viewAsAction').replace('{name}', childDisplayName(child))}
-						</Button>
-					</div>
+					<ChildEmailSettings
+						childProfileId={child.childProfileId}
+						displayName={childDisplayName(child)}
+						notificationEmail={child.notificationEmail}
+						notificationEmailSetAt={child.notificationEmailSetAt}
+						notificationEmailVerified={child.notificationEmailVerified}
+						parentNotificationSettings={child.parentNotificationSettings}
+					/>
 				{/each}
 			</CardContent>
 		</Card>

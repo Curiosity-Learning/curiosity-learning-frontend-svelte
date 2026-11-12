@@ -4,6 +4,7 @@ import { getConvexServerClient } from '$lib/server/convex';
 import { getEstimatedIpLocation } from '$lib/server/ip-location';
 import { clubLessLandingPath, isNoClubAllowedPath } from '$lib/auth/no-club-allowlist';
 import { routes } from '$lib/routes';
+import { isViewAsReadOnlyError } from '$lib/domain/view-as';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals, request, url }) => {
@@ -23,11 +24,17 @@ export const load: LayoutServerLoad = async ({ locals, request, url }) => {
 			// matching their verified email against a pending invite. The mutation is a fast
 			// no_invite for everyone else and club-less users are rare, so running it inside this
 			// gate keeps the whole flow to a single choke point.
-			const claim = await convex.mutation(api.clubLeaderInvites.claimMyLeaderInvite, {});
+			// A parent viewing as a club-less child (CL-801) is refused like every write: no claim.
+			const claim = await convex
+				.mutation(api.clubLeaderInvites.claimMyLeaderInvite, {})
+				.catch((error: unknown) => {
+					if (isViewAsReadOnlyError(error)) return { status: 'no_invite' as const };
+					throw error;
+				});
 			if (claim.status === 'claimed') {
 				throw redirect(307, routes.clubHome(claim.clubId));
 			}
-			// Edge case 14: a parent (linked child, no clubs) lands on the child's page instead.
+			// Edge case 14: a parent (linked child, no clubs) lands on Settings, under the View as bar.
 			const firstLinkedChildId = await convex.query(api.parentAccounts.getMyFirstLinkedChildId, {});
 			throw redirect(307, clubLessLandingPath(firstLinkedChildId));
 		}

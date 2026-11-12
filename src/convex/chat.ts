@@ -2,7 +2,9 @@ import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { internalAction, internalMutation, mutation, query } from './_generated/server';
+import { internalAction, internalMutation, query } from './_generated/server';
+import { mutation } from './functions';
+import { childEmailSettingsPath } from '../lib/domain/child-notification-email';
 import {
 	CHAT_EMAIL_REPEAT_AFTER_MS,
 	CHAT_EMAIL_SEND_TIMEOUT_MS,
@@ -43,7 +45,8 @@ import {
 	getProfileByAuthUserId,
 	getRelatedProfile,
 	requireIdentity,
-	requireProfile
+	requireProfile,
+	getViewerIdentity
 } from './permissions';
 import { listAttributedClubIds } from './projectsModel';
 
@@ -334,7 +337,7 @@ export const listRoomSummaries = query({
 export const getTotalUnreadCount = query({
 	args: {},
 	handler: async (ctx) => {
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getViewerIdentity(ctx);
 		if (!identity) return 0;
 		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) return 0;
@@ -762,10 +765,11 @@ const deliverChatEmailToAudience = async (
 		: `/chat?room=${args.roomId}`;
 	// The parent's copy of a club/project chat says where these emails could go instead: until
 	// the child has a confirmed address, to the child once they confirm one (the parent adds it
-	// from the child's overview page — CL-768); after that, the parent only gets this as an
-	// opted-in copy, which they can turn off on the same page. A plain path, not a second sign-in
-	// link: one token per email (review S3), and the button's session covers it. Not on critical
-	// chats: those keep going to the parent either way.
+	// in their Settings, CL-801); after that, the parent only gets this as an opted-in copy, which
+	// they can turn off in the same place. A plain path, not a second sign-in link: one token per
+	// email (review S3), and the button's session covers it. The path goes through /child/[id],
+	// which switches the session back to the parent and opens that card. Not on critical chats:
+	// those keep going to the parent either way.
 	let note: { text: string; url: string; linkLabel: string } | undefined;
 	if (parentAudience && !critical) {
 		const childEmailConfirmed =
@@ -775,12 +779,12 @@ const deliverChatEmailToAudience = async (
 		note = {
 			// Ron's wording (CL-807): a friendly question first, then the one step to take.
 			text: childEmailConfirmed
-				? `You're getting a copy of ${childName}'s updates because you chose to. You can turn this off on ${childName}'s page.`
+				? `You're getting a copy of ${childName}'s updates because you chose to. You can turn this off in ${childName}'s email settings.`
 				: pendingConfirmation
 					? `${childName} will receive these updates directly once they confirm their email address.`
 					: `Prefer ${childName} to receive these updates directly? Add their email address.`,
-			url: `/child/${args.profileId}`,
-			linkLabel: `Open ${childName}'s page`
+			url: childEmailSettingsPath(args.profileId),
+			linkLabel: `Open ${childName}'s email settings`
 		};
 	}
 

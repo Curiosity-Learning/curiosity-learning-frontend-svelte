@@ -1,7 +1,8 @@
 import { ConvexError } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
-import { mutation, query } from './_generated/server';
+import { query } from './_generated/server';
+import { mutation } from './functions';
 import { ensureClubRoom } from './chatModel';
 import { notifyGuidesOfNewMember } from './notificationsModel';
 import {

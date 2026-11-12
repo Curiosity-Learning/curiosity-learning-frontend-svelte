@@ -39,6 +39,17 @@ vi.mock('./email/resend', () => ({
 	sendEmail: async () => ({ providerMessageId: 'resend-msg-1' })
 }));
 
+// CL-801: the parent's view of one child's settings, as Settings reads it.
+const childSettings = async (
+	parent: { query: ReturnType<typeof convexTest>['query'] },
+	childProfileId: Id<'profiles'>
+) => {
+	const children = await parent.query(api.parentAccounts.getMyLinkedChildren, {});
+	const child = children.find((entry) => entry.childProfileId === childProfileId);
+	if (!child) throw new Error('You do not have access to this child account');
+	return child;
+};
+
 const insertProfile = async (
 	t: ReturnType<typeof convexTest>,
 	authUserId: string,
@@ -86,45 +97,6 @@ const confirmChildEmailDirectly = (
 			notificationEmailVerifiedAt: Date.now()
 		})
 	);
-
-const seedClubRoom = async (
-	t: ReturnType<typeof convexTest>,
-	childProfileId: Id<'profiles'>,
-	options?: { roomless?: boolean }
-) =>
-	t.run(async (ctx) => {
-		const now = Date.now();
-		const roleId = await ctx.db.insert('clubRoles', {
-			key: 'learner',
-			name: 'Learner',
-			permissions: [],
-			order: 0,
-			createdAt: now
-		});
-		const clubId = await ctx.db.insert('clubs', {
-			name: 'Curiosity Club',
-			discoverable: false,
-			createdByProfileId: childProfileId,
-			createdAt: now,
-			updatedAt: now
-		});
-		await ctx.db.insert('clubMembers', {
-			clubId,
-			profileId: childProfileId,
-			roleId,
-			createdAt: now
-		});
-		let roomId: Id<'rooms'> | null = null;
-		if (!options?.roomless) {
-			roomId = await ctx.db.insert('rooms', { contextType: 'club', clubId });
-			await ctx.db.insert('messages', {
-				roomId,
-				profileId: childProfileId,
-				content: 'Hello from child'
-			});
-		}
-		return { clubId, roleId, roomId };
-	});
 
 describe('parentAccounts.isAtLeast16FromDateOfBirth', () => {
 	it('treats the child as 16 from the first day of the birth month', () => {
@@ -206,79 +178,6 @@ describe('parentAccounts.syncParentLinks / getMyLinkedChildren', () => {
 	});
 });
 
-describe('parentAccounts read-only child queries', () => {
-	it('rejects a non-parent (no parentLinks row) from getChildOverview/listChildRooms', async () => {
-		const t = convexTest(schema, modules);
-		const childProfileId = await insertProfile(t, 'child-user');
-		await seedClubRoom(t, childProfileId);
-		await insertProfile(t, 'other-parent-user');
-
-		const nonParent = t.withIdentity({ subject: 'other-parent-user' });
-		await expect(
-			nonParent.query(api.parentAccounts.getChildOverview, { childProfileId })
-		).rejects.toThrow();
-		await expect(
-			nonParent.query(api.parentAccounts.listChildRooms, { childProfileId })
-		).rejects.toThrow();
-	});
-
-	it('lets a linked parent read the child overview', async () => {
-		const t = convexTest(schema, modules);
-		const childProfileId = await insertProfile(t, 'child-user', { firstName: 'Kid' });
-		await insertApprovedConsent(t, { childProfileId, parentEmail: 'parent@example.com' });
-		await insertProfile(t, 'parent-user');
-
-		const parent = t.withIdentity({ subject: 'parent-user' });
-		await parent.mutation(api.parentAccounts.syncParentLinks, {});
-
-		const overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
-		expect(overview.childProfileId).toBe(childProfileId);
-		expect(overview.firstName).toBe('Kid');
-	});
-
-	it("lists the child's own rooms via the child's access, not the parent's", async () => {
-		const t = convexTest(schema, modules);
-		const childProfileId = await insertProfile(t, 'child-user');
-		await insertApprovedConsent(t, { childProfileId, parentEmail: 'parent@example.com' });
-		await insertProfile(t, 'parent-user');
-		const { roomId } = await seedClubRoom(t, childProfileId);
-
-		const parent = t.withIdentity({ subject: 'parent-user' });
-		await parent.mutation(api.parentAccounts.syncParentLinks, {});
-
-		const rooms = await parent.query(api.parentAccounts.listChildRooms, { childProfileId });
-		expect(rooms).toHaveLength(1);
-		expect(rooms[0].roomId).toBe(roomId);
-
-		const messages = await parent.query(api.parentAccounts.listChildMessages, {
-			childProfileId,
-			roomId: roomId as Id<'rooms'>
-		});
-		expect(messages.messages).toHaveLength(1);
-		expect(messages.messages[0].content).toBe('Hello from child');
-	});
-
-	it('rejects listChildMessages for a room the child cannot read', async () => {
-		const t = convexTest(schema, modules);
-		const childProfileId = await insertProfile(t, 'child-user');
-		await insertApprovedConsent(t, { childProfileId, parentEmail: 'parent@example.com' });
-		await insertProfile(t, 'parent-user');
-		// A second, unrelated club/room the child is NOT a member of.
-		const strangerProfileId = await insertProfile(t, 'stranger-user');
-		const { roomId: foreignRoomId } = await seedClubRoom(t, strangerProfileId);
-
-		const parent = t.withIdentity({ subject: 'parent-user' });
-		await parent.mutation(api.parentAccounts.syncParentLinks, {});
-
-		await expect(
-			parent.query(api.parentAccounts.listChildMessages, {
-				childProfileId,
-				roomId: foreignRoomId as Id<'rooms'>
-			})
-		).rejects.toThrow();
-	});
-});
-
 describe('parentAccounts.unlinkParent', () => {
 	it('rejects unlink for an under-16 child', async () => {
 		const t = convexTest(schema, modules);
@@ -335,9 +234,7 @@ describe('parentAccounts.unlinkParent', () => {
 		expect(linkInfoAfter).toBeNull();
 
 		const parent = t.withIdentity({ subject: 'parent-user' });
-		await expect(
-			parent.query(api.parentAccounts.getChildOverview, { childProfileId })
-		).rejects.toThrow();
+		expect(await parent.query(api.parentAccounts.getMyLinkedChildren, {})).toEqual([]);
 	});
 });
 
@@ -367,9 +264,9 @@ describe('parentAccounts.unlinkParent: an unlinked parent cannot claim the link 
 		await child.mutation(api.parentAccounts.unlinkParent, { parentProfileId });
 
 		expect((await parent.mutation(api.parentAccounts.syncParentLinks, {})).linkedCount).toBe(0);
-		await expect(
-			parent.query(api.parentAccounts.getChildOverview, { childProfileId })
-		).rejects.toThrow('You do not have access to this child account');
+		await expect(childSettings(parent, childProfileId)).rejects.toThrow(
+			'You do not have access to this child account'
+		);
 		expect(await child.query(api.parentAccounts.getMyParentLink, {})).toBeNull();
 		await t.run(async (ctx) => {
 			const consents = await ctx.db
@@ -398,9 +295,9 @@ describe('parentAccounts.unlinkParent: an unlinked parent cannot claim the link 
 		await child.mutation(api.parentAccounts.unlinkParent, { parentProfileId });
 
 		expect((await parent.mutation(api.parentAccounts.syncParentLinks, {})).linkedCount).toBe(0);
-		await expect(
-			parent.query(api.parentAccounts.getChildOverview, { childProfileId })
-		).rejects.toThrow('You do not have access to this child account');
+		await expect(childSettings(parent, childProfileId)).rejects.toThrow(
+			'You do not have access to this child account'
+		);
 		expect(await child.query(api.parentAccounts.getMyParentLink, {})).toBeNull();
 	});
 
@@ -640,7 +537,7 @@ describe('parentAccounts.setParentNotificationSettings', () => {
 
 	it('defaults to no copies and reports whether the child email is confirmed', async () => {
 		const { t, parent, childProfileId } = await seedLinked();
-		let overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		let overview = await childSettings(parent, childProfileId);
 		expect(overview.parentNotificationSettings).toEqual({
 			chatCopies: false,
 			activityCopies: false
@@ -650,12 +547,12 @@ describe('parentAccounts.setParentNotificationSettings', () => {
 		await t.run(async (ctx) => {
 			await ctx.db.patch(childProfileId, { notificationEmail: 'kiddo@example.com' });
 		});
-		overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		overview = await childSettings(parent, childProfileId);
 		expect(overview.notificationEmailVerified).toBe(false);
 		await t.run(async (ctx) => {
 			await ctx.db.patch(childProfileId, { notificationEmailVerifiedAt: Date.now() });
 		});
-		overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		overview = await childSettings(parent, childProfileId);
 		expect(overview.notificationEmailVerified).toBe(true);
 	});
 
@@ -681,7 +578,7 @@ describe('parentAccounts.setParentNotificationSettings', () => {
 		);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ parentProfileId, chatCopies: true, activityCopies: true });
-		const overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		const overview = await childSettings(parent, childProfileId);
 		expect(overview.parentNotificationSettings).toEqual({
 			chatCopies: true,
 			activityCopies: true
@@ -738,9 +635,9 @@ describe('parentAccounts.setChildNotificationEmail', () => {
 		expect(child?.notificationEmailSource).toBe('childPage');
 		// Pending until the child confirms it (CL-768).
 		expect(child?.notificationEmailVerifiedAt).toBeUndefined();
-		const overview = await parent.query(api.parentAccounts.getChildOverview, { childProfileId });
+		const overview = await childSettings(parent, childProfileId);
 		expect(overview.notificationEmail).toBe('kid.mail@example.com');
-		expect(overview.notificationEmailVerifiedAt).toBeNull();
+		expect(overview.notificationEmailVerified).toBe(false);
 
 		await parent.mutation(api.parentAccounts.setChildNotificationEmail, {
 			childProfileId,

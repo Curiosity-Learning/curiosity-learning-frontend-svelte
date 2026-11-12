@@ -20,6 +20,7 @@
 	import { authClient } from '$lib/auth-client';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
+	import { getViewAsContext } from '$lib/app/view-as';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
@@ -99,6 +100,7 @@
 
 	let message = $state('');
 	let errorMessage = $state('');
+	const viewAs = getViewAsContext();
 	let roomSearchQuery = $state('');
 	// PRD 6.16 (CL-731): within-conversation search. Filters the currently loaded messages
 	// only (messages paginate 40 at a time via scroll-to-top), which is noted in the UI.
@@ -1290,7 +1292,17 @@
 					<!-- CL-695/725 CEO review item C: the composer is removed entirely once sending isn't
 					possible — the banners above already explain why (archived/removed/decided) — rather
 					than staying visible in a disabled state. -->
-					{#if selectedRoomId && activeRoom?.canSend}
+					<!-- CL-801: a parent viewing as their child reads chats but never sends as them (the
+					server refuses it too); a short line says why the composer is missing. -->
+					{#if selectedRoomId && activeRoom?.canSend && viewAs.isViewingAsChild}
+						<p
+							class="type-sm shrink-0 border-t border-border/60 px-4 py-3 text-muted-foreground"
+							data-testid="view-as-chat-read-only"
+						>
+							{formatT('viewAs.chatReadOnly', { name: viewAs.viewingChildName ?? '' })}
+						</p>
+					{/if}
+					{#if selectedRoomId && activeRoom?.canSend && !viewAs.isViewingAsChild}
 						<div
 							class={`shrink-0 bg-white/90 ${
 								isDesktopViewport

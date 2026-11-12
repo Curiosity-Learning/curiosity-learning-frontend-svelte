@@ -2,8 +2,14 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { internalMutation, mutation, query } from './_generated/server';
-import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
+import { internalMutation, query } from './_generated/server';
+import { mutation } from './functions';
+import {
+	getProfileByAuthUserId,
+	requireIdentity,
+	requireProfile,
+	getViewerIdentity
+} from './permissions';
 import { postRoomMessage } from './chatEmail';
 import { ensureClubApplicationRoom, profileDisplayName } from './chatModel';
 import { dispatchNotification } from './notificationsModel';
@@ -607,7 +613,7 @@ export const countReviewableApplications = query({
 	args: {},
 	returns: v.union(v.number(), v.null()),
 	handler: async (ctx) => {
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getViewerIdentity(ctx);
 		if (!identity) return null;
 		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) return null;

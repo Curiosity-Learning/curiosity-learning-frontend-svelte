@@ -459,11 +459,12 @@ describe('chat email notifications', () => {
 		expect(magicLinksIn(parentCall.text)).toEqual([
 			{ token: expect.stringMatching(/^[a-zA-Z]{32}$/), next: childChatPath }
 		]);
-		expect(parentCall.text.endsWith(`\nhttps://app.example.com/child/${childProfileId}`)).toBe(
-			true
-		);
+		// CL-801: the note opens the child's email settings in the parent's own Settings.
+		expect(
+			parentCall.text.endsWith(`\nhttps://app.example.com/child/${childProfileId}?settings=emails`)
+		).toBe(true);
 		expect(parentCall.html).toContain('Open kiddo&#39;s chats');
-		expect(parentCall.html).toContain('Open kiddo&#39;s page');
+		expect(parentCall.html).toContain('Open kiddo&#39;s email settings');
 		expect(parentCall.text).toContain(
 			"This button signs you in — please don't forward this email."
 		);
@@ -1193,7 +1194,7 @@ describe('chat email audiences for child accounts', () => {
 		for (const call of calls) expect(typeof call.to).toBe('string');
 		const parentCall = calls.find((call) => call.to === 'parent@example.com')!;
 		expect(parentCall.text).toContain(
-			"You're getting a copy of kiddo's updates because you chose to. You can turn this off on kiddo's page."
+			"You're getting a copy of kiddo's updates because you chose to. You can turn this off in kiddo's email settings."
 		);
 		expect(magicLinksIn(parentCall.text)).toHaveLength(1);
 		const childCall = calls.find((call) => call.to === 'kiddo@example.com')!;
@@ -1267,7 +1268,7 @@ describe('chat email audiences for child accounts', () => {
 			confirmed: true,
 			chatCopies: true
 		});
-		const parent = t.withIdentity({ subject: 'parent-user' });
+		const parent = t.withIdentity({ subject: 'parent-user', sessionId: 'parent-session' });
 		await t.run(async (ctx) => {
 			await ctx.db.insert('parentLinks', {
 				parentProfileId: (await ctx.db
@@ -1285,9 +1286,13 @@ describe('chat email audiences for child accounts', () => {
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 		expect(childEmailsCount()).toBe(2);
 
-		// Inside the window, unread: no new email to either audience. The parent reading the
-		// child's chats on /child does not count as reading.
-		await parent.query(api.parentAccounts.listChildMessages, { childProfileId, roomId });
+		// Inside the window, unread: no new email to either audience. A parent viewing as the child
+		// (CL-801) reads the room but cannot mark it read: every write is refused while viewing.
+		await parent.mutation(api.viewAs.startViewing, { childProfileId });
+		await expect(parent.mutation(api.chat.markRoomRead, { roomId })).rejects.toMatchObject({
+			data: { code: 'VIEW_AS_READ_ONLY' }
+		});
+		await parent.mutation(api.viewAs.stopViewing, {});
 		vi.advanceTimersByTime(60 * 60 * 1000);
 		await guide.mutation(api.chat.sendMessage, { roomId, content: 'Two' });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);

@@ -1148,19 +1148,42 @@ const nl = {
 		updatesEmptyDescription: 'De projectupdates van dit lid verschijnen hier.',
 		sharedClubIndicatorLabel: 'Zichtbaar omdat je in dezelfde club zit'
 	},
+	viewAs: {
+		promptSingle: 'Bekijk Curiosity Learning zoals {name} het ziet.',
+		promptMultiple: 'Bekijk Curiosity Learning zoals je kinderen het zien.',
+		startAction: 'Bekijken als {name}',
+		chooseChildAction: 'Bekijken als…',
+		chooseChildLabel: 'Bekijken als',
+		viewingLabel: 'Je bekijkt de app als {name}',
+		readOnlyHint: 'Alleen lezen',
+		switchChildLabel: 'Ander kind kiezen',
+		exitAction: 'Terug naar mijn account',
+		startFailure: 'Overschakelen naar {name} is niet gelukt. Probeer het opnieuw.',
+		exitFailure: 'Terugschakelen naar je account is niet gelukt. Probeer het opnieuw.',
+		readOnlyError:
+			'Je bekijkt de app als je kind. Schakel terug naar je eigen account om iets te veranderen.',
+		openFailedTitle: 'Het account van je kind kon niet worden geopend',
+		openFailedDescription:
+			'Probeer het opnieuw. Lukt het niet, open het dan via de balk Bekijken als bovenaan.',
+		opening: 'Het account van je kind wordt geopend',
+		settingsTitle: 'Dit zijn je eigen instellingen',
+		settingsDescription:
+			'Zolang je de app bekijkt als {name}, zijn je instellingen verborgen. Schakel terug naar je account om ze te bekijken of te wijzigen, ook de e-mailinstellingen van {name}.',
+		chatReadOnly:
+			'Je bekijkt de app als {name}. Je kunt deze chat lezen, maar geen berichten sturen.'
+	},
 	parentAccounts: {
 		sharedDeviceTitle: 'Niet jouw apparaat?',
 		sharedDeviceDescription:
 			'Je bent ingelogd met een link uit een e-mail. Wordt deze computer of telefoon gedeeld? Log dan uit als je klaar bent.',
 		sharedDeviceSignOut: 'Uitloggen',
 		sharedDeviceDismiss: 'Sluiten',
-		linkedChildrenTitle: 'Gekoppelde kinderen',
-		linkedChildrenDescription: 'Bekijk een alleen-lezen overzicht van clubs, projecten en chats.',
-		linkedChildrenEmpty: 'Nog geen gekoppelde kinderen.',
-		viewAsAction: 'Bekijken als {name}',
+		childrenTitle: 'Je kinderen',
+		childrenDescription:
+			'Kies waar e-mails over elk kind naartoe gaan. Wil je de app zien zoals je kind hem ziet? Gebruik de balk Bekijken als bovenaan.',
 		linkedParentTitle: 'Gekoppelde ouder',
 		linkedParentDescription:
-			'Een ouder of voogd kan een alleen-lezen overzicht van je activiteit bekijken.',
+			'Een ouder of voogd kan je account bekijken, zonder iets te kunnen veranderen.',
 		linkedParentNone: 'Er is momenteel geen ouder gekoppeld aan je account.',
 		unlinkAction: 'Ouder ontkoppelen',
 		unlinkConfirmTitle: 'Ouderaccount ontkoppelen?',
@@ -1208,24 +1231,8 @@ const nl = {
 		differentEmailRateLimited:
 			'Je hebt deze link vandaag te vaak aangevraagd. Probeer het morgen opnieuw.',
 		differentEmailFailure: 'De link kon niet worden verstuurd. Probeer het opnieuw.',
-		bannerLabel: 'Bekijken als {name} — alleen-lezen',
-		exitAction: 'Terug naar instellingen',
-		overviewTab: 'Overzicht',
-		chatsTab: 'Chats',
-		clubsTitle: 'Clubs',
-		clubsEmpty: 'Nog geen lid van een club.',
-		currentProjectsTitle: 'Huidige projecten',
-		currentProjectsEmpty: 'Nog geen huidige projecten.',
-		showcaseProjectsTitle: 'Etalage',
-		showcaseProjectsEmpty: 'Nog geen etalageprojecten.',
-		updatesTitle: 'Recente updates',
-		updatesEmpty: 'Nog geen updates.',
-		roomsEmpty: 'Nog geen chats.',
-		noMessages: 'Nog geen berichten.',
-		loadErrorTitle: 'Kan dit kindaccount niet laden',
 		notFoundTitle: 'Niet toegankelijk',
 		notFoundDescription: 'Dit kindaccount is niet gekoppeld aan je account.',
-		selectChatPrompt: 'Selecteer een chat om de berichten te bekijken.',
 		notificationEmailTitle: 'E-mailmeldingen',
 		notificationEmailDescription:
 			'E-mails over de club- en projectchats van {name} komen nu bij jou terecht. Voeg een e-mailadres voor {name} toe en zodra {name} het bevestigt, gaan die e-mails rechtstreeks naar {name}.',

@@ -2,8 +2,8 @@ import { routes } from '$lib/routes';
 
 // PRD 2.4/6.1.10 (CL-703): a club-less user must still be able to reach a small set of routes —
 // Settings/Profile/Notifications (account-level, not club-scoped), /no-club and /new-club
-// (onboarding itself), /child (a parent's read-only "View as Child" surface, which never requires
-// the PARENT to have a club), and /chat (CL-710 CEO review item 1: a start-club or join-request
+// (onboarding itself), /child (the entry point into a parent's "View as Child", CL-801, which
+// never requires the PARENT to have a club), and /chat (CL-710 CEO review item 1: a start-club or join-request
 // applicant is, by definition, club-less — without this, their "Open chat" button on the no-club
 // page got silently redirected right back to /new-club instead of opening the
 // interview/application chat) — see CL-690's original no-club allowlist that this extends, and
@@ -35,8 +35,9 @@ export const isNoClubAllowedPath = (pathname: string) =>
 
 // Edge case 14: where a club-less account goes instead of a club. A parent account exists to
 // follow a child, not to start a club, so an account linked to a child (parentAccounts
-// .getMyFirstLinkedChildId) lands on that child's page; everyone else on /new-club. Shared by
-// `/`, `/club` and both (app) layout gates. /child, /verify-email and /settings stay reachable
-// without a club through `noClubAllowedPaths` above.
+// .getMyFirstLinkedChildId) lands on Settings: the "View as" bar above it opens the child's view,
+// and the children's email settings are on the page. Not into the view itself (CL-801): "Back to
+// my account" goes to `/`, which would land a club-less parent straight back in it. Everyone else
+// goes to /new-club. Shared by `/`, `/club` and both (app) layout gates.
 export const clubLessLandingPath = (firstLinkedChildId: string | null | undefined) =>
-	firstLinkedChildId ? routes.childOverview(firstLinkedChildId) : routes.newClub;
+	firstLinkedChildId ? routes.settings : routes.newClub;

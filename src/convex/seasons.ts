@@ -1,7 +1,8 @@
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { internalMutation, mutation, query } from './_generated/server';
+import { internalMutation, query } from './_generated/server';
+import { mutation } from './functions';
 import { requireGlobalAdmin, requireIdentity } from './permissions';
 import { isSeasonDate, seasonClosingMoment, seasonStartMoment } from '../lib/domain/season-dates';
 
