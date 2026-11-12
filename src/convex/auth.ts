@@ -183,15 +183,13 @@ const hasPasswordAccount = async (
 // CL-775: a username never becomes an email address in the browser. "Forgot password?" and
 // "Resend verification" accept a username: the browser sends it as `email` and this hook swaps in
 // the account's address on the server. Both endpoints already answer the same whether or not an
-// address has an account, so an unknown username gets that same answer here (and nothing is
-// sent). Usernames match the username plugin's rules below (lowercase a-z, 0-9, _).
-const USERNAME_AS_EMAIL_PATHS: Record<string, Record<string, unknown>> = {
-	'/request-password-reset': {
-		status: true,
-		message: 'If this email exists in our system, check your email for the reset link'
-	},
-	'/send-verification-email': { status: true }
-};
+// address has an account. An unknown or malformed username is swapped for an address that can
+// never exist (`.invalid` is reserved, RFC 2606), so the endpoint gives exactly that same answer
+// and sends nothing. (Answering from the hook instead would echo the request's headers, including
+// its Content-Length, onto the response and cut the body short.) Usernames follow the username
+// plugin's rules below (lowercase a-z, 0-9, _).
+const USERNAME_AS_EMAIL_PATHS = new Set(['/request-password-reset', '/send-verification-email']);
+const UNKNOWN_USERNAME_EMAIL = 'unknown-username@username.invalid';
 
 // CL-775: the sign-in page's "a parent needs to approve this account" message. A child account
 // is unverified until its parent consents (childSignup.approveConsent verifies it), and the
@@ -205,8 +203,7 @@ const normalizeUsernameIdentifier = (value: unknown) =>
 
 const authHooks = {
 	before: createAuthMiddleware(async (ctx) => {
-		const unknownUsernameAnswer = USERNAME_AS_EMAIL_PATHS[ctx.path];
-		if (!unknownUsernameAnswer) return;
+		if (!USERNAME_AS_EMAIL_PATHS.has(ctx.path)) return;
 		const body = (ctx.body ?? {}) as Record<string, unknown>;
 		const identifier = normalizeUsernameIdentifier(body.email);
 		if (!identifier || identifier.includes('@')) return;
@@ -216,8 +213,7 @@ const authHooks = {
 					where: [{ field: 'username', value: identifier }]
 				})
 			: null;
-		if (!user) return ctx.json(unknownUsernameAnswer);
-		return { context: { body: { ...body, email: user.email } } };
+		return { context: { body: { ...body, email: user?.email ?? UNKNOWN_USERNAME_EMAIL } } };
 	}),
 	after: createAuthMiddleware(async (ctx) => {
 		if (ctx.path !== '/sign-in/username') return;
