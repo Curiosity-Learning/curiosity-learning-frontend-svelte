@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { api } from '$convex/_generated/api';
 	import type { Id } from '$convex/_generated/dataModel';
@@ -6,32 +7,117 @@
 	import { Avatar, AvatarFallback } from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
+	import { Switch } from '$lib/components/ui/switch';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { LoadingState, PageHeaderBackButton, PageHeaderTitle } from '$lib/components/app';
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
+	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
+	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { routes } from '$lib/routes';
 	import { t } from '$lib/i18n';
 	import { linkifySegments } from '$lib/domain/linkify';
 	import { formatClockTime } from '$lib/domain/date';
+	import { SIGNED_IN_VIA_LINK_PARAM, SIGNED_IN_VIA_LINK_VALUE } from '$lib/auth/magic-link';
+	import { SIGNED_IN_VIA_LINK_STORAGE_KEY } from '$lib/auth/onboarding-state';
+	import { replaceUrlAfterRouterStart } from '$lib/navigation/replace-url';
+	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
+	import { authClient } from '$lib/auth-client';
+	import {
+		FRESH_SESSION_REQUIRED,
+		NOTIFICATION_EMAIL_IS_PARENT,
+		RESEND_LIMIT_REACHED,
+		hasErrorCode
+	} from '$lib/domain/child-notification-email';
 
 	// PRD 2.4/6.1.10 (CL-703): "View as Child" — a DEDICATED READ-ONLY SURFACE, not full app
 	// impersonation (see parentAccounts.ts module header for the full design note). Every query
 	// this page calls is server-verified against a `parentLinks` row between the caller and this
-	// child, and computes visibility AS THE CHILD would see it. There is no composer, no mutation
-	// affordance anywhere on this page — reporting uses the normal ReportIssueDialog, which
-	// submits under the PARENT's own identity (not "as" the child).
+	// child, and computes visibility AS THE CHILD would see it. There is no composer and nothing
+	// here acts "as" the child — reporting uses the normal ReportIssueDialog, which submits under
+	// the PARENT's own identity. The writes on this page are the parent's own settings for the
+	// child (notification email and the parent's own email copies below), which are parent-owned
+	// by design: a child cannot consent to receiving email, so the parent does it for them here.
 
 	let childProfileId = $derived(
 		(page.params as Record<string, string | undefined>).childProfileId as Id<'profiles'>
 	);
 
-	const overviewResponse = useStableQuery(api.parentAccounts.getChildOverview, () => ({
-		childProfileId
-	}));
-	const roomsResponse = useStableQuery(api.parentAccounts.listChildRooms, () => ({
-		childProfileId
-	}));
+	const convexClient = useConvexClient();
+
+	// Fallback claim: parent links are created at consent approval (childSignup.approveConsent),
+	// but a parent whose consent predates that has none until syncParentLinks runs — and they can
+	// land here straight from a chat email without ever opening Settings. Claim once per mount,
+	// and only subscribe to the child queries once the claim has settled (review smaller notes):
+	// they then read after any link the claim created, instead of relying on a failed query being
+	// re-run when its read set changes. Costs one round trip before the page loads. The claim is
+	// caller-scoped (it only ever links consents approved under the caller's own email, and never
+	// one the child has unlinked), so running it on any /child/x URL is harmless.
+	let parentLinksClaimSettled = $state(false);
+	onMount(() => {
+		void convexClient
+			.mutation(api.parentAccounts.syncParentLinks, {})
+			.catch(() => {
+				// Best-effort: without a claim the overview shows the "not linked" alert as before.
+			})
+			.finally(() => {
+				parentLinksClaimSettled = true;
+			});
+	});
+
+	// CL-769 (review S4): a parent who signs in from an email link is often on a shared family
+	// computer, where the session they leave behind lets the child act as them. Visits that
+	// arrived through a sign-in link carry `via=link` (lib/auth/magic-link.ts); it is read once,
+	// remembered for this tab, and stripped from the address bar, and the page offers to sign
+	// out. sessionStorage, not localStorage: the hint belongs to this visit, not the browser.
+	let signedInViaLink = $state(false);
+	onMount(() => {
+		const viaLink =
+			page.url.searchParams.get(SIGNED_IN_VIA_LINK_PARAM) === SIGNED_IN_VIA_LINK_VALUE;
+		try {
+			if (viaLink) window.sessionStorage.setItem(SIGNED_IN_VIA_LINK_STORAGE_KEY, '1');
+			signedInViaLink = window.sessionStorage.getItem(SIGNED_IN_VIA_LINK_STORAGE_KEY) === '1';
+		} catch {
+			signedInViaLink = viaLink;
+		}
+		if (viaLink) {
+			// A sign-in link lands here with a full page load, where the router is not ready yet
+			// during onMount.
+			const url = new URL(page.url);
+			url.searchParams.delete(SIGNED_IN_VIA_LINK_PARAM);
+			const pathname = url.pathname;
+			replaceUrlAfterRouterStart(
+				`${url.pathname}${url.search}${url.hash}`,
+				() => window.location.pathname === pathname
+			);
+		}
+	});
+	const dismissSignedInViaLink = () => {
+		signedInViaLink = false;
+		try {
+			window.sessionStorage.removeItem(SIGNED_IN_VIA_LINK_STORAGE_KEY);
+		} catch {
+			// Ignore storage errors.
+		}
+	};
+	let signingOut = $state(false);
+	const signOutFromSharedDevice = async () => {
+		signingOut = true;
+		try {
+			await signOutAndGoToSignIn();
+		} finally {
+			signingOut = false;
+		}
+	};
+
+	const overviewResponse = useStableQuery(api.parentAccounts.getChildOverview, () =>
+		parentLinksClaimSettled ? { childProfileId } : 'skip'
+	);
+	const roomsResponse = useStableQuery(api.parentAccounts.listChildRooms, () =>
+		parentLinksClaimSettled ? { childProfileId } : 'skip'
+	);
 
 	let overview = $derived(overviewResponse.data ?? null);
 	let rooms = $derived(roomsResponse.data ?? []);
@@ -73,25 +159,245 @@
 
 	const isNotFoundError = (error: unknown) =>
 		error instanceof Error && /access|not found|not accessible/i.test(error.message);
+
+	// Notification email: where the child's club/project chat (and other non-critical) emails
+	// go. Unset, they come to the parent — the chat email itself links here with a nudge to set
+	// one (chat.deliverChatEmailNotification). Critical notices keep going to the parent.
+	// CL-768 (review B2/B3/S5): a saved address is PENDING until the child confirms it from the
+	// emailed link while signed in as themselves; until then emails keep coming to the parent.
+	// Every change needs a recent sign-in (the server answers FRESH_SESSION_REQUIRED otherwise),
+	// so a session left behind on a shared computer cannot redirect the child's emails.
+	let notificationEmail = $derived(overview?.notificationEmail ?? null);
+	let notificationEmailConfirmed = $derived(
+		notificationEmail !== null && (overview?.notificationEmailVerifiedAt ?? null) !== null
+	);
+	// Edge case 4: a typo'd address never confirms; after a few days say so.
+	const PENDING_STALE_AFTER_DAYS = 3;
+	let pendingDays = $derived(
+		notificationEmail && !notificationEmailConfirmed && overview?.notificationEmailSetAt
+			? Math.floor((Date.now() - overview.notificationEmailSetAt) / (24 * 60 * 60 * 1000))
+			: 0
+	);
+	let editingNotificationEmail = $state(false);
+	let notificationEmailDraft = $state('');
+	let notificationEmailError = $state<string | null>(null);
+	let freshSignInRequired = $state(false);
+	let savingNotificationEmail = $state(false);
+
+	const startEditingNotificationEmail = () => {
+		notificationEmailDraft = notificationEmail ?? '';
+		notificationEmailError = null;
+		editingNotificationEmail = true;
+	};
+
+	const notificationEmailErrorMessage = (error: unknown) => {
+		if (hasErrorCode(error, NOTIFICATION_EMAIL_IS_PARENT)) {
+			return t('parentAccounts.notificationEmailIsParent').replace('{name}', displayName);
+		}
+		if (hasErrorCode(error, RESEND_LIMIT_REACHED)) {
+			return t('parentAccounts.notificationEmailResendLimit');
+		}
+		if (error instanceof Error && /valid email/i.test(error.message)) {
+			return t('parentAccounts.notificationEmailInvalid');
+		}
+		return t('parentAccounts.notificationEmailFailure');
+	};
+
+	// `email` null removes the address; the current pending address again is "Resend".
+	const submitNotificationEmail = async (email: string | null) => {
+		if (savingNotificationEmail) return;
+		notificationEmailError = null;
+		freshSignInRequired = false;
+		savingNotificationEmail = true;
+		const isResend = email !== null && email === notificationEmail && !editingNotificationEmail;
+		try {
+			const result = await convexClient.mutation(api.parentAccounts.setChildNotificationEmail, {
+				childProfileId,
+				email
+			});
+			editingNotificationEmail = false;
+			if (result.status === 'none') {
+				showGlobalSnackbar({ title: t('parentAccounts.notificationEmailRemoved') });
+			} else if (result.verificationSent) {
+				showGlobalSnackbar({
+					title: t(
+						isResend
+							? 'parentAccounts.notificationEmailResent'
+							: 'parentAccounts.notificationEmailSaved'
+					).replace('{name}', displayName)
+				});
+			}
+		} catch (error) {
+			if (hasErrorCode(error, FRESH_SESSION_REQUIRED)) {
+				freshSignInRequired = true;
+			} else {
+				notificationEmailError = notificationEmailErrorMessage(error);
+			}
+		} finally {
+			savingNotificationEmail = false;
+		}
+	};
+
+	// The parent's own copies (CL-768/CL-769, review D7): once the child has confirmed their
+	// address, chat and activity emails go to the child only, and the parent can opt back into a
+	// copy of each. Critical notices always come to the parent. Same fresh-sign-in rule as the
+	// address above (review S5). The switch shows the new value while saving and falls back to the
+	// server's value when the save fails.
+	type ParentSettingKey = 'chatCopies' | 'activityCopies';
+	let pendingParentSettings = $state<Partial<Record<ParentSettingKey, boolean>>>({});
+	let parentSettings = $derived({
+		chatCopies: overview?.parentNotificationSettings.chatCopies ?? false,
+		activityCopies: overview?.parentNotificationSettings.activityCopies ?? false,
+		...pendingParentSettings
+	});
+	let parentSettingsError = $state<string | null>(null);
+	let parentSettingsFreshSignInRequired = $state(false);
+	const setParentSetting = async (key: ParentSettingKey, value: boolean) => {
+		parentSettingsError = null;
+		parentSettingsFreshSignInRequired = false;
+		pendingParentSettings[key] = value;
+		try {
+			await convexClient.mutation(api.parentAccounts.setParentNotificationSettings, {
+				childProfileId,
+				[key]: value
+			});
+		} catch (error) {
+			if (hasErrorCode(error, FRESH_SESSION_REQUIRED)) {
+				parentSettingsFreshSignInRequired = true;
+			} else {
+				parentSettingsError = t('parentAccounts.parentEmailsSaveFailure');
+			}
+		} finally {
+			delete pendingParentSettings[key];
+		}
+	};
+	const parentSettingItems: Array<{ key: ParentSettingKey; labelKey: string }> = [
+		{ key: 'chatCopies', labelKey: 'parentAccounts.parentEmailsChatCopies' },
+		{ key: 'activityCopies', labelKey: 'parentAccounts.parentEmailsActivityCopies' }
+	];
+
+	// Review S9: signed in as B, but the child was approved under another address A, so this
+	// account is not linked. Offer to email a sign-in link to "the address that approved": the
+	// server resolves it from the consent and answers the same whether or not one exists, so this
+	// page never learns A (requestApprovingAccountSignInLink).
+	const session = authClient.useSession();
+	let approvingLinkState = $state<'idle' | 'sending' | 'requested' | 'rateLimited' | 'failed'>(
+		'idle'
+	);
+	const requestApprovingAccountLink = async () => {
+		if (approvingLinkState === 'sending') return;
+		approvingLinkState = 'sending';
+		try {
+			const result = await convexClient.mutation(
+				api.parentAccounts.requestApprovingAccountSignInLink,
+				{ childProfileId }
+			);
+			approvingLinkState = result.status;
+		} catch {
+			approvingLinkState = 'failed';
+		}
+	};
+
+	let signingInAgain = $state(false);
+	const signInAgain = async () => {
+		signingInAgain = true;
+		try {
+			await signOutAndGoToSignIn(routes.childOverview(childProfileId));
+		} finally {
+			signingInAgain = false;
+		}
+	};
 </script>
+
+{#snippet freshSignInAlert()}
+	<Alert class="flex flex-wrap items-center justify-between gap-3">
+		<div class="flex flex-col gap-1">
+			<AlertTitle>{t('parentAccounts.notificationEmailFreshSessionTitle')}</AlertTitle>
+			<AlertDescription>
+				{t('parentAccounts.notificationEmailFreshSession')}
+			</AlertDescription>
+		</div>
+		<Button
+			type="button"
+			variant="outline"
+			disabled={signingInAgain}
+			onclick={() => void signInAgain()}
+		>
+			{t('parentAccounts.notificationEmailSignInAgain')}
+		</Button>
+	</Alert>
+{/snippet}
 
 <PageHeaderBackButton fallbackHref={routes.settings} />
 <PageHeaderTitle title={displayName || 'Child overview'} />
 
 <div class="flex w-full flex-col gap-4 py-4">
-	{#if overviewResponse.error}
+	{#if signedInViaLink}
+		<Alert class="flex flex-wrap items-center justify-between gap-3">
+			<div class="flex flex-col gap-1">
+				<AlertTitle>{t('parentAccounts.sharedDeviceTitle')}</AlertTitle>
+				<AlertDescription>{t('parentAccounts.sharedDeviceDescription')}</AlertDescription>
+			</div>
+			<div class="flex items-center gap-2">
+				<Button variant="ghost" onclick={dismissSignedInViaLink} disabled={signingOut}>
+					{t('parentAccounts.sharedDeviceDismiss')}
+				</Button>
+				<Button
+					variant="outline"
+					onclick={() => void signOutFromSharedDevice()}
+					disabled={signingOut}
+				>
+					{t('parentAccounts.sharedDeviceSignOut')}
+				</Button>
+			</div>
+		</Alert>
+	{/if}
+
+	{#if overviewResponse.error && parentLinksClaimSettled}
 		{#if isNotFoundError(overviewResponse.error)}
 			<Alert variant="destructive">
 				<AlertTitle>{t('parentAccounts.notFoundTitle')}</AlertTitle>
 				<AlertDescription>{t('parentAccounts.notFoundDescription')}</AlertDescription>
 			</Alert>
+			<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
+				<p class="type-sm text-muted-foreground">
+					{t('parentAccounts.differentEmailHelp').replace(
+						'{email}',
+						$session.data?.user.email ?? ''
+					)}
+				</p>
+				{#if approvingLinkState === 'requested'}
+					<p class="type-sm text-foreground" role="status">
+						{t('parentAccounts.differentEmailRequested')}
+					</p>
+				{:else}
+					{#if approvingLinkState === 'rateLimited'}
+						<p class="type-sm text-destructive" role="alert">
+							{t('parentAccounts.differentEmailRateLimited')}
+						</p>
+					{:else if approvingLinkState === 'failed'}
+						<p class="type-sm text-destructive" role="alert">
+							{t('parentAccounts.differentEmailFailure')}
+						</p>
+					{/if}
+					<Button
+						type="button"
+						variant="outline"
+						class="self-start"
+						disabled={approvingLinkState === 'sending' || approvingLinkState === 'rateLimited'}
+						onclick={() => void requestApprovingAccountLink()}
+					>
+						{t('parentAccounts.differentEmailSend')}
+					</Button>
+				{/if}
+			</section>
 		{:else}
 			<Alert variant="destructive">
 				<AlertTitle>{t('parentAccounts.loadErrorTitle')}</AlertTitle>
 				<AlertDescription>{overviewResponse.error.message}</AlertDescription>
 			</Alert>
 		{/if}
-	{:else if overviewResponse.isLoading && !overview}
+	{:else if !overview}
 		<LoadingState class="min-h-48" label="Loading child overview" />
 	{:else if overview}
 		<Alert class="flex flex-wrap items-center justify-between gap-3 border-orange-200 bg-orange-50">
@@ -115,6 +421,170 @@
 			</Tabs.List>
 
 			<Tabs.Content value="overview" class="flex flex-col gap-4">
+				<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
+					<div class="flex flex-col gap-1">
+						<div class="flex flex-wrap items-center gap-2">
+							<p class="type-body-bold text-foreground">
+								{t('parentAccounts.notificationEmailTitle')}
+							</p>
+							{#if notificationEmailConfirmed && !editingNotificationEmail}
+								<Badge variant="secondary">{t('parentAccounts.notificationEmailConfirmed')}</Badge>
+							{/if}
+						</div>
+						{#if notificationEmail && !editingNotificationEmail}
+							{#if notificationEmailConfirmed}
+								<p class="type-sm text-muted-foreground">
+									{t('parentAccounts.notificationEmailCurrent').replace('{name}', displayName)}
+									<span class="type-sm-bold text-foreground">{notificationEmail}</span>
+								</p>
+							{:else}
+								<p class="type-sm text-muted-foreground">
+									{t('parentAccounts.notificationEmailPending')
+										.replace('{name}', displayName)
+										.replace('{email}', notificationEmail)}
+								</p>
+								{#if pendingDays >= PENDING_STALE_AFTER_DAYS}
+									<p class="type-sm text-muted-foreground">
+										{t('parentAccounts.notificationEmailPendingStale').replace(
+											'{days}',
+											String(pendingDays)
+										)}
+									</p>
+								{/if}
+							{/if}
+						{:else}
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.notificationEmailDescription').replace(/\{name\}/g, displayName)}
+							</p>
+						{/if}
+						{#if !overview.notificationEmailVerified}
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.parentEmailsUnconfirmed').replace(/\{name\}/g, displayName)}
+							</p>
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.notificationEmailCriticalNote')}
+							</p>
+						{/if}
+					</div>
+					{#if freshSignInRequired}
+						{@render freshSignInAlert()}
+					{/if}
+					{#if editingNotificationEmail || !notificationEmail}
+						<form
+							class="flex flex-col gap-3"
+							onsubmit={(event) => {
+								event.preventDefault();
+								void submitNotificationEmail(notificationEmailDraft);
+							}}
+						>
+							<div class="flex flex-col gap-1.5">
+								<Label for="child-notification-email">
+									{t('parentAccounts.notificationEmailLabel').replace('{name}', displayName)}
+								</Label>
+								<Input
+									id="child-notification-email"
+									type="email"
+									autocomplete="off"
+									placeholder={t('parentAccounts.notificationEmailPlaceholder')}
+									bind:value={notificationEmailDraft}
+									disabled={savingNotificationEmail}
+									aria-invalid={notificationEmailError ? true : undefined}
+								/>
+								{#if notificationEmailError}
+									<p class="type-sm text-destructive">{notificationEmailError}</p>
+								{/if}
+							</div>
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.notificationEmailConsent').replace('{name}', displayName)}
+							</p>
+							<div class="flex flex-wrap gap-2">
+								<Button
+									type="submit"
+									disabled={savingNotificationEmail || notificationEmailDraft.trim() === ''}
+								>
+									{t('parentAccounts.notificationEmailSave')}
+								</Button>
+								{#if editingNotificationEmail}
+									<Button
+										type="button"
+										variant="outline"
+										disabled={savingNotificationEmail}
+										onclick={() => (editingNotificationEmail = false)}
+									>
+										{t('parentAccounts.notificationEmailCancel')}
+									</Button>
+								{/if}
+							</div>
+						</form>
+					{:else}
+						{#if notificationEmailError}
+							<p class="type-sm text-destructive">{notificationEmailError}</p>
+						{/if}
+						<div class="flex flex-wrap gap-2">
+							{#if !notificationEmailConfirmed}
+								<Button
+									type="button"
+									disabled={savingNotificationEmail}
+									onclick={() => void submitNotificationEmail(notificationEmail)}
+								>
+									{t('parentAccounts.notificationEmailResend')}
+								</Button>
+							{/if}
+							<Button
+								type="button"
+								variant="outline"
+								disabled={savingNotificationEmail}
+								onclick={startEditingNotificationEmail}
+							>
+								{t('parentAccounts.notificationEmailChange')}
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={savingNotificationEmail}
+								onclick={() => void submitNotificationEmail(null)}
+							>
+								{t('parentAccounts.notificationEmailRemove')}
+							</Button>
+						</div>
+					{/if}
+				</section>
+
+				{#if overview.notificationEmailVerified}
+					<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
+						<div class="flex flex-col gap-1">
+							<p class="type-body-bold text-foreground">
+								{t('parentAccounts.parentEmailsTitle').replace('{name}', displayName)}
+							</p>
+							<p class="type-sm text-muted-foreground">
+								{t('parentAccounts.parentEmailsCriticalNote').replace('{name}', displayName)}
+							</p>
+						</div>
+						<div class="flex flex-col gap-3">
+							{#each parentSettingItems as item (item.key)}
+								<div class="flex items-center justify-between gap-4">
+									<Label for={`parent-email-${item.key}`} class="type-sm">
+										{t(item.labelKey).replace('{name}', displayName)}
+									</Label>
+									<Switch
+										id={`parent-email-${item.key}`}
+										checked={parentSettings[item.key]}
+										disabled={pendingParentSettings[item.key] !== undefined}
+										onCheckedChange={(value) => void setParentSetting(item.key, value)}
+										class="shrink-0"
+									/>
+								</div>
+							{/each}
+						</div>
+						{#if parentSettingsError}
+							<p class="type-sm text-destructive">{parentSettingsError}</p>
+						{/if}
+						{#if parentSettingsFreshSignInRequired}
+							{@render freshSignInAlert()}
+						{/if}
+					</section>
+				{/if}
+
 				<section class="flex flex-col gap-3 rounded-2xl border border-border/70 bg-white p-4">
 					<p class="type-body-bold text-foreground">{t('parentAccounts.clubsTitle')}</p>
 					{#if overview.clubs.length === 0}
@@ -231,7 +701,7 @@
 						{#if roomsResponse.isLoading}
 							<LoadingState variant="inline" size="sm" label="Loading chats" />
 						{:else if rooms.length === 0}
-							<p class="p-3 type-sm text-muted-foreground">{t('parentAccounts.roomsEmpty')}</p>
+							<p class="type-sm p-3 text-muted-foreground">{t('parentAccounts.roomsEmpty')}</p>
 						{:else}
 							{#each rooms as room (room.roomId)}
 								<button

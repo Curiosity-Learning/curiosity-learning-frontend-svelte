@@ -8,7 +8,9 @@ import { routes } from '$lib/routes';
 // page got silently redirected right back to /new-club instead of opening the
 // interview/application chat) — see CL-690's original no-club allowlist that this extends, and
 // /applications (a start-club applicant is club-less by definition, and must be able to open their
-// own application's detail page from the chat context banner / no-club card). Shared by
+// own application's detail page from the chat context banner / no-club card), and /verify-email
+// (a child confirming the notification email a parent added, CL-768 — the link must work whether
+// or not the child is in a club yet). Shared by
 // `(app)/+layout.server.ts` (SSR redirect-to-/new-club gate) and `(app)/+layout.svelte`
 // (client-side navigation effect with the same job) so the two can't drift out of sync with each
 // other.
@@ -20,7 +22,8 @@ export const noClubAllowedPaths = [
 	routes.notifications,
 	routes.child,
 	routes.chat,
-	routes.applications
+	routes.applications,
+	routes.verifyEmail
 ];
 
 // A path is "allowed without a club" if it IS one of the above, or is nested under one of them
@@ -29,3 +32,11 @@ export const isNoClubAllowedPath = (pathname: string) =>
 	noClubAllowedPaths.some(
 		(allowedPath) => pathname === allowedPath || pathname.startsWith(`${allowedPath}/`)
 	);
+
+// Edge case 14: where a club-less account goes instead of a club. A parent account exists to
+// follow a child, not to start a club, so an account linked to a child (parentAccounts
+// .getMyFirstLinkedChildId) lands on that child's page; everyone else on /new-club. Shared by
+// `/`, `/club` and both (app) layout gates. /child, /verify-email and /settings stay reachable
+// without a club through `noClubAllowedPaths` above.
+export const clubLessLandingPath = (firstLinkedChildId: string | null | undefined) =>
+	firstLinkedChildId ? routes.childOverview(firstLinkedChildId) : routes.newClub;

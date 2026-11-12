@@ -26,6 +26,8 @@ export const routes = {
 
 	profileDetail: (profileId: string) => `/profile/${profileId}`,
 	childOverview: (childProfileId: string) => `/child/${childProfileId}`,
+	// Child notification email confirmation (CL-768); the token comes from the emailed link.
+	verifyEmail: '/verify-email',
 	feedbackSubmit: (formId: string, clubId: string) => `/feedback/${formId}/${clubId}`,
 	clubHome: (clubId: string) => `/club/${clubId}`,
 	clubSessions: (clubId: string) => `/club/${clubId}/sessions`,

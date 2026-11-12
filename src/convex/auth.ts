@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth';
-import { emailOTP, username } from 'better-auth/plugins';
+import { emailOTP, magicLink, username } from 'better-auth/plugins';
 import { createClient } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
 import type { GenericCtx } from '@convex-dev/better-auth';
@@ -10,7 +10,11 @@ import { mutation, query } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
 import authConfig from './auth.config';
 import { sendEmail } from './email/resend';
-import { passwordResetEmail, verificationOtpEmail } from './email/templates';
+import { magicLinkEmail, passwordResetEmail, verificationOtpEmail } from './email/templates';
+import { SELF_SERVICE_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
+import { pluginVerifyUrlToInterstitial } from './magicLinks';
+import { CHILD_EMAIL_DOMAIN } from './childAccounts';
+import { assertDateOfBirthChangeAllowed, isSyntheticChildEmail } from './notificationRouting';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 import { setPendingClubJoin } from './pendingClubJoinsModel';
 import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
@@ -82,6 +86,21 @@ const authCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
 
 const REMEMBERED_SESSION_SECONDS = 60 * 60 * 24 * 30;
 
+// CL-769 (review S4): a session created by a one-time sign-in link lasts 7 days, not 30. Such
+// links are mostly pressed by parents on whatever device the email was opened on — often the
+// family computer — and a leftover parent session there lets the child act as their parent.
+// Applied by the session databaseHooks below. The session row is its own marker: a session whose
+// lifetime (expiresAt - createdAt) is at most this long is a short session and stays capped at
+// createdAt + 7 days. The cap matters as much as the shorter start: Better Auth's getSession
+// "refreshes" any session whose expiresAt is within (expiresIn - updateAge) of now back to the
+// full 30 days, which for a 7-day session is true on the very first request. (Sessions created
+// with "don't remember me" are 1 day and never refreshed, so the cap never touches them.)
+export const SIGN_IN_LINK_SESSION_SECONDS = 60 * 60 * 24 * 7;
+const SIGN_IN_LINK_SESSION_MS = SIGN_IN_LINK_SESSION_SECONDS * 1000;
+// Clock slack between createdAt and expiresAt being computed in createSession.
+const SHORT_SESSION_SLACK_MS = 60 * 1000;
+const toMs = (value: Date | string | number) => new Date(value).getTime();
+
 const splitNameParts = (name?: string | null) => {
 	if (!name) {
 		return { firstName: undefined, lastName: undefined };
@@ -152,10 +171,47 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 		session: {
 			expiresIn: REMEMBERED_SESSION_SECONDS
 		},
+		databaseHooks: {
+			session: {
+				create: {
+					// `context` is the endpoint context of the request creating the session (Better
+					// Auth keeps it in AsyncLocalStorage for every API call); only the magic-link verify
+					// endpoint gets the short lifetime.
+					before: async (session, context) => {
+						if (context?.path !== '/magic-link/verify') return;
+						return {
+							data: { ...session, expiresAt: new Date(Date.now() + SIGN_IN_LINK_SESSION_MS) }
+						};
+					}
+				},
+				update: {
+					// getSession has already loaded the session it refreshes into
+					// context.context.session; a short one never moves past createdAt + 7 days.
+					before: async (update, context) => {
+						if (!update.expiresAt) return;
+						const current = context?.context.session?.session;
+						if (!current) return;
+						const createdAt = toMs(current.createdAt);
+						if (
+							toMs(current.expiresAt) - createdAt >
+							SIGN_IN_LINK_SESSION_MS + SHORT_SESSION_SLACK_MS
+						)
+							return;
+						const cap = createdAt + SIGN_IN_LINK_SESSION_MS;
+						if (toMs(update.expiresAt) <= cap) return;
+						return { data: { ...update, expiresAt: new Date(cap) } };
+					}
+				}
+			}
+		},
 		emailAndPassword: {
 			enabled: true,
 			requireEmailVerification: true,
 			sendResetPassword: async ({ user, url, token }) => {
+				// A child's auth email is synthetic, not an inbox (sendEmail refuses it): answer the
+				// request like any other instead of failing it, so the endpoint does not reveal
+				// which usernames are child accounts. Children have no self-service reset yet.
+				if (user.email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) return;
 				await sendEmail({
 					type: 'password-reset',
 					to: user.email,
@@ -192,6 +248,55 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 					});
 				}
 			}),
+			// One-time sign-in links. Parent-facing emails carry links minted server-side by
+			// magicLinks.mintMagicLink, which writes the plugin's verification rows directly — keep
+			// `storeToken` in sync with it (it picks its own per-use lifetime). The plugin's own
+			// POST /sign-in/magic-link is the "send me a new link" fallback on the sign-in page;
+			// `expiresIn` applies to those links only.
+			magicLink({
+				expiresIn: SELF_SERVICE_MAGIC_LINK_SECONDS,
+				// Links only sign in existing users; account creation keeps its own flows.
+				disableSignUp: true,
+				// Hashed at rest: a link stays valid for days, so a leaked verification table
+				// must not hand out sessions.
+				storeToken: 'hashed',
+				sendMagicLink: async ({ email, url }, endpointCtx) => {
+					// disableSignUp makes a link for an unknown address useless; don't email strangers
+					// (the endpoint answers the same either way, so nothing is revealed). Same rule as
+					// minted links (magicLinks.isMagicLinkRecipient, CL-768): unverified users and
+					// platform admins get no link either — silently, for the same reason.
+					if (!endpointCtx) return;
+					const found = await endpointCtx.context.internalAdapter.findUserByEmail(email);
+					if (!found) return;
+					if (
+						!('runQuery' in ctx) ||
+						!(await ctx.runQuery(internal.magicLinks.isMagicLinkRecipient, {
+							authUserId: found.user.id,
+							email: found.user.email,
+							emailVerified: found.user.emailVerified === true
+						}))
+					) {
+						return;
+					}
+					// Per-address cap (5 per hour), since Better Auth's IP-based limiter is not in
+					// effect here (docs/security.md, "Rate limits"). Silent, like the guards above.
+					if (
+						!('runMutation' in ctx) ||
+						!(await ctx.runMutation(internal.magicLinks.consumeSelfServiceMagicLinkAllowance, {
+							email: found.user.email
+						}))
+					) {
+						return;
+					}
+					// Like every emailed link, through the /auth/link interstitial (review S1), so a
+					// mail scanner's GET does not consume the token.
+					await sendEmail({
+						type: 'magic-link',
+						to: email,
+						...magicLinkEmail({ url: pluginVerifyUrlToInterstitial(url, email) ?? url })
+					});
+				}
+			}),
 			username({
 				minUsernameLength: 3,
 				maxUsernameLength: 30,
@@ -215,6 +320,44 @@ export const getViewerIdentity = query({
 	handler: async (ctx) => {
 		const identity = await requireIdentity(ctx);
 		return { userId: identity.subject };
+	}
+});
+
+/**
+ * The CALLER's own sign-in methods, for Settings' "Set a password" card (review S8/D8). Parent
+ * accounts are created password-less at consent approval and sign in with emailed links; this
+ * lets Settings offer to set a password without the unauthenticated by-email lookup below.
+ * `hasPassword` is a `credential` account row (what Better Auth's password reset creates when it
+ * is missing). `isChildAccount` lets Settings never offer it to a child: their auth email is
+ * synthetic and cannot receive a reset link.
+ */
+export const getMySignInMethods = query({
+	args: {},
+	returns: v.object({
+		hasPassword: v.boolean(),
+		hasGoogle: v.boolean(),
+		isChildAccount: v.boolean()
+	}),
+	handler: async (ctx) => {
+		const identity = await requireIdentity(ctx);
+		const authUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: '_id', value: identity.subject }]
+		})) as { _id: string; email: string } | null;
+		const isChildAccount = Boolean(
+			authUser?.email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)
+		);
+		if (!authUser) return { hasPassword: false, hasGoogle: false, isChildAccount };
+		const accounts = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+			model: 'account',
+			where: [{ field: 'userId', value: authUser._id }],
+			paginationOpts: { cursor: null, numItems: 20 }
+		})) as { page: Array<{ providerId: string }> };
+		return {
+			hasPassword: accounts.page.some((account) => account.providerId === 'credential'),
+			hasGoogle: accounts.page.some((account) => account.providerId === 'google'),
+			isChildAccount
+		};
 	}
 });
 
@@ -425,6 +568,14 @@ export const completeSignupProfile = mutation({
 		const pendingJoinCode = extractPendingJoinCode(args.nextPath);
 
 		const existing = await getProfileByAuthUserId(ctx, authUser._id);
+		// Review B1: this is the adult signup path, but any signed-in caller can reach it. A child
+		// account's date of birth (set at child signup) must not change here: the 16+ unlink gate
+		// depends on it.
+		if (existing) {
+			await assertDateOfBirthChangeAllowed(ctx, existing, args.dateOfBirth);
+		} else if (args.dateOfBirth !== undefined && isSyntheticChildEmail(authUser.email)) {
+			throw new ConvexError("A child account's date of birth can't be changed");
+		}
 
 		let resolvedUsername = desiredUsername;
 		if (desiredUsername) {

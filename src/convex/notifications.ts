@@ -2,9 +2,16 @@ import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import type { ActionCtx, MutationCtx } from './_generated/server';
-import { internalAction, internalMutation, internalQuery, mutation, query } from './_generated/server';
-import { getAuthUserEmail } from './authEmail';
-import { CHILD_EMAIL_DOMAIN } from './childAccounts';
+import {
+	internalAction,
+	internalMutation,
+	internalQuery,
+	mutation,
+	query
+} from './_generated/server';
+import { mintMagicLink } from './magicLinks';
+import { EMAIL_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
+import { resolveEmailRecipients, type EmailAudience } from './notificationRouting';
 import { sendEmail } from './email/resend';
 import { notificationEmail } from './email/templates';
 import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
@@ -84,37 +91,50 @@ export const unreadCount = query({
 	}
 });
 
-// Resolves the deliverable email address for a notification recipient.
-// - Adult accounts: their Better Auth email.
-// - Child accounts (synthetic @children.curiosity.local auth email): the approved parent
-//   email from parentChildConsents for CRITICAL notices, otherwise null (no email).
-export const resolveNotificationEmailRecipient = internalQuery({
+// Who a notification email really goes to lives in notificationRouting.ts (adults: themselves;
+// child accounts: the parent and/or the child's confirmed address, per kind, the parent's
+// per-child settings and the child's own mutes — the matrix is documented there). Re-exported
+// here because this module is the email channel's public face.
+export { resolveEmailRecipients, type EmailAudience };
+export type { EmailRecipient } from './notificationRouting';
+
+const emailAudienceValidator = v.union(v.literal('self'), v.literal('parent'));
+
+export const resolveNotificationEmailRecipients = internalQuery({
 	args: {
 		recipientProfileId: v.id('profiles'),
-		critical: v.boolean()
+		critical: v.boolean(),
+		// The recipient's own mute for this kind (only ever removes their own copy).
+		selfMuted: v.optional(v.boolean())
 	},
-	returns: v.union(v.string(), v.null()),
+	returns: v.array(
+		v.object({
+			to: v.string(),
+			audience: emailAudienceValidator,
+			// The child's display name, for parent-facing wording.
+			childName: v.string()
+		})
+	),
 	handler: async (ctx, args) => {
 		const profile = await ctx.db.get(args.recipientProfileId);
-		if (!profile) return null;
-
-		const email = await getAuthUserEmail(ctx, profile.authUserId);
-		if (!email) return null;
-
-		if (!email.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
-			return email;
-		}
-
-		// Child account: never email the synthetic address.
-		if (!args.critical) return null;
-		const consent = await ctx.db
-			.query('parentChildConsents')
-			.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', args.recipientProfileId))
-			.order('desc')
-			.collect();
-		const approved = consent.find((row) => row.status === 'approved');
-		return approved?.parentEmail ?? null;
+		if (!profile) return [];
+		return await resolveEmailRecipients(ctx, {
+			profile,
+			tier: args.critical ? 'critical' : 'high',
+			chat: false,
+			selfMuted: args.selfMuted ?? false
+		});
 	}
+});
+
+// A secondary, lower-emphasis paragraph under the CTA — used to tell a parent reading about
+// their child's chat that they can hand these emails over to the child (see chat.ts).
+export type NotificationEmailNote = { text: string; url?: string; linkLabel?: string };
+
+export const notificationEmailNoteValidator = v.object({
+	text: v.string(),
+	url: v.optional(v.string()),
+	linkLabel: v.optional(v.string())
 });
 
 export type NotificationEmailArgs = {
@@ -124,6 +144,21 @@ export type NotificationEmailArgs = {
 	title: string;
 	message: string;
 	url?: string;
+	// Button text override (chat emails to a parent name the child); template default otherwise.
+	ctaLabel?: string;
+	// The ONE resolved recipient of this email (notificationRouting.resolveEmailRecipients). A
+	// notice owed to a parent and a child is two calls, two emails, never one email with both
+	// addresses: the parent copy carries a sign-in link.
+	to: string;
+	audience: EmailAudience;
+	// For parent wording of dispatched notices.
+	childName?: string;
+	// True when the caller already worded the email and chose the link for this audience (chat
+	// does: its copy depends on the room). For audience 'parent', `url` is then the app path the
+	// sign-in link continues to (the link itself is minted here, see below). False for
+	// dispatched notifications, whose child-facing wording is rewritten for a parent here.
+	wordedByCaller?: boolean;
+	note?: NotificationEmailNote;
 };
 
 export type NotificationEmailResult =
@@ -131,37 +166,84 @@ export type NotificationEmailResult =
 	| { status: 'sent'; to: string; providerMessageId: string | null }
 	| { status: 'failed'; to: string; error: string };
 
-// The email channel shared by dispatched notifications and chat emails: resolves the deliverable
-// address (none for a child account on a non-critical kind → 'skipped'), renders the template and
-// hands it to Resend. Never throws — a provider failure is already reported to monitoring inside
-// sendEmail and comes back as 'failed' so the caller can record it (and, for chat, NOT mark the
-// batch as covered). Only the recipient address is resolved here on purpose: the caller owns the
-// wording and the link, because those depend on who the email is really going to (a parent
-// reading about their child's chat gets different copy and a different page).
+// The email channel shared by dispatched notifications and chat emails: renders the template for
+// one already-resolved recipient and hands it to Resend. Never throws — a provider failure is
+// already reported to monitoring inside sendEmail and comes back as 'failed' so the caller can
+// record it (and, for chat, NOT mark the batch as covered).
 export const deliverNotificationEmail = async (
 	ctx: ActionCtx,
 	args: NotificationEmailArgs
 ): Promise<NotificationEmailResult> => {
-	const to = await ctx.runQuery(internal.notifications.resolveNotificationEmailRecipient, {
-		recipientProfileId: args.recipientProfileId,
-		critical: args.critical
-	});
-	if (!to) return { status: 'skipped' };
+	const to = args.to;
+
+	// The ONE place a parent audience becomes a one-time sign-in link (chat and dispatched
+	// notifications both come through here). The parent's account was created password-less at
+	// consent approval (childSignup.approveConsent), so a plain link would strand them on a
+	// sign-in form they cannot complete; the address proved itself by approving consent, and the
+	// email goes to that same address. Minted here, in the send action, right before sendEmail —
+	// never in a mutation that schedules this — so no plaintext token is stored in scheduler args
+	// (review S2). One token per email (S3): any other link in the email is a plain path the
+	// button's session covers. Plain path when no link can be minted (no BETTER_AUTH_URL, or the
+	// account may not sign in by link, see magicLinks.isMagicLinkRecipient). The child's own copy
+	// ('self') is always plain.
+	let { url, ctaLabel, message, note: rawNote } = args;
+	let ctaSignsIn = false;
+	if (args.audience === 'parent') {
+		// A dispatched notice about a child account carries the child-facing link — the child's
+		// own pages — which the parent cannot open: point it at the parent's read-only view of the
+		// child and say who it is about. Callers that worded the email (chat) already chose the
+		// parent's page and wording.
+		const callbackPath = args.wordedByCaller && url ? url : `/child/${args.recipientProfileId}`;
+		if (!args.wordedByCaller) {
+			const childName = args.childName ?? 'your child';
+			ctaLabel = `Open ${childName}'s account`;
+			message = `This is about ${childName}'s Curiosity Learning account. ${args.message}`;
+			// A non-critical dispatched notice only reaches a parent as an opted-in copy (the
+			// child has a confirmed address of their own, notificationRouting.ts): say why, and
+			// where to turn it off.
+			if (!args.critical && !rawNote) {
+				rawNote = {
+					text: `You're getting a copy because you chose to receive ${childName}'s activity emails too. You can turn this off on ${childName}'s page.`
+				};
+			}
+		}
+		const signInUrl = await mintMagicLink(ctx, {
+			email: to,
+			callbackPath,
+			expiresInSeconds: EMAIL_MAGIC_LINK_SECONDS
+		});
+		url = signInUrl ?? callbackPath;
+		ctaSignsIn = Boolean(signInUrl);
+	}
 
 	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
-	const ctaUrl = args.url
-		? args.url.startsWith('/')
-			? baseUrl
-				? `${baseUrl.replace(/\/+$/, '')}${args.url}`
-				: undefined
-			: args.url
-		: baseUrl;
+	// Relative app paths only become links when a base url is configured. Absolute urls (the
+	// magic sign-in links in parent chat emails, see magicLinks.ts) pass through unchanged.
+	const toAbsoluteUrl = (url: string | undefined) =>
+		url
+			? url.startsWith('/')
+				? baseUrl
+					? `${baseUrl.replace(/\/+$/, '')}${url}`
+					: undefined
+				: url
+			: baseUrl;
+	const ctaUrl = toAbsoluteUrl(url);
+	const note = rawNote
+		? { ...rawNote, url: rawNote.url ? toAbsoluteUrl(rawNote.url) : undefined }
+		: undefined;
 
 	try {
 		const { providerMessageId } = await sendEmail({
 			to,
 			type: 'notification',
-			...notificationEmail({ title: args.title, message: args.message, ctaUrl })
+			...notificationEmail({
+				title: args.title,
+				message,
+				ctaUrl,
+				ctaLabel,
+				note,
+				ctaSignsIn
+			})
 		});
 		return { status: 'sent', to, providerMessageId };
 	} catch (error) {
@@ -190,6 +272,7 @@ export const recordEmailDelivery = async (
 		result: NotificationEmailResult;
 		roomId?: Id<'rooms'>;
 		coveredThroughAt?: number;
+		audience?: EmailAudience;
 	}
 ) => {
 	if (args.result.status === 'skipped') return;
@@ -204,6 +287,7 @@ export const recordEmailDelivery = async (
 			args.result.status === 'sent' ? (args.result.providerMessageId ?? undefined) : undefined,
 		roomId: args.roomId,
 		coveredThroughAt: args.coveredThroughAt,
+		audience: args.audience,
 		createdAt: Date.now()
 	});
 };
@@ -213,7 +297,8 @@ export const logEmailDelivery = internalMutation({
 		recipientProfileId: v.id('profiles'),
 		kind: v.string(),
 		subject: v.string(),
-		result: emailDeliveryResultValidator
+		result: emailDeliveryResultValidator,
+		audience: v.optional(emailAudienceValidator)
 	},
 	handler: async (ctx, args) => {
 		await recordEmailDelivery(ctx, args);
@@ -222,13 +307,18 @@ export const logEmailDelivery = internalMutation({
 });
 
 // Sends the email channel of a dispatched notification (scheduled by dispatchNotification
-// in notificationsModel.ts for critical/high tiers). Failures are already reported to
-// monitoring inside sendEmail and recorded on emailDeliveries; they never surface as a
-// scheduler error loop.
+// in notificationsModel.ts for critical/high tiers): one separate email per resolved recipient
+// (a child account's notice can be owed to the parent AND the child), each with its own
+// emailDeliveries row. A failure for one never stops the other. Failures are already reported to
+// monitoring inside sendEmail and recorded on emailDeliveries; they never surface as a scheduler
+// error loop.
 export const sendNotificationEmail = internalAction({
 	args: {
 		recipientProfileId: v.id('profiles'),
 		critical: v.boolean(),
+		// Optional: jobs scheduled before CL-768 step 6 had no mute flag (they were only
+		// scheduled for unmuted recipients).
+		selfMuted: v.optional(v.boolean()),
 		kind: v.optional(v.string()),
 		title: v.string(),
 		message: v.string(),
@@ -236,12 +326,33 @@ export const sendNotificationEmail = internalAction({
 	},
 	handler: async (ctx, args) => {
 		const kind = args.kind ?? 'notification';
-		const result = await deliverNotificationEmail(ctx, { ...args, kind });
-		await ctx.runMutation(internal.notifications.logEmailDelivery, {
-			recipientProfileId: args.recipientProfileId,
-			kind,
-			subject: args.title,
-			result
-		});
+		const recipients = await ctx.runQuery(
+			internal.notifications.resolveNotificationEmailRecipients,
+			{
+				recipientProfileId: args.recipientProfileId,
+				critical: args.critical,
+				selfMuted: args.selfMuted
+			}
+		);
+		for (const recipient of recipients) {
+			const result = await deliverNotificationEmail(ctx, {
+				recipientProfileId: args.recipientProfileId,
+				critical: args.critical,
+				kind,
+				title: args.title,
+				message: args.message,
+				url: args.url,
+				to: recipient.to,
+				audience: recipient.audience,
+				childName: recipient.childName
+			});
+			await ctx.runMutation(internal.notifications.logEmailDelivery, {
+				recipientProfileId: args.recipientProfileId,
+				kind,
+				subject: args.title,
+				result,
+				audience: recipient.audience
+			});
+		}
 	}
 });

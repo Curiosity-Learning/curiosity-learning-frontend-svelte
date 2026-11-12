@@ -23,7 +23,18 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { authClient } from '$lib/auth-client';
+	import { signOutAndGoToSignIn } from '$lib/auth/sign-out';
 	import { routes } from '$lib/routes';
+	import { Badge } from '$lib/components/ui/badge';
+	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
+	import {
+		FRESH_SESSION_REQUIRED,
+		NOTIFICATION_EMAIL_IS_PARENT,
+		OWN_EMAIL_REQUIRED,
+		RESEND_LIMIT_REACHED,
+		UNLINK_REQUIRES_CONFIRMED_EMAIL,
+		hasErrorCode
+	} from '$lib/domain/child-notification-email';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -59,7 +70,11 @@
 	let linkedChildren = $derived(linkedChildrenResponse.data ?? []);
 	let myParentLink = $derived(myParentLinkResponse.data ?? null);
 
-	const childDisplayName = (child: { firstName: string | null; lastName: string | null; username: string | null }) =>
+	const childDisplayName = (child: {
+		firstName: string | null;
+		lastName: string | null;
+		username: string | null;
+	}) =>
 		[child.firstName, child.lastName].filter(Boolean).join(' ').trim() ||
 		child.username ||
 		t('profileDetail.fallbackName');
@@ -79,11 +94,145 @@
 			successMessage = t('parentAccounts.unlinkSuccess');
 			unlinkDialogOpen = false;
 		} catch (error) {
-			unlinkError = error instanceof Error ? error.message : t('parentAccounts.unlinkFailure');
+			unlinkError = hasErrorCode(error, UNLINK_REQUIRES_CONFIRMED_EMAIL)
+				? t('parentAccounts.unlinkRequiresEmail')
+				: t('parentAccounts.unlinkFailure');
 		} finally {
 			unlinkPending = false;
 		}
 	};
+
+	// CL-769 (review D4, edge case 13): a child aged 16+ owns their own notification email —
+	// the same pending -> confirm flow as an address their parent adds — and must have a
+	// confirmed one before unlinking their parent, because after that every email about them
+	// (important notices included) goes to that address only. getMyNotificationEmail is null for
+	// everyone else (adults, under-16 children), so the card never shows for them; the server
+	// refuses the mutation the same way. Changes need a recent sign-in, like the parent's form.
+	const myEmailResponse = useStableQuery(api.parentAccounts.getMyNotificationEmail, () =>
+		$session.data ? {} : 'skip'
+	);
+	let myEmail = $derived(myEmailResponse.data ?? null);
+	let myEmailConfirmed = $derived(myEmail?.status === 'verified');
+	let editingMyEmail = $state(false);
+	let myEmailDraft = $state('');
+	let myEmailError = $state<string | null>(null);
+	let myEmailFreshSignInRequired = $state(false);
+	let savingMyEmail = $state(false);
+
+	const myEmailErrorMessage = (error: unknown) => {
+		if (hasErrorCode(error, NOTIFICATION_EMAIL_IS_PARENT))
+			return t('parentAccounts.ownEmailIsParent');
+		if (hasErrorCode(error, OWN_EMAIL_REQUIRED)) return t('parentAccounts.ownEmailRequired');
+		if (hasErrorCode(error, RESEND_LIMIT_REACHED)) return t('parentAccounts.ownEmailResendLimit');
+		if (error instanceof Error && /valid email/i.test(error.message)) {
+			return t('parentAccounts.ownEmailInvalid');
+		}
+		return t('parentAccounts.ownEmailFailure');
+	};
+
+	// `email` null removes the address; the current pending address again is "Resend".
+	const submitMyEmail = async (email: string | null) => {
+		if (savingMyEmail) return;
+		myEmailError = null;
+		myEmailFreshSignInRequired = false;
+		savingMyEmail = true;
+		const isResend = email !== null && email === myEmail?.notificationEmail && !editingMyEmail;
+		try {
+			const result = await convexClient.mutation(api.parentAccounts.setMyNotificationEmail, {
+				email
+			});
+			editingMyEmail = false;
+			if (result.status === 'none') {
+				showGlobalSnackbar({ title: t('parentAccounts.ownEmailRemoved') });
+			} else if (result.verificationSent) {
+				showGlobalSnackbar({
+					title: t(isResend ? 'parentAccounts.ownEmailResent' : 'parentAccounts.ownEmailSaved')
+				});
+			}
+		} catch (error) {
+			if (hasErrorCode(error, FRESH_SESSION_REQUIRED)) {
+				myEmailFreshSignInRequired = true;
+			} else {
+				myEmailError = myEmailErrorMessage(error);
+			}
+		} finally {
+			savingMyEmail = false;
+		}
+	};
+
+	let signingInAgain = $state(false);
+	const signInAgain = async () => {
+		signingInAgain = true;
+		try {
+			await signOutAndGoToSignIn(routes.settings);
+		} finally {
+			signingInAgain = false;
+		}
+	};
+	// CL-769 (review S4): "Sign out everywhere". Sign-in links make sessions easy to leave
+	// behind (a family computer, a forwarded email), and nothing else lets a parent end them.
+	// Revokes every other session server-side, then signs this device out too.
+	let signOutEverywhereDialogOpen = $state(false);
+	let signOutEverywherePending = $state(false);
+	let signOutEverywhereError = $state('');
+
+	const confirmSignOutEverywhere = async () => {
+		signOutEverywherePending = true;
+		signOutEverywhereError = '';
+		try {
+			const { error } = await authClient.revokeOtherSessions();
+			if (error) {
+				signOutEverywhereError = t('settingsPage.devicesFailure');
+				return;
+			}
+			signOutEverywhereDialogOpen = false;
+			await signOutAndGoToSignIn();
+		} catch {
+			signOutEverywhereError = t('settingsPage.devicesFailure');
+		} finally {
+			signOutEverywherePending = false;
+		}
+	};
+
+	// Review S8/D8: parent accounts are created without a password at consent approval and sign
+	// in with emailed links. "Set a password" is Better Auth's reset flow (it creates the
+	// credential account when there is none), sent to the caller's own address.
+	const signInMethodsResponse = useStableQuery(api.auth.getMySignInMethods, () =>
+		$session.data ? {} : 'skip'
+	);
+	let showSetPassword = $derived(
+		signInMethodsResponse.data !== undefined &&
+			!signInMethodsResponse.data.hasPassword &&
+			!signInMethodsResponse.data.isChildAccount
+	);
+	let setPasswordPending = $state(false);
+	let setPasswordSent = $state(false);
+	let setPasswordError = $state('');
+
+	const requestSetPasswordLink = async () => {
+		const email = $session.data?.user.email;
+		if (!email) return;
+		setPasswordPending = true;
+		setPasswordError = '';
+		try {
+			const redirectTo = new URL('/auth/reset-password', window.location.origin);
+			redirectTo.searchParams.set('next', routes.settings);
+			const { error } = await authClient.requestPasswordReset({
+				email,
+				redirectTo: redirectTo.toString()
+			});
+			if (error) {
+				setPasswordError = t('settingsPage.passwordFailure');
+				return;
+			}
+			setPasswordSent = true;
+		} catch {
+			setPasswordError = t('settingsPage.passwordFailure');
+		} finally {
+			setPasswordPending = false;
+		}
+	};
+
 	const profileImageField = createMediaField(convexClient, 'profileImage', {
 		mode: 'immediate'
 	});
@@ -508,6 +657,134 @@
 		</Card>
 	{/if}
 
+	{#if myEmail}
+		<Card>
+			<CardHeader class="flex flex-col gap-2">
+				<div class="flex flex-wrap items-center gap-2">
+					<CardTitle>{$_('parentAccounts.ownEmailTitle')}</CardTitle>
+					{#if myEmailConfirmed && !editingMyEmail}
+						<Badge variant="secondary">{$_('parentAccounts.ownEmailConfirmed')}</Badge>
+					{/if}
+				</div>
+				<CardDescription>{$_('parentAccounts.ownEmailDescription')}</CardDescription>
+			</CardHeader>
+			<CardContent class="flex flex-col gap-3">
+				{#if myEmail.notificationEmail && !editingMyEmail}
+					{#if myEmailConfirmed}
+						<p class="type-sm text-muted-foreground">
+							{$_('parentAccounts.ownEmailCurrent')}
+							<span class="type-sm-bold text-foreground">{myEmail.notificationEmail}</span>
+						</p>
+					{:else}
+						<p class="type-sm text-muted-foreground">
+							{t('parentAccounts.ownEmailPending').replace('{email}', myEmail.notificationEmail)}
+						</p>
+						{#if !myEmail.hasLinkedParent}
+							<p class="type-sm text-muted-foreground">
+								{$_('parentAccounts.ownEmailPendingUnlinked')}
+							</p>
+						{/if}
+					{/if}
+				{/if}
+				{#if myEmailFreshSignInRequired}
+					<Alert class="flex flex-wrap items-center justify-between gap-3">
+						<div class="flex flex-col gap-1">
+							<AlertTitle>{$_('parentAccounts.notificationEmailFreshSessionTitle')}</AlertTitle>
+							<AlertDescription>
+								{$_('parentAccounts.notificationEmailFreshSession')}
+							</AlertDescription>
+						</div>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={signingInAgain}
+							onclick={() => void signInAgain()}
+						>
+							{$_('parentAccounts.notificationEmailSignInAgain')}
+						</Button>
+					</Alert>
+				{/if}
+				{#if editingMyEmail || !myEmail.notificationEmail}
+					<form
+						class="flex flex-col gap-3"
+						onsubmit={(event) => {
+							event.preventDefault();
+							void submitMyEmail(myEmailDraft);
+						}}
+					>
+						<div class="flex flex-col gap-1.5">
+							<Label for="own-notification-email">{$_('parentAccounts.ownEmailLabel')}</Label>
+							<Input
+								id="own-notification-email"
+								type="email"
+								autocomplete="email"
+								placeholder={$_('parentAccounts.ownEmailPlaceholder')}
+								bind:value={myEmailDraft}
+								disabled={savingMyEmail}
+								aria-invalid={myEmailError ? true : undefined}
+							/>
+							{#if myEmailError}
+								<p class="type-sm text-destructive">{myEmailError}</p>
+							{/if}
+						</div>
+						<div class="flex flex-wrap gap-2">
+							<Button type="submit" disabled={savingMyEmail || myEmailDraft.trim() === ''}>
+								{$_('parentAccounts.ownEmailSave')}
+							</Button>
+							{#if editingMyEmail}
+								<Button
+									type="button"
+									variant="outline"
+									disabled={savingMyEmail}
+									onclick={() => (editingMyEmail = false)}
+								>
+									{$_('parentAccounts.ownEmailCancel')}
+								</Button>
+							{/if}
+						</div>
+					</form>
+				{:else}
+					{#if myEmailError}
+						<p class="type-sm text-destructive">{myEmailError}</p>
+					{/if}
+					<div class="flex flex-wrap gap-2">
+						{#if !myEmailConfirmed}
+							<Button
+								type="button"
+								disabled={savingMyEmail}
+								onclick={() => void submitMyEmail(myEmail?.notificationEmail ?? null)}
+							>
+								{$_('parentAccounts.ownEmailResend')}
+							</Button>
+						{/if}
+						<Button
+							type="button"
+							variant="outline"
+							disabled={savingMyEmail}
+							onclick={() => {
+								myEmailDraft = myEmail?.notificationEmail ?? '';
+								myEmailError = null;
+								editingMyEmail = true;
+							}}
+						>
+							{$_('parentAccounts.ownEmailChange')}
+						</Button>
+						{#if myEmail.hasLinkedParent}
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={savingMyEmail}
+								onclick={() => void submitMyEmail(null)}
+							>
+								{$_('parentAccounts.ownEmailRemove')}
+							</Button>
+						{/if}
+					</div>
+				{/if}
+			</CardContent>
+		</Card>
+	{/if}
+
 	{#if myParentLink}
 		<Card>
 			<CardHeader class="flex flex-col gap-2">
@@ -538,6 +815,64 @@
 		</Card>
 	{/if}
 
+	{#if showSetPassword}
+		<Card>
+			<CardHeader class="flex flex-col gap-2">
+				<CardTitle>{$_('settingsPage.passwordTitle')}</CardTitle>
+				<CardDescription>{$_('settingsPage.passwordDescription')}</CardDescription>
+			</CardHeader>
+			<CardContent class="flex flex-col gap-3">
+				{#if setPasswordSent}
+					<Alert>
+						<AlertTitle>{$_('settingsPage.passwordSentTitle')}</AlertTitle>
+						<AlertDescription>
+							{$_('settingsPage.passwordSentDescription').replace(
+								'{email}',
+								$session.data?.user.email ?? ''
+							)}
+						</AlertDescription>
+					</Alert>
+				{:else}
+					{#if setPasswordError}
+						<Alert variant="destructive">
+							<AlertDescription>{setPasswordError}</AlertDescription>
+						</Alert>
+					{/if}
+					<Button
+						variant="outline"
+						class="justify-start"
+						disabled={setPasswordPending}
+						onclick={() => void requestSetPasswordLink()}
+					>
+						{setPasswordPending
+							? $_('settingsPage.passwordSending')
+							: $_('settingsPage.passwordSendLink')}
+					</Button>
+				{/if}
+				<p class="text-sm text-muted-foreground">{$_('settingsPage.passwordLinksStillWork')}</p>
+			</CardContent>
+		</Card>
+	{/if}
+
+	<Card>
+		<CardHeader class="flex flex-col gap-2">
+			<CardTitle>{$_('settingsPage.devicesTitle')}</CardTitle>
+			<CardDescription>{$_('settingsPage.devicesDescription')}</CardDescription>
+		</CardHeader>
+		<CardContent class="flex flex-col gap-2">
+			<Button
+				variant="outline"
+				class="justify-start"
+				onclick={() => {
+					signOutEverywhereError = '';
+					signOutEverywhereDialogOpen = true;
+				}}
+			>
+				{$_('settingsPage.devicesSignOutEverywhere')}
+			</Button>
+		</CardContent>
+	</Card>
+
 	<Card>
 		<CardHeader class="flex flex-col gap-2">
 			<CardTitle>{$_('settingsPage.policiesTitle')}</CardTitle>
@@ -555,7 +890,16 @@
 	<Dialog.Content>
 		<Dialog.Header>
 			<Dialog.Title>{$_('parentAccounts.unlinkConfirmTitle')}</Dialog.Title>
-			<Dialog.Description>{$_('parentAccounts.unlinkConfirmDescription')}</Dialog.Description>
+			<Dialog.Description>
+				{#if myEmailConfirmed}
+					{t('parentAccounts.unlinkConfirmDescription').replace(
+						'{email}',
+						myEmail?.notificationEmail ?? ''
+					)}
+				{:else}
+					{$_('parentAccounts.unlinkRequiresEmail')}
+				{/if}
+			</Dialog.Description>
 		</Dialog.Header>
 		{#if unlinkError}
 			<Alert variant="destructive">
@@ -566,8 +910,44 @@
 			<Button variant="outline" onclick={() => (unlinkDialogOpen = false)} disabled={unlinkPending}>
 				{$_('parentAccounts.unlinkCancel')}
 			</Button>
-			<Button variant="destructive" disabled={unlinkPending} onclick={() => void confirmUnlinkParent()}>
+			<Button
+				variant="destructive"
+				disabled={unlinkPending || !myEmailConfirmed}
+				onclick={() => void confirmUnlinkParent()}
+			>
 				{$_('parentAccounts.unlinkConfirmAction')}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root bind:open={signOutEverywhereDialogOpen}>
+	<Dialog.Content>
+		<Dialog.Header>
+			<Dialog.Title>{$_('settingsPage.devicesConfirmTitle')}</Dialog.Title>
+			<Dialog.Description>{$_('settingsPage.devicesConfirmDescription')}</Dialog.Description>
+		</Dialog.Header>
+		{#if signOutEverywhereError}
+			<Alert variant="destructive">
+				<AlertDescription>{signOutEverywhereError}</AlertDescription>
+			</Alert>
+		{/if}
+		<Dialog.Footer>
+			<Button
+				variant="outline"
+				onclick={() => (signOutEverywhereDialogOpen = false)}
+				disabled={signOutEverywherePending}
+			>
+				{$_('settingsPage.devicesCancel')}
+			</Button>
+			<Button
+				variant="destructive"
+				disabled={signOutEverywherePending}
+				onclick={() => void confirmSignOutEverywhere()}
+			>
+				{signOutEverywherePending
+					? $_('settingsPage.devicesSigningOut')
+					: $_('settingsPage.devicesConfirmAction')}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

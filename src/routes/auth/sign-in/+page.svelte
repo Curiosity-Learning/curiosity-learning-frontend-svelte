@@ -15,7 +15,14 @@
 	import { authClient } from '$lib/auth-client';
 	import { normalizeAuthError } from '$lib/auth/error-handler';
 	import { navigateAfterAuthChange } from '$lib/auth/navigation';
-	import { _, t } from '$lib/i18n';
+	import { _, formatT, t } from '$lib/i18n';
+	import {
+		buildMagicLinkErrorPath,
+		isMagicLinkCallbackPath,
+		isMagicLinkFailure,
+		isPasswordlessSignInAccount,
+		toMagicLinkCallbackParam
+	} from '$lib/auth/magic-link';
 	import { routes } from '$lib/routes';
 	import { navigateBack } from '$lib/navigation/back';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
@@ -38,6 +45,15 @@
 	let handledForcedExistingGoogleAccount = $state(false);
 	let dismissGoogleAuthCallbackError = $state(false);
 	let resolvedCredentialEmail = $state<string | null>(null);
+	let magicLinkEmail = $state('');
+	let magicLinkPending = $state(false);
+	let magicLinkError = $state('');
+	let magicLinkSentTo = $state<string | null>(null);
+	// Review S9 / CL-768: an email address whose account has no password (every parent account
+	// created at consent approval) can only sign in by link. Offer it as soon as such an address
+	// is typed, not only after an expired link — "sign in again" on the child page sends parents
+	// here. Same lookup the sign-up flow already uses (auth.getSignupAccountStatusByEmail).
+	let passwordlessEmail = $state<string | null>(null);
 
 	const normalizePostSignInPath = (value: string | null) => {
 		if (!value?.startsWith('/')) return '/';
@@ -65,6 +81,9 @@
 	let forgotHref = $derived(`/auth/reset-password?next=${encodeURIComponent(resolvedNextPath)}`);
 	let needsVerification = $derived(errorMessage.toLowerCase().includes('not verified'));
 	let existingGoogleAccount = $derived(page.url.searchParams.get('existingGoogleAccount') === '1');
+	// A one-time sign-in link from an email (parent chat emails, consent approval) that was
+	// already used or has expired lands here; its `?error=` is not a Google error.
+	let magicLinkFailed = $derived(isMagicLinkFailure(page.url.searchParams));
 
 	const normalizeIdentifier = (value: string) => value.trim().toLowerCase();
 	const isEmailLike = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -118,7 +137,7 @@
 	};
 
 	let googleAuthCallbackErrorMessage = $derived(
-		dismissGoogleAuthCallbackError || existingGoogleAccount
+		dismissGoogleAuthCallbackError || existingGoogleAccount || magicLinkFailed
 			? ''
 			: getGoogleSignInErrorMessage({
 					code: googleAuthErrorCode,
@@ -305,6 +324,64 @@
 		}
 	};
 
+	// Debounced from the identifier field's input handler (an async lookup, not derived state).
+	let accountLookupTimer: ReturnType<typeof setTimeout> | undefined;
+	let accountLookupSeq = 0;
+	const lookUpPasswordlessAccount = () => {
+		clearTimeout(accountLookupTimer);
+		const email = normalizeIdentifier(identifier);
+		const seq = ++accountLookupSeq;
+		if (!isEmailLike(email)) {
+			passwordlessEmail = null;
+			return;
+		}
+		accountLookupTimer = setTimeout(() => {
+			void convexClient
+				.query(api.auth.getSignupAccountStatusByEmail, { email })
+				.then((status) => {
+					if (seq !== accountLookupSeq) return;
+					passwordlessEmail = isPasswordlessSignInAccount(status) ? email : null;
+				})
+				.catch(() => {
+					if (seq === accountLookupSeq) passwordlessEmail = null;
+				});
+		}, 400);
+	};
+
+	const requestMagicLink = async (typedEmail?: string) => {
+		const email = normalizeIdentifier(typedEmail ?? magicLinkEmail);
+		if (!isEmailLike(email)) {
+			magicLinkError = t('auth.signIn.magicLink.invalidEmail');
+			return;
+		}
+		magicLinkError = '';
+		magicLinkPending = true;
+		try {
+			// Better Auth only accepts relative callbacks of a restricted shape; anything else
+			// would fail the whole request, so such a `next` falls back to home.
+			const callbackPath = isMagicLinkCallbackPath(resolvedNextPath) ? resolvedNextPath : '/';
+			const { error } = await authClient.signIn.magicLink({
+				email,
+				callbackURL: toMagicLinkCallbackParam(callbackPath),
+				errorCallbackURL: toMagicLinkCallbackParam(buildMagicLinkErrorPath(callbackPath))
+			});
+			if (error) {
+				const normalizedError = normalizeAuthError(error);
+				magicLinkError =
+					normalizedError.type === 'unknown-error'
+						? t('auth.signIn.magicLink.failure')
+						: t(normalizedError.userMessage);
+				return;
+			}
+			magicLinkSentTo = email;
+		} catch (error) {
+			const normalizedError = normalizeAuthError(error);
+			magicLinkError = t(normalizedError.userMessage);
+		} finally {
+			magicLinkPending = false;
+		}
+	};
+
 	const resendVerification = async () => {
 		if (!identifier.trim()) return;
 		errorMessage = '';
@@ -340,17 +417,76 @@
 	<div class="mx-auto flex w-full max-w-6xl flex-col">
 		<header class="flex items-center justify-between gap-4">
 			<a href={routes.onboardingGetStarted} aria-label={$_('common.appName')} class="shrink-0">
-				<img src="/brand/curiosity-learning-logo.png" alt={$_('common.appName')} class="h-9 w-auto" />
+				<img
+					src="/brand/curiosity-learning-logo.png"
+					alt={$_('common.appName')}
+					class="h-9 w-auto"
+				/>
 			</a>
 		</header>
 
-	<div class="grid min-h-[calc(100vh-8rem)] w-full items-stretch gap-8 pt-6 sm:pt-8 lg:grid-cols-2 lg:gap-14">
-		<div class="flex w-full min-w-0 flex-col">
-			<div class="flex flex-1 flex-col pt-2 sm:pt-8">
+		<div
+			class="grid min-h-[calc(100vh-8rem)] w-full items-stretch gap-8 pt-6 sm:pt-8 lg:grid-cols-2 lg:gap-14"
+		>
+			<div class="flex w-full min-w-0 flex-col">
+				<div class="flex flex-1 flex-col pt-2 sm:pt-8">
 					<ScreenBackButton onclick={() => void goBack()} />
 
 					<div class="mt-2 flex flex-col gap-5">
 						<h1 class="type-step-title text-gray-900">{$_('auth.signIn.title')}</h1>
+
+						{#if magicLinkFailed}
+							{#if magicLinkSentTo}
+								<Alert>
+									<AlertTitle>{$_('common.checkEmail')}</AlertTitle>
+									<AlertDescription>
+										{formatT('auth.signIn.magicLink.sentDescription', { email: magicLinkSentTo })}
+									</AlertDescription>
+								</Alert>
+							{:else}
+								<Alert>
+									<AlertTitle>{$_('auth.signIn.magicLink.expiredTitle')}</AlertTitle>
+									<AlertDescription>
+										<p>{$_('auth.signIn.magicLink.expiredDescription')}</p>
+										<form
+											class="mt-3 flex w-full flex-col gap-3"
+											onsubmit={(event) => {
+												event.preventDefault();
+												void requestMagicLink();
+											}}
+										>
+											<Field class="flex flex-col gap-2">
+												<FieldLabel for="magic-link-email" class="type-field-label text-gray-900">
+													{$_('auth.signIn.magicLink.emailLabel')}
+												</FieldLabel>
+												<Input
+													id="magic-link-email"
+													type="email"
+													bind:value={magicLinkEmail}
+													autocomplete="email"
+													placeholder={$_('auth.signIn.magicLink.emailPlaceholder')}
+													class="h-12 border-gray-300 bg-input-background px-4 text-base"
+												/>
+											</Field>
+											{#if magicLinkError}
+												<p class="text-sm text-destructive" role="alert">{magicLinkError}</p>
+											{/if}
+											<Button
+												type="submit"
+												variant="outline"
+												size="xl"
+												class="h-12 w-full"
+												disabled={magicLinkPending || !magicLinkEmail.trim()}
+											>
+												{magicLinkPending
+													? $_('auth.signIn.magicLink.submitting')
+													: $_('auth.signIn.magicLink.submit')}
+											</Button>
+										</form>
+									</AlertDescription>
+								</Alert>
+							{/if}
+						{/if}
 
 						<Field class="flex flex-col gap-2">
 							<FieldLabel for="email" required class="type-field-label text-gray-900">
@@ -360,11 +496,49 @@
 								id="email"
 								type="text"
 								bind:value={identifier}
+								oninput={lookUpPasswordlessAccount}
 								autocomplete="username"
 								placeholder={$_('auth.signIn.identifierPlaceholder')}
 								class="h-12 border-gray-300 bg-input-background px-4 text-base"
 							/>
 						</Field>
+
+						{#if passwordlessEmail && !magicLinkFailed}
+							{#if magicLinkSentTo === passwordlessEmail}
+								<Alert>
+									<AlertTitle>{$_('common.checkEmail')}</AlertTitle>
+									<AlertDescription>
+										{formatT('auth.signIn.magicLink.sentDescription', { email: magicLinkSentTo })}
+									</AlertDescription>
+								</Alert>
+							{:else}
+								<Alert>
+									<AlertTitle>{$_('auth.signIn.magicLink.passwordlessTitle')}</AlertTitle>
+									<AlertDescription class="flex flex-col gap-3">
+										<p>
+											{formatT('auth.signIn.magicLink.passwordlessDescription', {
+												email: passwordlessEmail
+											})}
+										</p>
+										{#if magicLinkError}
+											<p class="text-sm text-destructive" role="alert">{magicLinkError}</p>
+										{/if}
+										<Button
+											type="button"
+											variant="outline"
+											size="xl"
+											class="h-12 w-full"
+											disabled={magicLinkPending}
+											onclick={() => void requestMagicLink(passwordlessEmail ?? undefined)}
+										>
+											{magicLinkPending
+												? $_('auth.signIn.magicLink.submitting')
+												: $_('auth.signIn.magicLink.passwordlessSubmit')}
+										</Button>
+									</AlertDescription>
+								</Alert>
+							{/if}
+						{/if}
 
 						<Field class="flex flex-col gap-2">
 							<FieldLabel for="password" required class="type-field-label text-gray-900">
@@ -477,13 +651,13 @@
 				</div>
 			</div>
 
-		<div class="hidden min-w-0 items-center justify-center lg:flex">
-			<img
-				src={loginIllustration}
-				alt={$_('auth.signIn.illustrationAlt')}
-				class="h-auto w-full max-w-[32rem] object-contain"
-			/>
+			<div class="hidden min-w-0 items-center justify-center lg:flex">
+				<img
+					src={loginIllustration}
+					alt={$_('auth.signIn.illustrationAlt')}
+					class="h-auto w-full max-w-[32rem] object-contain"
+				/>
+			</div>
 		</div>
-	</div>
 	</div>
 </div>

@@ -1,6 +1,7 @@
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { internal } from './_generated/api';
+import { planEmailAudiences } from './notificationRouting';
 
 // Central notification dispatch (CL-715 / PRD 6.13).
 //
@@ -9,14 +10,20 @@ import { internal } from './_generated/api';
 //
 // - critical: always delivered in-app AND by email. Ignores user preferences entirely
 //   (these are account-level notices the user must see).
-// - high: delivered in-app AND by email, but muteable. Muting suppresses BOTH the email
-//   and the in-app row (the simplest honest interpretation of "mute"); the master
+// - high: delivered in-app AND by email, but muteable. Muting suppresses BOTH the recipient's
+//   own email and the in-app row (the simplest honest interpretation of "mute"); the master
 //   `notificationsEnabled` switch mutes all non-critical kinds the same way.
 // - medium: delivered in-app only (no email), muteable with the same semantics as high.
 //
-// Child accounts have synthetic `username@children.curiosity.local` auth emails that are
-// undeliverable. Emails for CRITICAL kinds are rerouted to the approved parent email from
-// `parentChildConsents`; for high kinds no email is sent to child accounts.
+// Child accounts have synthetic `username@children.curiosity.local` auth emails that are never
+// emailed. Who gets the email instead is notificationRouting.ts (the full matrix lives there):
+// CRITICAL kinds go to the approved parent and, once the child has confirmed their own
+// `profiles.notificationEmail`, also to the child as a second, separate email; HIGH kinds go
+// nowhere until the child has confirmed an address (their links lead to the child's own pages,
+// which the parent cannot open), then to the child, plus a parent copy only when the parent
+// opted in (parentNotificationSettings.activityCopies). The CHILD's mute only removes the
+// child's own copy, never the parent's (review S6/D3). Chat emails (chat.ts) use the same
+// routing with the chat column of the matrix.
 export type NotificationKind =
 	// critical
 	| 'application_status' // club application moved to interview / accepted / rejected
@@ -42,11 +49,13 @@ export type NotificationKind =
 	// unread badge is the in-app signal); chat.ts delivers the email directly and uses these
 	// kinds' config for the tier/preference wiring (chatModel.getChatEmailKind maps room type →
 	// kind).
-	// high: club and project group chats — muteable, and child accounts get no email.
+	// high: club and project group chats — muteable. A child account's goes to the parent until
+	// the child has confirmed their own notificationEmail, then to the child (under the child's
+	// mute) plus a parent copy only if the parent turned on chatCopies (notificationRouting.ts).
 	| 'chat_activity'
 	// critical: application and join-request chats — 1:1 review conversations that stall if the
-	// applicant/requester never hears about a reply, so they always email and route to the
-	// approved parent for child accounts. CEO call (CL-764): may become preference-controlled
+	// applicant/requester never hears about a reply, so they always email: for child accounts to
+	// the approved parent, and also to the child once their address is confirmed. CEO call (CL-764): may become preference-controlled
 	// (its own settings toggle) later; flipping tier/preferenceKey here is the whole change.
 	| 'review_chat_activity'
 	// medium
@@ -102,7 +111,9 @@ export const notificationKindConfig: Record<NotificationKind, KindConfig> = {
 };
 
 // Exported for chat.ts's email-only chat_activity delivery, which bypasses dispatchNotification
-// (no in-app row by design) but must honor the same mute semantics.
+// (no in-app row by design) but must honor the same mute semantics. A profile's mutes are about
+// that profile's OWN notifications: the result is passed to notificationRouting as `selfMuted`
+// and never decides a parent's copy about a child account (review S6).
 export const isKindMuted = async (
 	ctx: MutationCtx,
 	profileId: Id<'profiles'>,
@@ -129,34 +140,47 @@ export type DispatchNotificationArgs = {
 
 // Creates the in-app notification row and (for critical/high tiers) schedules the email
 // delivery. Returns the notification id, or null when the kind was muted by the recipient.
+//
+// The recipient's mute removes the in-app row and the recipient's OWN email, nothing else: for a
+// child account the parent's copy (notificationRouting.ts) is still sent (review S6 — before
+// CL-768 the child's mute was checked first and silenced the parent too). The email job is only
+// scheduled when someone is owed an email; it re-resolves the recipients when it runs.
 export const dispatchNotification = async (ctx: MutationCtx, args: DispatchNotificationArgs) => {
 	const config = notificationKindConfig[args.kind];
 
-	if (config.tier !== 'critical' && config.preferenceKey) {
-		if (await isKindMuted(ctx, args.recipientProfileId, config.preferenceKey)) {
-			return null;
-		}
-	}
+	const selfMuted =
+		config.tier !== 'critical' &&
+		config.preferenceKey !== null &&
+		(await isKindMuted(ctx, args.recipientProfileId, config.preferenceKey));
 
-	const notificationId = await ctx.db.insert('notifications', {
-		profileId: args.recipientProfileId,
-		clubId: args.clubId,
-		title: args.title,
-		message: args.message,
-		url: args.url,
-		isRead: false,
-		createdAt: Date.now()
-	});
+	const notificationId = selfMuted
+		? null
+		: await ctx.db.insert('notifications', {
+				profileId: args.recipientProfileId,
+				clubId: args.clubId,
+				title: args.title,
+				message: args.message,
+				url: args.url,
+				isRead: false,
+				createdAt: Date.now()
+			});
 
 	if (config.tier === 'critical' || config.tier === 'high') {
-		await ctx.scheduler.runAfter(0, internal.notifications.sendNotificationEmail, {
-			recipientProfileId: args.recipientProfileId,
-			critical: config.tier === 'critical',
-			kind: args.kind,
-			title: args.title,
-			message: args.message,
-			url: args.url
-		});
+		const profile = await ctx.db.get(args.recipientProfileId);
+		const audiences = profile
+			? await planEmailAudiences(ctx, { profile, tier: config.tier, chat: false, selfMuted })
+			: [];
+		if (audiences.length > 0) {
+			await ctx.scheduler.runAfter(0, internal.notifications.sendNotificationEmail, {
+				recipientProfileId: args.recipientProfileId,
+				critical: config.tier === 'critical',
+				selfMuted,
+				kind: args.kind,
+				title: args.title,
+				message: args.message,
+				url: args.url
+			});
+		}
 	}
 
 	return notificationId;

@@ -15,7 +15,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { LAST_CLUB_ID_STORAGE_KEY } from '$lib/auth/onboarding-state';
-	import { isNoClubAllowedPath } from '$lib/auth/no-club-allowlist';
+	import { clubLessLandingPath, isNoClubAllowedPath } from '$lib/auth/no-club-allowlist';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { api } from '$convex/_generated/api';
 	import { routes } from '$lib/routes';
@@ -66,6 +66,10 @@
 		() => (isAuthReady ? {} : 'skip')
 	);
 	let clubs = $derived(clubsResponse.data ?? []);
+	// Edge case 14: only asked for club-less accounts (see clubLessLandingPath).
+	const firstLinkedChildResponse = useStableQuery(api.parentAccounts.getMyFirstLinkedChildId, () =>
+		isAuthReady && clubsResponse.data?.length === 0 ? {} : 'skip'
+	);
 	let sidebarProfileName = $derived.by(() => {
 		const profile = profileResponse.data;
 		if (!profile) return 'Profile';
@@ -264,7 +268,11 @@
 		if (isNoClubAllowedPath(activePath)) {
 			return;
 		}
-		void goto(routes.newClub, { replaceState: true });
+		const firstLinkedChildId = firstLinkedChildResponse.error
+			? null
+			: firstLinkedChildResponse.data;
+		if (firstLinkedChildId === undefined) return;
+		void goto(clubLessLandingPath(firstLinkedChildId), { replaceState: true });
 	});
 	let hintedTitle = $derived.by(() => {
 		const hint = page.state.headerTitleHint?.trim();

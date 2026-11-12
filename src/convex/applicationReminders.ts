@@ -28,8 +28,8 @@ import { formatSeasonDay, formatSeasonDeadline } from '../lib/domain/season-date
 //
 // Who gets it (Ron, 2026-11-05):
 // - an adult applicant: their own address;
-// - a child: the approved parent (parent wording — the child finishes by signing in with their
-//   username);
+// - a child: their own address once they confirmed it; else the approved parent, unless the
+//   child unlinked them (parent wording — the child finishes by signing in with their username);
 // - a child whose consent is still pending: the parent the consent request went to, asking them
 //   to approve; the button is that same consent link (it only ever went to this address).
 // Never sent: to an address that unsubscribed (emailUnsubscribe.ts), to a suspended account, to
@@ -81,16 +81,23 @@ const resolveReminderRecipient = async (
 	if (!authEmail.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
 		return { audience: 'self', to: authEmail };
 	}
-	// Child account: the approved parent; with none yet, the parent the (still pending) consent
-	// request went to. (Once CL-768 lands, the child's own notification email and an unlinked
-	// parent are handled through notifications.resolveEmailRecipient instead.)
+	// Child account, following the CL-768/769 routing rules (notificationRouting.ts): the child's
+	// own address once they CONFIRMED it (they can upload the video themselves); otherwise the
+	// approved parent, unless the child unlinked them (rule 4: an unlinked parent hears nothing);
+	// with no approved consent yet, the parent the still-pending consent request went to.
+	if (profile.notificationEmail && profile.notificationEmailVerifiedAt !== undefined) {
+		return { audience: 'self', to: profile.notificationEmail };
+	}
 	const consents = await ctx.db
 		.query('parentChildConsents')
 		.withIndex('by_child_profile_id', (q) => q.eq('childProfileId', profile._id))
 		.order('desc')
 		.collect();
-	const approved = consents.find((consent) => consent.status === 'approved');
+	const approved = consents.find(
+		(consent) => consent.status === 'approved' && consent.unlinkedAt === undefined
+	);
 	if (approved) return { audience: 'parent', to: approved.parentEmail };
+	if (consents.some((consent) => consent.status === 'approved')) return null;
 	const pending = consents.find((consent) => consent.status === 'pending');
 	return pending
 		? { audience: 'parent_pending', to: pending.parentEmail, consentToken: pending.token }

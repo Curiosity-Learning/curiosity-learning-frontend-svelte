@@ -58,6 +58,27 @@ const nl = {
 		}
 	},
 	settingsPage: {
+		passwordTitle: 'Wachtwoord',
+		passwordDescription:
+			'Je bent ingelogd zonder wachtwoord. Stel er een in om met je e-mailadres en wachtwoord in te loggen.',
+		passwordSendLink: 'Mail me een link om een wachtwoord in te stellen',
+		passwordSending: 'Bezig met verzenden...',
+		passwordSentTitle: 'Controleer je e-mail',
+		passwordSentDescription:
+			'We hebben een link gestuurd naar {email}. Open die om je wachtwoord te kiezen.',
+		passwordFailure: 'Kon de link niet versturen. Probeer het opnieuw.',
+		passwordLinksStillWork: 'Je kunt ook blijven inloggen met de links die we je mailen.',
+		devicesTitle: 'Ingelogde apparaten',
+		devicesDescription:
+			'Ingelogd op een gedeeld of kwijtgeraakt apparaat? Log overal uit, ook op dit apparaat.',
+		devicesSignOutEverywhere: 'Overal uitloggen',
+		devicesConfirmTitle: 'Overal uitloggen?',
+		devicesConfirmDescription:
+			'Je wordt op elk apparaat uitgelogd, ook op dit apparaat. Je kunt weer inloggen met je wachtwoord, Google of een inloglink per e-mail.',
+		devicesConfirmAction: 'Overal uitloggen',
+		devicesCancel: 'Annuleren',
+		devicesSigningOut: 'Bezig met uitloggen...',
+		devicesFailure: 'Kon je andere apparaten niet uitloggen. Probeer het opnieuw.',
 		errorTitle: 'Bijwerken van instellingen mislukt',
 		successTitle: 'Opgeslagen',
 		policiesTitle: 'Beleidsdocumenten',
@@ -285,7 +306,38 @@ const nl = {
 			linkMismatch:
 				'Dit Google-account kon hier niet worden gekoppeld. Log eerst in met je bestaande account of gebruik hetzelfde e-mailadres.',
 			providerNotConfigured: 'Google-inloggen is nog niet ingesteld.',
-			googleUnavailable: 'Kan nu niet doorgaan met Google. Probeer het opnieuw.'
+			googleUnavailable: 'Kan nu niet doorgaan met Google. Probeer het opnieuw.',
+			magicLink: {
+				expiredTitle: 'Inloglink verlopen',
+				expiredDescription:
+					'Deze inloglink is verlopen of al gebruikt. Voer je e-mailadres in en we sturen je een nieuwe.',
+				emailLabel: 'E-mail',
+				emailPlaceholder: 'Voer je e-mailadres in',
+				submit: 'Stuur me een nieuwe link',
+				submitting: 'Verzenden...',
+				sentDescription:
+					'Als er een account is voor {email}, is er een nieuwe inloglink onderweg. De link werkt één keer.',
+				invalidEmail: 'Voer een geldig e-mailadres in.',
+				failure: 'Kon geen nieuwe link verzenden. Probeer het opnieuw.',
+				passwordlessTitle: 'Geen wachtwoord voor dit account',
+				passwordlessDescription:
+					'Dit e-mailadres heeft al een account bij Curiosity Learning, bijvoorbeeld van het goedkeuren van het account van een kind. Er hoort geen wachtwoord bij: we sturen een inloglink naar {email}.',
+				passwordlessSubmit: 'Stuur me een inloglink'
+			}
+		},
+		signInLink: {
+			heading: 'Inloggen met deze link?',
+			signingInAs: 'Je logt in als',
+			titleNoEmail: 'Inloggen en doorgaan?',
+			description:
+				'Met deze link log je in bij Curiosity Learning en open je de pagina waarvoor hij is verstuurd. De link werkt één keer.',
+			submit: 'Inloggen en doorgaan',
+			submitting: 'Bezig met inloggen...',
+			notYou: 'Ben jij dit niet? Sluit deze pagina.',
+			invalidTitle: 'Deze inloglink is onvolledig',
+			invalidDescription:
+				'Open de link opnieuw vanuit je e-mail, of log in met je e-mailadres en we sturen je een nieuwe link.',
+			goToSignIn: 'Naar inloggen'
 		},
 		resetPassword: {
 			backToSignIn: 'Terug naar inloggen',
@@ -436,6 +488,49 @@ const nl = {
 		}
 	},
 	onboarding: {
+		parentConsent: {
+			childFallback: 'je kind',
+			loading: 'Toestemmingsverzoek laden',
+			notFoundTitle: 'Toestemmingslink niet gevonden',
+			notFoundDescription: 'Deze toestemmingslink is ongeldig of verlopen.',
+			title: 'Account van {child} goedkeuren',
+			subtitle: '{child} wil Curiosity Learning gebruiken. Jij bent opgegeven als ouder of voogd.',
+			// Vastgelegd als wordingKey 'parentConsent.v2.combined' (childSignup.approveConsent).
+			agreement:
+				'Ik ben de ouder of voogd van {child}. Ik ga akkoord met de {terms} en het {privacy} voor het account van {child} en voor mijn eigen ouderaccount onder {parentEmail}.',
+			termsLink: 'Voorwaarden',
+			privacyLink: 'Privacybeleid',
+			routingQuestion: 'Waar moeten e-mails over de clubs en chats van {child} naartoe?',
+			routingParent: 'Naar mij, op {parentEmail}',
+			routingChild: 'Naar het eigen e-mailadres van {child}',
+			childEmailLabel: 'E-mailadres van {child}',
+			childEmailPlaceholder: 'naam@voorbeeld.nl',
+			childEmailIsParent: "Dat is jouw adres — kies 'Naar mij'.",
+			childEmailInvalid: 'Voer een geldig e-mailadres in.',
+			routingFinePrint:
+				'Belangrijke berichten over het account van {child}, zoals besluiten over aanmeldingen, komen altijd naar jou. Je kunt dit later wijzigen op de pagina van {child}.',
+			approveButton: 'Account van {child} goedkeuren',
+			approving: 'Bezig met goedkeuren...',
+			acceptRequired: 'Ga akkoord met de Voorwaarden en het Privacybeleid voordat je goedkeurt.',
+			errorTitle: 'Goedkeuren is niet gelukt',
+			genericError: 'Dit account kon niet worden goedgekeurd. Probeer het opnieuw.',
+			doneTitle: 'Het account van {child} is actief',
+			doneParentAccountCreated:
+				'We hebben een ouderaccount aangemaakt voor {parentEmail}, zodat je de clubs en chats van {child} kunt zien.',
+			doneParentAccountLinked:
+				'{child} is nu gekoppeld aan je account {parentEmail}, zodat je de clubs en chats van {child} kunt zien.',
+			doneChildEmail:
+				'We hebben {childEmail} een e-mail gestuurd zodat {child} het adres kan bevestigen. Tot die tijd komen e-mails over {child} naar jou.',
+			signInButton: 'Bekijk het account van {child}',
+			signInFinePrint:
+				'Hiermee log je op dit apparaat in als {parentEmail}. Als hier iemand anders is ingelogd, wordt die uitgelogd.',
+			otherSessionWarning: 'Er is op dit apparaat nu iemand anders ingelogd.',
+			closePage:
+				'Of sluit deze pagina. Elke e-mail die we je over {child} sturen, heeft een knop waarmee je inlogt. Je kunt altijd een wachtwoord instellen via Instellingen.',
+			alreadyTitle: 'Al goedgekeurd',
+			alreadyDescription: 'Het account van {child} is al goedgekeurd.',
+			signInLink: 'Log in om het account van {child} te bekijken'
+		},
 		getStarted: {
 			illustrationAlt: 'Curiosity Learning illustratie',
 			welcome: 'Welkom bij Curiosity Learning!',
@@ -1048,6 +1143,11 @@ const nl = {
 		sharedClubIndicatorLabel: 'Zichtbaar omdat je in dezelfde club zit'
 	},
 	parentAccounts: {
+		sharedDeviceTitle: 'Niet jouw apparaat?',
+		sharedDeviceDescription:
+			'Je bent ingelogd met een link uit een e-mail. Wordt deze computer of telefoon gedeeld? Log dan uit als je klaar bent.',
+		sharedDeviceSignOut: 'Uitloggen',
+		sharedDeviceDismiss: 'Sluiten',
 		linkedChildrenTitle: 'Gekoppelde kinderen',
 		linkedChildrenDescription: 'Bekijk een alleen-lezen overzicht van clubs, projecten en chats.',
 		linkedChildrenEmpty: 'Nog geen gekoppelde kinderen.',
@@ -1058,11 +1158,48 @@ const nl = {
 		linkedParentNone: 'Er is momenteel geen ouder gekoppeld aan je account.',
 		unlinkAction: 'Ouder ontkoppelen',
 		unlinkConfirmTitle: 'Ouderaccount ontkoppelen?',
-		unlinkConfirmDescription: 'Je ouder kan je clubs, projecten en chats niet meer bekijken.',
+		unlinkConfirmDescription:
+			'Je ouder kan je clubs, projecten en chats niet meer bekijken en krijgt geen e-mails meer over jou. Alle e-mails van Curiosity Learning, ook belangrijke meldingen, komen dan naar jou op {email}.',
+		unlinkRequiresEmail:
+			'Voeg eerst je eigen e-mailadres toe en bevestig het, zodat belangrijke meldingen je nog steeds bereiken.',
 		unlinkConfirmAction: 'Ontkoppelen',
 		unlinkCancel: 'Annuleren',
 		unlinkFailure: 'Kan ouderaccount niet ontkoppelen.',
 		unlinkSuccess: 'Ouderaccount ontkoppeld.',
+		ownEmailTitle: 'Je e-mailadres',
+		ownEmailDescription:
+			'Voeg je eigen e-mailadres toe om e-mails van Curiosity Learning zelf te ontvangen, zoals chatberichten en belangrijke meldingen. Er wordt niets naartoe gestuurd totdat je het bevestigt.',
+		ownEmailLabel: 'Je e-mailadres',
+		ownEmailPlaceholder: 'naam@voorbeeld.nl',
+		ownEmailSave: 'E-mailadres opslaan',
+		ownEmailCancel: 'Annuleren',
+		ownEmailChange: 'Wijzigen',
+		ownEmailRemove: 'Verwijderen',
+		ownEmailResend: 'Opnieuw versturen',
+		ownEmailConfirmed: 'Bevestigd',
+		ownEmailCurrent: 'Je e-mails gaan naar',
+		ownEmailPending:
+			'We wachten tot je {email} bevestigt. Open de e-mail die we stuurden en bevestig het terwijl je met dit account bent ingelogd.',
+		ownEmailPendingUnlinked:
+			'Totdat je het bevestigt, kan Curiosity Learning je niet e-mailen. Meldingen verschijnen nog wel in de app.',
+		ownEmailSaved: 'Opgeslagen. We hebben je een e-mail gestuurd om het adres te bevestigen.',
+		ownEmailResent: 'Opnieuw verstuurd. Open de e-mail en bevestig.',
+		ownEmailRemoved: 'E-mailadres verwijderd.',
+		ownEmailIsParent: 'Dat is het adres van je ouder. Vul je eigen e-mailadres in.',
+		ownEmailRequired:
+			'Je hebt een e-mailadres nodig zodat belangrijke meldingen je bereiken. Je kunt het wijzigen, maar niet verwijderen.',
+		ownEmailResendLimit:
+			'Je hebt vandaag het maximale aantal bevestigingsmails verstuurd. Probeer het morgen opnieuw.',
+		ownEmailInvalid: 'Vul een geldig e-mailadres in.',
+		ownEmailFailure: 'Het e-mailadres kon niet worden opgeslagen. Probeer het opnieuw.',
+		differentEmailHelp:
+			'Je kinderen zijn gekoppeld aan het account waarmee ze zijn goedgekeurd. Je bent ingelogd als {email}. Heb je met een ander e-mailadres goedgekeurd, dan kunnen we daar een inloglink naartoe sturen.',
+		differentEmailSend: 'Stuur een inloglink naar het goedkeurende adres',
+		differentEmailRequested:
+			'Als dit account met een ander e-mailadres is goedgekeurd, hebben we daar een inloglink naartoe gestuurd. Die werkt één keer, 30 minuten lang.',
+		differentEmailRateLimited:
+			'Je hebt deze link vandaag te vaak aangevraagd. Probeer het morgen opnieuw.',
+		differentEmailFailure: 'De link kon niet worden verstuurd. Probeer het opnieuw.',
 		bannerLabel: 'Bekijken als {name} — alleen-lezen',
 		exitAction: 'Terug naar instellingen',
 		overviewTab: 'Overzicht',
@@ -1080,7 +1217,76 @@ const nl = {
 		loadErrorTitle: 'Kan dit kindaccount niet laden',
 		notFoundTitle: 'Niet toegankelijk',
 		notFoundDescription: 'Dit kindaccount is niet gekoppeld aan je account.',
-		selectChatPrompt: 'Selecteer een chat om de berichten te bekijken.'
+		selectChatPrompt: 'Selecteer een chat om de berichten te bekijken.',
+		notificationEmailTitle: 'E-mailmeldingen',
+		notificationEmailDescription:
+			'E-mails over de club- en projectchats van {name} komen nu bij jou terecht. Voeg een e-mailadres voor {name} toe en zodra {name} het bevestigt, gaan die e-mails rechtstreeks naar {name}.',
+		notificationEmailCurrent: 'E-mails over de club- en projectchats van {name} gaan naar',
+		notificationEmailCriticalNote:
+			'Belangrijke berichten, zoals updates over aanmeldingen en accountacties, sturen we altijd naar jou.',
+		notificationEmailLabel: 'E-mailadres van {name}',
+		notificationEmailPlaceholder: 'naam@voorbeeld.nl',
+		notificationEmailConsent:
+			'Door dit adres op te slaan bevestig je als ouder of voogd van {name} dat {name} daar meldingen van Curiosity Learning mag ontvangen.',
+		notificationEmailSave: 'E-mailadres opslaan',
+		notificationEmailCancel: 'Annuleren',
+		notificationEmailChange: 'Wijzigen',
+		notificationEmailRemove: 'Verwijderen en weer naar mij sturen',
+		notificationEmailSaved:
+			'Opgeslagen. We hebben {name} een link gestuurd om het adres te bevestigen. Tot die tijd komen de e-mails bij jou.',
+		notificationEmailPending:
+			'We wachten tot {name} {email} bevestigt. Tot die tijd komen de e-mails bij jou.',
+		notificationEmailPendingStale:
+			'{days} dagen geleden verstuurd en nog niet bevestigd. Controleer of het adres klopt, of stuur de link opnieuw.',
+		notificationEmailConfirmed: 'Bevestigd',
+		notificationEmailResend: 'Opnieuw sturen',
+		notificationEmailResent:
+			'Opnieuw verstuurd. Vraag {name} de e-mail te openen en te bevestigen.',
+		notificationEmailResendLimit:
+			'Je hebt vandaag het maximale aantal bevestigingsmails verstuurd. Probeer het morgen opnieuw.',
+		notificationEmailIsParent:
+			'Dat is je eigen adres. Wil je deze e-mails zelf ontvangen? Voeg dan geen adres toe voor {name}.',
+		notificationEmailFreshSessionTitle: 'Log opnieuw in',
+		notificationEmailFreshSession: 'Log voor je veiligheid opnieuw in om dit te wijzigen.',
+		notificationEmailSignInAgain: 'Opnieuw inloggen',
+		notificationEmailRemoved: 'Verwijderd. Chat-e-mails komen weer bij jou terecht.',
+		notificationEmailInvalid: 'Vul een geldig e-mailadres in.',
+		notificationEmailFailure: 'Het e-mailadres kon niet worden opgeslagen. Probeer het opnieuw.',
+		parentEmailsTitle: 'Jouw e-mails over {name}',
+		parentEmailsChatCopies: 'Stuur mij ook de chat-e-mails van {name}',
+		parentEmailsActivityCopies: 'Stuur mij ook de activiteitenherinneringen van {name}',
+		parentEmailsCriticalNote: 'Belangrijke berichten over het account van {name} krijg jij altijd.',
+		parentEmailsUnconfirmed:
+			'Tot {name} het e-mailadres heeft bevestigd, krijg jij de chat-e-mails over {name}.',
+		parentEmailsSaveFailure: 'Deze instelling kon niet worden opgeslagen. Probeer het opnieuw.'
+	},
+	verifyEmail: {
+		title: 'Bevestig je e-mailadres',
+		validQuestion: 'Is {email} jouw e-mailadres?',
+		validDescription:
+			'Je ouder of voogd heeft het toegevoegd voor meldingen van Curiosity Learning voor {username}. Zodra je het bevestigt, gaan chatmeldingen naar dit adres in plaats van naar je ouder.',
+		validDescriptionSelf:
+			'Je hebt het toegevoegd voor meldingen van Curiosity Learning voor {username}. Zodra je het bevestigt, gaan je e-mails naar dit adres.',
+		confirm: 'Ja, dit is mijn e-mailadres',
+		confirming: 'Bezig met bevestigen...',
+		confirmedSnackbar: 'E-mailadres bevestigd',
+		confirmedTitle: 'E-mailadres bevestigd',
+		confirmedDescription: 'Je meldingen gaan vanaf nu naar dit adres.',
+		goToChat: 'Naar chat',
+		wrongAccountTitle: 'Ingelogd met een ander account',
+		wrongAccountDescription:
+			'Deze link is voor een ander account. Log in met het account dat in de e-mail staat.',
+		signOut: 'Uitloggen',
+		expiredTitle: 'Deze link is verlopen',
+		expiredDescription: 'Vraag je ouder of voogd om een nieuwe te sturen.',
+		expiredDescriptionSelf: 'Stuur een nieuwe vanuit Instellingen.',
+		goToSettings: 'Naar Instellingen',
+		usedTitle: 'Al bevestigd',
+		usedDescription: 'Deze link is al gebruikt om je e-mailadres te bevestigen.',
+		notFoundTitle: 'Deze link is niet geldig',
+		notFoundDescription:
+			'Misschien is er een nieuwere link verstuurd. Gebruik de nieuwste e-mail, of vraag je ouder of voogd om een nieuwe link.',
+		failure: 'Je e-mailadres kon niet worden bevestigd. Probeer het opnieuw.'
 	},
 	feedback: {
 		entryPointTitle: 'Feedbackformulieren',

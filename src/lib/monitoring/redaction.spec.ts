@@ -17,6 +17,22 @@ describe('monitoring redaction', () => {
 		);
 	});
 
+	it('redacts child email confirmation and sign-in link tokens in paths and fragments', () => {
+		expect(redactText('GET /verify-email/abcDEFtoken')).toBe('GET /verify-email/[Redacted]');
+		expect(redactText('https://app.example.com/verify-email/abcDEFtoken')).toBe(
+			'https://app.example.com/verify-email/[Redacted]'
+		);
+		expect(redactText('/auth/link#t=abcDEF&next=%2Fchild%2Fx&as=p')).toBe(
+			'/auth/link#t=[Redacted]&next=%2Fchild%2Fx&as=p'
+		);
+		expect(redactText('https://app.example.com/auth/link#t=abcDEF&next=%2F')).toBe(
+			'https://app.example.com/auth/link'
+		);
+		expect(redactText('GET /api/auth/magic-link/verify?token=abcDEF&callbackURL=%2F')).toBe(
+			'GET /api/auth/magic-link/verify?token=[Redacted]&callbackURL=%2F'
+		);
+	});
+
 	it('redacts values stored under sensitive keys', () => {
 		expect(
 			redactUnknown({

@@ -57,6 +57,26 @@ const en = {
 		}
 	},
 	settingsPage: {
+		passwordTitle: 'Password',
+		passwordDescription:
+			'You signed in without a password. Set one to sign in with your email and password.',
+		passwordSendLink: 'Email me a link to set a password',
+		passwordSending: 'Sending...',
+		passwordSentTitle: 'Check your email',
+		passwordSentDescription: 'We sent a link to {email}. Open it to choose your password.',
+		passwordFailure: 'Could not send the link. Please try again.',
+		passwordLinksStillWork: 'You can also keep signing in with the links we email you.',
+		devicesTitle: 'Signed-in devices',
+		devicesDescription:
+			'Signed in on a shared or lost device? Sign out everywhere, including this device.',
+		devicesSignOutEverywhere: 'Sign out everywhere',
+		devicesConfirmTitle: 'Sign out everywhere?',
+		devicesConfirmDescription:
+			'You will be signed out on every device, including this one. You can sign in again with your password, Google, or an email sign-in link.',
+		devicesConfirmAction: 'Sign out everywhere',
+		devicesCancel: 'Cancel',
+		devicesSigningOut: 'Signing out...',
+		devicesFailure: 'Could not sign out your other devices. Please try again.',
 		errorTitle: 'Settings update failed',
 		successTitle: 'Saved',
 		policiesTitle: 'Policies',
@@ -293,7 +313,39 @@ const en = {
 			linkMismatch:
 				'This Google account could not be linked here. Sign in with your existing account first or use the same email address.',
 			providerNotConfigured: 'Google sign-in is not configured yet.',
-			googleUnavailable: 'Unable to continue with Google right now. Please try again.'
+			googleUnavailable: 'Unable to continue with Google right now. Please try again.',
+			// Expired/used magic sign-in link fallback (lib/auth/magic-link.ts).
+			magicLink: {
+				expiredTitle: 'Sign-in link expired',
+				expiredDescription:
+					"This sign-in link has expired or was already used. Enter your email and we'll send you a new one.",
+				emailLabel: 'Email',
+				emailPlaceholder: 'Enter your email',
+				submit: 'Send me a new link',
+				submitting: 'Sending...',
+				sentDescription:
+					'If there is an account for {email}, a new sign-in link is on its way. It works once.',
+				invalidEmail: 'Enter a valid email address.',
+				failure: 'Could not send a new link. Please try again.',
+				passwordlessTitle: 'No password on this account',
+				passwordlessDescription:
+					"This email already has a Curiosity Learning account, for example from approving a child's account. It has no password: we'll email a sign-in link to {email}.",
+				passwordlessSubmit: 'Email me a sign-in link'
+			}
+		},
+		signInLink: {
+			heading: 'Sign in with this link?',
+			signingInAs: 'Signing in as',
+			titleNoEmail: 'Sign in and continue?',
+			description:
+				'This link signs you in to Curiosity Learning and opens the page it was sent for. It works once.',
+			submit: 'Sign in and continue',
+			submitting: 'Signing in...',
+			notYou: 'Not you? Close this page.',
+			invalidTitle: 'This sign-in link is incomplete',
+			invalidDescription:
+				'Open the link again from your email, or sign in with your email and we can send you a new link.',
+			goToSignIn: 'Go to sign in'
 		},
 		resetPassword: {
 			backToSignIn: 'Return to account log in',
@@ -440,6 +492,51 @@ const en = {
 		}
 	},
 	onboarding: {
+		parentConsent: {
+			childFallback: 'your child',
+			loading: 'Loading consent request',
+			notFoundTitle: 'Consent link not found',
+			notFoundDescription: 'This consent link is invalid or has expired.',
+			title: "Approve {child}'s account",
+			subtitle:
+				'{child} wants to use Curiosity Learning. You were named as their parent or guardian.',
+			// Recorded as wordingKey 'parentConsent.v2.combined' (childSignup.approveConsent): change
+			// the meaning of this sentence only together with that key, in both languages.
+			agreement:
+				"I am {child}'s parent or guardian. I agree to the {terms} and {privacy} for {child}'s account and for my own parent account under {parentEmail}.",
+			termsLink: 'Terms',
+			privacyLink: 'Privacy Policy',
+			routingQuestion: "Where should emails about {child}'s clubs and chats go?",
+			routingParent: 'To me, at {parentEmail}',
+			routingChild: "To {child}'s own email address",
+			childEmailLabel: "{child}'s email address",
+			childEmailPlaceholder: 'name@example.com',
+			childEmailIsParent: "That's your address — choose 'To me'.",
+			childEmailInvalid: 'Enter a valid email address.',
+			routingFinePrint:
+				"Important notices about {child}'s account, such as application decisions, always come to you. You can change this later from {child}'s page.",
+			approveButton: "Approve {child}'s account",
+			approving: 'Approving...',
+			acceptRequired: 'Please agree to the Terms and Privacy Policy before approving.',
+			errorTitle: 'Unable to approve',
+			genericError: 'Unable to approve this account. Please try again.',
+			doneTitle: "{child}'s account is active",
+			doneParentAccountCreated:
+				"We created a parent account for {parentEmail} so you can see {child}'s clubs and chats.",
+			doneParentAccountLinked:
+				"{child} is now linked to your account {parentEmail} so you can see {child}'s clubs and chats.",
+			doneChildEmail:
+				'We emailed {childEmail} so {child} can confirm it. Until then, emails about {child} come to you.',
+			signInButton: "See {child}'s account",
+			signInFinePrint:
+				'Signs you in as {parentEmail} on this device. If someone else is signed in here, they will be signed out.',
+			otherSessionWarning: 'Someone else is signed in on this device right now.',
+			closePage:
+				'Or close this page. Every email we send you about {child} has a button that signs you in. You can set a password any time from Settings.',
+			alreadyTitle: 'Already approved',
+			alreadyDescription: "{child}'s account has already been approved.",
+			signInLink: "Sign in to see {child}'s account"
+		},
 		getStarted: {
 			illustrationAlt: 'Curiosity Learning illustration',
 			welcome: 'Welcome to Curiosity Learning!',
@@ -1050,6 +1147,11 @@ const en = {
 		sharedClubIndicatorLabel: "Visible because you're in the same club"
 	},
 	parentAccounts: {
+		sharedDeviceTitle: 'Not your device?',
+		sharedDeviceDescription:
+			'You signed in with a link from an email. If this computer or phone is shared, sign out when you are done.',
+		sharedDeviceSignOut: 'Sign out',
+		sharedDeviceDismiss: 'Dismiss',
 		linkedChildrenTitle: 'Linked children',
 		linkedChildrenDescription: 'View a read-only summary of clubs, projects, and chats.',
 		linkedChildrenEmpty: 'No linked children yet.',
@@ -1060,11 +1162,47 @@ const en = {
 		unlinkAction: 'Unlink parent',
 		unlinkConfirmTitle: 'Unlink parent account?',
 		unlinkConfirmDescription:
-			'Your parent will no longer be able to view your clubs, projects, or chats.',
+			'Your parent will no longer be able to view your clubs, projects, or chats, and will no longer get any emails about you. All Curiosity Learning emails, including important notices, will come to you at {email}.',
+		unlinkRequiresEmail:
+			'Add and confirm your own email address first, so important notices can still reach you.',
 		unlinkConfirmAction: 'Unlink',
 		unlinkCancel: 'Cancel',
 		unlinkFailure: 'Unable to unlink parent account.',
 		unlinkSuccess: 'Parent account unlinked.',
+		ownEmailTitle: 'Your email address',
+		ownEmailDescription:
+			'Add your own email address to get Curiosity Learning emails yourself, such as chat messages and important notices. Nothing is sent there until you confirm it.',
+		ownEmailLabel: 'Your email address',
+		ownEmailPlaceholder: 'name@example.com',
+		ownEmailSave: 'Save email address',
+		ownEmailCancel: 'Cancel',
+		ownEmailChange: 'Change',
+		ownEmailRemove: 'Remove',
+		ownEmailResend: 'Resend',
+		ownEmailConfirmed: 'Confirmed',
+		ownEmailCurrent: 'Your emails go to',
+		ownEmailPending:
+			'Waiting for you to confirm {email}. Open the email we sent and confirm it while signed in to this account.',
+		ownEmailPendingUnlinked:
+			'Until you confirm it, Curiosity Learning cannot email you. Notifications still appear in the app.',
+		ownEmailSaved: 'Saved. We sent you an email to confirm the address.',
+		ownEmailResent: 'Sent again. Open the email and confirm.',
+		ownEmailRemoved: 'Email address removed.',
+		ownEmailIsParent: "That's your parent's address. Enter your own email address.",
+		ownEmailRequired:
+			'You need an email address so important notices can reach you. You can change it, but not remove it.',
+		ownEmailResendLimit:
+			"You've sent the most confirmation emails allowed for today. Please try again tomorrow.",
+		ownEmailInvalid: 'Please enter a valid email address.',
+		ownEmailFailure: 'Could not save the email address. Please try again.',
+		differentEmailHelp:
+			'Your children are linked to the account that approved them. You are signed in as {email}. If you approved with a different email, we can send a sign-in link there.',
+		differentEmailSend: 'Send a sign-in link to the approving address',
+		differentEmailRequested:
+			'If this account was approved with a different email address, we sent a sign-in link there. It works once, for 30 minutes.',
+		differentEmailRateLimited:
+			"You've asked for this link too many times today. Please try again tomorrow.",
+		differentEmailFailure: 'Could not send the link. Please try again.',
 		bannerLabel: 'Viewing as {name} — read-only',
 		exitAction: 'Back to settings',
 		overviewTab: 'Overview',
@@ -1082,7 +1220,75 @@ const en = {
 		loadErrorTitle: 'Could not load this child account',
 		notFoundTitle: 'Not accessible',
 		notFoundDescription: "This child account isn't linked to your account.",
-		selectChatPrompt: 'Select a chat to view its messages.'
+		selectChatPrompt: 'Select a chat to view its messages.',
+		notificationEmailTitle: 'Email notifications',
+		notificationEmailDescription:
+			"Emails about {name}'s club and project chats currently come to you. Add an email address for {name} and, once {name} confirms it, those emails will go to them directly.",
+		notificationEmailCurrent: "Emails about {name}'s club and project chats go to",
+		notificationEmailCriticalNote:
+			'Important notices, such as application updates and account actions, will always be sent to you.',
+		notificationEmailLabel: "{name}'s email address",
+		notificationEmailPlaceholder: 'name@example.com',
+		notificationEmailConsent:
+			"By saving this address you confirm, as {name}'s parent or guardian, that they may receive Curiosity Learning notification emails there.",
+		notificationEmailSave: 'Save email address',
+		notificationEmailCancel: 'Cancel',
+		notificationEmailChange: 'Change',
+		notificationEmailRemove: 'Remove and send to me instead',
+		notificationEmailSaved:
+			'Saved. We emailed {name} a link to confirm the address. Until then, emails come to you.',
+		notificationEmailPending:
+			'Waiting for {name} to confirm {email}. Until then, emails come to you.',
+		notificationEmailPendingStale:
+			'Sent {days} days ago and not confirmed yet. Check that the address is right, or send the link again.',
+		notificationEmailConfirmed: 'Confirmed',
+		notificationEmailResend: 'Resend',
+		notificationEmailResent: 'Sent again. Ask {name} to open the email and confirm.',
+		notificationEmailResendLimit:
+			"You've sent the most confirmation emails allowed for today. Please try again tomorrow.",
+		notificationEmailIsParent:
+			"That's your own address. To get these emails yourself, don't add an address for {name}.",
+		notificationEmailFreshSessionTitle: 'Please sign in again',
+		notificationEmailFreshSession: 'For your security, please sign in again to change this.',
+		notificationEmailSignInAgain: 'Sign in again',
+		notificationEmailRemoved: 'Removed. Chat emails will come to you again.',
+		notificationEmailInvalid: 'Please enter a valid email address.',
+		notificationEmailFailure: 'Could not save the email address. Please try again.',
+		parentEmailsTitle: 'Your emails about {name}',
+		parentEmailsChatCopies: "Also send me {name}'s chat emails",
+		parentEmailsActivityCopies: "Also send me {name}'s activity reminders",
+		parentEmailsCriticalNote: "Important notices about {name}'s account always come to you.",
+		parentEmailsUnconfirmed:
+			'Until {name} confirms their email address, chat emails about {name} come to you.',
+		parentEmailsSaveFailure: 'Could not save this setting. Please try again.'
+	},
+	verifyEmail: {
+		title: 'Confirm your email',
+		validQuestion: 'Is {email} your email address?',
+		validDescription:
+			'Your parent or guardian added it for Curiosity Learning notifications for {username}. Once you confirm, chat notifications go there instead of to your parent.',
+		validDescriptionSelf:
+			'You added it for Curiosity Learning notifications for {username}. Once you confirm, your emails go there.',
+		confirm: 'Yes, this is my email',
+		confirming: 'Confirming...',
+		confirmedSnackbar: 'Email confirmed',
+		confirmedTitle: 'Email confirmed',
+		confirmedDescription: 'Your notifications will now go to this address.',
+		goToChat: 'Go to chat',
+		wrongAccountTitle: 'Signed in with a different account',
+		wrongAccountDescription:
+			'This link is for a different account. Sign in with the account named in the email.',
+		signOut: 'Sign out',
+		expiredTitle: 'This link has expired',
+		expiredDescription: 'Ask your parent or guardian to send a new one.',
+		expiredDescriptionSelf: 'Send a new one from Settings.',
+		goToSettings: 'Go to Settings',
+		usedTitle: 'Already confirmed',
+		usedDescription: 'This link was already used to confirm your email.',
+		notFoundTitle: 'This link is not valid',
+		notFoundDescription:
+			'It may have been replaced by a newer one. Use the latest email, or ask your parent or guardian to send a new link.',
+		failure: 'Could not confirm your email. Please try again.'
 	},
 	feedback: {
 		entryPointTitle: 'Feedback forms',

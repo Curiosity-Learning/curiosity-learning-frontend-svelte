@@ -32,6 +32,9 @@ import { reportConvexError } from './monitoring';
 // primary markets and to run well clear of midnight-boundary batch jobs elsewhere.
 const DAILY_MAINTENANCE_HOUR_UTC = 3;
 
+// 50 pages x 200 rows: far above a day's worth of expired verification rows.
+const MAX_EXPIRED_VERIFICATION_PAGES = 50;
+
 // Single daily entry point that fans out to each maintenance job. Adding a new daily job means
 // adding one more try/catch block here (or, for a job that needs its own schedule/frequency,
 // registering an additional `crons.daily`/`crons.interval` call below) — no other wiring needed.
@@ -65,12 +68,71 @@ export const runDailyMaintenance = internalAction({
 			// is currently open. Also covers rolling distribution for applications submitted
 			// mid-window (submitApplication triggers this inline too, see clubApplications.ts, so
 			// mid-window applicants don't wait for the next day's run).
-			const summary = await ctx.runMutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+			const summary = await ctx.runMutation(
+				internal.reviewAssignmentModel.assignReviewsForOpenWindow,
+				{}
+			);
 			console.log('cron:runDailyMaintenance:assignReviewsForOpenWindow', summary);
 		} catch (error) {
 			await reportConvexError(error, {
 				area: 'backend',
 				operation: 'crons:runDailyMaintenance:assignReviewsForOpenWindow'
+			});
+		}
+
+		try {
+			// Expired sign-in links / OTP codes in the auth component (magicLinks.ts). Bounded per
+			// run so one huge backlog can't stall the rest of maintenance; the next day continues.
+			let deleted = 0;
+			for (let page = 0; page < MAX_EXPIRED_VERIFICATION_PAGES; page++) {
+				const result = await ctx.runMutation(internal.magicLinks.deleteExpiredVerifications, {});
+				deleted += result.deleted;
+				if (!result.hasMore) break;
+			}
+			console.log('cron:runDailyMaintenance:deleteExpiredVerifications', { deleted });
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'auth',
+				operation: 'crons:runDailyMaintenance:deleteExpiredVerifications'
+			});
+		}
+
+		try {
+			// Expired child email confirmation links (childEmailVerification.ts, CL-768).
+			let deleted = 0;
+			for (let page = 0; page < MAX_EXPIRED_VERIFICATION_PAGES; page++) {
+				const result = await ctx.runMutation(
+					internal.childEmailVerification.deleteExpiredChildEmailVerifications,
+					{}
+				);
+				deleted += result.deleted;
+				if (!result.hasMore) break;
+			}
+			console.log('cron:runDailyMaintenance:deleteExpiredChildEmailVerifications', { deleted });
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'auth',
+				operation: 'crons:runDailyMaintenance:deleteExpiredChildEmailVerifications'
+			});
+		}
+
+		try {
+			// "{child} hasn't confirmed their email" to the parent, once per address pending 3+
+			// days (childEmailVerification.ts, review edge case 4). Bounded like the cleanups.
+			let scheduled = 0;
+			for (let page = 0; page < MAX_EXPIRED_VERIFICATION_PAGES; page++) {
+				const result = await ctx.runMutation(
+					internal.childEmailVerification.schedulePendingEmailReminders,
+					{}
+				);
+				scheduled += result.scheduled;
+				if (!result.hasMore) break;
+			}
+			console.log('cron:runDailyMaintenance:schedulePendingEmailReminders', { scheduled });
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'crons:runDailyMaintenance:schedulePendingEmailReminders'
 			});
 		}
 

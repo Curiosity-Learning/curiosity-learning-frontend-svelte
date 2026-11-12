@@ -1,6 +1,7 @@
 import { dev } from '$app/environment';
 import { error } from '@sveltejs/kit';
 import {
+	magicLinkEmail,
 	parentConsentEmail,
 	passwordResetEmail,
 	verificationOtpEmail,
@@ -45,6 +46,12 @@ export const load: PageServerLoad = () => {
 			label: 'Password reset link',
 			description: 'Sent by the Better Auth password-reset hook.',
 			...passwordResetEmail({ url: sampleUrl, token: 'sample-reset-token' })
+		},
+		{
+			id: 'magic-link',
+			label: 'Sign-in link',
+			description: 'Sent from the sign-in page when an emailed sign-in link expired or was used.',
+			...magicLinkEmail({ url: sampleUrl })
 		},
 		{
 			id: 'parent-consent',

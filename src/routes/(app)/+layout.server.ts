@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { api } from '$convex/_generated/api';
 import { getConvexServerClient } from '$lib/server/convex';
 import { getEstimatedIpLocation } from '$lib/server/ip-location';
-import { isNoClubAllowedPath } from '$lib/auth/no-club-allowlist';
+import { clubLessLandingPath, isNoClubAllowedPath } from '$lib/auth/no-club-allowlist';
 import { routes } from '$lib/routes';
 import type { LayoutServerLoad } from './$types';
 
@@ -27,7 +27,9 @@ export const load: LayoutServerLoad = async ({ locals, request, url }) => {
 			if (claim.status === 'claimed') {
 				throw redirect(307, routes.clubHome(claim.clubId));
 			}
-			throw redirect(307, routes.newClub);
+			// Edge case 14: a parent (linked child, no clubs) lands on the child's page instead.
+			const firstLinkedChildId = await convex.query(api.parentAccounts.getMyFirstLinkedChildId, {});
+			throw redirect(307, clubLessLandingPath(firstLinkedChildId));
 		}
 	}
 

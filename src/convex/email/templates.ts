@@ -178,6 +178,30 @@ export const passwordResetEmail = (args: { url: string; token: string }): EmailC
 	};
 };
 
+// "Send me a new link" from the sign-in page (the magic-link plugin's sendMagicLink in auth.ts).
+// Links minted into other emails (parent chat emails) are not sent with this template.
+// `expiresIn`: the link's lifetime in words. The sign-in page's own links last 30 minutes; the
+// "send a link to the approving address" helper (parentAccounts
+// .requestApprovingAccountSignInLink, review S9) mints a 48-hour one.
+export const magicLinkEmail = (args: { url: string; expiresIn?: string }): EmailContent => {
+	const url = absoluteUrl(args.url);
+	const expiry = `This link works once and expires in ${args.expiresIn ?? '30 minutes'}. If you did not ask for it, you can ignore this email.`;
+	return {
+		subject: 'Your sign-in link',
+		text: `Sign in to Curiosity Learning:\n\n${url}\n\n${expiry}`,
+		html: layout({
+			preheader: 'Your link to sign in to Curiosity Learning.',
+			title: 'Your sign-in link',
+			children: `
+				${paragraph('Use the button below to sign in to Curiosity Learning. No password needed.')}
+				${button(url, 'Sign in')}
+				${rawLink(url)}
+				${paragraph(escapeHtml(expiry))}
+			`
+		})
+	};
+};
+
 export const parentConsentEmail = (args: {
 	childUsername: string;
 	consentUrl: string;
@@ -269,23 +293,51 @@ export const clubLeaderInviteEmail = (args: {
 	};
 };
 
+// Under a parent email's sign-in button (edge case 15: forwarded email = forwarded session).
+export const SIGN_IN_LINK_NOTICE = "This button signs you in — please don't forward this email.";
+
 // Generic template for tiered notification emails (CL-715). Renders the same title/message
 // pair that is stored on the in-app `notifications` row, plus an optional CTA link into the app.
+// `note` is an optional secondary paragraph under the CTA, with its own link (e.g. telling a
+// parent they can redirect their child's chat emails — chat.deliverChatEmailNotification).
 export const notificationEmail = (args: {
 	title: string;
 	message: string;
 	ctaUrl?: string;
+	// Button text; defaults to the generic "Open Curiosity Learning".
+	ctaLabel?: string;
+	note?: { text: string; url?: string; linkLabel?: string };
+	// The CTA is a one-time sign-in link (parent emails, see notifications.deliverNotificationEmail):
+	// say so right under the button, so the parent knows not to forward it (review edge case 15).
+	ctaSignsIn?: boolean;
 }): EmailContent => {
 	const message = escapeHtml(args.message);
+	const signInNotice = args.ctaUrl && args.ctaSignsIn ? SIGN_IN_LINK_NOTICE : undefined;
+	const noteText = args.note
+		? [args.note.text, args.note.url].filter(Boolean).join('\n')
+		: undefined;
+	const noteHtml = args.note
+		? `
+				<div style="margin:24px 0 0;padding:14px 16px;border-radius:10px;background:${colors.background};border:1px solid ${colors.border};">
+					<p style="margin:0;font-size:14px;line-height:21px;color:${colors.muted};">${escapeHtml(args.note.text)}</p>
+					${
+						args.note.url
+							? `<p style="margin:8px 0 0;font-size:14px;line-height:21px;"><a href="${escapeHtml(args.note.url)}" style="color:${colors.primaryDark};font-weight:700;">${escapeHtml(args.note.linkLabel ?? args.note.url)}</a></p>`
+							: ''
+					}
+				</div>`
+		: '';
 	return {
 		subject: args.title,
-		text: args.ctaUrl ? `${args.message}\n\n${args.ctaUrl}` : args.message,
+		text: [args.message, args.ctaUrl, signInNotice, noteText].filter(Boolean).join('\n\n'),
 		html: layout({
 			preheader: args.message,
 			title: args.title,
 			children: `
 				${paragraph(message)}
-				${args.ctaUrl ? `${button(args.ctaUrl, 'Open Curiosity Learning')}${rawLink(args.ctaUrl)}` : ''}
+				${args.ctaUrl ? `${button(args.ctaUrl, args.ctaLabel ?? 'Open Curiosity Learning')}${rawLink(args.ctaUrl)}` : ''}
+				${signInNotice ? `<p style="margin:12px 0 0;font-size:13px;line-height:19px;color:${colors.muted};">${escapeHtml(signInNotice)}</p>` : ''}
+				${noteHtml}
 			`,
 			footer:
 				'You received this email because of activity on your Curiosity Learning account. You can adjust which notifications you receive in Settings.'
@@ -293,8 +345,135 @@ export const notificationEmail = (args: {
 	};
 };
 
+// Confirmation email to the address a parent entered for their child (CL-768, review B2). It
+// goes to an address nobody has confirmed yet — possibly a typo or a stranger's inbox — so it
+// says as little as possible: the username (the child needs it to sign in), no club names, no
+// dates, no sign-in link and no other links. The button opens an app page that only works when
+// signed in AS that child (childEmailVerification.confirmChildEmail), so clicking it proves
+// nothing on its own.
+export const childEmailVerificationEmail = (args: {
+	username: string;
+	url: string;
+	// The child (16+) added it themselves from Settings (CL-769), not their parent.
+	addedBySelf?: boolean;
+}): EmailContent => {
+	const url = absoluteUrl(args.url);
+	const who = args.addedBySelf ? 'You' : 'Your parent or guardian';
+	const intro = `${who} added this address for Curiosity Learning notifications for the account ${args.username}.`;
+	const instruction = `Sign in as ${args.username} to confirm it.`;
+	const ignore = "If you don't know what this is, you can ignore this email.";
+	const strong = `<strong style="color:${colors.foreground};">${escapeHtml(args.username)}</strong>`;
+	return {
+		subject: 'Confirm your email for Curiosity Learning',
+		text: `${intro} ${instruction}\n\n${url}\n\n${ignore}`,
+		html: layout({
+			preheader: intro,
+			title: 'Confirm your email',
+			children: `
+				${paragraph(`${who} added this address for Curiosity Learning notifications for the account ${strong}. Sign in as ${strong} to confirm it.`)}
+				${button(url, 'Confirm this email')}
+				${rawLink(url)}
+				${paragraph(escapeHtml(ignore))}
+			`,
+			footer: 'Nothing is sent to this address until it is confirmed.'
+		})
+	};
+};
+
+// The ONE email a parent gets when their 16+ child unlinks them (CL-769, review S7/D4): after
+// it, nothing about the child reaches them (notificationRouting.ts rule 4). Deliberately bare:
+// no link at all (the parent can no longer open the child's page, and a sign-in link would be a
+// session for an account that has nothing to show), and nothing about the child's activity.
+export const parentUnlinkedEmail = (args: { childName: string }): EmailContent => {
+	const { childName } = args;
+	const subject = `${childName} has unlinked your parent account`;
+	const message = `${childName} has unlinked your parent account. You will no longer receive emails about ${childName}.`;
+	return {
+		subject,
+		text: message,
+		html: layout({
+			preheader: message,
+			title: subject,
+			children: paragraph(escapeHtml(message)),
+			footer: `You received this email because you were the parent or guardian on ${childName}'s Curiosity Learning account.`
+		})
+	};
+};
+
+// Edge case 4 (review): a parent-entered child address still unconfirmed after 3 days, most
+// likely a typo or an inbox the child never checks. Sent once per address (crons, see
+// childEmailVerification.sendPendingEmailReminders). Like the routing notice: plain link to the
+// child's page, never a sign-in link.
+export const childEmailPendingReminderEmail = (args: {
+	childName: string;
+	maskedEmail: string;
+	days: number;
+	childPageUrl?: string;
+}): EmailContent => {
+	const { childName, maskedEmail, days } = args;
+	const subject = `${childName} hasn't confirmed their email address yet`;
+	const message = `We sent a confirmation link to ${maskedEmail} ${days} days ago, and ${childName} hasn't confirmed it yet. Until they do, emails about ${childName}'s chats keep coming to you.`;
+	const action = `Check that the address is right, or send a new link from ${childName}'s page.`;
+	return {
+		subject,
+		text: [message, action, args.childPageUrl].filter(Boolean).join('\n\n'),
+		html: layout({
+			preheader: message,
+			title: subject,
+			children: `
+				${paragraph(escapeHtml(message))}
+				${paragraph(escapeHtml(action))}
+				${args.childPageUrl ? `${button(args.childPageUrl, `Open ${childName}'s page`)}${rawLink(args.childPageUrl)}` : ''}
+			`,
+			footer: `You received this email because you are the parent or guardian on ${childName}'s Curiosity Learning account.`
+		})
+	};
+};
+
+export type ChildRoutingChange = 'pending' | 'confirmed' | 'removed';
+
+// Notice to the PARENT (the approved consent address) whenever their child's email routing
+// changes (CL-768, review S5): the change may have been made by someone else on a signed-in
+// device. A plain link to the child's page — never a sign-in link: undoing a change needs a fresh
+// sign-in anyway (sessionFreshness.ts), and this email must not hand out a session.
+export const childRoutingChangedEmail = (args: {
+	childName: string;
+	change: ChildRoutingChange;
+	maskedEmail?: string;
+	childPageUrl?: string;
+}): EmailContent => {
+	const { childName, maskedEmail } = args;
+	const subject =
+		args.change === 'removed'
+			? `${childName}'s notification emails come to you again`
+			: args.change === 'confirmed'
+				? `${childName}'s notification emails now go to ${maskedEmail}`
+				: `${childName}'s notification emails are changing`;
+	const message =
+		args.change === 'removed'
+			? `${childName}'s notification emails now come to you again.`
+			: args.change === 'confirmed'
+				? `${childName}'s notification emails now go to ${maskedEmail}.`
+				: `${childName}'s notification emails will go to ${maskedEmail} once ${childName} confirms it.`;
+	const undo = `Not you? Open ${childName}'s page to undo.`;
+	return {
+		subject,
+		text: [message, undo, args.childPageUrl].filter(Boolean).join('\n\n'),
+		html: layout({
+			preheader: message,
+			title: subject,
+			children: `
+				${paragraph(escapeHtml(message))}
+				${paragraph(escapeHtml(undo))}
+				${args.childPageUrl ? `${button(args.childPageUrl, `Open ${childName}'s page`)}${rawLink(args.childPageUrl)}` : ''}
+			`,
+			footer: `You received this email because you are the parent or guardian on ${childName}'s Curiosity Learning account.`
+		})
+	};
+};
+
 // CL-770: the "your club application isn't finished" reminder. Three readers:
-// - 'self': the applicant themselves;
+// - 'self': the applicant themselves (for a child, the address they confirmed);
 // - 'parent': the approved parent of a child applicant — the parent cannot finish it for them,
 //   so the email says what is missing and how the child gets back to it;
 // - 'parent_pending': the parent of a child whose account still waits for their approval — the

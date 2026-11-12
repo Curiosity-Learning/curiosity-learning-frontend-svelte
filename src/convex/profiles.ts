@@ -18,6 +18,7 @@ import {
 import { canViewProject, listAttributedClubIds } from './projectsModel';
 import { isUpdateVisible } from './updates';
 import { getUsernameValidationError } from './usernameValidator';
+import { assertDateOfBirthChangeAllowed } from './notificationRouting';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -107,6 +108,8 @@ export const updateMe = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const profile = await requireProfile(ctx, identity.subject);
+		// Review B1: a child's date of birth is immutable (the 16+ unlink gate depends on it).
+		await assertDateOfBirthChangeAllowed(ctx, profile, args.dateOfBirth);
 
 		if (args.username && args.username !== profile.username) {
 			const validationError = getUsernameValidationError(args.username);
@@ -514,9 +517,7 @@ export const getProfileDeliveryAssets = query({
 				})
 		);
 
-		return deliveryAssets.filter(
-			(asset): asset is NonNullable<typeof asset> => asset !== null
-		);
+		return deliveryAssets.filter((asset): asset is NonNullable<typeof asset> => asset !== null);
 	}
 });
 

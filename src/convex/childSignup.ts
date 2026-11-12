@@ -16,6 +16,14 @@ import { syntheticEmailForUsername } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { parentConsentEmail } from './email/templates';
 import { reportConvexError } from './monitoring';
+import { ensureParentLink, normalizeChildNotificationEmail } from './parentAccounts';
+import {
+	CHILD_EMAIL_VERIFICATION_RATE_LIMIT,
+	childEmailVerificationRateLimitKey,
+	issueChildEmailVerification
+} from './childEmailVerification';
+import { getActiveOrLatestByKey } from './legalDocuments';
+import { recordRateLimitAttempt } from './rateLimiting';
 import {
 	getClubRoleByKey,
 	getMembershipByProfileId,
@@ -28,6 +36,8 @@ import {
 	setPendingClubJoin
 } from './pendingClubJoinsModel';
 import { autoCreateJoinRequestFromNextPath } from './joinRequests';
+import { mintMagicLink } from './magicLinks';
+import { CONSENT_SCREEN_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
 
 // PRD 6.1.6/8.5: parental consent must be obtained within 90 days of account creation, or the
 // child account and all associated data are automatically purged. See `purgeExpiredChildConsents`
@@ -288,16 +298,60 @@ const deleteAuthRowsForUser = async (ctx: MutationCtx, authUserId: string) => {
 	}
 };
 
+// The wording the consent screen shows (onboarding.parentConsent.agreement in the i18n
+// messages): ONE checkbox covering the child's account and the parent's own account (review
+// D9). Recorded on every approval; bump it whenever that sentence changes meaning.
+export const PARENT_CONSENT_WORDING_KEY = 'parentConsent.v2.combined';
+const UNVERSIONED_LEGAL_DOCUMENT = 'unversioned';
+const SUPPORTED_CONSENT_LOCALES = new Set(['en', 'nl']);
+
+/**
+ * The parent approves a pending child account (consent screen v2, CL-769, review S12/S13/D8/D9).
+ *
+ * Keyed by the consent token only — never add a childProfileId arg (review S13, structural test
+ * in parentAccounts.spec.ts): the token was only ever emailed to `parentEmail`, so holding it is
+ * the proof, and the child is derived from it.
+ *
+ * `childEmail` (optional): the parent chose "To {child}'s own email address". Validated with the
+ * child page's rules BEFORE anything is written, so a bad address fails the whole call and the
+ * consent stays pending (the parent fixes it and presses Approve again). A valid one is stored
+ * PENDING with source 'consent' and gets the same confirmation email as the child page
+ * (childEmailVerification.issueChildEmailVerification); nothing routes to it until the child
+ * confirms. Unlike setChildNotificationEmail there is no fresh-session rule (the consent token is
+ * the proof; there is no session yet) and no "routing changed" notice to the parent (they made
+ * the choice on this screen a moment ago, and the success screen says what happens next).
+ *
+ * Record keeping: the consent row gets the legal document versions, wording key, locale and
+ * `coversParentAccount`; the parent profile gets termsAcceptedAt/privacyPolicyAcceptedAt (+
+ * versions) only where not already set, so an earlier acceptance is never overwritten.
+ */
 export const approveConsent = mutation({
 	args: {
 		token: v.string(),
 		acceptedTerms: v.boolean(),
-		acceptedPrivacyPolicy: v.boolean()
+		acceptedPrivacyPolicy: v.boolean(),
+		childEmail: v.optional(v.string()),
+		locale: v.optional(v.string())
 	},
 	returns: v.object({
-		success: v.boolean()
+		success: v.boolean(),
+		// One-time sign-in link for the parent, only on the approval itself (see below).
+		signInUrl: v.optional(v.string()),
+		// The normalized pending child address, when one was given with this approval.
+		childEmail: v.optional(v.string()),
+		// False when an existing (verified) adult account under parentEmail was adopted, so the
+		// success screen does not claim it "created" one. Only on the approval itself.
+		parentAccountCreated: v.optional(v.boolean())
 	}),
-	handler: async (ctx, args) => {
+	handler: async (
+		ctx,
+		args
+	): Promise<{
+		success: boolean;
+		signInUrl?: string;
+		childEmail?: string;
+		parentAccountCreated?: boolean;
+	}> => {
 		if (!args.acceptedTerms || !args.acceptedPrivacyPolicy) {
 			throw new ConvexError('Terms and privacy policy approval is required');
 		}
@@ -308,9 +362,21 @@ export const approveConsent = mutation({
 		if (!consent) {
 			throw new ConvexError('Consent request not found');
 		}
+		// No sign-in link on a revisit: the consent token never expires once approved, and handing
+		// out a fresh session for it would turn the consent email into a permanent login link.
+		// A revisit changes nothing else either (no child email: that lives on the child's page).
 		if (consent.status === 'approved') {
 			return { success: true };
 		}
+
+		// Before any write (see the doc comment). The parent account is found or created under
+		// consent.parentEmail below, so that is both "the consent address" and "the parent's auth
+		// email" the child page refuses (edge case 1).
+		const childEmail =
+			args.childEmail === undefined || args.childEmail.trim() === ''
+				? null
+				: normalizeChildNotificationEmail(args.childEmail, [consent.parentEmail]);
+		const locale = args.locale?.trim().toLowerCase();
 
 		const now = Date.now();
 		const existingParentAuthUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
@@ -362,6 +428,13 @@ export const approveConsent = mutation({
 			});
 		}
 
+		// The versions /terms and /privacy show right now, i.e. what the checkbox links to.
+		const termsVersion =
+			(await getActiveOrLatestByKey(ctx, 'terms_and_conditions'))?.version ??
+			UNVERSIONED_LEGAL_DOCUMENT;
+		const privacyPolicyVersion =
+			(await getActiveOrLatestByKey(ctx, 'privacy_policy'))?.version ?? UNVERSIONED_LEGAL_DOCUMENT;
+
 		const existingParentProfile = await getProfileByAuthUserId(ctx, parentAuthUser._id);
 		const parentProfileId =
 			existingParentProfile?._id ??
@@ -370,13 +443,25 @@ export const approveConsent = mutation({
 				firstName: displayNameFromEmail(parentAuthUser.email),
 				isVerified: true,
 				firstLoginCompleted: false,
+				termsAcceptedAt: now,
+				termsVersion,
+				privacyPolicyAcceptedAt: now,
+				privacyPolicyVersion,
 				updatedAt: now
 			}));
 
 		if (existingParentProfile) {
+			// Review S12: the earliest acceptance is the record — an adult who already accepted (at
+			// sign-up, or approving a sibling) keeps that date and version.
 			await ctx.db.patch(existingParentProfile._id, {
 				authUserId: parentAuthUser._id,
 				isVerified: true,
+				...(existingParentProfile.termsAcceptedAt === undefined
+					? { termsAcceptedAt: now, termsVersion }
+					: {}),
+				...(existingParentProfile.privacyPolicyAcceptedAt === undefined
+					? { privacyPolicyAcceptedAt: now, privacyPolicyVersion }
+					: {}),
 				updatedAt: now
 			});
 		}
@@ -436,15 +521,48 @@ export const approveConsent = mutation({
 			termsAcceptedAt: now,
 			privacyPolicyAcceptedAt: now,
 			approvedAt: now,
+			termsVersion,
+			privacyPolicyVersion,
+			wordingKey: PARENT_CONSENT_WORDING_KEY,
+			locale: locale && SUPPORTED_CONSENT_LOCALES.has(locale) ? locale : undefined,
+			coversParentAccount: true,
 			updatedAt: now
 		});
+		// Link the parent now so emails about the child (e.g. club chat notifications) can deep
+		// link straight to /child/[id]. See the parentAccounts.ts module header.
+		await ensureParentLink(ctx, parentProfileId, consent.childProfileId);
 		await ctx.db.patch(consent.childProfileId, {
 			isVerified: true,
 			parentProfileId,
 			activeClubId: joinedClubId,
 			firstLoginCompleted: Boolean(joinedClubId) || childProfile.firstLoginCompleted,
+			...(childEmail
+				? {
+						// Pending: notificationEmailVerifiedAt stays unset until the child confirms.
+						notificationEmail: childEmail,
+						notificationEmailSetAt: now,
+						notificationEmailSetByProfileId: parentProfileId,
+						notificationEmailVerifiedAt: undefined,
+						notificationEmailSource: 'consent' as const,
+						notificationEmailReminderSentAt: undefined
+					}
+				: {}),
 			updatedAt: now
 		});
+		if (childEmail) {
+			// Counts toward the child page's 3-per-24h cap like any other confirmation email (it is
+			// the first one, so it can never be refused here).
+			await recordRateLimitAttempt(
+				ctx,
+				childEmailVerificationRateLimitKey(consent.childProfileId),
+				CHILD_EMAIL_VERIFICATION_RATE_LIMIT
+			);
+			await issueChildEmailVerification(ctx, {
+				childProfileId: consent.childProfileId,
+				email: childEmail,
+				requestedByProfileId: parentProfileId
+			});
+		}
 		await clearPendingClubJoinsForProfile(ctx, consent.childProfileId);
 		const childAuthUserId = getProfileAuthUserId(childProfile);
 		if (!childAuthUserId) {
@@ -460,7 +578,28 @@ export const approveConsent = mutation({
 				}
 			}
 		});
-		return { success: true };
+		// Lets the consent page sign the parent straight in to the child's overview — their
+		// account was just created without credentials. Safe to mint here because the consent
+		// token was only ever sent to parentEmail, so holding it already proves possession of
+		// that address (the same proof a magic-link email would give).
+		// Minted in this mutation, unlike every emailed link (minted in send actions, review S2),
+		// because the page needs the link in the approval's own response. Trade-offs, accepted:
+		// mutation randomness is a ChaCha12 CSPRNG seeded per execution rather than OS randomness
+		// (see magicLinks.ts), and the token is in this mutation's return value (shown on screen,
+		// not stored by us). The short lifetime bounds both: the button is pressed within minutes
+		// or not at all, and the emails cover a parent who closes the tab.
+		const signInUrl = await mintMagicLink(ctx, {
+			email: consent.parentEmail,
+			callbackPath: `/child/${consent.childProfileId}`,
+			expiresInSeconds: CONSENT_SCREEN_MAGIC_LINK_SECONDS
+		});
+		return {
+			success: true,
+			// An unverified row under the address was stripped above: to the parent it is new.
+			parentAccountCreated: existingParentAuthUser?.emailVerified !== true,
+			...(signInUrl ? { signInUrl } : {}),
+			...(childEmail ? { childEmail } : {})
+		};
 	}
 });
 
@@ -642,7 +781,7 @@ export const purgeExpiredChildConsents = internalAction({
 
 // ---------------------------------------------------------------------------------------------
 // One-off prod audit (review S3) for consents approved BEFORE approveConsent started stripping
-// an adopted unverified account (CL-784). Back then approval only flipped `emailVerified` and
+// an adopted unverified account (6fa7edb). Back then approval only flipped `emailVerified` and
 // left the registrant's password in place, so whoever pre-registered the parent's address (most
 // plausibly the child) may still sign in as the "parent". CLI only:
 //   npx convex run childSignup:auditAdoptedParentAccounts --prod
@@ -723,9 +862,9 @@ export const auditAdoptedParentAccounts = internalQuery({
 
 // For ONE flagged consent: deletes the parent auth user's `account` rows (password and any
 // linked provider) and `session` rows, exactly as approveConsent now does when it adopts an
-// unverified user. The user row and profile stay; the parent gets back in with "Forgot
-// password?" or Google. Refuses a consent that does not (or no longer) match the audit, so a
-// mistyped id cannot strip an unrelated account.
+// unverified user. The user row, profile and parent link stay; the parent signs in by email
+// link or sets a password again (Settings, "Set a password"). Refuses a consent that does not
+// (or no longer) match the audit, so a mistyped id cannot strip an unrelated account.
 export const stripAdoptedParentCredentials = internalMutation({
 	args: { consentId: v.id('parentChildConsents') },
 	returns: v.object({ parentAuthUserId: v.string() }),

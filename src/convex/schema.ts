@@ -27,6 +27,46 @@ export default defineSchema({
 		videoUrl: v.optional(v.string()),
 		signUpWith: v.optional(v.union(v.literal('email'), v.literal('google'))),
 		parentProfileId: v.optional(v.id('profiles')),
+		// Child accounts only (synthetic @children.curiosity.local auth email, which is never
+		// emailed). A real address the LINKED PARENT entered on the child's behalf
+		// (parentAccounts.setChildNotificationEmail) so non-critical notifications — club/project
+		// chat activity and other high-tier kinds — reach the child directly instead of the
+		// parent. The child cannot consent to this themselves, so only a parent with a parentLinks
+		// row can set or clear it; who and when is kept for the record. Critical notices (account
+		// actions, application/join-request chats) keep going to the approved parent regardless,
+		// and once the address is confirmed also to the child as a separate email; the parent can
+		// opt back into copies of the rest (parentNotificationSettings). Routing lives in
+		// notificationRouting.ts / notifications.resolveEmailRecipients.
+		//
+		// PENDING until `notificationEmailVerifiedAt` is set (CL-768, review B2/B3): the child
+		// confirms it while signed in as themselves (childEmailVerification.confirmChildEmail),
+		// so a typo or someone else's inbox never receives anything but the generic
+		// confirmation email. A pending address behaves everywhere exactly as if none were set.
+		// Changing the address clears the verification; removing it clears all of these.
+		notificationEmail: v.optional(v.string()),
+		notificationEmailSetAt: v.optional(v.number()),
+		notificationEmailSetByProfileId: v.optional(v.id('profiles')),
+		notificationEmailVerifiedAt: v.optional(v.number()),
+		// Where it was entered: by the parent on the child's page or the consent screen (review
+		// S12), or by the child themselves from Settings once 16+ ('self', CL-769 review D4 /
+		// edge case 13; parentAccounts.setMyNotificationEmail).
+		notificationEmailSource: v.optional(
+			v.union(v.literal('childPage'), v.literal('consent'), v.literal('self'))
+		),
+		// When the parent was told the address is still unconfirmed after 3 days (review edge case
+		// 4; childEmailVerification.sendPendingEmailReminders, daily cron). Once per address:
+		// cleared whenever the address is changed or removed. Also stamped (without an email) on
+		// addresses the child entered themselves, so the cron never looks at them again.
+		notificationEmailReminderSentAt: v.optional(v.number()),
+		// Adult accounts: when this person first agreed to the Terms / Privacy Policy, and which
+		// version (legalDocuments.version, or 'unversioned' when none was published). Set by
+		// childSignup.approveConsent for the PARENT (the combined consent checkbox covers the
+		// parent's own account too, review S12/D9), and only when not already set: an adult who
+		// accepted earlier keeps the earliest record. Never overwritten.
+		termsAcceptedAt: v.optional(v.number()),
+		termsVersion: v.optional(v.string()),
+		privacyPolicyAcceptedAt: v.optional(v.number()),
+		privacyPolicyVersion: v.optional(v.string()),
 		// PRD 5.10: platform-wide capability, orthogonal to club/project roles. Grants access to
 		// the separate /admin route group (CL-693) only — must never be branched on inside normal
 		// member flows/permissions. v1 assignment is CLI/ops-only (see profiles.setGlobalRole).
@@ -40,7 +80,13 @@ export default defineSchema({
 	})
 		.index('by_auth_user_id', ['authUserId'])
 		.index('by_username', ['username'])
-		.index('by_profile_image_media_asset', ['profileImageMediaAssetId']),
+		.index('by_profile_image_media_asset', ['profileImageMediaAssetId'])
+		// Pending notification emails not reminded about yet, oldest first (the reminder cron).
+		.index('by_pending_notification_email', [
+			'notificationEmailVerifiedAt',
+			'notificationEmailReminderSentAt',
+			'notificationEmailSetAt'
+		]),
 
 	// PRD 5.10 follow-up: the only path that grants `profiles.globalRole = 'admin'` besides the
 	// CLI-only `profiles.setGlobalRole`. An existing admin records an invite for an email; the
@@ -366,6 +412,22 @@ export default defineSchema({
 		termsAcceptedAt: v.optional(v.number()),
 		privacyPolicyAcceptedAt: v.optional(v.number()),
 		approvedAt: v.optional(v.number()),
+		// What exactly was agreed to (review S12/D9), stamped at approval: the active
+		// legalDocuments versions ('unversioned' when none was published), the wording shown
+		// (`wordingKey`, e.g. 'parentConsent.v2.combined' — one checkbox covering the child's
+		// account AND the parent's own), the page language, and whether the wording covered the
+		// parent account. Missing on consents approved before 2026-11 (v1 wording: child only).
+		termsVersion: v.optional(v.string()),
+		privacyPolicyVersion: v.optional(v.string()),
+		wordingKey: v.optional(v.string()),
+		locale: v.optional(v.string()),
+		coversParentAccount: v.optional(v.boolean()),
+		// Set by `parentAccounts.unlinkParent` when a 16+ child severs the link to this parent.
+		// A consent with it set must never be claimed into a `parentLinks` row again by
+		// `syncParentLinks`, and no longer routes the child's non-critical emails (or copies) to
+		// the parent (notificationRouting.planEmailAudiences). The consent itself stays `approved`: it
+		// is the legal record that consent was given.
+		unlinkedAt: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
@@ -374,14 +436,16 @@ export default defineSchema({
 		.index('by_token', ['token'])
 		.index('by_status_and_created_at', ['status', 'createdAt']),
 
-	// PRD 2.4/6.1.10 (CL-703): materialized parent<->child link, derived lazily from an approved
+	// PRD 2.4/6.1.10 (CL-703): materialized parent<->child link, created when the parent approves
+	// consent (`childSignup.approveConsent`), or claimed later from an approved, not-unlinked
 	// `parentChildConsents` row whose `parentEmail` matches the CURRENT authenticated user's auth
-	// email (see `parentAccounts.claimParentLinks`). One row per (parentProfileId, childProfileId)
+	// email (see `parentAccounts.syncParentLinks`). One row per (parentProfileId, childProfileId)
 	// pair — enforced app-side via `by_parent_and_child` before insert (no native unique
 	// constraint). A parent can have many children; v1 has no reverse case (a child has exactly
 	// one linked parent via `parentChildConsents.parentProfileId`, but the link row is still keyed
 	// both ways so child-side queries — e.g. `unlinkParent` — can look it up without scanning by
-	// parent). Severed only by the CHILD once they turn 16 (see `unlinkParent`); parent-side reads
+	// parent). Severed only by the CHILD once they turn 16 (see `unlinkParent`, which also stamps
+	// the consent's `unlinkedAt` so the link is never claimed back); parent-side reads
 	// keep working until then even past the child's 16th birthday, per PRD "access doesn't
 	// auto-sever until they unlink".
 	parentLinks: defineTable({
@@ -392,6 +456,29 @@ export default defineSchema({
 		.index('by_parent', ['parentProfileId'])
 		.index('by_child', ['childProfileId'])
 		.index('by_parent_and_child', ['parentProfileId', 'childProfileId']),
+
+	// A linked parent's own choices about the emails they get for ONE child (CL-768/CL-769,
+	// review S6/D3/D7). Only meaningful once the child has a confirmed notificationEmail: until
+	// then chat emails about the child are the parent's (mandatory, or nobody would hear) and
+	// other high-tier kinds email nobody. Once confirmed, those go to the child by default and
+	// the parent gets a copy only when they opted in here:
+	// - `chatCopies`: club/project chat emails (chat_activity);
+	// - `activityCopies`: the other high-tier kinds (session reminders/cancellations, join and
+	//   project requests, feedback reminders, ...).
+	// No row = both false. Critical notices ignore this table: they always go to the parent (and
+	// also to the child once confirmed). Keyed (parent, child) because one parent can have
+	// several children (edge case 9). Written only by parentAccounts.setParentNotificationSettings
+	// (linked parent, fresh sign-in); read by notificationRouting.ts. The CHILD's own mutes never
+	// touch the parent's copies (S6).
+	parentNotificationSettings: defineTable({
+		parentProfileId: v.id('profiles'),
+		childProfileId: v.id('profiles'),
+		chatCopies: v.boolean(),
+		activityCopies: v.boolean(),
+		updatedAt: v.number()
+	})
+		.index('by_parent_and_child', ['parentProfileId', 'childProfileId'])
+		.index('by_child', ['childProfileId']),
 
 	sessions: defineTable({
 		clubId: v.id('clubs'),
@@ -888,8 +975,17 @@ export default defineSchema({
 		lastReadAt: v.number()
 	}).index('by_profile_and_room', ['profileId', 'roomId']),
 
-	// Chat email notifications (CL-764): per-(profile, room) email-delivery state, kept separate
-	// from roomReadMarkers so the read watermark stays single-purpose.
+	// Chat email notifications (CL-764): per-(profile, room, audience) email-delivery state, kept
+	// separate from roomReadMarkers so the read watermark stays single-purpose.
+	// - `audience` (CL-768/CL-769, review edge case 5): whose copy this row tracks. 'self' is the
+	//   recipient's own address (an adult, or a child's confirmed notificationEmail); 'parent' is
+	//   the approved parent's copy about a child account. A child account can be owed both (a
+	//   critical review chat, or a club chat whose parent opted into copies), and each copy has
+	//   its own grace job, in-flight flag, coverage and 12h cap, so one failing never advances or
+	//   blocks the other. Unset on rows written before the field existed: read as 'self'
+	//   (chatEmail.getEmailMarker). The unread floor is still the RECIPIENT's read watermark for
+	//   every audience — a parent reading the child's chats never marks anything read (edge
+	//   case 7, accepted: the parent copy repeats at most every 12h until the child reads).
 	// - `coveredThroughAt`: _creationTime of the newest message the last SUCCESSFULLY sent
 	//   "new messages" email told this profile about. Written only once Resend accepted the
 	//   email, so a failed send never silences the room. Unread messages at/under this watermark
@@ -910,14 +1006,24 @@ export default defineSchema({
 		lastEmailedAt: v.optional(v.number()),
 		coveredThroughAt: v.optional(v.number()),
 		scheduledFor: v.optional(v.number()),
-		sendingSince: v.optional(v.number())
-	}).index('by_profile_and_room', ['profileId', 'roomId']),
+		sendingSince: v.optional(v.number()),
+		audience: v.optional(v.union(v.literal('self'), v.literal('parent')))
+	})
+		// All of a recipient's rows for a room (every audience, legacy rows included): the one
+		// range read scheduleChatEmailNotifications does per recipient per message.
+		.index('by_profile_and_room', ['profileId', 'roomId'])
+		// Exactly one audience's row (getEmailMarker).
+		.index('by_profile_room_audience', ['profileId', 'roomId', 'audience']),
 
 	// One row per notification email handed to the provider (notifications.sendNotificationEmail
 	// and chat.sendChatEmail), sent or failed. Support/debugging only — "was this person emailed
 	// about this room, when, and did it go through?" — nothing reads it on the hot path. `to` is
 	// the resolved address (the approved parent's for child accounts). For chat emails, `roomId`
-	// and `coveredThroughAt` say which batch the email covered.
+	// and `coveredThroughAt` say which batch the email covered. `audience` says whose copy it was
+	// ('self' = the recipient's own address, 'parent' = the parent's copy about a child account;
+	// a notice that goes to both leaves two rows, one per email). Unset on rows from before the
+	// field and on account emails that are not routed notifications (child-email confirmation,
+	// routing-changed notices).
 	// CL-770: application reminders also record the sends they deliberately skipped (status
 	// 'skipped' + `skipReason`, `to` empty when no address could be resolved), so "did they get
 	// it?" has an answer for e.g. a child whose parent consent is still pending.
@@ -932,10 +1038,32 @@ export default defineSchema({
 		providerMessageId: v.optional(v.string()),
 		roomId: v.optional(v.id('rooms')),
 		coveredThroughAt: v.optional(v.number()),
+		audience: v.optional(v.union(v.literal('self'), v.literal('parent'))),
 		createdAt: v.number()
 	})
 		.index('by_recipient', ['recipientProfileId', 'createdAt'])
 		.index('by_room', ['roomId', 'createdAt']),
+
+	// One row per confirmation email for a child's pending notificationEmail (CL-768, review
+	// B2). Created by parentAccounts.setChildNotificationEmail WITHOUT a token: the token is
+	// generated in the send action (childEmailVerification.sendChildEmailVerification — actions
+	// get OS randomness, mutations a per-execution seeded RNG, see magicLinks.ts) and only its
+	// hash is stored here (sha-256, base64url, like the magic-link `verification` rows); a row
+	// without `tokenHash` matches nothing. Confirming requires the CHILD's own session
+	// (`childProfileId`) — holding the token alone is not enough. Issuing a new one deletes the
+	// child's unconsumed rows; a daily cron deletes expired rows.
+	childEmailVerifications: defineTable({
+		childProfileId: v.id('profiles'),
+		email: v.string(),
+		tokenHash: v.optional(v.string()),
+		expiresAt: v.number(),
+		createdAt: v.number(),
+		requestedByProfileId: v.id('profiles'),
+		consumedAt: v.optional(v.number())
+	})
+		.index('by_token_hash', ['tokenHash'])
+		.index('by_child_profile_id', ['childProfileId'])
+		.index('by_expires_at', ['expiresAt']),
 
 	// CL-770: addresses that unsubscribed from a kind of non-essential email (one-click link or
 	// List-Unsubscribe header, see emailUnsubscribe.ts). Keyed by the lowercased ADDRESS, not a

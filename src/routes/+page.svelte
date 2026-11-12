@@ -1,17 +1,21 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { routes } from '$lib/routes';
 	import { api } from '$convex/_generated/api';
 	import { LoadingState } from '$lib/components/app';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
+	import { clubLessLandingPath } from '$lib/auth/no-club-allowlist';
 
 	const auth = useAuth();
 	let isAuthReady = $derived(!auth.isLoading && auth.isAuthenticated);
 	const clubsResponse = useStableQuery(api.clubs.getMyClubs, () => (isAuthReady ? {} : 'skip'));
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
 		isAuthReady ? {} : 'skip'
+	);
+	// Edge case 14: a club-less parent lands on their child's page, not /new-club.
+	const firstLinkedChildResponse = useStableQuery(api.parentAccounts.getMyFirstLinkedChildId, () =>
+		isAuthReady && clubsResponse.data?.length === 0 ? {} : 'skip'
 	);
 
 	const pickClubId = () => {
@@ -53,8 +57,12 @@
 
 		const clubId = pickClubId();
 		if (!clubId) {
+			const firstLinkedChildId = firstLinkedChildResponse.error
+				? null
+				: firstLinkedChildResponse.data;
+			if (firstLinkedChildId === undefined) return;
 			redirected = true;
-			void goto(routes.newClub);
+			void goto(clubLessLandingPath(firstLinkedChildId));
 			return;
 		}
 

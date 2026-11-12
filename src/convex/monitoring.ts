@@ -20,7 +20,9 @@ const SAFE_IDENTIFIER_KEYS = new Set([
 ]);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const SENSITIVE_PATH_PATTERN =
-	/(\/(?:onboarding\/parent-consent|auth\/reset-password)\/)[^/?#\s]+/gi;
+	/(\/(?:onboarding\/parent-consent|auth\/reset-password|verify-email)\/)[^/?#\s]+/gi;
+// Same as src/lib/monitoring/redaction.ts: `#t=` / `?token=` in URLs that are not absolute.
+const SENSITIVE_PARAM_PATTERN = /([?&#](?:t|token)=)[^&#\s"'<>]+/gi;
 const URL_PATTERN = /https?:\/\/[^\s"'<>]+/gi;
 
 const truncate = (value: string, maxLength: number) =>
@@ -30,6 +32,7 @@ const sanitizeText = (value: string) =>
 	value
 		.replace(EMAIL_PATTERN, '[Redacted email]')
 		.replace(SENSITIVE_PATH_PATTERN, '$1[Redacted]')
+		.replace(SENSITIVE_PARAM_PATTERN, '$1[Redacted]')
 		.replace(URL_PATTERN, (rawUrl) => {
 			try {
 				const url = new URL(rawUrl);
