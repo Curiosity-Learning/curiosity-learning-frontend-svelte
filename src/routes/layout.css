@@ -403,7 +403,7 @@
 	}
 
 	body {
-		@apply min-h-screen bg-background text-foreground antialiased;
+		@apply min-h-dvh bg-background text-foreground antialiased;
 		background-image: var(--body-texture-image);
 		background-repeat: repeat;
 		background-size: var(--body-texture-size);
