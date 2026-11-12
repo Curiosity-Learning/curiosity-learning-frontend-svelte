@@ -492,16 +492,18 @@
 		}
 	};
 
+	// What auth.checkSignupEmail tells sign-up (CL-775): no password/no-password distinction,
+	// only whether the account is Google-only.
 	type ExistingAccountStatus = {
 		exists: boolean;
 		isVerified: boolean;
 		firstLoginCompleted: boolean;
-		hasPassword: boolean;
 		hasGoogle: boolean;
+		googleOnly: boolean;
 	};
 
 	const getExistingAccountStatus = async (rawEmail: string): Promise<ExistingAccountStatus> => {
-		return await convexClient.query(api.auth.getSignupAccountStatusByEmail, {
+		return await convexClient.mutation(api.auth.checkSignupEmail, {
 			email: rawEmail.trim().toLowerCase()
 		});
 	};
@@ -512,12 +514,12 @@
 			return t('auth.signUp.existingInlineUnverified');
 		}
 		if (!status.firstLoginCompleted) {
-			if (status.hasGoogle && !status.hasPassword) {
+			if (status.googleOnly) {
 				return t('auth.signUp.existingInlineResumeGoogle');
 			}
 			return t('auth.signUp.existingInlineResumeLogin');
 		}
-		if (status.hasGoogle && !status.hasPassword) {
+		if (status.googleOnly) {
 			return t('auth.signUp.existingInlineGoogleRegistered');
 		}
 		return t('auth.signUp.existingInlineRegistered');
@@ -548,7 +550,7 @@
 			return;
 		}
 
-		if (existingEmailStatus.hasGoogle && !existingEmailStatus.hasPassword) {
+		if (existingEmailStatus.googleOnly) {
 			googleRedirectPending = true;
 			try {
 				await startExistingGoogleAccountFlow(!existingEmailStatus.firstLoginCompleted);
@@ -632,7 +634,7 @@
 		}
 
 		const shouldResumePostSignup = !currentStatus.firstLoginCompleted;
-		if (currentStatus.hasGoogle && !currentStatus.hasPassword) {
+		if (currentStatus.googleOnly) {
 			errorMessage = shouldResumePostSignup
 				? t('auth.signUp.existingManualGoogleResume')
 				: t('auth.signUp.existingManualGoogleSignIn');
@@ -1687,7 +1689,7 @@
 							{$_('auth.signUp.continuingWithGoogle')}
 						{:else if hasExistingAccount && existingEmailStatus && !existingEmailStatus.isVerified}
 							{$_('auth.signUp.continueVerifyEmail')}
-						{:else if hasExistingAccount && existingEmailStatus?.hasGoogle && !existingEmailStatus?.hasPassword}
+						{:else if hasExistingAccount && existingEmailStatus?.googleOnly}
 							{$_('auth.signUp.continueWithGoogle')}
 						{:else if hasExistingAccount}
 							{$_('auth.signUp.goToLogin')}
