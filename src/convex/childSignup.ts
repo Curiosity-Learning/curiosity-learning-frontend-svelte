@@ -2,7 +2,7 @@ import { hashPassword } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import { components } from './_generated/api';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import {
 	action,
 	internalAction,
@@ -11,6 +11,7 @@ import {
 	mutation,
 	query
 } from './_generated/server';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 import { syntheticEmailForUsername } from './childAccounts';
 import { sendEmail } from './email/resend';
 import { parentConsentEmail } from './email/templates';
@@ -266,6 +267,27 @@ export const getConsentByToken = query({
 	}
 });
 
+// Deletes every Better Auth row that lets someone act as `authUserId` — sign-in methods
+// (`account`, all providers: a password, a linked Google account) and live `session` rows —
+// through the component adapter's paginated deleteMany. Leaves the `user` row itself.
+const AUTH_ROW_DELETE_PAGE_SIZE = 100;
+const deleteAuthRowsForUser = async (ctx: MutationCtx, authUserId: string) => {
+	for (const model of ['account', 'session'] as const) {
+		let cursor: string | null = null;
+		for (;;) {
+			const result: { isDone: boolean; continueCursor: string } = await ctx.runMutation(
+				components.betterAuth.adapter.deleteMany,
+				{
+					input: { model, where: [{ field: 'userId', value: authUserId }] },
+					paginationOpts: { cursor, numItems: AUTH_ROW_DELETE_PAGE_SIZE }
+				}
+			);
+			if (result.isDone) break;
+			cursor = result.continueCursor;
+		}
+	}
+};
+
 export const approveConsent = mutation({
 	args: {
 		token: v.string(),
@@ -310,13 +332,30 @@ export const approveConsent = mutation({
 				}
 			})) as { _id: string; email: string; emailVerified?: boolean; name?: string | null });
 
-		if (existingParentAuthUser && !existingParentAuthUser.emailVerified) {
+		if (existingParentAuthUser && existingParentAuthUser.emailVerified !== true) {
+			// CL-768 (review B1): an UNVERIFIED user under the parent's address was registered by
+			// someone who never proved they own it — most plausibly the child, who knows the address
+			// because they typed it. Approving consent is the first proof of ownership, so it must
+			// not inherit anything that registrant set up: marking the row verified while its
+			// password (credential account) or sessions survive would hand them a working login to
+			// the parent account, which is linked to the child below. Strip every sign-in method and
+			// session first, and reset the self-chosen name and image, then verify. The user row
+			// itself is kept (not deleted and recreated) because a profiles row may already point at
+			// its id; that profile is adopted below like any other.
+			//
+			// The registrant's username is left alone on purpose (CL-784 QA): the auth adapter's
+			// uniqueness check treats null as a value, so clearing it to null made every later
+			// adoption on the same deployment throw "user username already exists". Without a
+			// password account that username cannot sign in.
+			await deleteAuthRowsForUser(ctx, existingParentAuthUser._id);
 			await ctx.runMutation(components.betterAuth.adapter.updateOne, {
 				input: {
 					model: 'user',
 					where: [{ field: '_id', value: existingParentAuthUser._id }],
 					update: {
 						emailVerified: true,
+						name: displayNameFromEmail(consent.parentEmail),
+						image: null,
 						updatedAt: now
 					}
 				}
@@ -598,5 +637,106 @@ export const purgeExpiredChildConsents = internalAction({
 		}
 
 		return { scanned: candidates.length, purged, failed };
+	}
+});
+
+// ---------------------------------------------------------------------------------------------
+// One-off prod audit (review S3) for consents approved BEFORE approveConsent started stripping
+// an adopted unverified account (CL-784). Back then approval only flipped `emailVerified` and
+// left the registrant's password in place, so whoever pre-registered the parent's address (most
+// plausibly the child) may still sign in as the "parent". CLI only:
+//   npx convex run childSignup:auditAdoptedParentAccounts --prod
+//   npx convex run childSignup:stripAdoptedParentCredentials '{"consentId":"..."}' --prod
+// A legitimate adult who signed up with a password and verified BEFORE approving also matches
+// (their password predates the approval too): review every row by hand before stripping.
+// ---------------------------------------------------------------------------------------------
+
+const ADOPTION_AUDIT_CONSENT_LIMIT = 2000;
+
+type AuthUserRow = { _id: string; createdAt: number };
+type CredentialAccountRow = { _id: string; createdAt: number };
+
+// The parent auth user and its password account, when that password predates the approval.
+const findCredentialPredatingApproval = async (
+	ctx: QueryCtx | MutationCtx,
+	consent: Doc<'parentChildConsents'>
+) => {
+	if (consent.status !== 'approved' || consent.approvedAt === undefined) return null;
+	const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+		model: 'user',
+		where: [{ field: 'email', value: normalizeEmail(consent.parentEmail) }]
+	})) as AuthUserRow | null;
+	if (!user) return null;
+	const account = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+		model: 'account',
+		where: [
+			{ field: 'userId', value: user._id },
+			{ field: 'providerId', value: 'credential' }
+		]
+	})) as CredentialAccountRow | null;
+	if (!account || account.createdAt >= consent.approvedAt) return null;
+	return { user, account, approvedAt: consent.approvedAt };
+};
+
+// Approved consents whose parent auth user has a `credential` account created before
+// `approvedAt`: that password was set before anyone proved the address. Output carries ids and
+// timestamps only (no emails, no password data).
+export const auditAdoptedParentAccounts = internalQuery({
+	args: {},
+	returns: v.object({
+		flagged: v.array(
+			v.object({
+				consentId: v.id('parentChildConsents'),
+				childProfileId: v.id('profiles'),
+				parentAuthUserId: v.string(),
+				userCreatedAt: v.number(),
+				credentialCreatedAt: v.number(),
+				approvedAt: v.number()
+			})
+		),
+		scanned: v.number(),
+		truncated: v.boolean()
+	}),
+	handler: async (ctx) => {
+		const consents = await ctx.db
+			.query('parentChildConsents')
+			.withIndex('by_status_and_created_at', (q) => q.eq('status', 'approved'))
+			.take(ADOPTION_AUDIT_CONSENT_LIMIT + 1);
+		const truncated = consents.length > ADOPTION_AUDIT_CONSENT_LIMIT;
+		const scannedConsents = consents.slice(0, ADOPTION_AUDIT_CONSENT_LIMIT);
+		const flagged = [];
+		for (const consent of scannedConsents) {
+			const match = await findCredentialPredatingApproval(ctx, consent);
+			if (!match) continue;
+			flagged.push({
+				consentId: consent._id,
+				childProfileId: consent.childProfileId,
+				parentAuthUserId: match.user._id,
+				userCreatedAt: match.user.createdAt,
+				credentialCreatedAt: match.account.createdAt,
+				approvedAt: match.approvedAt
+			});
+		}
+		return { flagged, scanned: scannedConsents.length, truncated };
+	}
+});
+
+// For ONE flagged consent: deletes the parent auth user's `account` rows (password and any
+// linked provider) and `session` rows, exactly as approveConsent now does when it adopts an
+// unverified user. The user row and profile stay; the parent gets back in with "Forgot
+// password?" or Google. Refuses a consent that does not (or no longer) match the audit, so a
+// mistyped id cannot strip an unrelated account.
+export const stripAdoptedParentCredentials = internalMutation({
+	args: { consentId: v.id('parentChildConsents') },
+	returns: v.object({ parentAuthUserId: v.string() }),
+	handler: async (ctx, args) => {
+		const consent = await ctx.db.get(args.consentId);
+		if (!consent) throw new ConvexError('Consent not found');
+		const match = await findCredentialPredatingApproval(ctx, consent);
+		if (!match) {
+			throw new ConvexError('This consent has no password account that predates its approval');
+		}
+		await deleteAuthRowsForUser(ctx, match.user._id);
+		return { parentAuthUserId: match.user._id };
 	}
 });
