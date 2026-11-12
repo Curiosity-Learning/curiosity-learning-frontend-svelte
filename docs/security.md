@@ -9,6 +9,12 @@
 - **Identity:** `identity.subject` is resolved to `profiles.authUserId` at the auth boundary. App-owned relationships use `profiles._id`.
 - **Trusted origins:** Configured in `src/convex/auth.ts`. LAN origins only enabled when `ALLOW_LAN_TRUSTED_ORIGINS === 'true'`.
 
+## Parent Accounts
+
+- **Parent account at consent approval.** `childSignup.approveConsent` finds or creates the Better Auth user for `parentChildConsents.parentEmail` (the consent token was only ever emailed there, so holding it proves ownership of the address). A new user is created verified and password-less.
+- **Adopting an unverified user (CL-784).** If a user already exists under that address but is unverified, whoever registered it never proved they own the address (most plausibly the child). Before marking it verified, approval deletes all of its `account` rows (password, linked providers) and `session` rows and resets its self-chosen name/username, so nothing the registrant set up survives. A verified existing user is adopted unchanged.
+- **Consents approved before that fix.** `childSignup:auditAdoptedParentAccounts` (CLI only) lists approved consents whose parent account has a password older than the approval; it returns ids and timestamps, no emails. `childSignup:stripAdoptedParentCredentials` removes the password and sessions for one flagged consent. A legitimate adult who signed up and verified before approving also matches, so review each row by hand first.
+
 ## Permissions Model
 
 Source: `src/convex/permissions.ts`
