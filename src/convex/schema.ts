@@ -1183,9 +1183,9 @@ export default defineSchema({
 
 	// PRD 6.11.1/6.11.2: quarterly feedback forms. A form targets one audience ('guide' or
 	// 'learner') for a given season; questions are a fixed structured list (no branching/logic).
-	// Admin creation UI is CL-701 — for now forms are only created via an internal mutation and
-	// dev seed scripts. Curiosity Clubs only (kind 'curiosity'); CoC groups are excluded from
-	// feedback collection entirely (see forms.ts listMyOutstandingForms).
+	// Admins create and edit forms in the admin portal (adminForms.ts, CL-790). Curiosity Clubs
+	// only (kind 'curiosity'); CoC groups are excluded from feedback collection entirely
+	// (see forms.ts listMyOutstandingForms).
 	forms: defineTable({
 		title: v.string(),
 		audience: v.union(v.literal('guide'), v.literal('learner')),
