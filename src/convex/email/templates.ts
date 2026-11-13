@@ -582,7 +582,7 @@ export const applicationReminderEmail = (args: {
 							variant === 'started' || !hasDeadline
 								? `${child}'s club application isn't finished yet`
 								: lastChance
-									? `Last chance: ${child}'s club application closes ${day}`
+									? `Final reminder: ${child}'s club application closes ${day}`
 									: earlier
 										? `It's not too late for ${child}'s club application`
 										: `${child}'s club application closes ${day}`,
@@ -607,7 +607,7 @@ export const applicationReminderEmail = (args: {
 							variant === 'started' || !hasDeadline
 								? 'Finish your club application'
 								: lastChance
-									? `Last chance: your club application closes ${day}`
+									? `Final reminder: your club application closes ${day}`
 									: earlier
 										? "It's not too late to finish your club application"
 										: `Your club application closes ${day}`,

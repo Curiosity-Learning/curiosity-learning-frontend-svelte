@@ -137,7 +137,7 @@ export const runDailyMaintenance = internalAction({
 		}
 
 		try {
-			// CL-796: "applications close in a week" / "last chance" reminders for unfinished club
+			// CL-796: "applications close in a week" / "final reminder" emails for unfinished club
 			// applications (applicationReminders.ts). Idempotent: each goes out at most once per
 			// application and season, so a re-run or a missed day never double-sends.
 			const summary = await ctx.runAction(internal.applicationReminders.sendDeadlineReminders, {});

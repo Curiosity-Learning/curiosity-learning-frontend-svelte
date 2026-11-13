@@ -703,7 +703,7 @@ describe('reminders B and C (daily job)', () => {
 		const day = await runDeadline(t);
 		expect(day).toMatchObject({ due: 'day_before', sent: 4 });
 		expect(sentEmails().find((email) => email.to === 'adult@example.com')!.subject).toMatch(
-			/^Last chance: your club application closes /
+			/^Final reminder: your club application closes /
 		);
 		sendEmailMock.mockClear();
 		expect((await runDeadline(t)).sent).toBe(0);
