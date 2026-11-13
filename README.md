@@ -49,11 +49,12 @@ ticket. The detailed rules for agents are in `AGENTS.md`.
    deploy, and runs any production steps (env vars, backfills, `syncRolePermissions --prod`)
    only after Ron OKs them in the chat. Then it moves the ticket to `Done`, with a comment
    listing what was deployed and run.
-6. **The agent cleans up.** It deletes the worktree's Convex backend and the worktree with
-   `npm run worktree:remove`. Ron then settles the thread in T3. Settling does not run any script,
-   so a backend is only deleted if the agent removes it. To find leftovers, run
-   `npm run worktree:status` in the main checkout. Then use `npm run worktree:remove <path>` for
-   a finished worktree, or `npm run worktree:prune -- --yes` for backends whose worktree is already gone.
+6. **The agent cleans up.** It deletes the worktree's Convex backend, the PR's preview backend
+   and the worktree with `npm run worktree:remove`. Ron then settles the thread in T3. Settling
+   does not run any script, so a backend is only deleted if the agent removes it. To find
+   leftovers, run `npm run worktree:status` in the main checkout. Then use
+   `npm run worktree:remove <path>` for a finished worktree, or `npm run worktree:prune -- --yes`
+   for backends whose worktree is gone and preview backends whose PR is merged or closed.
 
 Production is only ever changed by merging to `main`. Nobody tests on shared dev or production.
 

@@ -32,8 +32,10 @@ All work is tracked in Fibery (`Software Development/Ticket`, ids `CL-###`). The
 - **Merge only when Ron says so**, then watch the production deploy. Production steps need
   Ron's explicit OK in the chat.
 - **Clean up** after the merge, as the last step: `npm run worktree:remove` (deletes the
-  worktree's Convex backend, then the worktree; the branch is kept). Ron settles the T3 thread
-  afterwards, and settling runs no script, so skipping this leaves the backend running.
+  worktree's Convex backend, the branch's Vercel preview backend once its PR is merged or closed,
+  then the worktree; the branch is kept). Ron settles the T3 thread afterwards, and settling runs
+  no script, so skipping this leaves the backends running (they count towards Convex's
+  40-deployment team limit). `npm run worktree:prune` lists leftovers; add `-- --yes` to delete.
 
 ## Backends: never share, never prod
 
