@@ -116,6 +116,39 @@ describe('adminSaveSeason with an extension', () => {
 	});
 });
 
+describe('updateSeason (raw timestamps) with a stored extension', () => {
+	it('keeps the extension and checks the new dates against it', async () => {
+		const { t, admin } = await setupAdmin();
+		const seasonId = await admin.mutation(api.seasons.adminSaveSeason, {
+			...winter,
+			applicationDeadlineExtendedTo: '2026-11-07'
+		});
+		const season = (await t.run((ctx) => ctx.db.get(seasonId)))!;
+		const raw = {
+			seasonId,
+			name: season.name,
+			applicationDeadline: season.applicationDeadline,
+			startDate: season.startDate,
+			endDate: season.endDate,
+			reviewWindowOpen: season.reviewWindowOpen,
+			reviewWindowClose: season.reviewWindowClose,
+			feedbackDeadline: season.feedbackDeadline
+		};
+		// Scoring opening before the (kept) extended deadline is refused.
+		await expect(
+			t.mutation(internal.seasons.updateSeason, {
+				...raw,
+				reviewWindowOpen: at('2026-11-01T00:00:00Z')
+			})
+		).rejects.toThrow(/before the application deadline/);
+		await t.mutation(internal.seasons.updateSeason, { ...raw, name: 'Renamed' });
+		expect(await t.run((ctx) => ctx.db.get(seasonId))).toMatchObject({
+			name: 'Renamed',
+			applicationDeadlineExtendedTo: at('2026-11-07T23:55:00Z')
+		});
+	});
+});
+
 describe('getApplicationIntakeSeason with an extension', () => {
 	it('keeps taking applications for the season until the extended date', async () => {
 		const { t, admin } = await setupAdmin();

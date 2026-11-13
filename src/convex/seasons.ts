@@ -145,11 +145,17 @@ export const updateSeason = internalMutation({
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
-		const { seasonId, ...fields } = args;
+		const { seasonId, ...given } = args;
 		const season = await ctx.db.get(seasonId);
 		if (!season) {
 			throw new ConvexError('Season not found');
 		}
+		// CL-777: an omitted extension keeps the stored one, and is checked with the new dates.
+		const fields = {
+			...given,
+			applicationDeadlineExtendedTo:
+				given.applicationDeadlineExtendedTo ?? season.applicationDeadlineExtendedTo
+		};
 		validateSeasonFields(fields);
 		await assertUniqueApplicationDeadline(ctx, effectiveApplicationDeadline(fields), seasonId);
 		await ctx.db.patch(seasonId, {
@@ -199,11 +205,17 @@ export const adminUpdateSeason = mutation({
 	returns: v.null(),
 	handler: async (ctx, args) => {
 		await requireGlobalAdmin(ctx);
-		const { seasonId, ...fields } = args;
+		const { seasonId, ...given } = args;
 		const season = await ctx.db.get(seasonId);
 		if (!season) {
 			throw new ConvexError('Season not found');
 		}
+		// CL-777: an omitted extension keeps the stored one, and is checked with the new dates.
+		const fields = {
+			...given,
+			applicationDeadlineExtendedTo:
+				given.applicationDeadlineExtendedTo ?? season.applicationDeadlineExtendedTo
+		};
 		validateSeasonFields(fields);
 		await assertUniqueApplicationDeadline(ctx, effectiveApplicationDeadline(fields), seasonId);
 		await ctx.db.patch(seasonId, {
