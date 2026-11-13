@@ -471,6 +471,30 @@
 		}
 	};
 
+	// CL-796: application reminders are switched off per ADDRESS (emailSuppressions), exactly like
+	// the email's unsubscribe link, so this switch and that link always agree. Null when the account
+	// has no address reminders could go to (a child without a confirmed email).
+	const applicationRemindersResponse = useStableQuery(
+		api.emailUnsubscribe.getMyApplicationReminders,
+		{}
+	);
+	let applicationRemindersOverride = $state<boolean | null>(null);
+	const applicationReminders = $derived(applicationRemindersResponse.data ?? null);
+	const applicationRemindersEnabled = $derived(
+		applicationRemindersOverride ?? applicationReminders?.enabled ?? true
+	);
+
+	const setApplicationReminders = async (enabled: boolean) => {
+		applicationRemindersOverride = enabled;
+		try {
+			await convexClient.mutation(api.emailUnsubscribe.setMyApplicationReminders, { enabled });
+		} catch {
+			errorMessage = t('settingsPage.notificationsSaveFailure');
+		} finally {
+			applicationRemindersOverride = null;
+		}
+	};
+
 	const policyLinks = $derived(
 		orderedLegalDocuments.length
 			? orderedLegalDocuments.map((document) => ({
@@ -619,6 +643,34 @@
 						{/each}
 					</div>
 				{/each}
+				{#if applicationReminders}
+					<div class="flex flex-col gap-2">
+						<p class="text-sm font-semibold text-foreground">
+							{$_('settingsPage.notificationsApplicationsGroup')}
+						</p>
+						<div
+							class="flex items-start justify-between gap-4 rounded-lg border border-border/70 p-3"
+						>
+							<div class="flex min-w-0 flex-col gap-1">
+								<Label for="notification-applicationReminders">
+									{$_('settingsPage.notificationsApplicationRemindersLabel')}
+								</Label>
+								<p class="type-body-compact break-words text-muted-foreground">
+									{$_('settingsPage.notificationsApplicationRemindersDescription').replace(
+										'{email}',
+										applicationReminders.email
+									)}
+								</p>
+							</div>
+							<Switch
+								id="notification-applicationReminders"
+								checked={applicationRemindersEnabled}
+								onCheckedChange={(value) => void setApplicationReminders(value)}
+								class="mt-1 shrink-0"
+							/>
+						</div>
+					</div>
+				{/if}
 				<div class="flex flex-col gap-2">
 					<p class="text-sm font-semibold text-foreground">
 						{$_('settingsPage.notificationsCriticalGroup')}

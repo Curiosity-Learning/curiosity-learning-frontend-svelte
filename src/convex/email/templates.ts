@@ -513,70 +513,130 @@ export const childRoutingChangedEmail = (args: {
 // Every reminder carries an unsubscribe link (emailUnsubscribe.ts); callers never send one without.
 export type ApplicationReminderAudience = 'self' | 'parent' | 'parent_pending';
 
+// CL-796 (phase 2): which reminder this is.
+// - 'started' (A): one hour after the application was started;
+// - 'week_before' (B) and 'day_before' (C): the daily job, a week before and on the last day
+//   before the season's (effective, CL-777) deadline;
+// - 'closing_soon': phase 1's hand-run send (same wording as B).
+// `earlierSeason` (CL-770 3b): the application was started in an earlier season's intake; it gets
+// "it's not too late" wording instead of "you started".
+export type ApplicationReminderVariant = 'started' | 'week_before' | 'day_before' | 'closing_soon';
+
+type Segment = string | { strong: string };
+
 export const applicationReminderEmail = (args: {
 	audience: ApplicationReminderAudience;
+	variant?: ApplicationReminderVariant;
+	earlierSeason?: boolean;
 	childName?: string;
-	seasonName: string;
+	// The season taking applications and its deadline. Optional only for 'started', which can go
+	// out while no season has a deadline yet (then the email doesn't mention one).
+	seasonName?: string;
 	// "Saturday 7 November, 23:55 GMT" and "Saturday 7 November" (lib/domain/season-dates.ts).
-	deadlineLabel: string;
-	deadlineDayLabel: string;
+	deadlineLabel?: string;
+	deadlineDayLabel?: string;
 	// CL-777: the season's deadline was extended; the labels are already the extended date.
 	extended?: boolean;
 	ctaUrl: string;
 	unsubscribeUrl: string;
 }): EmailContent => {
+	const variant = args.variant ?? 'closing_soon';
 	const child = args.childName ?? 'your child';
-	const strong = (value: string) =>
-		`<strong style="color:${colors.foreground};">${escapeHtml(value)}</strong>`;
-	// "Applications for Winter 2026 close on …", or, with an extension, "… have been extended to …".
-	const closeVerb = args.extended ? 'have been extended to' : 'close on';
-	const closeText = `Applications for ${args.seasonName} ${closeVerb} ${args.deadlineLabel}.`;
-	const closeHtml = `Applications for ${escapeHtml(args.seasonName)} ${closeVerb} ${strong(args.deadlineLabel)}.`;
+	const day = args.deadlineDayLabel ?? '';
+	const hasDeadline = Boolean(args.seasonName && args.deadlineLabel && args.deadlineDayLabel);
+	const earlier = Boolean(args.earlierSeason && hasDeadline && variant !== 'started');
+	const lastChance = variant === 'day_before' && hasDeadline;
 	const videoLine =
 		'The last step is a short video about the club you want to start: up to 3 minutes and 500 MB, filmed on a phone is fine.';
 
-	const copy =
+	// "Applications for Winter 2026 close on …", or, with an extension, "… have been extended to …".
+	const close: Segment[] = hasDeadline
+		? [
+				`Applications for ${args.seasonName} ${args.extended ? 'have been extended to' : 'close on'} `,
+				{ strong: args.deadlineLabel! },
+				'.'
+			]
+		: [];
+	const withClose = (before: string, after: string): Segment[] =>
+		hasDeadline ? [before, ...close, after] : [`${before}${after}`.trim()];
+
+	const copy: { subject: string; title: string; paragraphs: Segment[][]; ctaLabel: string } =
 		args.audience === 'parent_pending'
 			? {
 					subject: `${child}'s club application is waiting for your approval`,
 					title: `Approve ${child}'s account`,
 					paragraphs: [
-						`${child} signed up for Curiosity Learning and started an application to run a Curiosity Club, but their account is still waiting for your approval.`,
-						`Once you approve it, ${child} can upload a short video and submit the application. ${closeText}`
-					],
-					htmlParagraphs: [
-						`${escapeHtml(child)} signed up for Curiosity Learning and started an application to run a Curiosity Club, but their account is still waiting for your approval.`,
-						`Once you approve it, ${escapeHtml(child)} can upload a short video and submit the application. ${closeHtml}`
+						[
+							`${child} signed up for Curiosity Learning and started an application to run a Curiosity Club, but their account is still waiting for your approval.`
+						],
+						withClose(
+							`Once you approve it, ${child} can upload a short video and submit the application. `,
+							''
+						)
 					],
 					ctaLabel: `Review ${child}'s account`
 				}
 			: args.audience === 'parent'
 				? {
-						subject: `${child}'s club application closes ${args.deadlineDayLabel}`,
-						title: `${child}'s application isn't finished yet`,
+						subject:
+							variant === 'started' || !hasDeadline
+								? `${child}'s club application isn't finished yet`
+								: lastChance
+									? `Last chance: ${child}'s club application closes ${day}`
+									: earlier
+										? `It's not too late for ${child}'s club application`
+										: `${child}'s club application closes ${day}`,
+						title: earlier
+							? `It's not too late for ${child}'s application`
+							: `${child}'s application isn't finished yet`,
 						paragraphs: [
-							`${child} started an application to run a Curiosity Club, but hasn't submitted it yet. ${videoLine}`,
-							`${closeText} ${child} can finish by signing in with their username and uploading the video.`
-						],
-						htmlParagraphs: [
-							`${escapeHtml(child)} started an application to run a Curiosity Club, but hasn't submitted it yet. ${escapeHtml(videoLine)}`,
-							`${closeHtml} ${escapeHtml(child)} can finish by signing in with their username and uploading the video.`
+							[
+								earlier
+									? `${child} started an application to run a Curiosity Club earlier, but never submitted it. It's not too late: ${child} can finish it and still be approved for ${args.seasonName}. ${videoLine}`
+									: `${child} started an application to run a Curiosity Club, but hasn't submitted it yet. ${videoLine}`
+							],
+							withClose(
+								'',
+								` ${child} can finish by signing in with their username and uploading the video.`
+							)
 						],
 						ctaLabel: 'Open the application'
 					}
 				: {
-						subject: `Your club application closes ${args.deadlineDayLabel}`,
-						title: 'Your application isn’t finished yet',
+						subject:
+							variant === 'started' || !hasDeadline
+								? 'Finish your club application'
+								: lastChance
+									? `Last chance: your club application closes ${day}`
+									: earlier
+										? "It's not too late to finish your club application"
+										: `Your club application closes ${day}`,
+						title: earlier ? 'It’s not too late' : 'Your application isn’t finished yet',
 						paragraphs: [
-							`You started an application to run a Curiosity Club, but haven't submitted it yet. ${videoLine}`,
-							`${closeText} If you get stuck on the upload, use "Message us" on the video page and we'll help.`
-						],
-						htmlParagraphs: [
-							`You started an application to run a Curiosity Club, but haven't submitted it yet. ${escapeHtml(videoLine)}`,
-							`${closeHtml} If you get stuck on the upload, use “Message us” on the video page and we'll help.`
+							[
+								earlier
+									? `You started an application to run a Curiosity Club earlier, but never submitted it. It's not too late: finish it and you can still be approved for ${args.seasonName}. ${videoLine}`
+									: `You started an application to run a Curiosity Club, but haven't submitted it yet. ${videoLine}`
+							],
+							withClose(
+								'',
+								` If you get stuck on the upload, use "Message us" on the video page and we'll help.`
+							)
 						],
 						ctaLabel: 'Finish my application'
 					};
+
+	const toText = (segments: Segment[]) =>
+		segments.map((segment) => (typeof segment === 'string' ? segment : segment.strong)).join('');
+	const toHtml = (segments: Segment[]) =>
+		segments
+			.map((segment) =>
+				typeof segment === 'string'
+					? escapeHtml(segment)
+					: `<strong style="color:${colors.foreground};">${escapeHtml(segment.strong)}</strong>`
+			)
+			.join('');
+	const paragraphs = copy.paragraphs.map(toText).filter(Boolean);
 
 	const footer =
 		args.audience === 'self'
@@ -586,14 +646,15 @@ export const applicationReminderEmail = (args: {
 
 	return {
 		subject: copy.subject,
-		text: [...copy.paragraphs, `${copy.ctaLabel}: ${args.ctaUrl}`, footer, unsubscribeText].join(
-			'\n\n'
-		),
+		text: [...paragraphs, `${copy.ctaLabel}: ${args.ctaUrl}`, footer, unsubscribeText].join('\n\n'),
 		html: layout({
-			preheader: copy.paragraphs[0],
+			preheader: paragraphs[0],
 			title: copy.title,
 			children: `
-				${copy.htmlParagraphs.map((content) => paragraph(content)).join('')}
+				${copy.paragraphs
+					.filter((segments) => toText(segments))
+					.map((segments) => paragraph(toHtml(segments)))
+					.join('')}
 				${button(args.ctaUrl, copy.ctaLabel)}${rawLink(args.ctaUrl)}
 				<p style="margin:24px 0 0;font-size:13px;line-height:19px;color:${colors.muted};">
 					Don't want these reminders? <a href="${escapeHtml(args.unsubscribeUrl)}" style="color:${colors.primaryDark};">Unsubscribe from application reminders</a>.

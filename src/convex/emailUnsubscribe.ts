@@ -2,6 +2,9 @@ import { ConvexError, v } from 'convex/values';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { httpAction, internalMutation, mutation, query } from './_generated/server';
 import { internal } from './_generated/api';
+import { getAuthUserEmail } from './authEmail';
+import { CHILD_EMAIL_DOMAIN } from './childAccounts';
+import { requireIdentity, requireProfile } from './permissions';
 
 // CL-770: unsubscribe for non-essential email (today only application reminders). Before this
 // there was no unsubscribe of any kind. Ron's requirement: people who are no longer interested
@@ -127,7 +130,7 @@ export const isEmailSuppressed = async (
 
 const suppress = async (
 	ctx: MutationCtx,
-	args: { kind: SuppressibleEmailKind; email: string; source: 'link' | 'one_click' }
+	args: { kind: SuppressibleEmailKind; email: string; source: 'link' | 'one_click' | 'settings' }
 ) => {
 	if (await isEmailSuppressed(ctx, args.kind, args.email)) return;
 	await ctx.db.insert('emailSuppressions', {
@@ -196,4 +199,56 @@ export const oneClickUnsubscribe = httpAction(async (ctx, request) => {
 	if (!verified) return new Response('Invalid unsubscribe link', { status: 400 });
 	await ctx.runMutation(internal.emailUnsubscribe.suppressFromOneClick, verified);
 	return new Response('Unsubscribed', { status: 200 });
+});
+
+// ---------------------------------------------------------------------------------------------
+// CL-796: the "Application reminders" switch on the settings page. It reads and writes the same
+// per-address suppression as the unsubscribe link, so the two always agree: unsubscribing from
+// an email turns the switch off, and turning the switch back on lifts the unsubscribe.
+// ---------------------------------------------------------------------------------------------
+
+// The address the signed-in person gets reminders at: their sign-in email, or for a child account
+// (no real sign-in address) the notification address they confirmed. Null when there is none.
+const getMyReminderAddress = async (ctx: QueryCtx | MutationCtx) => {
+	const identity = await requireIdentity(ctx);
+	const profile = await requireProfile(ctx, identity.subject);
+	const authEmail = await getAuthUserEmail(ctx, profile.authUserId);
+	if (authEmail && !authEmail.toLowerCase().endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
+		return normalizeEmail(authEmail);
+	}
+	if (profile.notificationEmail && profile.notificationEmailVerifiedAt !== undefined) {
+		return normalizeEmail(profile.notificationEmail);
+	}
+	return null;
+};
+
+export const getMyApplicationReminders = query({
+	args: {},
+	returns: v.union(v.object({ email: v.string(), enabled: v.boolean() }), v.null()),
+	handler: async (ctx) => {
+		const email = await getMyReminderAddress(ctx);
+		if (!email) return null;
+		return { email, enabled: !(await isEmailSuppressed(ctx, 'application_reminder', email)) };
+	}
+});
+
+export const setMyApplicationReminders = mutation({
+	args: { enabled: v.boolean() },
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const email = await getMyReminderAddress(ctx);
+		if (!email) throw new ConvexError('There is no email address to send reminders to.');
+		if (!args.enabled) {
+			await suppress(ctx, { kind: 'application_reminder', email, source: 'settings' });
+			return null;
+		}
+		const rows = await ctx.db
+			.query('emailSuppressions')
+			.withIndex('by_email_and_kind', (q) =>
+				q.eq('email', email).eq('kind', 'application_reminder')
+			)
+			.collect();
+		for (const row of rows) await ctx.db.delete(row._id);
+		return null;
+	}
 });

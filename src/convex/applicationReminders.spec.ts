@@ -10,6 +10,7 @@ import type { Id } from './_generated/dataModel';
 import schema from './schema';
 import { createUnsubscribeToken, verifyUnsubscribeToken } from './emailUnsubscribe';
 import { getApplicationIntakeSeason } from './seasons';
+import { dueDeadlineReminder } from './applicationReminders';
 import {
 	formatSeasonDeadline,
 	seasonClosingMoment,
@@ -553,5 +554,308 @@ describe('unsubscribe', () => {
 		expect(suppressions).toMatchObject([
 			{ email: 'parent@example.com', kind: 'application_reminder', source: 'one_click' }
 		]);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// CL-796, phase 2: reminder A (one hour after starting), B/C (daily job), earlier-season wording,
+// and the settings switch.
+// ---------------------------------------------------------------------------------------------
+
+const HOUR = 60 * 60 * 1000;
+
+type DeadlineRun = RunResult & { due: string | null };
+const runDeadline = async (t: ReturnType<typeof convexTest>, dryRun = false) =>
+	(await t.action(internal.applicationReminders.sendDeadlineReminders, { dryRun })) as DeadlineRun;
+
+describe('dueDeadlineReminder', () => {
+	it('is B within a week, C within a day, nothing before or after', () => {
+		const closesAt = 100 * DAY;
+		expect(dueDeadlineReminder(closesAt, closesAt - 8 * DAY)).toBeNull();
+		expect(dueDeadlineReminder(closesAt, closesAt - 7 * DAY)).toBe('week_before');
+		expect(dueDeadlineReminder(closesAt, closesAt - 2 * DAY)).toBe('week_before');
+		expect(dueDeadlineReminder(closesAt, closesAt - 21 * HOUR)).toBe('day_before');
+		expect(dueDeadlineReminder(closesAt, closesAt + 1)).toBeNull();
+	});
+});
+
+describe('reminder A (one hour after starting)', () => {
+	it('is scheduled once, when the application is first saved', async () => {
+		const t = convexTest(schema, modules);
+		const profileId = await t.run((ctx) =>
+			insertProfile(ctx, { authUserId: 'adult-user', firstName: 'Ada' })
+		);
+		const save = () =>
+			t.mutation(internal.clubApplications.saveIncompleteApplicationForUser, {
+				profileId,
+				draft: { location: 'Lisbon' }
+			});
+		const { applicationId } = await save();
+		await save();
+		const jobs = await t.run(async (ctx) =>
+			(await ctx.db.system.query('_scheduled_functions').collect()).filter((job) =>
+				job.name.includes('sendStartedReminder')
+			)
+		);
+		expect(jobs).toHaveLength(1);
+		expect(jobs[0].args[0]).toEqual({ applicationId });
+		expect(jobs[0].scheduledTime - jobs[0]._creationTime).toBeGreaterThanOrEqual(HOUR - 1000);
+	});
+
+	it('sends once, with the season deadline, and not after the application was submitted', async () => {
+		const { t, deadline, adultApplicationId, approvedChildApplicationId } = await seed();
+		const first = await t.action(internal.applicationReminders.sendStartedReminder, {
+			applicationId: adultApplicationId
+		});
+		expect(first).toMatchObject({ status: 'sent', to: 'adult@example.com' });
+		const email = sentEmails()[0];
+		expect(email.subject).toBe('Finish your club application');
+		expect(email.text).toContain(`close on ${formatSeasonDeadline(deadline!)}`);
+		expect(email.headers?.['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
+		const application = await t.run((ctx) => ctx.db.get(adultApplicationId));
+		expect(application?.reminders?.startedSentAt).toBeTypeOf('number');
+
+		sendEmailMock.mockClear();
+		const again = await t.action(internal.applicationReminders.sendStartedReminder, {
+			applicationId: adultApplicationId
+		});
+		expect(again).toMatchObject({ skipReason: 'already_sent' });
+
+		await t.run((ctx) => ctx.db.patch(approvedChildApplicationId, { status: 'pending' }));
+		const submitted = await t.action(internal.applicationReminders.sendStartedReminder, {
+			applicationId: approvedChildApplicationId
+		});
+		expect(submitted).toMatchObject({ skipReason: 'not_incomplete' });
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	it('waits one more hour, once, while a video is processing', async () => {
+		const { t, adultApplicationId } = await seed();
+		await t.run(async (ctx) => {
+			const now = Date.now();
+			await ctx.db.insert('mediaAssets', {
+				ownerUserId: 'adult-user',
+				mediaKind: 'video',
+				status: 'processing',
+				acceptedContentTypes: ['video/mp4'],
+				maxBytes: 500_000_000,
+				enableCompression: false,
+				enableSafetyScreening: false,
+				storageProvider: 's3',
+				sourceObjectRevision: 1,
+				pipelineVersion: 1,
+				attemptCount: 1,
+				stepResults: [],
+				createdAt: now,
+				updatedAt: now
+			});
+		});
+		const first = await t.action(internal.applicationReminders.sendStartedReminder, {
+			applicationId: adultApplicationId
+		});
+		expect(first).toEqual({ status: 'waiting_for_video' });
+		expect(sendEmailMock).not.toHaveBeenCalled();
+		const retries = await t.run(async (ctx) =>
+			(await ctx.db.system.query('_scheduled_functions').collect()).filter((job) =>
+				job.name.includes('sendStartedReminder')
+			)
+		);
+		expect(retries.map((job) => job.args[0])).toEqual([
+			{ applicationId: adultApplicationId, attempt: 2 }
+		]);
+		// The second attempt sends even if the video is still processing.
+		const second = await t.action(internal.applicationReminders.sendStartedReminder, {
+			applicationId: adultApplicationId,
+			attempt: 2
+		});
+		expect(second).toMatchObject({ status: 'sent' });
+	});
+});
+
+describe('reminders B and C (daily job)', () => {
+	it('nothing is due more than a week before the deadline', async () => {
+		const { t } = await seed({ deadlineInMs: 10 * DAY });
+		const result = await runDeadline(t);
+		expect(result.due).toBeNull();
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	it('sends B once a week before, then C once on the last day, never twice', async () => {
+		const { t, seasonId, adultApplicationId } = await seed({ deadlineInMs: 5 * DAY });
+		const dry = await runDeadline(t, true);
+		expect(dry).toMatchObject({ due: 'week_before', toSend: 4 });
+		expect(sendEmailMock).not.toHaveBeenCalled();
+
+		const week = await runDeadline(t);
+		expect(week).toMatchObject({ due: 'week_before', sent: 4, failed: 0 });
+		const adult = sentEmails().find((email) => email.to === 'adult@example.com')!;
+		expect(adult.subject).toMatch(/^Your club application closes /);
+
+		sendEmailMock.mockClear();
+		expect((await runDeadline(t)).sent).toBe(0);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+
+		// The deadline is now less than a day away: C.
+		const closesAt = Date.now() + 20 * HOUR;
+		await t.run((ctx) =>
+			ctx.db.patch(seasonId, { applicationDeadline: closesAt, reviewWindowOpen: closesAt })
+		);
+		const day = await runDeadline(t);
+		expect(day).toMatchObject({ due: 'day_before', sent: 4 });
+		expect(sentEmails().find((email) => email.to === 'adult@example.com')!.subject).toMatch(
+			/^Last chance: your club application closes /
+		);
+		sendEmailMock.mockClear();
+		expect((await runDeadline(t)).sent).toBe(0);
+
+		const application = await t.run((ctx) => ctx.db.get(adultApplicationId));
+		expect(application?.reminders).toMatchObject({
+			weekBeforeSeasonId: seasonId,
+			dayBeforeSeasonId: seasonId
+		});
+		expect(application?.reminders?.weekBeforeSentAt).toBeTypeOf('number');
+		expect(application?.reminders?.dayBeforeSentAt).toBeTypeOf('number');
+	});
+
+	it('a phase 1 send for the season counts as B and C', async () => {
+		const { t } = await seed({ deadlineInMs: 5 * DAY });
+		await run(t, false);
+		sendEmailMock.mockClear();
+		expect((await runDeadline(t)).sent).toBe(0);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	it('B waits while reminder A went out less than a day ago; C does not', async () => {
+		const { t, seasonId, adultApplicationId } = await seed({ deadlineInMs: 5 * DAY });
+		await t.run((ctx) =>
+			ctx.db.patch(adultApplicationId, { reminders: { startedSentAt: Date.now() - HOUR } })
+		);
+		const week = await runDeadline(t);
+		expect(week.reminders.find((row) => row.applicant === 'Ada')).toMatchObject({
+			skipReason: 'recent_reminder'
+		});
+		expect(sentEmails().map((email) => email.to)).not.toContain('adult@example.com');
+
+		const closesAt = Date.now() + 20 * HOUR;
+		await t.run((ctx) =>
+			ctx.db.patch(seasonId, { applicationDeadline: closesAt, reviewWindowOpen: closesAt })
+		);
+		sendEmailMock.mockClear();
+		await runDeadline(t);
+		expect(sentEmails().map((email) => email.to)).toContain('adult@example.com');
+	});
+
+	it('logs a settled skip once per season, not every day', async () => {
+		const { t } = await seed({ deadlineInMs: 5 * DAY });
+		await runDeadline(t);
+		await runDeadline(t);
+		const skipped = await t.run(async (ctx) =>
+			(await ctx.db.query('emailDeliveries').collect()).filter((row) => row.status === 'skipped')
+		);
+		expect(skipped.map((row) => row.skipReason).sort()).toEqual([
+			'has_submitted_application',
+			'no_address',
+			'suspended'
+		]);
+	});
+
+	it('uses the extended deadline (CL-777)', async () => {
+		// The normal deadline passed yesterday, the extension is in five days.
+		const { t, seasonId } = await seed({ deadlineInMs: -DAY });
+		const extendedTo = Date.now() + 5 * DAY;
+		await t.run((ctx) =>
+			ctx.db.patch(seasonId, {
+				applicationDeadlineExtendedTo: extendedTo,
+				reviewWindowOpen: extendedTo
+			})
+		);
+		const result = await runDeadline(t);
+		expect(result).toMatchObject({ due: 'week_before', sent: 4 });
+		const adult = sentEmails().find((email) => email.to === 'adult@example.com')!;
+		expect(adult.text).toContain(`have been extended to ${formatSeasonDeadline(extendedTo)}`);
+	});
+
+	it('applications from an earlier season get "not too late" wording, and stop after one more season', async () => {
+		const { t, adultApplicationId, approvedChildApplicationId } = await seed({
+			deadlineInMs: 5 * DAY
+		});
+		const now = Date.now();
+		await t.run(async (ctx) => {
+			// Two earlier seasons, closed 100 and 10 days ago.
+			for (const [name, ago] of [
+				['Summer', 100],
+				['Autumn', 10]
+			] as const) {
+				const closed = now - ago * DAY;
+				await ctx.db.insert('seasons', {
+					name,
+					applicationDeadline: closed,
+					reviewWindowOpen: closed,
+					reviewWindowClose: closed + DAY,
+					startDate: closed + 2 * DAY,
+					endDate: closed + 3 * DAY,
+					feedbackDeadline: closed + 4 * DAY,
+					createdAt: now,
+					updatedAt: now
+				});
+			}
+			// Started before Autumn closed: one season missed.
+			await ctx.db.patch(adultApplicationId, { createdAt: now - 20 * DAY });
+			// Started before Summer closed: two seasons missed, so no more reminders.
+			await ctx.db.patch(approvedChildApplicationId, { createdAt: now - 200 * DAY });
+		});
+		const result = await runDeadline(t);
+		const byApplicant = Object.fromEntries(result.reminders.map((row) => [row.applicant, row]));
+		expect(byApplicant['Ada']).toMatchObject({ status: 'sent' });
+		expect(byApplicant['kiddo']).toMatchObject({ skipReason: 'too_old' });
+		const adult = sentEmails().find((email) => email.to === 'adult@example.com')!;
+		expect(adult.subject).toBe("It's not too late to finish your club application");
+		expect(adult.text).toContain(
+			"It's not too late: finish it and you can still be approved for Winter 2026."
+		);
+		expect(sentEmails().map((email) => email.to)).not.toContain('parent@example.com');
+	});
+});
+
+describe('settings switch (application reminders)', () => {
+	it('reads and writes the same suppression as the unsubscribe link', async () => {
+		const { t } = await seed({ deadlineInMs: 5 * DAY });
+		const adult = t.withIdentity({ subject: 'adult-user' });
+		expect(await adult.query(api.emailUnsubscribe.getMyApplicationReminders, {})).toEqual({
+			email: 'adult@example.com',
+			enabled: true
+		});
+
+		await adult.mutation(api.emailUnsubscribe.setMyApplicationReminders, { enabled: false });
+		expect((await adult.query(api.emailUnsubscribe.getMyApplicationReminders, {}))?.enabled).toBe(
+			false
+		);
+		const dry = await runDeadline(t, true);
+		expect(dry.reminders.find((row) => row.applicant === 'Ada')).toMatchObject({
+			skipReason: 'unsubscribed'
+		});
+
+		// Turning it back on also lifts an unsubscribe made from an email link.
+		const token = (await createUnsubscribeToken('application_reminder', 'adult@example.com'))!;
+		await t.mutation(api.emailUnsubscribe.unsubscribe, { token });
+		await adult.mutation(api.emailUnsubscribe.setMyApplicationReminders, { enabled: true });
+		expect((await adult.query(api.emailUnsubscribe.getMyApplicationReminders, {}))?.enabled).toBe(
+			true
+		);
+		expect(await t.run((ctx) => ctx.db.query('emailSuppressions').collect())).toEqual([]);
+	});
+
+	it('is absent for a child without a confirmed address', async () => {
+		const { t } = await seed();
+		expect(
+			await t
+				.withIdentity({ subject: 'child-approved-user' })
+				.query(api.emailUnsubscribe.getMyApplicationReminders, {})
+		).toBeNull();
+		expect(
+			await t
+				.withIdentity({ subject: 'child-own-email-user' })
+				.query(api.emailUnsubscribe.getMyApplicationReminders, {})
+		).toMatchObject({ email: 'teen@example.com', enabled: true });
 	});
 });

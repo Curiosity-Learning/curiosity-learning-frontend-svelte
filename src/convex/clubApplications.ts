@@ -16,6 +16,7 @@ import {
 	pickCurrentReviewSeason
 } from './reviewAssignmentModel';
 import { getApplicationIntakeSeason, pickApplicationIntakeSeason } from './seasons';
+import { STARTED_REMINDER_DELAY_MS } from './applicationReminders';
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -289,6 +290,13 @@ const upsertIncompleteApplication = async (
 		createdAt: now,
 		updatedAt: now
 	});
+	// CL-796 reminder A: one hour after the application is first saved. Saving the draft again
+	// takes the branch above, so it is scheduled once per application.
+	await ctx.scheduler.runAfter(
+		STARTED_REMINDER_DELAY_MS,
+		internal.applicationReminders.sendStartedReminder,
+		{ applicationId }
+	);
 	return { applicationId };
 };
 

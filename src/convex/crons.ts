@@ -136,6 +136,21 @@ export const runDailyMaintenance = internalAction({
 			});
 		}
 
+		try {
+			// CL-796: "applications close in a week" / "last chance" reminders for unfinished club
+			// applications (applicationReminders.ts). Idempotent: each goes out at most once per
+			// application and season, so a re-run or a missed day never double-sends.
+			const summary = await ctx.runAction(internal.applicationReminders.sendDeadlineReminders, {});
+			// The per-application list stays out of the log (it holds email addresses).
+			const counts = { ...(summary as Record<string, unknown>), reminders: undefined };
+			console.log('cron:runDailyMaintenance:sendDeadlineReminders', counts);
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'backend',
+				operation: 'crons:runDailyMaintenance:sendDeadlineReminders'
+			});
+		}
+
 		return null;
 	}
 });
