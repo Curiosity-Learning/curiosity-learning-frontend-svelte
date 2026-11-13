@@ -104,9 +104,41 @@ describe('pending parent consent: change or resend the parent email (CL-772)', (
 			username: 'nobody_here',
 			password: PASSWORD
 		});
-		// An unknown username and a wrong password look the same.
+		const now = Date.now();
+		const adult = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'grownup@example.com',
+					emailVerified: true,
+					name: 'grownup',
+					username: 'grownup',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'account',
+				data: {
+					accountId: adult._id,
+					providerId: 'credential',
+					userId: adult._id,
+					password: await hashPassword(PASSWORD),
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+		const adultAnswer = await t.action(api.pendingParentConsent.getPendingParentConsent, {
+			username: 'grownup',
+			password: PASSWORD
+		});
+		// An unknown username, a wrong password and an adult account look the same.
 		expect(wrong).toEqual({ status: 'invalid_credentials' });
 		expect(unknown).toEqual(wrong);
+		expect(adultAnswer).toEqual(wrong);
 	});
 
 	it('changing the address sends a new link there and the old link stops working', async () => {

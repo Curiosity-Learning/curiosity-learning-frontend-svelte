@@ -11,6 +11,7 @@ import {
 	parentConsentUrl,
 	sendParentConsentEmail
 } from './childSignup';
+import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { reportConvexError } from './monitoring';
 import { getProfileByAuthUserId } from './permissions';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
@@ -88,8 +89,11 @@ export const lookUpChildCredential = internalQuery({
 		const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
 			model: 'user',
 			where: [{ field: 'username', value: args.username }]
-		})) as { _id: string } | null;
-		if (!user) return { passwordLimited, credential: null };
+		})) as { _id: string; email: string } | null;
+		// Child accounts only: this is no second password check for adults.
+		if (!user || !user.email.endsWith(`@${CHILD_EMAIL_DOMAIN}`)) {
+			return { passwordLimited, credential: null };
+		}
 		const account = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
 			model: 'account',
 			where: [
