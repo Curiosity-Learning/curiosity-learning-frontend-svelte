@@ -8,8 +8,9 @@
  *
  * - On a failed client navigation or hydration (client `handleError`), reload the target URL
  *   at most once per app version, so a chunk that is really broken cannot cause a loop.
- * - When only a background preload fails (link hover/touch), the user may be typing, so we
- *   only mark the app as stale and do a full-page load on the next navigation instead.
+ * - When only a background preload fails, the user may be typing, so we only mark the app
+ *   as stale and do a full-page load on the next navigation instead. If the page never
+ *   started (its entry chunks are gone), it is reloaded once right away.
  * - SvelteKit's `updated` poll (`kit.version.pollInterval`) also marks a new deploy; the
  *   next navigation then becomes a full-page load before any old chunk is requested.
  */
@@ -80,17 +81,46 @@ export const reloadOnceForStaleApp = (
 };
 
 let staleChunkSeen = false;
+let appStarted = false;
+const recoveredErrors = new WeakSet<object>();
 
-/** A background chunk load failed: the next navigation should be a full-page load. */
-export const markAppStale = () => {
-	staleChunkSeen = true;
+/** The root layout mounted: SvelteKit started, so client navigations can recover. */
+export const markAppStarted = () => {
+	appStarted = true;
 };
 
 export const isAppMarkedStale = () => staleChunkSeen;
 
+/**
+ * A chunk failed to load outside a navigation (unhandled rejection or `vite:preloadError`).
+ * - App running (e.g. a link preload failed): only remember it; the next navigation becomes a
+ *   full-page load, so nothing reloads while the user is typing.
+ * - App never started (the page's own entry chunks are gone, so it is dead): reload now, once
+ *   per version.
+ * Returns whether it was handled; handled errors are not sent to Sentry (`wasRecovered`).
+ */
+export const recoverFromStaleChunkOutsideNavigation = (
+	reason: unknown,
+	version: string,
+	deps?: ReloadDeps
+): boolean => {
+	if (!isStaleChunkError(reason)) return false;
+
+	let handled = true;
+	if (appStarted) staleChunkSeen = true;
+	else handled = reloadOnceForStaleApp(window.location.href, version, deps);
+
+	if (handled && typeof reason === 'object' && reason !== null) recoveredErrors.add(reason);
+	return handled;
+};
+
+export const wasRecovered = (error: unknown) =>
+	typeof error === 'object' && error !== null && recoveredErrors.has(error);
+
 /** Test helper. */
 export const resetStaleAppState = () => {
 	staleChunkSeen = false;
+	appStarted = false;
 };
 
 type NavigationLike = {

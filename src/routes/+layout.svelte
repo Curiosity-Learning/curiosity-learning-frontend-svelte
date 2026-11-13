@@ -8,7 +8,10 @@
 	import { createSvelteAuthClient } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { authClient } from '$lib/auth-client';
 	import { initI18n } from '$lib/i18n';
-	import { forceFullPageNavigationIfStale } from '$lib/navigation/stale-app-recovery';
+	import {
+		forceFullPageNavigationIfStale,
+		markAppStarted
+	} from '$lib/navigation/stale-app-recovery';
 	import type { LayoutData } from './$types';
 
 	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
@@ -27,6 +30,7 @@
 	let localeCleanup: (() => void) | null = null;
 
 	onMount(() => {
+		markAppStarted();
 		localeCleanup = initI18n();
 
 		return () => {

@@ -3,9 +3,11 @@ import {
 	STALE_APP_RELOAD_KEY_PREFIX,
 	forceFullPageNavigationIfStale,
 	isStaleChunkError,
-	markAppStale,
+	markAppStarted,
+	recoverFromStaleChunkOutsideNavigation,
 	reloadOnceForStaleApp,
-	resetStaleAppState
+	resetStaleAppState,
+	wasRecovered
 } from './stale-app-recovery';
 
 const memoryStorage = () => {
@@ -112,7 +114,11 @@ describe('forceFullPageNavigationIfStale', () => {
 	});
 
 	it('does the same after a chunk preload failed', () => {
-		markAppStale();
+		markAppStarted();
+		recoverFromStaleChunkOutsideNavigation(
+			new TypeError('Importing a module script failed.'),
+			'v1'
+		);
 		const navigate = vi.fn();
 		expect(
 			forceFullPageNavigationIfStale(nav('https://clubs.example/feed'), false, {
@@ -141,5 +147,52 @@ describe('forceFullPageNavigationIfStale', () => {
 			false
 		);
 		expect(navigate).not.toHaveBeenCalled();
+	});
+});
+
+describe('recoverFromStaleChunkOutsideNavigation', () => {
+	afterEach(() => {
+		resetStaleAppState();
+		vi.unstubAllGlobals();
+	});
+
+	it('only marks a running app stale, without reloading', () => {
+		markAppStarted();
+		const navigate = vi.fn();
+		const error = new TypeError('Importing a module script failed.');
+		expect(
+			recoverFromStaleChunkOutsideNavigation(error, 'v1', {
+				storage: memoryStorage(),
+				navigate,
+				online: true
+			})
+		).toBe(true);
+		expect(navigate).not.toHaveBeenCalled();
+		expect(wasRecovered(error)).toBe(true);
+	});
+
+	it('reloads a page that never started, once, and reports it after that', () => {
+		vi.stubGlobal('window', { location: { href: 'https://clubs.example/onboarding/start-club' } });
+		const storage = memoryStorage();
+		const navigate = vi.fn();
+		const first = new TypeError('Failed to fetch dynamically imported module: /a.js');
+		expect(
+			recoverFromStaleChunkOutsideNavigation(first, 'v1', { storage, navigate, online: true })
+		).toBe(true);
+		expect(navigate).toHaveBeenCalledWith('https://clubs.example/onboarding/start-club');
+		expect(wasRecovered(first)).toBe(true);
+
+		const again = new TypeError('Failed to fetch dynamically imported module: /a.js');
+		expect(
+			recoverFromStaleChunkOutsideNavigation(again, 'v1', { storage, navigate, online: true })
+		).toBe(false);
+		expect(wasRecovered(again)).toBe(false);
+		expect(navigate).toHaveBeenCalledOnce();
+	});
+
+	it('ignores unrelated rejections', () => {
+		const error = new Error('Convex query failed');
+		expect(recoverFromStaleChunkOutsideNavigation(error, 'v1')).toBe(false);
+		expect(wasRecovered(error)).toBe(false);
 	});
 });

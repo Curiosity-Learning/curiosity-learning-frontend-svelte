@@ -5,8 +5,9 @@ import { env } from '$env/dynamic/public';
 import { buildSharedSentryOptions } from '$lib/monitoring/sentry-config';
 import {
 	isStaleChunkError,
-	markAppStale,
-	reloadOnceForStaleApp
+	recoverFromStaleChunkOutsideNavigation,
+	reloadOnceForStaleApp,
+	wasRecovered
 } from '$lib/navigation/stale-app-recovery';
 
 type SentryDevTestResult = {
@@ -34,31 +35,21 @@ const sentryOptions = buildSharedSentryOptions({
 	release: __SENTRY_RELEASE__
 });
 
-const isUnhandledRejection = (event: Sentry.ErrorEvent) =>
-	event.exception?.values?.some((value) =>
-		value.mechanism?.type?.includes('onunhandledrejection')
-	) ?? false;
+// Registered before Sentry.init so these run before Sentry's own global handlers: a chunk that
+// a deploy removed is recovered here (see stale-app-recovery.ts), and beforeSend then drops it
+// (Sentry issue V). Unrecovered ones (reload already tried, offline) are still reported.
+window.addEventListener('unhandledrejection', (event) => {
+	recoverFromStaleChunkOutsideNavigation(event.reason, version);
+});
+window.addEventListener('vite:preloadError', (event) => {
+	recoverFromStaleChunkOutsideNavigation(event.payload, version);
+});
 
 Sentry.init({
 	...sentryOptions,
-	beforeSend: (event, hint) => {
-		// A background chunk preload (link hover/touch) failed because a deploy replaced the
-		// chunk. The next navigation recovers with a full-page load, so this is not an error
-		// worth reporting (Sentry issue V). Failed navigations still go through handleError.
-		if (isStaleChunkError(hint.originalException) && isUnhandledRejection(event)) {
-			markAppStale();
-			return null;
-		}
-		return sentryOptions.beforeSend(event);
-	}
+	beforeSend: (event, hint) =>
+		wasRecovered(hint.originalException) ? null : sentryOptions.beforeSend(event)
 });
-
-// Stale chunks seen outside a navigation: remember them so the next navigation is a
-// full-page load, instead of reloading now and losing what the user is typing.
-window.addEventListener('unhandledrejection', (event) => {
-	if (isStaleChunkError(event.reason)) markAppStale();
-});
-window.addEventListener('vite:preloadError', () => markAppStale());
 
 if (dev) {
 	Object.defineProperty(window, '__curiositySentryDevTest', {
