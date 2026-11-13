@@ -74,10 +74,7 @@ export const lookUpChildCredential = internalQuery({
 	args: { username: v.string() },
 	returns: v.object({
 		passwordLimited: v.boolean(),
-		credential: v.union(
-			v.null(),
-			v.object({ authUserId: v.string(), passwordHash: v.string() })
-		)
+		credential: v.union(v.null(), v.object({ authUserId: v.string(), passwordHash: v.string() }))
 	}),
 	handler: async (ctx, args) => {
 		const passwordLimited = await isRateLimited(
@@ -178,7 +175,9 @@ export const prepareParentConsentSend = internalMutation({
 				retryAfter: 'day' as const
 			};
 		}
-		if (await isRateLimited(ctx, consentSendKey(consent._id), PARENT_CONSENT_SEND_LIMIT_PER_CONSENT)) {
+		if (
+			await isRateLimited(ctx, consentSendKey(consent._id), PARENT_CONSENT_SEND_LIMIT_PER_CONSENT)
+		) {
 			return {
 				status: 'rate_limited' as const,
 				parentEmail: consent.parentEmail,
@@ -292,5 +291,9 @@ export const changeParentConsentEmail = action({
 	args: { ...credentialArgs, parentEmail: v.string() },
 	returns: resultValidator,
 	handler: async (ctx, args): Promise<PendingParentConsentResult> =>
-		send(ctx, { username: args.username, password: args.password, newParentEmail: args.parentEmail })
+		send(ctx, {
+			username: args.username,
+			password: args.password,
+			newParentEmail: args.parentEmail
+		})
 });

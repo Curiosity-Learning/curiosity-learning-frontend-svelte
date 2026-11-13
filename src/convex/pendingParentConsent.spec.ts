@@ -129,7 +129,9 @@ describe('pending parent consent: change or resend the parent email (CL-772)', (
 
 		expect(sent()).toHaveLength(1);
 		expect(sent()[0].to).toBe('right@example.com');
-		expect(sent()[0].text).toContain(`https://app.example.com/onboarding/parent-consent/${after!.token}`);
+		expect(sent()[0].text).toContain(
+			`https://app.example.com/onboarding/parent-consent/${after!.token}`
+		);
 	});
 
 	it('resend keeps the address and the link', async () => {
@@ -172,9 +174,9 @@ describe('pending parent consent: change or resend the parent email (CL-772)', (
 		vi.useFakeTimers();
 		const { t, consent, sent, creds } = await setup();
 		for (let i = 0; i < PARENT_CONSENT_SEND_LIMIT_PER_CONSENT.maxAttempts; i += 1) {
-			expect((await t.action(api.pendingParentConsent.resendParentConsentEmail, creds)).status).toBe(
-				'sent'
-			);
+			expect(
+				(await t.action(api.pendingParentConsent.resendParentConsentEmail, creds)).status
+			).toBe('sent');
 		}
 		expect(await t.action(api.pendingParentConsent.resendParentConsentEmail, creds)).toEqual({
 			status: 'rate_limited',
@@ -194,11 +196,12 @@ describe('pending parent consent: change or resend the parent email (CL-772)', (
 		// After an hour the per-consent window resets, until the daily per-child cap.
 		vi.advanceTimersByTime(HOUR + 1);
 		const remaining =
-			PARENT_CONSENT_SEND_LIMIT_PER_CHILD.maxAttempts - PARENT_CONSENT_SEND_LIMIT_PER_CONSENT.maxAttempts;
+			PARENT_CONSENT_SEND_LIMIT_PER_CHILD.maxAttempts -
+			PARENT_CONSENT_SEND_LIMIT_PER_CONSENT.maxAttempts;
 		for (let i = 0; i < remaining; i += 1) {
-			expect((await t.action(api.pendingParentConsent.resendParentConsentEmail, creds)).status).toBe(
-				'sent'
-			);
+			expect(
+				(await t.action(api.pendingParentConsent.resendParentConsentEmail, creds)).status
+			).toBe('sent');
 		}
 		vi.advanceTimersByTime(HOUR + 1);
 		expect(await t.action(api.pendingParentConsent.resendParentConsentEmail, creds)).toMatchObject({

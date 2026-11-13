@@ -30,6 +30,7 @@
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import successImage from '$lib/assets/images/success.png';
+	import PendingParentConsentPanel from '$lib/components/app/onboarding/pending-parent-consent-panel.svelte';
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
@@ -82,6 +83,8 @@
 	let errorMessage = $state('');
 	let infoMessage = $state('');
 	let showSuccessScreen = $state(false);
+	// CL-772: kept for the success screen's "waiting for your parent" panel (resend / change).
+	let registeredChild = $state<{ username: string; password: string } | null>(null);
 	let successContinuePending = $state(false);
 	let handledGooglePostSignUp = $state(false);
 	let handledForcedExistingGoogleAccount = $state(false);
@@ -867,6 +870,7 @@
 				nextPath,
 				startClubApplicationDraft: readStartClubApplicationDraft()
 			});
+			registeredChild = { username: normalizedChildUsername, password };
 			showSuccessScreen = true;
 			infoMessage = '';
 			errorMessage = '';
@@ -1423,10 +1427,11 @@
 				{$_('auth.signUp.successTitle')}
 			</h1>
 			<p class="text-base leading-7 text-gray-600">
-				{isMinor
-					? $_('auth.signUp.successDescriptionMinor')
-					: $_('auth.signUp.successDescription')}
+				{isMinor ? $_('auth.signUp.successDescriptionMinor') : $_('auth.signUp.successDescription')}
 			</p>
+			{#if isMinor && registeredChild}
+				<PendingParentConsentPanel {...registeredChild} />
+			{/if}
 			<Button
 				variant="default"
 				size="xl"
@@ -1559,7 +1564,11 @@
 					{/if}
 
 					<Field class="flex flex-col gap-2">
-						<FieldLabel for="email" required class="type-field-label text-base leading-6 font-bold text-gray-900">
+						<FieldLabel
+							for="email"
+							required
+							class="type-field-label text-base leading-6 font-bold text-gray-900"
+						>
 							{isMinor ? $_('auth.signUp.parentEmailLabel') : $_('auth.signUp.emailLabel')}
 						</FieldLabel>
 						{#if isMinor}
@@ -1593,7 +1602,11 @@
 
 					{#if !shouldHidePasswordFields}
 						<Field class="flex flex-col gap-2">
-							<FieldLabel for="password" required class="type-field-label text-base leading-6 font-bold text-gray-900">
+							<FieldLabel
+								for="password"
+								required
+								class="type-field-label text-base leading-6 font-bold text-gray-900"
+							>
 								{$_('auth.signUp.passwordLabel')}
 							</FieldLabel>
 							<div class="relative">
@@ -1627,7 +1640,11 @@
 						</Field>
 
 						<Field class="flex flex-col gap-2">
-							<FieldLabel for="confirmPassword" required class="type-field-label text-base leading-6 font-bold text-gray-900">
+							<FieldLabel
+								for="confirmPassword"
+								required
+								class="type-field-label text-base leading-6 font-bold text-gray-900"
+							>
 								{$_('auth.signUp.confirmPasswordLabel')}
 							</FieldLabel>
 							<div class="relative">
