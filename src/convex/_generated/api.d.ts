@@ -56,6 +56,7 @@ import type * as notificationsModel from "../notificationsModel.js";
 import type * as parentAccounts from "../parentAccounts.js";
 import type * as pendingClubJoins from "../pendingClubJoins.js";
 import type * as pendingClubJoinsModel from "../pendingClubJoinsModel.js";
+import type * as pendingParentConsent from "../pendingParentConsent.js";
 import type * as permissions from "../permissions.js";
 import type * as pledges from "../pledges.js";
 import type * as preferences from "../preferences.js";
@@ -132,6 +133,7 @@ declare const fullApi: ApiFromModules<{
   parentAccounts: typeof parentAccounts;
   pendingClubJoins: typeof pendingClubJoins;
   pendingClubJoinsModel: typeof pendingClubJoinsModel;
+  pendingParentConsent: typeof pendingParentConsent;
   permissions: typeof permissions;
   pledges: typeof pledges;
   preferences: typeof preferences;

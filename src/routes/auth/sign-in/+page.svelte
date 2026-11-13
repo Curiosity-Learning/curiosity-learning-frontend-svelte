@@ -11,6 +11,7 @@
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Field, FieldLabel } from '$lib/components/ui/field';
 	import { Input } from '$lib/components/ui/input';
+	import PendingParentConsentPanel from '$lib/components/app/onboarding/pending-parent-consent-panel.svelte';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
 	import { authClient } from '$lib/auth-client';
 	import { normalizeAuthError } from '$lib/auth/error-handler';
@@ -41,6 +42,8 @@
 	let googlePending = $state(false);
 	let errorMessage = $state('');
 	let infoMessage = $state('');
+	// CL-772: a pending child's "waiting for your parent" panel (resend / change parent email).
+	let pendingConsentCredentials = $state<{ username: string; password: string } | null>(null);
 	let existingGoogleAccountHandled = $state(false);
 	let handledForcedExistingGoogleAccount = $state(false);
 	let dismissGoogleAuthCallbackError = $state(false);
@@ -274,6 +277,7 @@
 
 	const signIn = async () => {
 		errorMessage = '';
+		pendingConsentCredentials = null;
 		infoMessage = '';
 		dismissGoogleAuthCallbackError = true;
 		pending = true;
@@ -305,6 +309,7 @@
 				}
 				if (await isPendingConsentLogin(normalizedIdentifier)) {
 					errorMessage = t('auth.signIn.parentConsentPending');
+					pendingConsentCredentials = { username: normalizedIdentifier, password };
 					return;
 				}
 				const normalizedError = normalizeAuthError(error);
@@ -599,6 +604,14 @@
 							<AlertTitle>{$_('auth.signIn.errorTitle')}</AlertTitle>
 							<AlertDescription>{activeErrorMessage}</AlertDescription>
 						</Alert>
+					{/if}
+
+					{#if pendingConsentCredentials}
+						{#key pendingConsentCredentials}
+							<div class="mt-5">
+								<PendingParentConsentPanel {...pendingConsentCredentials} />
+							</div>
+						{/key}
 					{/if}
 
 					{#if infoMessage}
