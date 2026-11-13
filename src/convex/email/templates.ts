@@ -520,12 +520,18 @@ export const applicationReminderEmail = (args: {
 	// "Saturday 7 November, 23:55 GMT" and "Saturday 7 November" (lib/domain/season-dates.ts).
 	deadlineLabel: string;
 	deadlineDayLabel: string;
+	// CL-777: the season's deadline was extended; the labels are already the extended date.
+	extended?: boolean;
 	ctaUrl: string;
 	unsubscribeUrl: string;
 }): EmailContent => {
 	const child = args.childName ?? 'your child';
 	const strong = (value: string) =>
 		`<strong style="color:${colors.foreground};">${escapeHtml(value)}</strong>`;
+	// "Applications for Winter 2026 close on …", or, with an extension, "… have been extended to …".
+	const closeVerb = args.extended ? 'have been extended to' : 'close on';
+	const closeText = `Applications for ${args.seasonName} ${closeVerb} ${args.deadlineLabel}.`;
+	const closeHtml = `Applications for ${escapeHtml(args.seasonName)} ${closeVerb} ${strong(args.deadlineLabel)}.`;
 	const videoLine =
 		'The last step is a short video about the club you want to start: up to 3 minutes and 500 MB, filmed on a phone is fine.';
 
@@ -536,11 +542,11 @@ export const applicationReminderEmail = (args: {
 					title: `Approve ${child}'s account`,
 					paragraphs: [
 						`${child} signed up for Curiosity Learning and started an application to run a Curiosity Club, but their account is still waiting for your approval.`,
-						`Once you approve it, ${child} can upload a short video and submit the application. Applications for ${args.seasonName} close on ${args.deadlineLabel}.`
+						`Once you approve it, ${child} can upload a short video and submit the application. ${closeText}`
 					],
 					htmlParagraphs: [
 						`${escapeHtml(child)} signed up for Curiosity Learning and started an application to run a Curiosity Club, but their account is still waiting for your approval.`,
-						`Once you approve it, ${escapeHtml(child)} can upload a short video and submit the application. Applications for ${escapeHtml(args.seasonName)} close on ${strong(args.deadlineLabel)}.`
+						`Once you approve it, ${escapeHtml(child)} can upload a short video and submit the application. ${closeHtml}`
 					],
 					ctaLabel: `Review ${child}'s account`
 				}
@@ -550,11 +556,11 @@ export const applicationReminderEmail = (args: {
 						title: `${child}'s application isn't finished yet`,
 						paragraphs: [
 							`${child} started an application to run a Curiosity Club, but hasn't submitted it yet. ${videoLine}`,
-							`Applications for ${args.seasonName} close on ${args.deadlineLabel}. ${child} can finish by signing in with their username and uploading the video.`
+							`${closeText} ${child} can finish by signing in with their username and uploading the video.`
 						],
 						htmlParagraphs: [
 							`${escapeHtml(child)} started an application to run a Curiosity Club, but hasn't submitted it yet. ${escapeHtml(videoLine)}`,
-							`Applications for ${escapeHtml(args.seasonName)} close on ${strong(args.deadlineLabel)}. ${escapeHtml(child)} can finish by signing in with their username and uploading the video.`
+							`${closeHtml} ${escapeHtml(child)} can finish by signing in with their username and uploading the video.`
 						],
 						ctaLabel: 'Open the application'
 					}
@@ -563,11 +569,11 @@ export const applicationReminderEmail = (args: {
 						title: 'Your application isn’t finished yet',
 						paragraphs: [
 							`You started an application to run a Curiosity Club, but haven't submitted it yet. ${videoLine}`,
-							`Applications for ${args.seasonName} close on ${args.deadlineLabel}. If you get stuck on the upload, use "Message us" on the video page and we'll help.`
+							`${closeText} If you get stuck on the upload, use "Message us" on the video page and we'll help.`
 						],
 						htmlParagraphs: [
 							`You started an application to run a Curiosity Club, but haven't submitted it yet. ${escapeHtml(videoLine)}`,
-							`Applications for ${escapeHtml(args.seasonName)} close on ${strong(args.deadlineLabel)}. If you get stuck on the upload, use “Message us” on the video page and we'll help.`
+							`${closeHtml} If you get stuck on the upload, use “Message us” on the video page and we'll help.`
 						],
 						ctaLabel: 'Finish my application'
 					};

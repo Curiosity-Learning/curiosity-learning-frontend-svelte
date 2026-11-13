@@ -1097,9 +1097,13 @@ export default defineSchema({
 	// only; lib/domain/season-dates.ts turns them into the official moments (closing dates 23:55
 	// GMT, start 00:00 GMT). `applicationDeadline` is optional only for the pre-CL-770 bootstrap
 	// season; the admin form requires it.
+	// CL-777: `applicationDeadlineExtendedTo` is an optional later closing moment (same 23:55 GMT
+	// rule). `applicationDeadline` keeps the normal date; seasons.effectiveApplicationDeadline is
+	// "when applications really close" and is what every rule uses.
 	seasons: defineTable({
 		name: v.string(),
 		applicationDeadline: v.optional(v.number()),
+		applicationDeadlineExtendedTo: v.optional(v.number()),
 		startDate: v.number(),
 		endDate: v.number(),
 		reviewWindowOpen: v.number(),
