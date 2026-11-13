@@ -182,7 +182,9 @@ export const planClosingSoonReminders = internalQuery({
 			season: {
 				_id: season._id,
 				name: season.name,
-				applicationDeadline: season.applicationDeadline
+				closesAt: season.closesAt,
+				// CL-777: set when the deadline was extended, so the email can say so.
+				extended: season.applicationDeadlineExtendedTo !== undefined
 			},
 			reminders
 		};
@@ -264,7 +266,7 @@ export const sendClosingSoonReminders = internalAction({
 		const plan = (await ctx.runQuery(internal.applicationReminders.planClosingSoonReminders, {
 			now: Date.now()
 		})) as {
-			season: { _id: Id<'seasons'>; name: string; applicationDeadline: number } | null;
+			season: { _id: Id<'seasons'>; name: string; closesAt: number; extended: boolean } | null;
 			reminders: PlannedReminder[];
 		};
 		if (!plan.season) {
@@ -273,7 +275,7 @@ export const sendClosingSoonReminders = internalAction({
 			);
 		}
 		const season = plan.season;
-		const deadlineLabel = formatSeasonDeadline(season.applicationDeadline);
+		const deadlineLabel = formatSeasonDeadline(season.closesAt);
 		const summary = {
 			season: season.name,
 			applicationsClose: deadlineLabel,
@@ -344,7 +346,8 @@ export const sendClosingSoonReminders = internalAction({
 				childName: item.childName,
 				seasonName: season.name,
 				deadlineLabel,
-				deadlineDayLabel: formatSeasonDay(season.applicationDeadline),
+				deadlineDayLabel: formatSeasonDay(season.closesAt),
+				extended: season.extended,
 				ctaUrl,
 				unsubscribeUrl: links!.pageUrl
 			});
@@ -406,7 +409,7 @@ export const sendClosingSoonPreview = internalAction({
 	handler: async (ctx, args) => {
 		const season = (await ctx.runQuery(internal.applicationReminders.planClosingSoonReminders, {
 			now: Date.now()
-		})) as { season: { name: string; applicationDeadline: number } | null };
+		})) as { season: { name: string; closesAt: number; extended: boolean } | null };
 		if (!season.season) {
 			throw new ConvexError(
 				'No season is taking applications: set an application deadline on the next season first.'
@@ -422,8 +425,9 @@ export const sendClosingSoonPreview = internalAction({
 				audience,
 				childName: audience === 'self' ? undefined : 'Sam',
 				seasonName: season.season.name,
-				deadlineLabel: formatSeasonDeadline(season.season.applicationDeadline),
-				deadlineDayLabel: formatSeasonDay(season.season.applicationDeadline),
+				deadlineLabel: formatSeasonDeadline(season.season.closesAt),
+				deadlineDayLabel: formatSeasonDay(season.season.closesAt),
+				extended: season.season.extended,
 				ctaUrl:
 					audience === 'parent_pending'
 						? `${appOrigin}/onboarding/parent-consent/preview`
