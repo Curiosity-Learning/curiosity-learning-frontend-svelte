@@ -325,7 +325,8 @@ const hasReviewHistoryOutsideSeason = async (
 // CL-795: how many reviewers an application is topped up to in `seasonId`. An application with
 // no assignments this season yet gets the current setting. One that already has some keeps the
 // target its first assignment was made with, so raising (or lowering) the setting never changes
-// applications that are already being reviewed. Rows with no recorded target (assignments before CL-795, rows the old code made) count as the old default of 3.
+// applications that are already being reviewed. Rows with no recorded target (made by the code
+// before CL-795) count as the old default of 3.
 const resolveTargetReviewers = (
 	seasonAssignments: Doc<'applicationReviewAssignments'>[],
 	reviewersPerApplication: number
@@ -355,11 +356,12 @@ export const targetReviewersForManualAssignment = async (
 	return resolveTargetReviewers(seasonAssignments, reviewersPerApplication);
 };
 
-// Assigns one pending application to as many additional eligible Guides as needed to reach
-// its target (resolveTargetReviewers, CL-795), choosing the eligible Guide(s) with the fewest assignments this
-// season (ties broken by profile id), skipping anyone already at the per-guide cap. Safe to call
-// repeatedly / concurrently for the same application: existing assignment rows are respected via
-// the unique (applicationId, reviewerProfileId) index, and it only ever tops up to the target.
+// Assigns one pending application to as many additional eligible Guides as needed to reach its
+// target (resolveTargetReviewers, CL-795), choosing the eligible Guide(s) with the fewest
+// assignments this season (ties broken by profile id), skipping anyone already at the per-guide
+// cap. Safe to call repeatedly / concurrently for the same application: existing assignment rows
+// are respected via the unique (applicationId, reviewerProfileId) index, and it only ever tops up
+// to the target.
 const assignReviewersForApplication = async (
 	ctx: MutationCtx,
 	application: Doc<'clubApplications'>,
