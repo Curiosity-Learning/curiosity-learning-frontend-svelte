@@ -111,6 +111,10 @@ const nl = {
 			'Uitnodigingen en lidmaatschapswijzigingen in projecten.',
 		notificationsProjectUpdatesLabel: 'Projectupdates',
 		notificationsProjectUpdatesDescription: 'Voortgangs- en afrondingsupdates voor je projecten.',
+		notificationsApplicationsGroup: 'Clubaanvragen',
+		notificationsApplicationRemindersLabel: 'Herinneringen voor aanvragen',
+		notificationsApplicationRemindersDescription:
+			'E-mails naar {email} als een clubaanvraag van jou of je kind nog niet af is, voordat de aanmeldingen sluiten.',
 		notificationsCriticalGroup: 'Altijd aan',
 		notificationsCriticalDescription:
 			'Aanvraagbeslissingen, verwijdering uit een club en toestemmingsverzoeken voor ouders worden altijd in de app en per e-mail bezorgd.',
