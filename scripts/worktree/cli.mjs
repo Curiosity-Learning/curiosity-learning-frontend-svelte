@@ -9,8 +9,11 @@
 //   node scripts/worktree/cli.mjs ensure          fast no-op when the worktree is already set up
 //   node scripts/worktree/cli.mjs status          worktrees, their backends, and orphaned backends
 //   node scripts/worktree/cli.mjs add <branch> [base-ref]
-//   node scripts/worktree/cli.mjs remove [path]   delete the worktree's backend and the worktree
-//   node scripts/worktree/cli.mjs prune [--yes]   delete backends whose worktree no longer exists
+//   node scripts/worktree/cli.mjs remove [path]   delete the worktree's backend and the worktree,
+//                                                 plus its branch's preview backend once the PR is merged/closed
+//   node scripts/worktree/cli.mjs prune [--yes]   delete backends whose worktree no longer exists and
+//                                                 preview backends whose PR is merged/closed or branch is gone
+//   node scripts/worktree/cli.mjs delete-preview <branch>   delete one branch's preview backend (merged/closed PR only)
 //   node scripts/worktree/cli.mjs refresh-data    replace this backend's data with a fresh dev copy
 //
 // Design notes and the why: docs/worktrees.md.
@@ -21,6 +24,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { unzipTo, zipDir } from './zip.mjs';
+import {
+	PROTECTED_DEPLOYMENTS,
+	planPreviewPrune,
+	prStateForBranch,
+	previewDecision,
+	previewsForBranch
+} from './preview-backends.mjs';
 
 const TEAM_SLUG = 'curiosity-learning';
 const PROJECT_SLUG = 'curiosity-learning-flutter-to-svelte';
@@ -191,6 +201,8 @@ async function api(method, pathname) {
 }
 
 async function projectId() {
+	// CI (the delete-preview-backend workflow) passes the id so a team access token is enough.
+	if (process.env.CONVEX_PROJECT_ID) return process.env.CONVEX_PROJECT_ID;
 	const teams = await api('GET', '/api/teams');
 	const team = teams.find((t) => t.slug === TEAM_SLUG);
 	if (!team) throw new Error(`Convex team ${TEAM_SLUG} not visible to this login.`);
@@ -205,7 +217,8 @@ async function listDeployments() {
 }
 
 async function deleteDeployment(name) {
-	if (name === SHARED_DEPLOYMENT) throw new Error('Refusing to delete the shared dev deployment.');
+	if (name === SHARED_DEPLOYMENT || PROTECTED_DEPLOYMENTS.includes(name))
+		throw new Error(`Refusing to delete ${name} (shared dev or production).`);
 	await api('POST', `/v1/deployments/${name}/delete`);
 }
 
@@ -604,19 +617,102 @@ async function prune(flags) {
 			.map((wt) => readEnv(path.join(wt.path, '.env.local')).CONVEX_DEPLOYMENT || '')
 			.map((v) => v.replace(/^[a-z]+:/, '').replace(/\s.*$/, ''))
 	);
-	const orphans = (await listDeployments()).filter(
+	const deployments = await listDeployments();
+	const orphans = deployments.filter(
 		(d) =>
 			(isOwnRef(d.reference) || (flags.has('--include-legacy') && isLegacyRef(d.reference))) &&
 			!used.has(d.name)
 	);
-	if (!orphans.length) return log('No orphaned worktree backends.');
-	for (const d of orphans) log(`  ${d.name}  ${d.reference}`);
-	if (!flags.has('--yes'))
-		return log('\nDry run. Rerun with --yes to delete these backends (their data is lost).');
-	for (const d of orphans) {
-		await deleteDeployment(d.name);
-		log(`  deleted ${d.name}`);
+	if (!orphans.length) log('No orphaned worktree backends.');
+	else {
+		log(`Worktree backends with no worktree: ${orphans.length}`);
+		for (const d of orphans) log(`  ${d.name}  ${d.reference}`);
+		if (flags.has('--yes')) {
+			for (const d of orphans) {
+				await deleteDeployment(d.name);
+				log(`  deleted ${d.name}`);
+			}
+		}
 	}
+	await prunePreviews(flags, mainRoot, deployments);
+	if (!flags.has('--yes'))
+		log('\nDry run. Rerun with --yes to delete the backends marked above (their data is lost).');
+}
+
+// --- preview backends (one per PR branch, created by Vercel builds; see preview-backends.mjs) --
+
+// Every PR (any state) for one branch, or for the whole repo when `branch` is omitted.
+// Returns null when gh is missing or not logged in, so callers keep the backend.
+function listPrs(cwd, branch) {
+	const res = spawnSync(
+		'gh',
+		[
+			'pr',
+			'list',
+			'--state',
+			'all',
+			...(branch ? ['--head', branch] : []),
+			'--limit',
+			'1000',
+			'--json',
+			'number,state,headRefName,url'
+		],
+		{ cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+	);
+	if (res.status !== 0) {
+		log(`  ⚠ gh pr list failed: ${(res.stderr || res.error?.message || '').trim().slice(0, 200)}`);
+		return null;
+	}
+	return JSON.parse(res.stdout);
+}
+
+function originBranches(cwd) {
+	const out = git(['ls-remote', '--heads', 'origin'], cwd);
+	return new Set(
+		out
+			.split('\n')
+			.map((l) => l.split('\t')[1]?.replace('refs/heads/', ''))
+			.filter(Boolean)
+	);
+}
+
+// Delete `branch`'s preview backend if its PR is merged or closed; otherwise keep it and say why.
+async function deletePreviewFor(branch, cwd, deployments) {
+	const previews = previewsForBranch(deployments ?? (await listDeployments()), branch);
+	if (!previews.length) return log(`No preview backend for ${branch}.`);
+	const prs = listPrs(cwd, branch);
+	if (!prs) return log(`Kept preview backend ${previews[0].name}: could not check the PR state.`);
+	const prState = prStateForBranch(prs, branch);
+	const { remove, reason } = previewDecision({ prState });
+	for (const d of previews) {
+		if (!remove) {
+			log(`Kept preview backend ${d.name} (${d.reference}): ${reason}.`);
+			continue;
+		}
+		await deleteDeployment(d.name);
+		log(`Deleted preview backend ${d.name} (${d.reference}): ${reason}.`);
+	}
+}
+
+async function prunePreviews(flags, mainRoot, deployments) {
+	const prs = listPrs(mainRoot);
+	if (!prs) return log('\nPreview backends: skipped (gh pr list failed).');
+	const plan = planPreviewPrune(deployments, prs, originBranches(mainRoot));
+	const doomed = plan.filter((p) => p.remove);
+	log(`\nPreview backends: ${plan.length} (${doomed.length} to delete)`);
+	for (const p of plan)
+		log(`  ${p.remove ? 'delete' : 'keep  '}  ${p.deployment.name}  ${p.branch}  (${p.reason})`);
+	if (!doomed.length || !flags.has('--yes')) return;
+	for (const p of doomed) {
+		await deleteDeployment(p.deployment.name);
+		log(`  deleted ${p.deployment.name}`);
+	}
+}
+
+async function deletePreview(args) {
+	const [branch] = args;
+	if (!branch) fail('Usage: node scripts/worktree/cli.mjs delete-preview <branch>');
+	await deletePreviewFor(branch, process.cwd());
 }
 
 async function add(args) {
@@ -653,13 +749,17 @@ async function remove(args) {
 	const name = (readEnv(path.join(target, '.env.local')).CONVEX_DEPLOYMENT || '')
 		.replace(/^[a-z]+:/, '')
 		.replace(/\s.*$/, '');
+	const branch = listWorktrees(mainRoot).find(
+		(wt) => path.resolve(wt.path) === path.resolve(target)
+	)?.branch;
 	if (name && name !== SHARED_DEPLOYMENT) {
 		await deleteDeployment(name);
 		log(`Deleted Convex backend ${name}.`);
 	}
+	if (branch) await deletePreviewFor(branch, mainRoot);
 	const res = spawnSync('git', ['worktree', 'remove', target], { cwd: mainRoot, stdio: 'inherit' });
 	if (res.status !== 0)
-		fail('git worktree remove failed (uncommitted changes?). The backend is already gone.');
+		fail('git worktree remove failed (uncommitted changes?). The backends are already handled.');
 	log(`Removed worktree ${target}. The branch is kept.`);
 }
 
@@ -734,6 +834,7 @@ const commands = {
 	add: () => add(positional),
 	remove: () => remove(positional),
 	'refresh-data': refreshData,
+	'delete-preview': () => deletePreview(positional),
 	'preview-build': previewBuild
 };
 if (!commands[cmd]) {
@@ -741,7 +842,7 @@ if (!commands[cmd]) {
 		fs
 			.readFileSync(new URL(import.meta.url), 'utf8')
 			.split('\n')
-			.slice(1, 15)
+			.slice(1, 18)
 			.join('\n')
 			.replace(/^\/\/ ?/gm, '')
 	);
