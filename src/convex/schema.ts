@@ -365,7 +365,12 @@ export default defineSchema({
 		applicationId: v.id('clubApplications'),
 		reviewerProfileId: v.id('profiles'),
 		seasonId: v.id('seasons'),
-		assignedAt: v.number()
+		assignedAt: v.number(),
+		// CL-795: the reviewers-per-application target the assignment job used when it created this
+		// row. Later top-ups keep that target, so changing the setting only affects applications
+		// that get their first reviewers after the change. Absent on manual (admin) assignments and
+		// on rows from before CL-795.
+		targetReviewers: v.optional(v.number())
 	})
 		.index('by_application_id', ['applicationId'])
 		.index('by_application_id_and_reviewer_profile_id', ['applicationId', 'reviewerProfileId'])
@@ -375,7 +380,8 @@ export default defineSchema({
 		.index('by_season_id', ['seasonId']),
 
 	// PRD 6.9.2/6.9.3 (CL-709): tiny admin-configurable singleton for the review-assignment
-	// algorithm. Absent = defaults (reviewersPerApplication: 3, maxReviewsPerGuidePerSeason: 10).
+	// algorithm. Absent = defaults (reviewersPerApplication: 5 since CL-795, maxReviewsPerGuidePerSeason: 10).
+	// Edited on the admin portal's Review settings page (CL-795).
 	// Never more than one row; adminUpdateReviewSettings upserts it.
 	reviewSettings: defineTable({
 		reviewersPerApplication: v.number(),
