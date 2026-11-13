@@ -5,6 +5,11 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { sentrySvelteKit } from '@sentry/sveltekit';
 
 export default defineConfig({
+	define: {
+		// Sentry release for browser events (server events read the same env var at runtime).
+		// Vercel sets VERCEL_GIT_COMMIT_SHA during builds; empty locally.
+		__SENTRY_RELEASE__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA ?? '')
+	},
 	server: {
 		allowedHosts: ['arrased-semiurban-jean.ngrok-free.dev']
 	},

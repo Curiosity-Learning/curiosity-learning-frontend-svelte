@@ -12,6 +12,8 @@ export type SentryRuntimeEnv = {
 	tracesSampleRate?: string | null;
 	profilesSampleRate?: string | null;
 	logsEnabledFlag?: string | null;
+	/** Build identifier (Vercel's `VERCEL_GIT_COMMIT_SHA`); unset locally. */
+	release?: string | null;
 };
 
 export const parseSampleRate = (value: string | null | undefined, fallback: number) => {
@@ -55,6 +57,9 @@ export const buildSharedSentryOptions = (env: SentryRuntimeEnv) => {
 		// Fail safe: an unconfigured environment must never pollute the "production"
 		// environment in Sentry, so the fallback is "development".
 		environment: env.environment?.trim() || 'development',
+		// Tags every event with the deployed commit, so a stale tab's errors show which build
+		// it was running. Undefined when no commit SHA is known (local dev).
+		release: env.release?.trim() || undefined,
 		// EU / GDPR: never send email, IP, cookies, or other default PII.
 		sendDefaultPii: false,
 		tracesSampleRate: parseSampleRate(env.tracesSampleRate, 0),
