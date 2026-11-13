@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
+	import { updated } from '$app/state';
 	import './layout.css';
 	import favicon from '$lib/assets/svg/favicon.svg';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { createSvelteAuthClient } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { authClient } from '$lib/auth-client';
 	import { initI18n } from '$lib/i18n';
+	import {
+		forceFullPageNavigationIfStale,
+		markAppStarted
+	} from '$lib/navigation/stale-app-recovery';
 	import type { LayoutData } from './$types';
 
 	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
@@ -15,9 +21,16 @@
 		getServerState: () => data.authState
 	});
 
+	// After a deploy (or a failed chunk preload), the next link click loads the new build as a
+	// full page instead of failing on a chunk that no longer exists (CL-806).
+	beforeNavigate((navigation) => {
+		forceFullPageNavigationIfStale(navigation, updated.current);
+	});
+
 	let localeCleanup: (() => void) | null = null;
 
 	onMount(() => {
+		markAppStarted();
 		localeCleanup = initI18n();
 
 		return () => {
