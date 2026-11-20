@@ -732,6 +732,13 @@ export const adminGetApplication = query({
 			startedSeason: await resolveApplicationSeason(ctx, application.startedSeasonId),
 			reviewSeason: await resolveApplicationSeason(ctx, application.reviewSeasonId),
 			submittedAt: application.submittedAt ?? null,
+			// CL-796: when each completion reminder went out (null = not sent).
+			remindersSent: {
+				started: application.reminders?.startedSentAt ?? null,
+				closingSoon: application.reminders?.closingSoonSentAt ?? null,
+				weekBefore: application.reminders?.weekBeforeSentAt ?? null,
+				dayBefore: application.reminders?.dayBeforeSentAt ?? null
+			},
 			decidedAt: application.decidedAt ?? null,
 			decidedByName: decidedByProfile ? profileDisplayName(decidedByProfile) : null,
 			rejectionNote: application.rejectionNote ?? null,

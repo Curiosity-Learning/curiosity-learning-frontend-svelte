@@ -107,6 +107,10 @@ const en = {
 		notificationsProjectMembershipDescription: 'Invitations and membership changes in projects.',
 		notificationsProjectUpdatesLabel: 'Project updates',
 		notificationsProjectUpdatesDescription: 'Progress and completion updates for your projects.',
+		notificationsApplicationsGroup: 'Club applications',
+		notificationsApplicationRemindersLabel: 'Application reminders',
+		notificationsApplicationRemindersDescription:
+			'Emails to {email} when a club application you or your child started isn’t finished yet, before applications close.',
 		notificationsCriticalGroup: 'Always on',
 		notificationsCriticalDescription:
 			'Application decisions, removal from a club, and parental consent requests are always delivered in-app and by email.',

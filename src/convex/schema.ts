@@ -292,12 +292,22 @@ export default defineSchema({
 			})
 		),
 		// CL-770: which completion reminders this (incomplete) application has had, so each goes
-		// out at most once. `closingSoonSeasonId` is the season whose "applications close
-		// tomorrow" email it got (applicationReminders.ts).
+		// out at most once (applicationReminders.ts). `*SentAt` is when the email went out (the
+		// admin application page shows these); a `*SeasonId` without its `*SentAt` means the
+		// reminder was due for that season but deliberately skipped (logged in emailDeliveries).
+		// - closingSoon: phase 1's hand-run "applications close soon" send;
+		// - started (CL-796, reminder A): one hour after the application was started;
+		// - weekBefore / dayBefore (CL-796, reminders B and C): the daily job, a week before and
+		//   on the last day before the season's effective deadline.
 		reminders: v.optional(
 			v.object({
 				closingSoonSeasonId: v.optional(v.id('seasons')),
-				closingSoonSentAt: v.optional(v.number())
+				closingSoonSentAt: v.optional(v.number()),
+				startedSentAt: v.optional(v.number()),
+				weekBeforeSeasonId: v.optional(v.id('seasons')),
+				weekBeforeSentAt: v.optional(v.number()),
+				dayBeforeSeasonId: v.optional(v.id('seasons')),
+				dayBeforeSentAt: v.optional(v.number())
 			})
 		),
 		// CL-778: which seasons an application belongs to (Ron, 2026-11-06). Both are "the season
@@ -1072,7 +1082,8 @@ export default defineSchema({
 	emailSuppressions: defineTable({
 		email: v.string(),
 		kind: v.string(),
-		source: v.union(v.literal('link'), v.literal('one_click')),
+		// CL-796: 'settings' = the "Application reminders" switch on the settings page.
+		source: v.union(v.literal('link'), v.literal('one_click'), v.literal('settings')),
 		createdAt: v.number()
 	}).index('by_email_and_kind', ['email', 'kind']),
 
