@@ -608,14 +608,21 @@ const deliverReminders = async (
 			results.push({ ...describe(item), status: 'failed', error: message });
 			continue;
 		}
-		await ctx.runMutation(internal.applicationReminders.recordReminderDelivery, {
-			recipientProfileId: item.applicantProfileId,
-			to: item.to,
-			subject: email.subject,
-			status: 'sent',
-			providerMessageId: providerMessageId ?? undefined
-		});
-		results.push({ ...describe(item), status: 'sent' });
+		// A failed log write is reported, not thrown, so the rest of the batch still goes out.
+		try {
+			await ctx.runMutation(internal.applicationReminders.recordReminderDelivery, {
+				recipientProfileId: item.applicantProfileId,
+				to: item.to,
+				subject: email.subject,
+				status: 'sent',
+				providerMessageId: providerMessageId ?? undefined
+			});
+			results.push({ ...describe(item), status: 'sent' });
+		} catch (error) {
+			const logError = error instanceof Error ? error.message : String(error);
+			console.error('application reminder sent but not logged', item.applicationId, logError);
+			results.push({ ...describe(item), status: 'sent', logError });
+		}
 	}
 	return results;
 };

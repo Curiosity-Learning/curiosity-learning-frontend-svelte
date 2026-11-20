@@ -216,6 +216,7 @@ type ReminderRow = {
 	to?: string;
 	skipReason?: string;
 	status?: string;
+	logError?: string;
 };
 type RunResult = {
 	season: string;
@@ -467,6 +468,21 @@ describe('sendClosingSoonReminders', () => {
 		const retry = await run(t, false);
 		expect(retry.sent).toBe(1);
 		expect(sentEmails().map((email) => email.to)).toEqual(['adult@example.com']);
+	});
+
+	it('a sent email whose log write fails keeps its claim, and the rest of the batch still goes out', async () => {
+		const { t } = await seed();
+		// A provider id of the wrong type makes the first "sent" log write fail its validator.
+		sendEmailMock.mockResolvedValueOnce({ providerMessageId: 123 as unknown as string });
+		const result = await run(t, false);
+		expect(result).toMatchObject({ sent: 4, failed: 0 });
+		expect(sentEmails()).toHaveLength(4);
+		expect(result.reminders.filter((row) => row.logError)).toHaveLength(1);
+
+		sendEmailMock.mockClear();
+		const again = await run(t, false);
+		expect(again.sent).toBe(0);
+		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
 
 	it('CL-777: an extended deadline is the one shown, and the email says it was extended', async () => {
