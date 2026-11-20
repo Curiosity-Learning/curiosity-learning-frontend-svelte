@@ -776,9 +776,10 @@ describe('reminders B and C (daily job)', () => {
 	});
 
 	it('applications from an earlier season get "not too late" wording, and stop after one more season', async () => {
-		const { t, adultApplicationId, approvedChildApplicationId } = await seed({
-			deadlineInMs: 5 * DAY
-		});
+		const { t, adultApplicationId, approvedChildApplicationId, pendingChildApplicationId } =
+			await seed({
+				deadlineInMs: 5 * DAY
+			});
 		const now = Date.now();
 		await t.run(async (ctx) => {
 			// Two earlier seasons, closed 100 and 10 days ago.
@@ -801,6 +802,7 @@ describe('reminders B and C (daily job)', () => {
 			}
 			// Started before Autumn closed: one season missed.
 			await ctx.db.patch(adultApplicationId, { createdAt: now - 20 * DAY });
+			await ctx.db.patch(pendingChildApplicationId, { createdAt: now - 20 * DAY });
 			// Started before Summer closed: two seasons missed, so no more reminders.
 			await ctx.db.patch(approvedChildApplicationId, { createdAt: now - 200 * DAY });
 		});
@@ -813,6 +815,12 @@ describe('reminders B and C (daily job)', () => {
 		expect(adult.text).toContain(
 			"It's not too late: finish it and you can still be approved for Winter 2026."
 		);
+		// A parent still asked to approve gets the same "not too late" line, and keeps the consent link.
+		const pending = sentEmails().find((email) => email.to === 'pending-parent@example.com')!;
+		expect(pending.text).toContain(
+			"It's not too late: once you approve it, Pia can upload a short video, submit the application and still be approved for Winter 2026."
+		);
+		expect(pending.text).toContain('/onboarding/parent-consent/pending-consent-token');
 		expect(sentEmails().map((email) => email.to)).not.toContain('parent@example.com');
 	});
 });

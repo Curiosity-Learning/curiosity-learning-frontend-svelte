@@ -570,7 +570,9 @@ export const applicationReminderEmail = (args: {
 							`${child} signed up for Curiosity Learning and started an application to run a Curiosity Club, but their account is still waiting for your approval.`
 						],
 						withClose(
-							`Once you approve it, ${child} can upload a short video and submit the application. `,
+							earlier
+								? `It's not too late: once you approve it, ${child} can upload a short video, submit the application and still be approved for ${args.seasonName}. `
+								: `Once you approve it, ${child} can upload a short video and submit the application. `,
 							''
 						)
 					],

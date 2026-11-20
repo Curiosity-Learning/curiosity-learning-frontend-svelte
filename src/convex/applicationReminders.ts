@@ -581,21 +581,16 @@ const deliverReminders = async (
 
 		if (!first) await new Promise((resolve) => setTimeout(resolve, SEND_SPACING_MS));
 		first = false;
+		// Only a failed send releases the claim: once Resend accepted the email, a failed log write
+		// must not let a later run send it again.
+		let providerMessageId: string | null | undefined;
 		try {
-			const { providerMessageId } = await sendEmail({
+			({ providerMessageId } = await sendEmail({
 				to: item.to,
 				type: 'application-reminder',
 				headers: links!.headers,
 				...email
-			});
-			await ctx.runMutation(internal.applicationReminders.recordReminderDelivery, {
-				recipientProfileId: item.applicantProfileId,
-				to: item.to,
-				subject: email.subject,
-				status: 'sent',
-				providerMessageId: providerMessageId ?? undefined
-			});
-			results.push({ ...describe(item), status: 'sent' });
+			}));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			await ctx.runMutation(internal.applicationReminders.releaseReminder, {
@@ -611,7 +606,16 @@ const deliverReminders = async (
 				error: message
 			});
 			results.push({ ...describe(item), status: 'failed', error: message });
+			continue;
 		}
+		await ctx.runMutation(internal.applicationReminders.recordReminderDelivery, {
+			recipientProfileId: item.applicantProfileId,
+			to: item.to,
+			subject: email.subject,
+			status: 'sent',
+			providerMessageId: providerMessageId ?? undefined
+		});
+		results.push({ ...describe(item), status: 'sent' });
 	}
 	return results;
 };
