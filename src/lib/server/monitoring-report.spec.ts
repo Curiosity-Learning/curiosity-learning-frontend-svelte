@@ -33,4 +33,20 @@ describe('backend monitoring reports', () => {
 		expect(parseMonitoringReportBody('{}')).toBeNull();
 		expect(parseMonitoringReportBody('x'.repeat(17 * 1024))).toBeNull();
 	});
+
+	it('redacts labelled names and usernames in Convex error messages', () => {
+		expect(
+			parseMonitoringReportBody(
+				JSON.stringify({
+					area: 'backend',
+					operation: 'child:signup',
+					message: 'Username "ava_b" is already taken',
+					stack: 'Error: child name: Ava\n    at signup (childSignup.ts:10)'
+				})
+			)
+		).toMatchObject({
+			message: 'Username "[Redacted name]" is already taken',
+			stack: 'Error: child name: [Redacted name]\n    at signup (childSignup.ts:10)'
+		});
+	});
 });

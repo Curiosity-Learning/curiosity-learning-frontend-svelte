@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	redactSentryBreadcrumb,
 	redactSentryEvent,
 	redactSentryLog,
 	redactSentryTransaction,
@@ -93,5 +94,213 @@ describe('monitoring redaction', () => {
 
 		expect(log.message).toBe('contacted [Redacted email] via https://app.example.com/x');
 		expect(log.attributes).toEqual({ email: '[Redacted]', assetId: 'asset-123' });
+	});
+
+	it('redacts names and usernames that follow a label in free text', () => {
+		expect(redactText('Username "ava_b" is already taken')).toBe(
+			'Username "[Redacted name]" is already taken'
+		);
+		expect(redactText("Could not invite child name 'Ava Brown'")).toBe(
+			'Could not invite child name "[Redacted name]"'
+		);
+		expect(redactText('lookup failed for username=ava_b, clubId=club-1')).toBe(
+			'lookup failed for username=[Redacted name], clubId=club-1'
+		);
+		expect(redactText('profile {"displayName":"Ava B","firstName":"Ava","clubId":"c1"}')).toBe(
+			'profile {"displayName":"[Redacted name]","firstName":"[Redacted name]","clubId":"c1"}'
+		);
+		expect(redactText("guardian's name: Sam")).toBe("guardian's name: [Redacted name]");
+	});
+
+	it('leaves text without a name label alone', () => {
+		const value = 'Username is required; club name must be set; function name listClubs';
+		expect(redactText(value)).toBe(value);
+	});
+
+	it('redacts values stored under name keys but keeps plain name keys', () => {
+		expect(
+			redactUnknown({
+				username: 'ava_b',
+				displayName: 'Ava B',
+				first_name: 'Ava',
+				childName: 'Ava',
+				sdk: { name: 'sentry.javascript.sveltekit' },
+				clubName: 'Robotics'
+			})
+		).toEqual({
+			username: '[Redacted]',
+			displayName: '[Redacted]',
+			first_name: '[Redacted]',
+			childName: '[Redacted]',
+			sdk: { name: 'sentry.javascript.sveltekit' },
+			clubName: 'Robotics'
+		});
+	});
+
+	it('redacts names in error event messages and breadcrumbs', () => {
+		const event = redactSentryEvent({
+			type: undefined,
+			exception: { values: [{ type: 'ConvexError', value: 'username "ava_b" not found' }] },
+			breadcrumbs: [{ category: 'console', message: 'saving displayName: Ava' }]
+		});
+
+		expect(event.exception?.values?.[0]?.value).toBe('username "[Redacted name]" not found');
+		expect(event.breadcrumbs?.[0]?.message).toBe('saving displayName: [Redacted name]');
+	});
+
+	it('redacts element labels in UI breadcrumbs', () => {
+		const breadcrumb = redactSentryBreadcrumb({
+			category: 'ui.click',
+			message: 'div.member-row > button.remove[aria-label="Remove Ava from club"][type="button"]'
+		});
+
+		expect(breadcrumb.message).toBe(
+			'div.member-row > button.remove[aria-label="[Redacted]"][type="button"]'
+		);
+	});
+
+	it('redacts every word of an unquoted labelled name, up to the next delimiter or key', () => {
+		expect(redactText('full name: Ava Brown')).toBe('full name: [Redacted name]');
+		expect(redactText('full name: Ava Brown, club 12')).toBe('full name: [Redacted name], club 12');
+		expect(redactText('username: ava status=500')).toBe('username: [Redacted name] status=500');
+	});
+
+	it('redacts quoted names that contain escaped quotes', () => {
+		expect(redactText('username "Ava \\"Bee\\" Brown" failed')).toBe(
+			'username "[Redacted name]" failed'
+		);
+		expect(redactText('{"firstName":"Ava \\"Bee\\" Brown","id":1}')).toBe(
+			'{"firstName":"[Redacted name]","id":1}'
+		);
+		expect(redactText(String.raw`{\"firstName\":\"Ava Brown\",\"id\":1}`)).not.toMatch(/Ava|Brown/);
+	});
+
+	it('redacts ui breadcrumb labels that contain quotes', () => {
+		const breadcrumb = redactSentryBreadcrumb({
+			category: 'ui.click',
+			message: 'button[aria-label="Remove "Ava" from club"][type="button"]'
+		});
+		expect(breadcrumb.message).toBe('button[aria-label="[Redacted]"][type="button"]');
+	});
+
+	it('does not throw on a breadcrumb with a non-string category', () => {
+		const breadcrumb = { category: 5, message: 'x' } as unknown as Parameters<
+			typeof redactSentryBreadcrumb
+		>[0];
+		expect(() => redactSentryBreadcrumb(breadcrumb)).not.toThrow();
+		expect(() => redactSentryEvent({ type: undefined, breadcrumbs: [breadcrumb] })).not.toThrow();
+	});
+
+	it('scrubs ui labels in breadcrumbs attached to the event directly', () => {
+		const event = redactSentryEvent({
+			type: undefined,
+			breadcrumbs: [{ category: 'ui.click', message: 'a.member[title="Ava Brown"]' }]
+		});
+		expect(event.breadcrumbs?.[0]?.message).toBe('a.member[title="[Redacted]"]');
+	});
+
+	it('tells Sentry not to infer an IP and drops IP headers on server events', () => {
+		const event = redactSentryEvent({
+			type: undefined,
+			sdk: { name: 'sentry.javascript.sveltekit', version: '10.0.0' },
+			request: {
+				url: 'https://example.com/',
+				headers: { 'x-forwarded-for': '203.0.113.7', 'x-real-ip': '203.0.113.7', accept: '*/*' },
+				env: { REMOTE_ADDR: '203.0.113.7' }
+			}
+		});
+		expect(event.sdk?.settings?.infer_ip).toBe('never');
+		expect(event.request?.headers).toEqual({ accept: '*/*' });
+		expect(event.request?.env).toBeUndefined();
+		expect(JSON.stringify(event)).not.toContain('203.0.113.7');
+	});
+
+	it('redacts double-escaped JSON names that contain inner quotes', () => {
+		const inner = JSON.stringify({ firstName: 'Ava "Bee" Brown', id: 1 });
+		const redacted = redactText(JSON.stringify({ payload: inner }));
+		expect(redacted).not.toMatch(/Ava|Bee|Brown/);
+		expect(JSON.parse(JSON.parse(redacted).payload)).toEqual({
+			firstName: '[Redacted name]',
+			id: 1
+		});
+	});
+
+	it('redacts ui breadcrumb labels that contain brackets', () => {
+		expect(
+			redactSentryBreadcrumb({
+				category: 'ui.click',
+				message: 'button[aria-label="Remove ["Ava"] Brown"]'
+			}).message
+		).toBe('button[aria-label="[Redacted]"]');
+		expect(
+			redactSentryBreadcrumb({
+				category: 'ui.click',
+				message: 'div > button[aria-label="Remove ["Ava"] Brown"][type="button"] > span'
+			}).message
+		).toBe('div > button[aria-label="[Redacted]"][type="button"] > span');
+	});
+
+	it('redacts only the one word of an unquoted username', () => {
+		expect(redactText('username=ava is already taken')).toBe(
+			'username=[Redacted name] is already taken'
+		);
+		expect(redactText('user name: ava, retry')).toBe('user name: [Redacted name], retry');
+	});
+
+	it('sets infer_ip never on events that have no sdk block', () => {
+		expect(redactSentryEvent({ type: undefined }).sdk?.settings?.infer_ip).toBe('never');
+	});
+
+	it('reads unterminated quoted names in linear time', () => {
+		const inputs = [
+			`username \\"${'\\'.repeat(50)}`,
+			`{\\"firstName\\":\\"${'\\'.repeat(50)}`,
+			`username "${'\\'.repeat(50)}`,
+			`display name "${'\\"'.repeat(5000)}`
+		];
+		const redacted = inputs.map((input) => {
+			const started = performance.now();
+			const result = redactText(input);
+			expect(performance.now() - started).toBeLessThan(20);
+			return result;
+		});
+		for (const result of redacted) expect(result).toContain('[Redacted name]');
+	});
+
+	it('redacts an unterminated quoted name up to the end of its line', () => {
+		expect(redactText('username "Ava Brown\nnext line')).toBe(
+			'username "[Redacted name]"\nnext line'
+		);
+	});
+
+	it('redacts ui breadcrumb labels that contain " > "', () => {
+		expect(
+			redactSentryBreadcrumb({
+				category: 'ui.click',
+				message: 'button[aria-label="Remove ["Ava"] > Brown"]'
+			}).message
+		).toBe('button[aria-label="[Redacted]"]');
+		expect(
+			redactSentryBreadcrumb({
+				category: 'ui.click',
+				message: 'div.row > button[aria-label="Remove ["Ava"] > Brown"][type="button"] > span.x'
+			}).message
+		).toBe('div.row > button[aria-label="[Redacted]"][type="button"] > span.x');
+	});
+
+	it('redacts the rest of a ui breadcrumb when a label never closes', () => {
+		expect(
+			redactSentryBreadcrumb({ category: 'ui.click', message: 'button[aria-label="Ava Brown' })
+				.message
+		).toBe('button[aria-label="[Redacted]"]');
+	});
+
+	it('redacts a quoted name after a newline or directly after the label', () => {
+		expect(redactText('{"username":\n"ava"}')).toBe('{"username":\n"[Redacted name]"}');
+		expect(redactText('{\\"firstName\\":\n\\"Ava\\"}')).toBe(
+			'{\\"firstName\\":\n\\"[Redacted name]\\"}'
+		);
+		expect(redactText('username"ava" taken')).toBe('username"[Redacted name]" taken');
+		expect(redactText('username "ava" taken')).toBe('username "[Redacted name]" taken');
 	});
 });

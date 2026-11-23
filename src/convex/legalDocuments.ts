@@ -1,6 +1,12 @@
 import { ConvexError, v } from 'convex/values';
-import { mutation, query } from './_generated/server';
-import type { QueryCtx } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
+import type { MutationCtx, QueryCtx } from './_generated/server';
+import {
+	PRIVACY_POLICY_VERSION,
+	TERMS_AND_CONDITIONS_VERSION,
+	privacyPolicyContent,
+	termsAndConditionsContent
+} from './legalContent';
 import { requireIdentity } from './permissions';
 
 const legalDocumentKeyValidator = v.union(
@@ -59,6 +65,90 @@ export const listActive = query({
 	}
 });
 
+const insertActive = async (
+	ctx: Pick<MutationCtx, 'db'>,
+	args: { documentKey: LegalDocumentKey; title: string; content: string; version: string }
+) => {
+	const activeDocuments = await ctx.db
+		.query('legalDocuments')
+		.withIndex('by_document_key_and_active', (q) =>
+			q.eq('documentKey', args.documentKey).eq('isActive', true)
+		)
+		.collect();
+
+	for (const document of activeDocuments) {
+		await ctx.db.patch(document._id, { isActive: false, updatedAt: Date.now() });
+	}
+
+	const id = await ctx.db.insert('legalDocuments', {
+		documentKey: args.documentKey,
+		fullName: legalDocumentNameByKey[args.documentKey],
+		title: args.title,
+		content: args.content,
+		version: args.version,
+		isActive: true,
+		createdAt: Date.now(),
+		updatedAt: Date.now()
+	});
+
+	const current = await ctx.db.get(id);
+	if (!current) {
+		throw new ConvexError('Failed to create legal document');
+	}
+	return current;
+};
+
+// The text kept in legalContent.ts, which is what each deployment should show.
+const bundledLegalDocuments = {
+	privacy_policy: { content: privacyPolicyContent, version: PRIVACY_POLICY_VERSION },
+	terms_and_conditions: {
+		content: termsAndConditionsContent,
+		version: TERMS_AND_CONDITIONS_VERSION
+	}
+} as const;
+
+/**
+ * Makes the text in legalContent.ts the active version of a legal document. Run it once per
+ * deployment after a change ships:
+ *   npx convex run legalDocuments:publishBundled '{"documentKey":"privacy_policy"}'
+ * Running it again is a no-op. Refuses a changed text under an already published version,
+ * because consents record the version a parent agreed to.
+ */
+export const publishBundled = internalMutation({
+	args: {
+		documentKey: v.union(v.literal('privacy_policy'), v.literal('terms_and_conditions'))
+	},
+	handler: async (ctx, args) => {
+		const bundled = bundledLegalDocuments[args.documentKey];
+		// Every row ever published under this version, active or not: a consent names only the
+		// version, so one version must never stand for two texts.
+		const sameVersion = await ctx.db
+			.query('legalDocuments')
+			.withIndex('by_document_key_and_version', (q) =>
+				q.eq('documentKey', args.documentKey).eq('version', bundled.version)
+			)
+			.collect();
+		if (sameVersion.some((document) => document.content !== bundled.content)) {
+			throw new ConvexError(
+				`Version ${bundled.version} is already published with different text; bump the version in legalContent.ts`
+			);
+		}
+
+		const current = await getActiveOrLatestByKey(ctx, args.documentKey);
+		if (current?.isActive && current.version === bundled.version) {
+			return { published: false, version: bundled.version };
+		}
+
+		await insertActive(ctx, {
+			documentKey: args.documentKey,
+			title: legalDocumentNameByKey[args.documentKey],
+			content: bundled.content,
+			version: bundled.version
+		});
+		return { published: true, version: bundled.version, previousVersion: current?.version ?? null };
+	}
+});
+
 export const upsertActive = mutation({
 	args: {
 		documentKey: legalDocumentKeyValidator,
@@ -68,33 +158,6 @@ export const upsertActive = mutation({
 	},
 	handler: async (ctx, args) => {
 		await requireIdentity(ctx);
-
-		const activeDocuments = await ctx.db
-			.query('legalDocuments')
-			.withIndex('by_document_key_and_active', (q) =>
-				q.eq('documentKey', args.documentKey).eq('isActive', true)
-			)
-			.collect();
-
-		for (const document of activeDocuments) {
-			await ctx.db.patch(document._id, { isActive: false, updatedAt: Date.now() });
-		}
-
-		const id = await ctx.db.insert('legalDocuments', {
-			documentKey: args.documentKey,
-			fullName: legalDocumentNameByKey[args.documentKey],
-			title: args.title,
-			content: args.content,
-			version: args.version,
-			isActive: true,
-			createdAt: Date.now(),
-			updatedAt: Date.now()
-		});
-
-		const current = await ctx.db.get(id);
-		if (!current) {
-			throw new ConvexError('Failed to create legal document');
-		}
-		return current;
+		return await insertActive(ctx, args);
 	}
 });
