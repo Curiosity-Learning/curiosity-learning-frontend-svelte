@@ -16,7 +16,8 @@ import {
 	assignReviewsForApplicationIfWindowOpen,
 	pickCurrentReviewSeason,
 	resolveSeasonForManualAssignment,
-	SCORE_DISCREPANCY_SPREAD
+	SCORE_DISCREPANCY_SPREAD,
+	targetReviewersForManualAssignment
 } from './reviewAssignmentModel';
 import { getAuthUserEmail } from './authEmail';
 
@@ -799,7 +800,8 @@ export const adminAssignReviewer = mutation({
 			applicationId: args.applicationId,
 			reviewerProfileId: args.profileId,
 			seasonId: season._id,
-			assignedAt: Date.now()
+			assignedAt: Date.now(),
+			targetReviewers: await targetReviewersForManualAssignment(ctx, args.applicationId, season._id)
 		});
 		return null;
 	}

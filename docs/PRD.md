@@ -1002,7 +1002,7 @@ Authorization for these buttons is role-permission based (`chat_roles` \+ permis
 
 **Review process:**
 
-- System auto-assigns to multiple Guides (\~10 reviews per Guide per season).  
+- System auto-assigns each application to 5 Guides (\~10 reviews per Guide per season). Both numbers are admin-configurable on the admin portal's Review settings page.  
 - Reviewers score alignment with Guiding Principles and safety.  
 - Discrepancy flagging: wide score variance → Core Team intervention.
 

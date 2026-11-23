@@ -137,7 +137,9 @@ describe('assignReviewsForOpenWindow', () => {
 		expect(result.seasonId).toBeNull();
 		expect(result.assignmentsCreated).toBe(0);
 
-		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		const assignments = await t.run((ctx) =>
+			ctx.db.query('applicationReviewAssignments').collect()
+		);
 		expect(assignments).toHaveLength(0);
 	});
 
@@ -169,7 +171,9 @@ describe('assignReviewsForOpenWindow', () => {
 		await seedGuideClub(t, applicantProfileId, guideRoleId);
 
 		const seasonId = await seedSeason(t);
-		const applicationId = await seedApplication(t, applicantProfileId, { reviewSeasonId: seasonId });
+		const applicationId = await seedApplication(t, applicantProfileId, {
+			reviewSeasonId: seasonId
+		});
 
 		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
 		expect(result.seasonId).toBe(seasonId);
@@ -222,7 +226,7 @@ describe('assignReviewsForOpenWindow', () => {
 		const t = convexTest(schema, modules);
 		const { guideRoleId } = await seedRoles(t);
 
-		// Two guides only: with reviewersPerApplication default 3, only 2 can ever be assigned per
+		// Two guides only: whatever reviewersPerApplication is, only 2 can ever be assigned per
 		// application since there are only 2 eligible guides.
 		const guideAProfileId = await seedProfile(t, 'guide-load-a');
 		const guideBProfileId = await seedProfile(t, 'guide-load-b');
@@ -241,15 +245,26 @@ describe('assignReviewsForOpenWindow', () => {
 		const applicant2 = await seedProfile(t, 'applicant-load-2');
 		const applicant3 = await seedProfile(t, 'applicant-load-3');
 		const seasonId = await seedSeason(t);
-		await seedApplication(t, applicant1, { createdAt: Date.now() - 3000, reviewSeasonId: seasonId });
-		await seedApplication(t, applicant2, { createdAt: Date.now() - 2000, reviewSeasonId: seasonId });
-		await seedApplication(t, applicant3, { createdAt: Date.now() - 1000, reviewSeasonId: seasonId });
+		await seedApplication(t, applicant1, {
+			createdAt: Date.now() - 3000,
+			reviewSeasonId: seasonId
+		});
+		await seedApplication(t, applicant2, {
+			createdAt: Date.now() - 2000,
+			reviewSeasonId: seasonId
+		});
+		await seedApplication(t, applicant3, {
+			createdAt: Date.now() - 1000,
+			reviewSeasonId: seasonId
+		});
 
 		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
 		// Only 2 applications can get an assignment: 2 guides x cap of 1 review each = 2 total slots.
 		expect(result.assignmentsCreated).toBe(2);
 
-		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		const assignments = await t.run((ctx) =>
+			ctx.db.query('applicationReviewAssignments').collect()
+		);
 		expect(assignments).toHaveLength(2);
 		const reviewerCounts = new Map<string, number>();
 		for (const assignment of assignments) {
@@ -276,10 +291,15 @@ describe('assignReviewsForOpenWindow', () => {
 		await seedApplication(t, applicantProfileId, { reviewSeasonId: seasonId });
 
 		await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
-		const secondRun = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		const secondRun = await t.mutation(
+			internal.reviewAssignmentModel.assignReviewsForOpenWindow,
+			{}
+		);
 		expect(secondRun.assignmentsCreated).toBe(0);
 
-		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		const assignments = await t.run((ctx) =>
+			ctx.db.query('applicationReviewAssignments').collect()
+		);
 		expect(assignments).toHaveLength(1);
 	});
 });
@@ -371,7 +391,9 @@ describe('submitApplication season linking (CL-778)', () => {
 		// Neither on submit nor in the cron: Winter's open window is not this application's season.
 		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
 		expect(result.seasonIds).toEqual([winterId]);
-		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		const assignments = await t.run((ctx) =>
+			ctx.db.query('applicationReviewAssignments').collect()
+		);
 		expect(assignments).toHaveLength(0);
 
 		await t.finishAllScheduledFunctions(() => Promise.resolve());
@@ -459,7 +481,9 @@ describe('season-scoped assignment (CL-778)', () => {
 		expect(result.seasonId).toBe(openSeasonId);
 		expect(result.applicationsProcessed).toBe(1);
 
-		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		const assignments = await t.run((ctx) =>
+			ctx.db.query('applicationReviewAssignments').collect()
+		);
 		expect(assignments.map((a) => a.applicationId)).toEqual([inSeason]);
 		expect(assignments[0].seasonId).toBe(openSeasonId);
 		expect(assignments.some((a) => a.applicationId === nextSeason)).toBe(false);
@@ -514,7 +538,9 @@ describe('season-scoped assignment (CL-778)', () => {
 		const application = await t.run((ctx) => ctx.db.get(applicationId));
 		expect(application?.reviewSeasonId).toBe(openSeasonId);
 		expect(application?.status).toBe('pending');
-		const assignments = await t.run((ctx) => ctx.db.query('applicationReviewAssignments').collect());
+		const assignments = await t.run((ctx) =>
+			ctx.db.query('applicationReviewAssignments').collect()
+		);
 		expect(assignments).toHaveLength(1);
 		const reviews = await t.run((ctx) => ctx.db.query('applicationReviews').collect());
 		expect(reviews).toHaveLength(1);
@@ -968,7 +994,8 @@ describe('adminUpdateReviewSettings', () => {
 		const settings = await t
 			.withIdentity({ subject: 'admin-user' })
 			.query(api.reviewAssignmentModel.adminGetReviewSettings, {});
-		expect(settings).toEqual({ reviewersPerApplication: 2, maxReviewsPerGuidePerSeason: 5 });
+		expect(settings).toMatchObject({ reviewersPerApplication: 2, maxReviewsPerGuidePerSeason: 5 });
+		expect(settings.updatedAt).toEqual(expect.any(Number));
 
 		// Sanity check the algorithm actually reads it back: 3 eligible guides but capped at 2 per
 		// application by the updated reviewersPerApplication.
@@ -982,5 +1009,190 @@ describe('adminUpdateReviewSettings', () => {
 
 		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
 		expect(result.assignmentsCreated).toBe(2);
+	});
+});
+
+// CL-795: 5 reviewers by default, an admin settings screen, and applications already being
+// reviewed keep the target they were first assigned with.
+describe('review settings (CL-795)', () => {
+	const seedGuides = async (
+		t: ReturnType<typeof convexTest>,
+		guideRoleId: Id<'clubRoles'>,
+		n: number
+	) => {
+		const ids: Id<'profiles'>[] = [];
+		for (let i = 0; i < n; i++) {
+			const profileId = await seedProfile(t, `cl795-guide-${i}`);
+			await seedGuideClub(t, profileId, guideRoleId);
+			ids.push(profileId);
+		}
+		return ids;
+	};
+
+	it('assigns 5 reviewers by default and records that target on each row', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		await seedGuides(t, guideRoleId, 7);
+		const seasonId = await seedSeason(t);
+		const applicationId = await seedApplication(t, await seedProfile(t, 'cl795-applicant'), {
+			reviewSeasonId: seasonId
+		});
+
+		const result = await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		expect(result.assignmentsCreated).toBe(5);
+		const rows = await t.run((ctx) =>
+			ctx.db
+				.query('applicationReviewAssignments')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+				.collect()
+		);
+		expect(rows.map((row) => row.targetReviewers)).toEqual([5, 5, 5, 5, 5]);
+	});
+
+	it('does not top up applications assigned before CL-795 beyond the old 3', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const guides = await seedGuides(t, guideRoleId, 8);
+		const seasonId = await seedSeason(t);
+		const fullyAssigned = await seedApplication(t, await seedProfile(t, 'cl795-old-full'), {
+			reviewSeasonId: seasonId
+		});
+		const partlyAssigned = await seedApplication(t, await seedProfile(t, 'cl795-old-part'), {
+			reviewSeasonId: seasonId
+		});
+		// Rows the old code wrote: no targetReviewers.
+		await t.run(async (ctx) => {
+			for (const reviewerProfileId of guides.slice(0, 3)) {
+				await ctx.db.insert('applicationReviewAssignments', {
+					applicationId: fullyAssigned,
+					reviewerProfileId,
+					seasonId,
+					assignedAt: Date.now()
+				});
+			}
+			await ctx.db.insert('applicationReviewAssignments', {
+				applicationId: partlyAssigned,
+				reviewerProfileId: guides[3],
+				seasonId,
+				assignedAt: Date.now()
+			});
+		});
+
+		await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		const countFor = (applicationId: Id<'clubApplications'>) =>
+			t.run(
+				async (ctx) =>
+					(
+						await ctx.db
+							.query('applicationReviewAssignments')
+							.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+							.collect()
+					).length
+			);
+		expect(await countFor(fullyAssigned)).toBe(3);
+		// Still topped up (e.g. too few Guides on day one), but only to the old target.
+		expect(await countFor(partlyAssigned)).toBe(3);
+	});
+
+	it('keeps an application on its first target when the setting changes; new ones use the new setting', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		await seedGuides(t, guideRoleId, 12);
+		const asAdmin = await seedAdmin(t);
+		await asAdmin.mutation(api.reviewAssignmentModel.adminUpdateReviewSettings, {
+			reviewersPerApplication: 2,
+			maxReviewsPerGuidePerSeason: 10
+		});
+		const seasonId = await seedSeason(t);
+		const first = await seedApplication(t, await seedProfile(t, 'cl795-first'), {
+			reviewSeasonId: seasonId
+		});
+		await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+
+		await asAdmin.mutation(api.reviewAssignmentModel.adminUpdateReviewSettings, {
+			reviewersPerApplication: 4,
+			maxReviewsPerGuidePerSeason: 10
+		});
+		const second = await seedApplication(t, await seedProfile(t, 'cl795-second'), {
+			reviewSeasonId: seasonId
+		});
+		await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+
+		const countFor = (applicationId: Id<'clubApplications'>) =>
+			t.run(
+				async (ctx) =>
+					(
+						await ctx.db
+							.query('applicationReviewAssignments')
+							.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+							.collect()
+					).length
+			);
+		expect(await countFor(first)).toBe(2);
+		expect(await countFor(second)).toBe(4);
+	});
+
+	it('a reviewer an admin attaches first does not cap the application at the old 3', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		const guides = await seedGuides(t, guideRoleId, 7);
+		const asAdmin = await seedAdmin(t);
+		const seasonId = await seedSeason(t);
+		const applicationId = await seedApplication(t, await seedProfile(t, 'cl795-manual'), {
+			reviewSeasonId: seasonId
+		});
+		await asAdmin.mutation(api.admin.adminAssignReviewer, {
+			applicationId,
+			profileId: guides[0]
+		});
+
+		await t.mutation(internal.reviewAssignmentModel.assignReviewsForOpenWindow, {});
+		const rows = await t.run((ctx) =>
+			ctx.db
+				.query('applicationReviewAssignments')
+				.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+				.collect()
+		);
+		expect(rows).toHaveLength(5);
+	});
+
+	it('returns defaults, limits and the Guide pool, and rejects out-of-range values', async () => {
+		const t = convexTest(schema, modules);
+		const { guideRoleId } = await seedRoles(t);
+		await seedGuides(t, guideRoleId, 2);
+		const asAdmin = await seedAdmin(t);
+
+		const initial = await asAdmin.query(api.reviewAssignmentModel.adminGetReviewSettings, {});
+		expect(initial).toEqual({
+			reviewersPerApplication: 5,
+			maxReviewsPerGuidePerSeason: 10,
+			updatedAt: null,
+			defaults: { reviewersPerApplication: 5, maxReviewsPerGuidePerSeason: 10 },
+			limits: {
+				reviewersPerApplication: { min: 1, max: 20 },
+				maxReviewsPerGuidePerSeason: { min: 1, max: 100 }
+			},
+			eligibleGuideCount: 2
+		});
+
+		for (const bad of [
+			{ reviewersPerApplication: 0, maxReviewsPerGuidePerSeason: 10 },
+			{ reviewersPerApplication: 21, maxReviewsPerGuidePerSeason: 10 },
+			{ reviewersPerApplication: 2.5, maxReviewsPerGuidePerSeason: 10 },
+			{ reviewersPerApplication: 5, maxReviewsPerGuidePerSeason: 0 },
+			{ reviewersPerApplication: 5, maxReviewsPerGuidePerSeason: 101 }
+		]) {
+			await expect(
+				asAdmin.mutation(api.reviewAssignmentModel.adminUpdateReviewSettings, bad)
+			).rejects.toThrow('must be a whole number');
+		}
+		const unchanged = await asAdmin.query(api.reviewAssignmentModel.adminGetReviewSettings, {});
+		expect(unchanged.updatedAt).toBeNull();
+
+		await expect(
+			t
+				.withIdentity({ subject: 'nobody' })
+				.query(api.reviewAssignmentModel.adminGetReviewSettings, {})
+		).rejects.toThrow();
 	});
 });

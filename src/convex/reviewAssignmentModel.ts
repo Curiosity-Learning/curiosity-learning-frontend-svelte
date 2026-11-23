@@ -39,8 +39,20 @@ type Ctx = QueryCtx | MutationCtx;
 // until at least one Guide exists — this is an accepted operational reality, not a bug, and dev
 // data always has guides so it won't come up there.
 
-const DEFAULT_REVIEWERS_PER_APPLICATION = 3;
-const DEFAULT_MAX_REVIEWS_PER_GUIDE_PER_SEASON = 10;
+// CL-795 (Ron's target process, 2026-09-03): 5 Guides review each application (was 3).
+export const DEFAULT_REVIEWERS_PER_APPLICATION = 5;
+export const DEFAULT_MAX_REVIEWS_PER_GUIDE_PER_SEASON = 10;
+// The target before CL-795. Applications that already had reviewers this season when CL-795
+// shipped (their assignment rows carry no `targetReviewers`) keep being topped up to this, not
+// to the new setting, so nobody gets extra reviewers in the middle of a scoring window.
+const LEGACY_REVIEWERS_PER_APPLICATION = 3;
+
+// Bounds for the admin form (CL-795). Wide enough for any real season, narrow enough to catch a
+// typo like 50 reviewers per application.
+export const REVIEW_SETTINGS_LIMITS = {
+	reviewersPerApplication: { min: 1, max: 20 },
+	maxReviewsPerGuidePerSeason: { min: 1, max: 100 }
+} as const;
 
 export const getReviewSettings = async (ctx: Ctx) => {
 	const settings = await ctx.db.query('reviewSettings').first();
@@ -51,17 +63,56 @@ export const getReviewSettings = async (ctx: Ctx) => {
 	};
 };
 
+const limitValidator = v.object({ min: v.number(), max: v.number() });
+
+// CL-795: everything the admin portal's Review settings page shows. `updatedAt` is null while the
+// defaults apply (no settings row saved yet). `eligibleGuideCount` is the reviewer pool the
+// assignment job would use right now, so admins can see whether the numbers add up.
 export const adminGetReviewSettings = query({
 	args: {},
 	returns: v.object({
 		reviewersPerApplication: v.number(),
-		maxReviewsPerGuidePerSeason: v.number()
+		maxReviewsPerGuidePerSeason: v.number(),
+		updatedAt: v.union(v.number(), v.null()),
+		defaults: v.object({
+			reviewersPerApplication: v.number(),
+			maxReviewsPerGuidePerSeason: v.number()
+		}),
+		limits: v.object({
+			reviewersPerApplication: limitValidator,
+			maxReviewsPerGuidePerSeason: limitValidator
+		}),
+		eligibleGuideCount: v.number()
 	}),
 	handler: async (ctx) => {
 		await requireGlobalAdmin(ctx);
-		return await getReviewSettings(ctx);
+		const row = await ctx.db.query('reviewSettings').first();
+		const eligibleGuideProfileIds = await listEligibleGuideProfileIds(ctx);
+		return {
+			...(await getReviewSettings(ctx)),
+			updatedAt: row?.updatedAt ?? null,
+			defaults: {
+				reviewersPerApplication: DEFAULT_REVIEWERS_PER_APPLICATION,
+				maxReviewsPerGuidePerSeason: DEFAULT_MAX_REVIEWS_PER_GUIDE_PER_SEASON
+			},
+			limits: {
+				reviewersPerApplication: { ...REVIEW_SETTINGS_LIMITS.reviewersPerApplication },
+				maxReviewsPerGuidePerSeason: { ...REVIEW_SETTINGS_LIMITS.maxReviewsPerGuidePerSeason }
+			},
+			eligibleGuideCount: eligibleGuideProfileIds.length
+		};
 	}
 });
+
+const assertWholeNumberInRange = (
+	value: number,
+	label: string,
+	{ min, max }: { min: number; max: number }
+) => {
+	if (!Number.isInteger(value) || value < min || value > max) {
+		throw new ConvexError(`${label} must be a whole number from ${min} to ${max}`);
+	}
+};
 
 export const adminUpdateReviewSettings = mutation({
 	args: {
@@ -71,15 +122,16 @@ export const adminUpdateReviewSettings = mutation({
 	returns: v.null(),
 	handler: async (ctx, args) => {
 		await requireGlobalAdmin(ctx);
-		if (!Number.isInteger(args.reviewersPerApplication) || args.reviewersPerApplication < 1) {
-			throw new ConvexError('reviewersPerApplication must be a positive integer');
-		}
-		if (
-			!Number.isInteger(args.maxReviewsPerGuidePerSeason) ||
-			args.maxReviewsPerGuidePerSeason < 1
-		) {
-			throw new ConvexError('maxReviewsPerGuidePerSeason must be a positive integer');
-		}
+		assertWholeNumberInRange(
+			args.reviewersPerApplication,
+			'Reviewers per application',
+			REVIEW_SETTINGS_LIMITS.reviewersPerApplication
+		);
+		assertWholeNumberInRange(
+			args.maxReviewsPerGuidePerSeason,
+			'Reviews per Guide per season',
+			REVIEW_SETTINGS_LIMITS.maxReviewsPerGuidePerSeason
+		);
 		const existing = await ctx.db.query('reviewSettings').first();
 		const now = Date.now();
 		if (existing) {
@@ -202,7 +254,7 @@ export const getReviewWindowState = query({
 // pool is computed once per assignment run instead of once per pending application — previously
 // this also did a non-indexed `.filter()` over the entire clubMembers table (convex_rules.txt);
 // it now uses the `by_role` index.
-const listEligibleGuideProfileIds = async (ctx: MutationCtx): Promise<Id<'profiles'>[]> => {
+const listEligibleGuideProfileIds = async (ctx: Ctx): Promise<Id<'profiles'>[]> => {
 	const guideRole = await ctx.db
 		.query('clubRoles')
 		.withIndex('by_key', (q) => q.eq('key', 'guide'))
@@ -270,11 +322,46 @@ const hasReviewHistoryOutsideSeason = async (
 	return reviews.some((review) => !assignedThisSeason.has(review.reviewerProfileId));
 };
 
-// Assigns one pending application to as many additional eligible Guides as needed to reach
-// `reviewersPerApplication`, choosing the eligible Guide(s) with the fewest assignments this
-// season (ties broken by profile id), skipping anyone already at the per-guide cap. Safe to call
-// repeatedly / concurrently for the same application: existing assignment rows are respected via
-// the unique (applicationId, reviewerProfileId) index, and it only ever tops up to the target.
+// CL-795: how many reviewers an application is topped up to in `seasonId`. An application with
+// no assignments this season yet gets the current setting. One that already has some keeps the
+// target its first assignment was made with, so raising (or lowering) the setting never changes
+// applications that are already being reviewed. Rows with no recorded target (made by the code
+// before CL-795) count as the old default of 3.
+const resolveTargetReviewers = (
+	seasonAssignments: Doc<'applicationReviewAssignments'>[],
+	reviewersPerApplication: number
+) => {
+	if (seasonAssignments.length === 0) return reviewersPerApplication;
+	const recorded = seasonAssignments
+		.map((row) => row.targetReviewers)
+		.filter((target): target is number => target !== undefined);
+	return recorded.length > 0 ? Math.max(...recorded) : LEGACY_REVIEWERS_PER_APPLICATION;
+};
+
+// CL-795: the target to record on a MANUAL assignment row (admin.adminAssignReviewer), so a
+// reviewer an admin attaches before the job runs does not make the job treat the application as
+// a pre-CL-795 one (which would cap it at 3).
+export const targetReviewersForManualAssignment = async (
+	ctx: MutationCtx,
+	applicationId: Id<'clubApplications'>,
+	seasonId: Id<'seasons'>
+) => {
+	const seasonAssignments = (
+		await ctx.db
+			.query('applicationReviewAssignments')
+			.withIndex('by_application_id', (q) => q.eq('applicationId', applicationId))
+			.collect()
+	).filter((row) => row.seasonId === seasonId);
+	const { reviewersPerApplication } = await getReviewSettings(ctx);
+	return resolveTargetReviewers(seasonAssignments, reviewersPerApplication);
+};
+
+// Assigns one pending application to as many additional eligible Guides as needed to reach its
+// target (resolveTargetReviewers, CL-795), choosing the eligible Guide(s) with the fewest
+// assignments this season (ties broken by profile id), skipping anyone already at the per-guide
+// cap. Safe to call repeatedly / concurrently for the same application: existing assignment rows
+// are respected via the unique (applicationId, reviewerProfileId) index, and it only ever tops up
+// to the target.
 const assignReviewersForApplication = async (
 	ctx: MutationCtx,
 	application: Doc<'clubApplications'>,
@@ -291,7 +378,11 @@ const assignReviewersForApplication = async (
 		return 0;
 	}
 	const alreadyAssigned = new Set(existingAssignments.map((row) => row.reviewerProfileId));
-	const needed = reviewersPerApplication - alreadyAssigned.size;
+	const targetReviewers = resolveTargetReviewers(
+		existingAssignments.filter((row) => row.seasonId === seasonId),
+		reviewersPerApplication
+	);
+	const needed = targetReviewers - alreadyAssigned.size;
 	if (needed <= 0) return 0;
 
 	const candidates = eligibleGuideProfileIds.filter(
@@ -314,7 +405,8 @@ const assignReviewersForApplication = async (
 			applicationId: application._id,
 			reviewerProfileId: profileId,
 			seasonId,
-			assignedAt: now
+			assignedAt: now,
+			targetReviewers
 		});
 	}
 	return chosen.length;
