@@ -21,15 +21,23 @@ export const createCspHandle =
 	(runtimeCsp: ReturnType<typeof resolveRuntimeCsp>): Handle =>
 	async ({ event, resolve }) => {
 		const response = await resolve(event);
+		const sensitive = isCspReportingSensitiveUrl(event.url);
+		if (sensitive) {
+			// Every response, redirects included: the page a redirect lands on must not see the
+			// token in document.referrer either.
+			try {
+				response.headers.set('referrer-policy', 'strict-origin');
+			} catch {
+				// Immutable headers (e.g. Response.redirect): leave the response as it is.
+			}
+		}
 		const header = response.headers.get(CSP_REPORT_ONLY_HEADER);
 		if (!header) return response;
-		const sensitive = isCspReportingSensitiveUrl(event.url);
 		const csp = sensitive ? { ...runtimeCsp, reportUri: null } : runtimeCsp;
 		try {
 			response.headers.set(CSP_REPORT_ONLY_HEADER, extendCspHeader(header, csp));
 			if (sensitive) {
 				response.headers.delete('reporting-endpoints');
-				response.headers.set('referrer-policy', 'strict-origin');
 			} else if (csp.reportUri) {
 				response.headers.set('reporting-endpoints', `${CSP_REPORTING_GROUP}="${csp.reportUri}"`);
 			}

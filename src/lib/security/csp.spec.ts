@@ -96,7 +96,9 @@ describe('buildSentryCspReportUri', () => {
 			`https://abc123@${host}/4%3B2`,
 			`https://abc123@${host}/`, // no project
 			`https://abc123@${host}/42?x=1`,
-			`https://abc123@${host}/42#frag`
+			`https://abc123@${host}/42#frag`,
+			`https://abc123@${host}/42?`, // empty query, which URL parsing would drop
+			`https://abc123@${host}/42#` // empty fragment
 		]) {
 			expect(buildSentryCspReportUri(dsn, 'x'), dsn).toBeNull();
 		}
@@ -255,6 +257,27 @@ describe('createCspHandle', () => {
 		expect(response.headers.get('reporting-endpoints')).toMatch(/^csp-endpoint="https:\/\//);
 		expect(response.headers.get('content-security-policy')).toBeNull();
 		expect(await response.text()).toBe('<html></html>');
+	});
+
+	for (const path of ['/verify-email/secret123', '/new-club/join/ABC123', '/join/ABC123']) {
+		it(`sets Referrer-Policy on redirects from ${path}`, async () => {
+			const redirect = new Response(null, {
+				status: 307,
+				headers: { location: `/auth/sign-in?next=${encodeURIComponent(path)}` }
+			});
+			const response = await createCspHandle(runtime)({
+				event: eventAt(path),
+				resolve: async () => redirect
+			});
+			expect(response.status).toBe(307);
+			expect(response.headers.get('referrer-policy')).toBe('strict-origin');
+			expect(response.headers.get('reporting-endpoints')).toBeNull();
+		});
+	}
+
+	it('leaves Referrer-Policy alone on ordinary pages', async () => {
+		const response = await createCspHandle(runtime)({ event, resolve: async () => page() });
+		expect(response.headers.get('referrer-policy')).toBeNull();
 	});
 
 	it('passes through responses without a CSP header', async () => {

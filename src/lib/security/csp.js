@@ -93,7 +93,8 @@ const SENTRY_PROJECT_ID = /^\d+$/;
  */
 export const buildSentryCspReportUri = (dsn, environment) => {
 	const trimmed = dsn?.trim();
-	if (!trimmed) return null;
+	// `new URL` drops an empty trailing `?` or `#`, so check the raw string too.
+	if (!trimmed || /[?#]/.test(trimmed)) return null;
 	try {
 		const url = new URL(trimmed);
 		const projectId = url.pathname.split('/').filter(Boolean).pop() ?? '';
