@@ -214,4 +214,40 @@ describe('monitoring redaction', () => {
 		expect(event.request?.env).toBeUndefined();
 		expect(JSON.stringify(event)).not.toContain('203.0.113.7');
 	});
+
+	it('redacts double-escaped JSON names that contain inner quotes', () => {
+		const inner = JSON.stringify({ firstName: 'Ava "Bee" Brown', id: 1 });
+		const redacted = redactText(JSON.stringify({ payload: inner }));
+		expect(redacted).not.toMatch(/Ava|Bee|Brown/);
+		expect(JSON.parse(JSON.parse(redacted).payload)).toEqual({
+			firstName: '[Redacted name]',
+			id: 1
+		});
+	});
+
+	it('redacts ui breadcrumb labels that contain brackets', () => {
+		expect(
+			redactSentryBreadcrumb({
+				category: 'ui.click',
+				message: 'button[aria-label="Remove ["Ava"] Brown"]'
+			}).message
+		).toBe('button[aria-label="[Redacted]"]');
+		expect(
+			redactSentryBreadcrumb({
+				category: 'ui.click',
+				message: 'div > button[aria-label="Remove ["Ava"] Brown"][type="button"] > span'
+			}).message
+		).toBe('div > button[aria-label="[Redacted]"][type="button"] > span');
+	});
+
+	it('redacts only the one word of an unquoted username', () => {
+		expect(redactText('username=ava is already taken')).toBe(
+			'username=[Redacted name] is already taken'
+		);
+		expect(redactText('user name: ava, retry')).toBe('user name: [Redacted name], retry');
+	});
+
+	it('sets infer_ip never on events that have no sdk block', () => {
+		expect(redactSentryEvent({ type: undefined }).sdk?.settings?.infer_ip).toBe('never');
+	});
 });

@@ -188,7 +188,7 @@ Notes:
 
 - Sentry default PII collection, tracing, replay, and Sentry logs are disabled.
 - Names and usernames are redacted from Sentry events, breadcrumbs and Convex reports by key and by label; error messages must use ids, not names. What Sentry receives is listed in `docs/monitoring.md`.
-- No visitor IP reaches Sentry: the browser SDK sends `infer_ip: never`, and `redaction.ts` sets it on SvelteKit server events (whose SDK does not) and strips IP headers and `request.env`.
+- Sentry stores no visitor IP with events: Relay is told `infer_ip: never` (by the browser SDK itself, and by `redaction.ts` on every SvelteKit server event, whose SDK does not set it), and `redaction.ts` strips IP headers and `request.env`. Browser requests still reach Sentry's EU ingest endpoint over HTTPS from the visitor's address; that connection address is not stored in the event.
 - Monitoring redacts cookies, authorization headers, request bodies, query strings, emails, consent/reset/email-confirmation (`/verify-email/{token}`) tokens, sign-in link tokens (`#t=`, `?token=`), and signed URL parameters.
 - Entity IDs, operation names, provider names, statuses, and failure codes are allowed when needed to debug an operational failure.
 - `MONITORING_REPORT_SECRET`, `RESEND_WEBHOOK_SECRET`, and `SENTRY_AUTH_TOKEN` must remain outside the repository.

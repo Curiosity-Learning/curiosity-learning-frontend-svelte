@@ -22,9 +22,9 @@ Sent:
 
 Never sent (fixed in `sentry-config.ts` and `redaction.ts`, not overridable by env):
 
-- No IP address. `sendDefaultPii: false` keeps the SDKs from adding one, and the IP setting differs by runtime:
+- No IP address stored with events. Requests to Sentry's EU ingest endpoint still arrive over HTTPS from the sender's address (the visitor's browser, or our servers), but every event tells Sentry's Relay `infer_ip: "never"`, so it neither stores nor infers an IP into the event, and the events carry no IP of their own. `sendDefaultPii: false` keeps the SDKs from adding one, and the setting differs by runtime:
   - Browser: the SDK itself sends `sdk.settings.infer_ip: "never"`.
-  - SvelteKit server: the SDK sends no `infer_ip` setting and no `user` field, so `redaction.ts` sets `sdk.settings.infer_ip: "never"` on every event and transaction. It also deletes `request.env` and the headers that carry the visitor's IP (`x-forwarded-for`, `x-real-ip`, `x-vercel-forwarded-for`, `x-vercel-ip-*`, `cf-connecting-ip`, `true-client-ip`, `forwarded`).
+  - SvelteKit server: the SDK sends no `infer_ip` setting and no `user` field, so `redaction.ts` sets `sdk.settings.infer_ip: "never"` on every event and transaction, creating the `sdk` block if an event has none. It also deletes `request.env` and the headers that carry the visitor's IP (`x-forwarded-for`, `x-real-ip`, `x-vercel-forwarded-for`, `x-vercel-ip-*`, `cf-connecting-ip`, `true-client-ip`, `forwarded`).
   - Convex: reports go through `/api/internal/monitoring/report` and are sent by the SvelteKit server SDK, so the server rules apply; the sender's address is Convex's, not a visitor's.
 - No user, cookies or request headers with credentials. `event.user` is deleted even if something sets it; the app never calls `setUser`.
 - No session replay (both replay sample rates are 0) and no device or advertising identifiers. The web SDK has none; the native SDK (CL-811) must keep it that way.

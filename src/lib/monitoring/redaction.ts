@@ -19,30 +19,47 @@ const NAME_KEY_PATTERN =
 // The same labels in free text: `username: ava`, `display name "Ava B"`, `{"firstName":"Ava"}`.
 // Names cannot be recognised without a label, so code must put ids, not names, in error
 // messages (docs/monitoring.md); this is the safety net for when it does not.
-const NAME_LABEL =
-	"(?:user[ _-]?name|display[ _-]?name|first[ _-]?name|last[ _-]?name|full[ _-]?name|given[ _-]?name|family[ _-]?name|nick[ _-]?name|preferred[ _-]?name|(?:child|parent|guardian)(?:'s)?[ _-]?name)";
+// `username` is kept apart from the other labels: a username has no spaces, so an unquoted one
+// is a single word and the words after it (`username=ava is already taken`) stay.
+const USERNAME_LABEL = 'user[ _-]?name';
+const PERSON_NAME_LABEL =
+	"(?:display[ _-]?name|first[ _-]?name|last[ _-]?name|full[ _-]?name|given[ _-]?name|family[ _-]?name|nick[ _-]?name|preferred[ _-]?name|(?:child|parent|guardian)(?:'s)?[ _-]?name)";
+const NAME_LABEL = `(?:${USERNAME_LABEL}|${PERSON_NAME_LABEL})`;
 // After the label: an optional closing quote of a JSON key (`"firstName"` or, inside a string
 // that holds JSON, `\"firstName\"`), then `:` or `=`.
 const LABEL_TAIL = '(?:\\\\?")?\\s*[:=]?\\s*';
-// A quoted value. Escaped quotes inside it (`"Ava \"A\" B"`) are part of the value, and a value
-// quoted with `\"` (JSON inside a string) ends at the next `\"`.
-const QUOTED_VALUE =
-	'(?:\\\\"(?:(?!\\\\")[^\\n])*\\\\"|"(?:[^"\\\\\\n]|\\\\.)*"|\'(?:[^\'\\\\\\n]|\\\\.)*\'|“[^”\\n]*”)';
+// A quoted value. Escaped quotes inside it (`"Ava \"A\" B"`) are part of the value. A value
+// quoted with `\"` (JSON inside a string) ends at the next `\"` that is not part of a
+// double-escaped inner quote (`\\\"`) or an escaped backslash (`\\`).
+const QUOTED_VALUE = [
+	String.raw`\\"(?:\\\\\\"|\\\\|[^\\\n]|\\(?!"))*\\"`,
+	String.raw`"(?:[^"\\\n]|\\.)*"`,
+	String.raw`'(?:[^'\\\n]|\\.)*'`,
+	'“[^”\\n]*”'
+].join('|');
 const LABELLED_QUOTED_NAME_PATTERN = new RegExp(
-	`(\\b${NAME_LABEL}${LABEL_TAIL})${QUOTED_VALUE}`,
+	`(\\b${NAME_LABEL}${LABEL_TAIL})(?:${QUOTED_VALUE})`,
 	'gi'
 );
-// An unquoted value runs to the next delimiter, so `full name: Ava Brown` loses the surname
-// too. It also stops before a word that starts another `key:` / `key=` pair.
+// An unquoted person's name runs to the next delimiter, so `full name: Ava Brown` loses the
+// surname too. It also stops before a word that starts another `key:` / `key=` pair. An
+// unquoted username is one word.
 const BARE_WORD = '[^\\s,;|)}\\]]+';
+const NOT_QUOTED = `(?!["'“\\[\\\\])`;
 const LABELLED_BARE_NAME_PATTERN = new RegExp(
-	`(\\b${NAME_LABEL}\\s*[:=]\\s*)(?!["'“\\[\\\\])${BARE_WORD}(?:[ \\t]+(?!\\S*[:=])${BARE_WORD})*`,
+	`(\\b${PERSON_NAME_LABEL}\\s*[:=]\\s*)${NOT_QUOTED}${BARE_WORD}(?:[ \\t]+(?!\\S*[:=])${BARE_WORD})*`,
+	'gi'
+);
+const LABELLED_BARE_USERNAME_PATTERN = new RegExp(
+	`(\\b${USERNAME_LABEL}\\s*[:=]\\s*)${NOT_QUOTED}${BARE_WORD}`,
 	'gi'
 );
 // Element attributes Sentry copies into ui.click / ui.input breadcrumbs, whose values can be
 // a label such as "Remove Ava from club". Sentry does not escape quotes in the value
-// (`[aria-label="Remove "Ava""]`), so the value runs to the quote that is followed by `]`.
-const ELEMENT_TEXT_ATTRIBUTE_PATTERN = /(\[(?:aria-label|title|alt)=)(["'])[\s\S]*?\2(\])/gi;
+// (`[aria-label="Remove ["Ava"] Brown"]`), so the value runs to the quote and `]` that end
+// the attribute: the ones followed by the next attribute, a ` > ` step or the end.
+const ELEMENT_TEXT_ATTRIBUTE_PATTERN =
+	/(\[(?:aria-label|title|alt)=)(["'])[\s\S]*?\2(\])(?=\[|\s+>\s|\s*$)/gi;
 
 const sanitizeUrl = (value: string) => {
 	try {
@@ -59,8 +76,14 @@ const sanitizeUrl = (value: string) => {
 export const redactText = (value: string) =>
 	value
 		.replace(EMAIL_PATTERN, '[Redacted email]')
-		.replace(LABELLED_QUOTED_NAME_PATTERN, '$1"[Redacted name]"')
+		.replace(LABELLED_QUOTED_NAME_PATTERN, (match, label: string) =>
+			// Keep `\"` quoting so JSON held inside a string stays valid.
+			match.slice(label.length).startsWith('\\"')
+				? `${label}\\"[Redacted name]\\"`
+				: `${label}"[Redacted name]"`
+		)
 		.replace(LABELLED_BARE_NAME_PATTERN, '$1[Redacted name]')
+		.replace(LABELLED_BARE_USERNAME_PATTERN, '$1[Redacted name]')
 		.replace(SENSITIVE_PATH_PATTERN, '$1[Redacted]')
 		.replace(SENSITIVE_PARAM_PATTERN, '$1[Redacted]')
 		.replace(URL_PATTERN, (url) => sanitizeUrl(url));
@@ -113,9 +136,11 @@ const redactEventPayload = <T extends ErrorEvent | TransactionEvent>(event: T): 
 	delete redacted.user;
 	// The browser SDK sets this itself when sendDefaultPii is off; the SvelteKit server SDK does
 	// not, so set it on every event to stop Sentry storing the sender's IP.
-	if (redacted.sdk) {
-		redacted.sdk.settings = { ...redacted.sdk.settings, infer_ip: 'never' };
-	}
+	// Set even when the event has no sdk block (default integrations off).
+	redacted.sdk = {
+		...redacted.sdk,
+		settings: { ...redacted.sdk?.settings, infer_ip: 'never' }
+	} as NonNullable<T['sdk']>;
 	// Breadcrumbs attached to the event directly (scope.addBreadcrumb with a hint, or
 	// event.breadcrumbs from captureEvent) skip beforeBreadcrumb.
 	if (Array.isArray(redacted.breadcrumbs)) {
