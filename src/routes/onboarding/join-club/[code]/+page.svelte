@@ -282,7 +282,9 @@
 			</div>
 
 			{#if errorMessage}
-				<p class="type-body-compact rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+				<p
+					class="type-body-compact rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700"
+				>
 					{errorMessage}
 				</p>
 			{/if}

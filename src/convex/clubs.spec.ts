@@ -342,9 +342,7 @@ describe('getClubPreviewById', () => {
 
 	it('returns null for an abandoned club', async () => {
 		const { t, clubId } = await seedClubPermissionFixture();
-		await t.run((ctx) =>
-			ctx.db.patch(clubId, { discoverable: true, abandonedAt: Date.now() })
-		);
+		await t.run((ctx) => ctx.db.patch(clubId, { discoverable: true, abandonedAt: Date.now() }));
 		const preview = await t.query(api.clubs.getClubPreviewById, { clubId });
 		expect(preview).toBeNull();
 	});
@@ -667,9 +665,7 @@ describe('club code rate limiting', () => {
 		await t.run(async (ctx) => {
 			await ctx.db.patch(clubId, { abandonedAt: Date.now() });
 		});
-		expect(
-			await t.query(api.clubs.getClubVideoDeliveryAsset, { assetId: clubVideoId })
-		).toBeNull();
+		expect(await t.query(api.clubs.getClubVideoDeliveryAsset, { assetId: clubVideoId })).toBeNull();
 	});
 });
 
@@ -684,7 +680,9 @@ const GUIDE_PERMISSIONS = [
 ];
 const LEARNER_PERMISSIONS = ['club:read', 'club_member:read_active'];
 
-const seedGovernanceFixture = async (options: { guideCount?: number; learnerCount?: number } = {}) => {
+const seedGovernanceFixture = async (
+	options: { guideCount?: number; learnerCount?: number } = {}
+) => {
 	const { guideCount = 1, learnerCount = 1 } = options;
 	const t = newTestConvex();
 	const now = Date.now();
@@ -930,9 +928,7 @@ describe('leaveClub', () => {
 	it('excludes abandoned clubs from listPublicClubs', async () => {
 		const { t, clubId } = await seedGovernanceFixture({ guideCount: 1, learnerCount: 0 });
 
-		await t
-			.withIdentity({ subject: 'guide-user-0' })
-			.mutation(api.clubs.leaveClub, { clubId });
+		await t.withIdentity({ subject: 'guide-user-0' }).mutation(api.clubs.leaveClub, { clubId });
 
 		const publicClubs = await t.query(api.clubs.listPublicClubs, {});
 		expect(publicClubs.map((club) => club.id)).not.toContain(clubId);
@@ -941,9 +937,7 @@ describe('leaveClub', () => {
 	it('fails a code join for an abandoned club', async () => {
 		const { t, clubId } = await seedGovernanceFixture({ guideCount: 1, learnerCount: 0 });
 
-		await t
-			.withIdentity({ subject: 'guide-user-0' })
-			.mutation(api.clubs.leaveClub, { clubId });
+		await t.withIdentity({ subject: 'guide-user-0' }).mutation(api.clubs.leaveClub, { clubId });
 
 		const preview = await t.mutation(api.clubs.lookupClubByCode, { code: 'CLUBCD' });
 		expect(preview).toEqual({ ok: true, club: null });

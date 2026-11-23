@@ -31,7 +31,8 @@ export type SignedDeliveryAsset = {
 
 const hasDeliveryObjectKey = (
 	asset: DeliveryAssetRecord | null | undefined
-): asset is DeliveryAssetRecord & { deliveryObjectKey: string } => Boolean(asset?.deliveryObjectKey);
+): asset is DeliveryAssetRecord & { deliveryObjectKey: string } =>
+	Boolean(asset?.deliveryObjectKey);
 
 export const signDeliveryAsset = (
 	asset: DeliveryAssetRecord | null | undefined,
@@ -73,7 +74,12 @@ export const signDeliveryAssets = (
 // scalar arg like a clubId/projectId/limit that the wrapper closes over).
 const getSignedAssets = async <Args extends Record<string, unknown>, TId>(
 	convex: ConvexServerClient,
-	queryRef: FunctionReference<'query', 'public', Args, Array<DeliveryAssetRecord | null | undefined>>,
+	queryRef: FunctionReference<
+		'query',
+		'public',
+		Args,
+		Array<DeliveryAssetRecord | null | undefined>
+	>,
 	argsBuilder: (ids: TId[]) => Args,
 	ids: TId[],
 	config?: MediaDeliveryConfig | null
@@ -107,7 +113,13 @@ export const getSignedOwnedMediaAssets = (
 	assetIds: Id<'mediaAssets'>[],
 	config?: MediaDeliveryConfig | null
 ) =>
-	getSignedAssets(convex, api.media.getOwnedDeliveryAssets, (ids) => ({ assetIds: ids }), assetIds, config);
+	getSignedAssets(
+		convex,
+		api.media.getOwnedDeliveryAssets,
+		(ids) => ({ assetIds: ids }),
+		assetIds,
+		config
+	);
 
 // CL-710 CEO review round 3 (Braga video bug): signs the single application video asset, the same
 // way `getSignedOwnedMediaAsset` signs a single owned asset. Authorization (applicant, assigned

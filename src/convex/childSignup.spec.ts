@@ -32,6 +32,7 @@ vi.mock('./email/resend', () => ({
 	sendEmail: sendEmailMock
 }));
 
+const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * 60 * 1000;
 const CONSENT_EXPIRY_MS = 90 * DAY;
 
@@ -737,9 +738,13 @@ describe('approveConsent: consent screen v2', () => {
 			}
 		});
 		vi.useFakeTimers();
-		const firstAt = new Date('2026-11-01T10:00:00Z').getTime();
+		// convex-test, like Convex, never runs a transaction at or before the last
+		// commit: the dates sit after the real clock (the legal documents above),
+		// and each child is seeded a minute before its approval.
+		const firstAt = new Date('2030-11-01T10:00:00Z').getTime();
+		vi.setSystemTime(firstAt - MINUTE);
+		const first = await seedChild(firstAt - MINUTE);
 		vi.setSystemTime(firstAt);
-		const first = await seedChild(firstAt);
 		await approve(first.token, { locale: 'en' });
 
 		const firstConsent = await consentFor(first.childProfileId);
@@ -775,8 +780,9 @@ describe('approveConsent: consent screen v2', () => {
 			await ctx.db.patch(terms!._id, { version: '2026-12' });
 		});
 		const secondAt = firstAt + 7 * DAY;
+		vi.setSystemTime(secondAt - MINUTE);
+		const second = await seedChild(secondAt - MINUTE);
 		vi.setSystemTime(secondAt);
-		const second = await seedChild(secondAt);
 		const secondResult = await approve(second.token, { locale: 'xx-unknown' });
 		expect(secondResult.parentAccountCreated).toBe(false);
 
