@@ -5,7 +5,7 @@ import { internal } from './_generated/api';
 import { internalAction, internalQuery, mutation, query } from './_generated/server';
 import { getAuthUserEmail } from './authEmail';
 import { CHILD_EMAIL_DOMAIN } from './childAccounts';
-import { getRoomAccess, getRoomName } from './chatModel';
+import { canObserveAttributedProjectChats, getRoomAccess, getRoomName } from './chatModel';
 import {
 	CHILD_EMAIL_VERIFICATION_RATE_LIMIT,
 	childEmailVerificationRateLimitKey,
@@ -569,7 +569,7 @@ const listChildReadableRoomIds = async (
 		addRoom(clubRoom);
 
 		const role = await ctx.db.get(membership.roleId);
-		if (role?.permissions.includes('project:read')) {
+		if (canObserveAttributedProjectChats(role)) {
 			const attributionRows = await ctx.db
 				.query('projectAttributions')
 				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))

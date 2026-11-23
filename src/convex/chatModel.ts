@@ -90,6 +90,15 @@ export const getClubAccess = async (
 	};
 };
 
+// CL-767: who observes the chat of a project attributed to their club (PRD 6.6.9/6.6.10: the
+// club's Guides). Keyed off its own flag, not `project:read`, which Learners also carry so they can
+// browse projects. Every observer rule below (access, chat list, unread floor, recipients,
+// participants, a parent's view of a child's rooms) goes through this check.
+export const PROJECT_CHAT_OBSERVE_PERMISSION = 'project_chat:observe';
+
+export const canObserveAttributedProjectChats = (role: Doc<'clubRoles'> | null) =>
+	role?.permissions.includes(PROJECT_CHAT_OBSERVE_PERMISSION) ?? false;
+
 const getProjectObserverAccess = async (
 	ctx: Ctx,
 	projectId: Id<'projects'>,
@@ -105,7 +114,7 @@ const getProjectObserverAccess = async (
 			.collect();
 		for (const membership of memberships) {
 			const role = await ctx.db.get(membership.roleId);
-			if (!role?.permissions.includes('project:read')) {
+			if (!canObserveAttributedProjectChats(role)) {
 				continue;
 			}
 			access.canRead = true;
@@ -292,7 +301,7 @@ export const getRoomJoinedAt = async (
 					.collect();
 				for (const membership of clubMemberships) {
 					const role = await ctx.db.get(membership.roleId);
-					if (!role?.permissions.includes('project:read')) continue;
+					if (!canObserveAttributedProjectChats(role)) continue;
 					if (!observerJoinedAt || membership.createdAt < observerJoinedAt) {
 						observerJoinedAt = membership.createdAt;
 					}
@@ -634,7 +643,7 @@ export const listRoomRecipientProfileIds = async (
 				for (const member of clubMembers) {
 					if (member.leftAt || recipients.has(member.profileId)) continue;
 					const role = await ctx.db.get(member.roleId);
-					if (role?.key !== 'guide') continue;
+					if (!canObserveAttributedProjectChats(role)) continue;
 					recipients.add(member.profileId);
 				}
 			}

@@ -209,6 +209,8 @@ Notes:
 | `chat.listMessages`      | Yes  | —          | Requires current or historical access to the room context                   |
 | `chat.sendMessage`       | Yes  | —          | Requires active access to the room context                                  |
 
+Project chats are open to project members and, as observers, to members of an attributed club whose role has `project_chat:observe` (Guides only). `project:read` alone, which Learners have, does not open a project chat.
+
 ## Known Gaps
 
 ### High Priority

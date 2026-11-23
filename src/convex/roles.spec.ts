@@ -61,6 +61,34 @@ describe('roles.syncRolePermissions', () => {
 		expect(learnerRole?.permissions).toEqual(expect.arrayContaining(['session_rsvp:set']));
 	});
 
+	it('grants project_chat:observe to Guides only (CL-767)', async () => {
+		const t = convexTest(schema, modules);
+		const now = Date.now();
+		const { guideRoleId, learnerRoleId } = await t.run(async (ctx) => ({
+			guideRoleId: await ctx.db.insert('clubRoles', {
+				key: 'guide',
+				name: 'Guide',
+				permissions: ['project:read'],
+				order: 10,
+				createdAt: now
+			}),
+			learnerRoleId: await ctx.db.insert('clubRoles', {
+				key: 'learner',
+				name: 'Learner',
+				permissions: ['project:read'],
+				order: 100,
+				createdAt: now
+			})
+		}));
+
+		await t.mutation(internal.roles.syncRolePermissions, {});
+
+		const guideRole = await t.run((ctx) => ctx.db.get(guideRoleId));
+		const learnerRole = await t.run((ctx) => ctx.db.get(learnerRoleId));
+		expect(guideRole?.permissions).toContain('project_chat:observe');
+		expect(learnerRole?.permissions).not.toContain('project_chat:observe');
+	});
+
 	it('keeps hand-added custom permissions a row already has', async () => {
 		const t = convexTest(schema, modules);
 		const now = Date.now();

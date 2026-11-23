@@ -17,6 +17,7 @@ import {
 	getChatEmailCopy,
 	getChatEmailCopyForParent,
 	getChatEmailKind,
+	canObserveAttributedProjectChats,
 	getRoomAccess,
 	getRoomActionState,
 	getRoomCounterpart,
@@ -158,7 +159,7 @@ const collectVisibleRooms = async (ctx: QueryCtx, profile: Doc<'profiles'>) => {
 		await addRoomByClub(ctx, rooms, membership.clubId);
 
 		const role = await ctx.db.get(membership.roleId);
-		if (role?.permissions.includes('project:read')) {
+		if (canObserveAttributedProjectChats(role)) {
 			const attributionRows = await ctx.db
 				.query('projectAttributions')
 				.withIndex('by_club', (q) => q.eq('clubId', membership.clubId))
@@ -485,7 +486,7 @@ export const getRoomParticipants = query({
 					for (const guideMember of guideMembers) {
 						if (seenProfileIds.has(guideMember.profileId)) continue;
 						const role = await ctx.db.get(guideMember.roleId);
-						if (role?.key !== 'guide') continue;
+						if (!canObserveAttributedProjectChats(role)) continue;
 						const guideProfile = await getRelatedProfile(ctx, guideMember.profileId);
 						if (!guideProfile) continue;
 						seenProfileIds.add(guideMember.profileId);
