@@ -78,9 +78,15 @@ export const originFromEnvUrl = (value) => {
 	}
 };
 
+const SENTRY_PUBLIC_KEY = /^[a-z0-9]+$/i;
+const SENTRY_PROJECT_ID = /^\d+$/;
+
 /**
  * Sentry's CSP report endpoint for a DSN: `https://<host>/api/<project>/security/?sentry_key=…`.
  * https://docs.sentry.io/platforms/javascript/guides/sveltekit/security-policy-reporting/
+ * The result is pasted into the CSP and Reporting-Endpoints headers, so only a well-formed https
+ * DSN (alphanumeric key, numeric project id, no password) is accepted; anything else disables
+ * reporting rather than risk punctuation that changes how those headers parse.
  * @param {string | null | undefined} dsn
  * @param {string | null | undefined} environment
  * @returns {string | null}
@@ -90,16 +96,47 @@ export const buildSentryCspReportUri = (dsn, environment) => {
 	if (!trimmed) return null;
 	try {
 		const url = new URL(trimmed);
-		const projectId = url.pathname.split('/').filter(Boolean).pop();
-		if (!url.username || !projectId) return null;
-		const report = new URL(`${url.protocol}//${url.host}/api/${projectId}/security/`);
+		const projectId = url.pathname.split('/').filter(Boolean).pop() ?? '';
+		if (url.protocol !== 'https:' || url.password || url.search || url.hash) return null;
+		if (!SENTRY_PUBLIC_KEY.test(url.username) || !SENTRY_PROJECT_ID.test(projectId)) return null;
+		const report = new URL(`https://${url.host}/api/${projectId}/security/`);
 		report.searchParams.set('sentry_key', url.username);
 		const env = environment?.trim();
 		if (env) report.searchParams.set('sentry_environment', env);
-		return report.toString();
+		const serialized = report.toString();
+		// URLSearchParams percent-encodes these already; this guards the header syntax regardless.
+		return /[\s;,"\\]/.test(serialized) ? null : serialized;
 	} catch {
 		return null;
 	}
+};
+
+// Pages whose URL carries a secret: emailed tokens (reset password, email verification, parent
+// consent, unsubscribe, magic links) and club join codes. Browsers put the page URL (`document-uri`)
+// and the previous page (`referrer`) into CSP reports and post them straight to Sentry, past the
+// SDK's redaction, so these pages never get a report endpoint.
+const SENSITIVE_PATH_PREFIXES = [
+	'/auth/',
+	'/verify-email/',
+	'/onboarding/parent-consent/',
+	'/onboarding/join-club/',
+	'/new-club/join/',
+	'/join/',
+	'/email/'
+];
+const SENSITIVE_QUERY_PARAM =
+	/^(t|token|code|secret|key|sig|signature|otp|password|callbackurl|errorcallbackurl)$|token|secret/i;
+
+/**
+ * Whether CSP reports from this page could carry a secret in its URL.
+ * @param {URL} url
+ */
+export const isCspReportingSensitiveUrl = (url) => {
+	const path = url.pathname.toLowerCase();
+	const isUnder = (/** @type {string} */ prefix) =>
+		path.startsWith(prefix) || path === prefix.slice(0, -1);
+	if (SENSITIVE_PATH_PREFIXES.some(isUnder)) return true;
+	return [...url.searchParams.keys()].some((name) => SENSITIVE_QUERY_PARAM.test(name));
 };
 
 /**

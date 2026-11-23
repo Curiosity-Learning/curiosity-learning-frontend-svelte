@@ -6,6 +6,7 @@ import {
 	buildSentryCspReportUri,
 	cspDirectives,
 	extendCspHeader,
+	isCspReportingSensitiveUrl,
 	originFromEnvUrl,
 	resolveRuntimeCsp
 } from './csp';
@@ -82,6 +83,71 @@ describe('buildSentryCspReportUri', () => {
 		expect(buildSentryCspReportUri('https://host.example/1', 'x')).toBeNull();
 		expect(buildSentryCspReportUri('garbage', 'x')).toBeNull();
 	});
+
+	it('rejects DSNs whose parts could break the CSP or Reporting-Endpoints syntax', () => {
+		const host = 'o1.ingest.de.sentry.io';
+		for (const dsn of [
+			`http://abc123@${host}/42`, // not https
+			`https://ab-c@${host}/42`, // key not alphanumeric
+			`https://ab%22c@${host}/42`, // quote in key
+			`https://ab%3Bc@${host}/42`, // semicolon in key
+			`https://abc123:secret@${host}/42`, // password
+			`https://abc123@${host}/42abc`, // project id not numeric
+			`https://abc123@${host}/4%3B2`,
+			`https://abc123@${host}/`, // no project
+			`https://abc123@${host}/42?x=1`,
+			`https://abc123@${host}/42#frag`
+		]) {
+			expect(buildSentryCspReportUri(dsn, 'x'), dsn).toBeNull();
+		}
+		expect(buildSentryCspReportUri(`https://abc123@${host}/42`, 'x')).toBe(
+			`https://${host}/api/42/security/?sentry_key=abc123&sentry_environment=x`
+		);
+	});
+
+	it('encodes the environment so it cannot add directives or header parameters', () => {
+		const uri = buildSentryCspReportUri(DSN, `prod; script-src *, x="y"`) ?? '';
+		expect(uri).not.toMatch(/[\s;,"]/);
+		expect(new URL(uri).searchParams.get('sentry_environment')).toBe(`prod; script-src *, x="y"`);
+	});
+});
+
+describe('isCspReportingSensitiveUrl', () => {
+	const sensitive = (path: string) => isCspReportingSensitiveUrl(new URL(path, 'https://x.org'));
+
+	it('flags pages that carry an emailed token or a join code in the URL', () => {
+		for (const path of [
+			'/auth/reset-password?token=secret123',
+			'/auth/link',
+			'/auth/sign-in',
+			'/verify-email/secret123',
+			'/onboarding/parent-consent/secret123',
+			'/onboarding/join-club/ABC123',
+			'/new-club/join',
+			'/new-club/join/ABC123',
+			'/join/ABC123',
+			'/email/unsubscribe?t=secret123',
+			'/privacy?token=secret123',
+			'/settings?resetToken=abc',
+			'/feed?code=abc',
+			'/AUTH/Reset-Password?token=x'
+		]) {
+			expect(sensitive(path), path).toBe(true);
+		}
+	});
+
+	it('leaves ordinary pages reporting', () => {
+		for (const path of [
+			'/',
+			'/privacy',
+			'/terms',
+			'/feed/global?tab=new',
+			'/club/abc',
+			'/joined'
+		]) {
+			expect(sensitive(path), path).toBe(false);
+		}
+	});
 });
 
 describe('extendCspHeader', () => {
@@ -135,7 +201,40 @@ describe('createCspHandle', () => {
 		sentryEnabled: true,
 		sentryEnvironment: 'test'
 	});
-	const event = {} as RequestEvent;
+	const eventAt = (path: string) => ({ url: new URL(path, 'https://x.org') }) as RequestEvent;
+	const event = eventAt('/privacy');
+	const page = () =>
+		new Response('<html></html>', {
+			headers: {
+				'content-type': 'text/html',
+				[CSP_REPORT_ONLY_HEADER]:
+					"default-src 'self'; script-src 'self' 'nonce-abc'; report-to csp-endpoint"
+			}
+		});
+
+	for (const path of [
+		'/auth/reset-password?token=secret123',
+		'/onboarding/parent-consent/secret123',
+		'/verify-email/secret123',
+		'/email/unsubscribe?t=secret123',
+		'/join/secret123'
+	]) {
+		it(`gives ${path} no report endpoint, so its URL never reaches Sentry`, async () => {
+			const response = await createCspHandle(runtime)({
+				event: eventAt(path),
+				resolve: async () => page()
+			});
+			const header = response.headers.get(CSP_REPORT_ONLY_HEADER) ?? '';
+			expect(response.status).toBe(200);
+			expect(header).toContain("script-src 'self' 'nonce-abc'");
+			expect(header).toContain('img-src https://assets.example.org');
+			expect(header).not.toContain('report-uri');
+			expect(header).not.toContain('sentry');
+			expect(response.headers.get('reporting-endpoints')).toBeNull();
+			expect(response.headers.get('referrer-policy')).toBe('strict-origin');
+			expect([...response.headers.values()].join('\n')).not.toContain('secret123');
+		});
+	}
 
 	it('extends the report-only header on rendered pages and sets Reporting-Endpoints', async () => {
 		const resolve = vi.fn(

@@ -55,3 +55,22 @@ test('each response gets a fresh nonce', async ({ request }) => {
 	expect(first).toBeTruthy();
 	expect(first).not.toBe(second);
 });
+
+// Browsers post CSP reports (with the page URL and referrer) straight to Sentry, past the SDK's
+// redaction, so pages with a secret in the URL must never get a report endpoint.
+for (const route of [
+	'/auth/reset-password?token=secret123',
+	'/onboarding/parent-consent/secret123',
+	'/email/unsubscribe?t=secret123'
+]) {
+	test(`no CSP report endpoint on ${route}`, async ({ request }) => {
+		const response = await request.get(`${BASE_URL}${route}`, { maxRedirects: 0 });
+		expect(response.status()).toBe(200);
+		const headers = response.headers();
+		const policy = headers['content-security-policy-report-only'] ?? '';
+		expect(policy).toMatch(/script-src 'self' 'nonce-[^']+'/);
+		expect(policy).not.toContain('report-uri');
+		expect(headers['reporting-endpoints']).toBeUndefined();
+		expect(headers['referrer-policy']).toBe('strict-origin');
+	});
+}
