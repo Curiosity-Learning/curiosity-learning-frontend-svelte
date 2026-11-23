@@ -18,7 +18,8 @@ Sentry.init(
 		enabledFlag: publicEnv.PUBLIC_SENTRY_ENABLED,
 		tracesSampleRate: publicEnv.PUBLIC_SENTRY_TRACES_SAMPLE_RATE,
 		profilesSampleRate: publicEnv.PUBLIC_SENTRY_PROFILES_SAMPLE_RATE,
-		logsEnabledFlag: publicEnv.PUBLIC_SENTRY_LOGS_ENABLED
+		logsEnabledFlag: publicEnv.PUBLIC_SENTRY_LOGS_ENABLED,
+		release: privateEnv.VERCEL_GIT_COMMIT_SHA
 	})
 );
 

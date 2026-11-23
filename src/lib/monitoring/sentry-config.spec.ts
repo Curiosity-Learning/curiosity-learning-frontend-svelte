@@ -115,6 +115,16 @@ describe('buildSharedSentryOptions', () => {
 		).toBe('staging');
 	});
 
+	it('tags events with the release only when one is known', () => {
+		expect(buildSharedSentryOptions({ dsn: 'https://key@sentry.io/1' }).release).toBeUndefined();
+		expect(
+			buildSharedSentryOptions({ dsn: 'https://key@sentry.io/1', release: '' }).release
+		).toBeUndefined();
+		expect(
+			buildSharedSentryOptions({ dsn: 'https://key@sentry.io/1', release: 'abc123' }).release
+		).toBe('abc123');
+	});
+
 	it('redacts errors, transactions, logs, and breadcrumbs before sending', () => {
 		const options = buildSharedSentryOptions({ dsn: 'https://key@sentry.io/1' });
 

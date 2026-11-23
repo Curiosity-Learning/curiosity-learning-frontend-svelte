@@ -29,6 +29,12 @@ npx convex env set MONITORING_REPORT_SECRET <same-random-secret>
 
 `SENTRY_AUTH_TOKEN` is used only during builds to upload source maps. Never expose it through a `PUBLIC_` variable or commit it.
 
+Browser and server events carry `release` = the deployed commit (`VERCEL_GIT_COMMIT_SHA`, a Vercel system variable; nothing to set). Locally there is no release.
+
+## Stale Tabs After a Deploy
+
+A tab left open across a deploy still runs the old build, whose chunks the deploy removed. The app recovers with a full page load instead of an error (`src/lib/navigation/stale-app-recovery.ts`): the next navigation after a new version is seen (polled every 5 minutes) is a full page load, and a failed navigation or page start reloads once per version (no loops). Recovered chunk errors are not sent to Sentry; a chunk that still fails after that reload is.
+
 ## Resend Webhook
 
 In Resend, create a webhook for:
