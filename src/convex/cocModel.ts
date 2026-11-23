@@ -228,7 +228,8 @@ export const addNewGuideToClubsCocGroup = async (
 export const moveClubToCocGroup = async (
 	ctx: MutationCtx,
 	clubId: Id<'clubs'>,
-	targetCocGroupId: Id<'clubs'>
+	targetCocGroupId: Id<'clubs'>,
+	options: { ignoreCapacity?: boolean } = {}
 ) => {
 	const club = await ctx.db.get(clubId);
 	if (!club || club.kind === 'coc') {
@@ -245,7 +246,8 @@ export const moveClubToCocGroup = async (
 	if (sourceGroupId === target._id) {
 		throw new Error('Club is already in the target Club of Clubs group');
 	}
-	if ((await countMemberClubs(ctx, target._id)) >= COC_GROUP_CAPACITY) {
+	// The cap is for auto-assignment; an operator may knowingly overfill a group.
+	if (!options.ignoreCapacity && (await countMemberClubs(ctx, target._id)) >= COC_GROUP_CAPACITY) {
 		throw new Error('Target Club of Clubs group is full');
 	}
 

@@ -432,4 +432,41 @@ describe('clubs.moveClubToCocGroup (ops-only merge)', () => {
 			})
 		).rejects.toThrow(/not a Club of Clubs group/);
 	});
+
+	it('refuses a full target group unless ignoreCapacity is set', async () => {
+		const t = convexTest(schema, modules);
+		await seedRoles(t);
+		for (let index = 0; index < 10; index += 1) {
+			await seedProfile(t, `guide-${index}`);
+			await t
+				.withIdentity({ subject: `guide-${index}` })
+				.mutation(api.clubs.createClub, { name: `Lisbon ${index}`, locationLongitude: -9.14 });
+		}
+		await seedProfile(t, 'guide-tokyo');
+		const tokyo = await t
+			.withIdentity({ subject: 'guide-tokyo' })
+			.mutation(api.clubs.createClub, { name: 'Tokyo Club', locationLongitude: 139 });
+		const lisbonGroupId = await t.run(async (ctx) => {
+			const club = await ctx.db
+				.query('clubs')
+				.filter((q) => q.eq(q.field('name'), 'Lisbon 0'))
+				.first();
+			return club!.cocGroupId!;
+		});
+
+		await expect(
+			t.mutation(internal.clubs.moveClubToCocGroup, {
+				clubId: tokyo.clubId,
+				targetCocGroupId: lisbonGroupId
+			})
+		).rejects.toThrow(/is full/);
+
+		const result = await t.mutation(internal.clubs.moveClubToCocGroup, {
+			clubId: tokyo.clubId,
+			targetCocGroupId: lisbonGroupId,
+			ignoreCapacity: true
+		});
+		expect(result.toCocGroupId).toBe(lisbonGroupId);
+		expect(result.sourceAbandoned).toBe(true);
+	});
 });

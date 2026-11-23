@@ -1394,9 +1394,13 @@ export const backfillClubKind = internalMutation({
 export const moveClubToCocGroup = internalMutation({
 	args: {
 		clubId: v.id('clubs'),
-		targetCocGroupId: v.id('clubs')
+		targetCocGroupId: v.id('clubs'),
+		// Move even when the target already has COC_GROUP_CAPACITY clubs.
+		ignoreCapacity: v.optional(v.boolean())
 	},
 	handler: async (ctx, args) => {
-		return await moveClubToCocGroupModel(ctx, args.clubId, args.targetCocGroupId);
+		return await moveClubToCocGroupModel(ctx, args.clubId, args.targetCocGroupId, {
+			ignoreCapacity: args.ignoreCapacity
+		});
 	}
 });
