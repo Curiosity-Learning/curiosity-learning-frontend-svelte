@@ -1140,6 +1140,7 @@ describe('registerChild with a club code in nextPath', () => {
 	};
 
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.unstubAllEnvs();
 	});
 
@@ -1151,6 +1152,11 @@ describe('registerChild with a club code in nextPath', () => {
 
 	it('throttles repeated probes from one client, while the accounts are still created', async () => {
 		const { t, clubId, register, pendingClubFor } = await setup();
+		// The 20/min bucket refills one token every 3 s, and each signup hashes a password, so on a
+		// slow runner a real clock refills one mid-loop. Freeze Date only (timers keep working), after
+		// the real clock: convex-test never runs a transaction before the last commit.
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date('2030-11-01T10:00:00Z'));
 		const attacker = t.withRequestMetadata({ ip: '203.0.113.7' });
 		for (let attempt = 0; attempt < 20; attempt += 1) {
 			expect(await register(attacker, `GUES${String(attempt).padStart(2, '0')}`)).toEqual({

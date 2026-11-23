@@ -1,7 +1,7 @@
 import { convexTest } from 'convex-test';
 import rateLimiterTest from '@convex-dev/rate-limiter/test';
 import betterAuthTest from '@convex-dev/better-auth/test';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, components } from './_generated/api';
 import schema from './schema';
 import type { Id } from './_generated/dataModel';
@@ -14,6 +14,19 @@ const newTestConvex = () => {
 	rateLimiterTest.register(t);
 	return t;
 };
+
+// Rate-limit tests freeze the clock: the 20/min token buckets refill one token every 3 s, so on a
+// slow runner a real clock refills one mid-loop. Only Date is faked (timers keep working), and the
+// time is after the real clock because convex-test, like Convex, never runs a transaction before
+// the last commit.
+const freezeClock = () => {
+	vi.useFakeTimers({ toFake: ['Date'] });
+	vi.setSystemTime(new Date('2030-11-01T10:00:00Z'));
+};
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 const seedClubPermissionFixture = async () => {
 	const t = newTestConvex();
@@ -524,6 +537,7 @@ describe('club code rate limiting', () => {
 
 	it('lookupClubByCode rate limits one anonymous client by IP', async () => {
 		const t = newTestConvex();
+		freezeClock();
 		const attacker = t.withRequestMetadata({ ip: '203.0.113.7' });
 
 		for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -539,6 +553,7 @@ describe('club code rate limiting', () => {
 
 	it('lookupClubByCode rate limits one signed-in user, whatever their IP', async () => {
 		const t = newTestConvex();
+		freezeClock();
 		for (let attempt = 0; attempt < 20; attempt += 1) {
 			const result = await t
 				.withIdentity({ subject: 'lookup-user' })
@@ -556,6 +571,7 @@ describe('club code rate limiting', () => {
 
 	it('lookupClubByCode keeps users and IPs isolated from each other', async () => {
 		const t = newTestConvex();
+		freezeClock();
 		for (let attempt = 0; attempt < 21; attempt += 1) {
 			await t
 				.withIdentity({ subject: 'noisy-user' })
@@ -581,6 +597,7 @@ describe('club code rate limiting', () => {
 		await t.run(async (ctx) => {
 			await ctx.db.patch(clubId, { clubCode: 'REALCD' });
 		});
+		freezeClock();
 
 		// Before CL-817 anonymous lookups were keyed per code (30 a minute), so this used the
 		// code up for everyone.
@@ -606,6 +623,7 @@ describe('club code rate limiting', () => {
 
 	it('lookupClubByCode stops every caller once the global backstop is used up', async () => {
 		const t = newTestConvex();
+		freezeClock();
 		// 600 a minute in total: 30 distinct IPs, 20 lookups each.
 		for (let client = 0; client < 30; client += 1) {
 			const caller = t.withRequestMetadata({ ip: `10.0.0.${client}` });
@@ -1012,6 +1030,8 @@ describe('completeSignupProfile with a club code in nextPath', () => {
 	});
 
 	it('throttles repeated probes, so getMine cannot be used to guess codes', async () => {
+		// Before the session is created, so it doesn't expire in the frozen future.
+		freezeClock();
 		const { user } = await signedUpUser();
 		for (let attempt = 0; attempt < 20; attempt += 1) {
 			await user.mutation(api.auth.completeSignupProfile, {
