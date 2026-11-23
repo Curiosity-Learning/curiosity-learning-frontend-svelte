@@ -468,6 +468,27 @@ describe('sendClosingSoonReminders', () => {
 		expect(sentEmails().map((email) => email.to)).toEqual(['adult@example.com']);
 	});
 
+	it('CL-777: an extended deadline is the one shown, and the email says it was extended', async () => {
+		const { t, seasonId, deadline } = await seed();
+		const extendedTo = deadline! + 3 * DAY;
+		await t.run(async (ctx) => {
+			await ctx.db.patch(seasonId, {
+				applicationDeadlineExtendedTo: extendedTo,
+				reviewWindowOpen: extendedTo
+			});
+		});
+		const result = await run(t, false);
+		expect(result.sent).toBe(4);
+		const adult = sentEmails().find((email) => email.to === 'adult@example.com')!;
+		expect(adult.subject).toBe(
+			`Your club application closes ${formatSeasonDeadline(extendedTo).split(',')[0]}`
+		);
+		expect(adult.text).toContain(
+			`Applications for Winter 2026 have been extended to ${formatSeasonDeadline(extendedTo)}.`
+		);
+		expect(adult.text).not.toContain(formatSeasonDeadline(deadline!));
+	});
+
 	it('refuses to run without a season taking applications', async () => {
 		const { t } = await seed({ deadlineInMs: null });
 		await expect(run(t, true)).rejects.toThrow(/No season is taking applications/);
