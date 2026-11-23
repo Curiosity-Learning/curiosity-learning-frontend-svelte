@@ -11,5 +11,7 @@ export default defineConfig({
 		reuseExistingServer: true,
 		timeout: 120_000
 	},
-	testDir: 'e2e'
+	testDir: 'e2e',
+	// The signed-in role suite has its own config: playwright.roles.config.ts.
+	testIgnore: 'roles/**'
 });
