@@ -16,8 +16,9 @@ import { dispatchNotification } from './notificationsModel';
 // Clubs (CoC) groups are a distinct club-of-clubs concept (PRD 6.10) with no Guide/Learner
 // feedback relationship to collect, so they're excluded from outstanding-forms computation.
 //
-// Admin creation UI is CL-701; enforcement/banners/blocks based on submitted scores is CL-733.
-// This file is form infrastructure (schema-backed CRUD) + the user-facing submission flow only.
+// Admins create and edit forms in the admin portal through adminForms.ts (CL-790); enforcement/
+// banners/blocks based on submitted scores is CL-733. This file is form infrastructure + the
+// user-facing submission flow only.
 
 const questionFields = {
 	id: v.string(),
@@ -31,7 +32,7 @@ const answerFields = {
 	value: v.union(v.string(), v.number(), v.boolean())
 };
 
-// Internal-only for now; CL-701 will build an admin-gated mutation/UI on top of this.
+// For scripts, seeds and tests. Admins use adminForms.adminCreateForm (CL-790).
 export const createForm = internalMutation({
 	args: {
 		title: v.string(),
