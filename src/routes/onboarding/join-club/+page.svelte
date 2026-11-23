@@ -245,17 +245,14 @@
 		validatingCode = true;
 		codeError = '';
 		try {
-			const rateLimitCheck = await convexClient.mutation(api.clubs.checkClubCodeLookupRateLimit, {
+			const lookup = await convexClient.mutation(api.clubs.lookupClubByCode, {
 				code: joinedCode
 			});
-			if (!rateLimitCheck.ok) {
+			if (!lookup.ok) {
 				codeError = t('onboarding.joinClub.rateLimited');
 				return;
 			}
-			const preview = await convexClient.query(api.clubs.getClubPreviewByCode, {
-				code: joinedCode
-			});
-			if (!preview) {
+			if (!lookup.club) {
 				codeError = t('onboarding.joinClub.notFound');
 				return;
 			}

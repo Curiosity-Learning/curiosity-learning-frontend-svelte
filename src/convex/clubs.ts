@@ -24,6 +24,7 @@ import { ensureClubRoom } from './chatModel';
 import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
 import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsModel';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
+import { consumeClubCodeLookup } from './rateLimiter';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
 import {
 	addNewGuideToClubsCocGroup,
@@ -32,17 +33,10 @@ import {
 } from './cocModel';
 import { clearPendingClubJoinsForProfile } from './pendingClubJoinsModel';
 
-// Authenticated users get a per-user window; unauthenticated code-preview lookups have no
-// reliable client identity in a Convex function, so we apply a modest global-per-code
-// window purely as brute-force damping. The global window only damps scanning of a single
-// code; it does not protect against distributed guessing across many codes.
-const CLUB_CODE_USER_RATE_LIMIT = { maxAttempts: 20, windowMs: 60_000 };
-const CLUB_CODE_GLOBAL_RATE_LIMIT = { maxAttempts: 30, windowMs: 60_000 };
-
-const clubCodeRateLimitScope = (normalizedCode: string, authUserId: string | null) =>
-	authUserId
-		? { key: `club-code:user:${authUserId}`, limit: CLUB_CODE_USER_RATE_LIMIT }
-		: { key: `club-code:code:${normalizedCode}`, limit: CLUB_CODE_GLOBAL_RATE_LIMIT };
+// Failed joinClubWithCode attempts, per signed-in user. Previews (lookupClubByCode) use the
+// rate-limiter component instead; see rateLimiter.ts.
+const CLUB_CODE_JOIN_RATE_LIMIT = { maxAttempts: 20, windowMs: 60_000 };
+const clubCodeJoinRateLimitKey = (authUserId: string) => `club-code:user:${authUserId}`;
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -393,48 +387,62 @@ export const getMyClubSwitcherItems = query({
 	}
 });
 
-export const getClubPreviewByCode = query({
+const getClubPreviewForCode = async (ctx: MutationCtx, rawCode: string) => {
+	const normalizedCode = normalizeInviteCode(rawCode);
+	if (!INVITE_CODE_PATTERN.test(normalizedCode)) {
+		return null;
+	}
+
+	const resolved = await resolveClubByCode(ctx, normalizedCode);
+	if (!resolved) {
+		return null;
+	}
+	const { club, code } = resolved;
+
+	const members = await ctx.db
+		.query('clubMembers')
+		.withIndex('by_club', (q) => q.eq('clubId', club._id))
+		.collect();
+
+	return {
+		success: true,
+		id: club._id,
+		name: club.name,
+		description: club.description ?? null,
+		videoMediaAssetId: club.videoMediaAssetId ?? null,
+		videoUrl: await resolveClubVideoUrl(ctx, club),
+		location: club.location ?? null,
+		locationLatitude: club.locationLatitude ?? null,
+		locationLongitude: club.locationLongitude ?? null,
+		scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
+		memberCount: members.filter((member) => !member.leftAt).length,
+		createdAt: club.createdAt,
+		code
+	};
+};
+
+// The only public way to look a club up by its join code (CL-817). It is a mutation so the
+// lookup and the rate limit are one transaction: there is no separate check a caller can
+// skip. Rate-limited results are returned, not thrown, so the consumed limit commits.
+// Keys are per caller (user, or client IP when anonymous) plus a global backstop; there is no
+// per-code key, so nobody can lock others out of a real club's code.
+// Call it from the browser: SvelteKit SSR calls would carry the server's IP, not the user's.
+export const lookupClubByCode = mutation({
 	args: {
 		code: v.string()
 	},
 	handler: async (ctx, args) => {
-		const normalizedCode = normalizeInviteCode(args.code);
-		if (!INVITE_CODE_PATTERN.test(normalizedCode)) {
-			return null;
+		if (!(await consumeClubCodeLookup(ctx))) {
+			return { ok: false as const, error: 'rate_limited' as const };
 		}
 
-		const resolved = await resolveClubByCode(ctx, normalizedCode);
-		if (!resolved) {
-			return null;
-		}
-		const { club, code } = resolved;
-
-		const members = await ctx.db
-			.query('clubMembers')
-			.withIndex('by_club', (q) => q.eq('clubId', club._id))
-			.collect();
-
-		return {
-			success: true,
-			id: club._id,
-			name: club.name,
-			description: club.description ?? null,
-			videoMediaAssetId: club.videoMediaAssetId ?? null,
-			videoUrl: await resolveClubVideoUrl(ctx, club),
-			location: club.location ?? null,
-			locationLatitude: club.locationLatitude ?? null,
-			locationLongitude: club.locationLongitude ?? null,
-			scheduleSlots: await listScheduleSlotsForClub(ctx, club._id),
-			memberCount: members.filter((member) => !member.leftAt).length,
-			createdAt: club.createdAt,
-			code
-		};
+		return { ok: true as const, club: await getClubPreviewForCode(ctx, args.code) };
 	}
 });
 
 // Public preview by stable club id (CL-711): only ever resolves discoverable, non-abandoned
 // clubs so it can be linked to permanently (map pins, public club pages) without leaking
-// private clubs. Unlike getClubPreviewByCode, this never returns a join code — instant join
+// private clubs. Unlike lookupClubByCode, this never returns a join code — instant join
 // stays code-only; this preview only supports the "Request to join" entry point.
 export const getClubPreviewById = query({
 	args: {
@@ -493,45 +501,23 @@ export const getClubPreviewById = query({
 	}
 });
 
-// Convex queries cannot write to the database, so rate-limit bookkeeping for the
-// (read-only) `getClubPreviewByCode` query is tracked by this companion mutation.
-// Callers must invoke this before running the preview query and stop if it reports
-// `rate_limited`. Returns a structured result instead of throwing so the attempt
-// counter write always commits (a throwing mutation rolls back all of its writes).
-export const checkClubCodeLookupRateLimit = mutation({
+// Delivery details for a club's intro video, so the SvelteKit server can sign it (CL-817).
+// Keyed by the asset id that lookupClubByCode / getClubPreviewById return, never by the code,
+// so it can't be used to look clubs up. Only resolves videos that are a live club's video.
+export const getClubVideoDeliveryAsset = query({
 	args: {
-		code: v.string()
+		assetId: v.id('mediaAssets')
 	},
 	handler: async (ctx, args) => {
-		const identity = await ctx.auth.getUserIdentity();
-		const normalizedCode = normalizeInviteCode(args.code);
-		const { key, limit } = clubCodeRateLimitScope(normalizedCode, identity?.subject ?? null);
-
-		if (await isRateLimited(ctx, key, limit)) {
-			return { ok: false as const, error: 'rate_limited' as const };
-		}
-
-		await recordRateLimitAttempt(ctx, key, limit);
-		return { ok: true as const };
-	}
-});
-
-export const getClubPreviewDeliveryAssetByCode = query({
-	args: {
-		code: v.string()
-	},
-	handler: async (ctx, args) => {
-		const normalizedCode = normalizeInviteCode(args.code);
-		if (!INVITE_CODE_PATTERN.test(normalizedCode)) {
+		const club = await ctx.db
+			.query('clubs')
+			.withIndex('by_video_media_asset', (q) => q.eq('videoMediaAssetId', args.assetId))
+			.first();
+		if (!club || club.abandonedAt) {
 			return null;
 		}
 
-		const resolved = await resolveClubByCode(ctx, normalizedCode);
-		if (!resolved?.club.videoMediaAssetId) {
-			return null;
-		}
-
-		const asset = await ctx.db.get(resolved.club.videoMediaAssetId);
+		const asset = await ctx.db.get(args.assetId);
 		if (!asset || asset.status !== 'ready' || asset.mediaKind !== 'video') {
 			return null;
 		}
@@ -749,7 +735,8 @@ export const joinClubWithCode = mutation({
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const normalizedCode = normalizeInviteCode(args.code);
-		const { key, limit } = clubCodeRateLimitScope(normalizedCode, identity.subject);
+		const key = clubCodeJoinRateLimitKey(identity.subject);
+		const limit = CLUB_CODE_JOIN_RATE_LIMIT;
 
 		// Rate-limited paths return structured results instead of throwing: a throwing
 		// mutation rolls back ALL of its writes (including scheduler calls), so recording

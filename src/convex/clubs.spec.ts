@@ -1,4 +1,5 @@
 import { convexTest } from 'convex-test';
+import rateLimiterTest from '@convex-dev/rate-limiter/test';
 import { describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
 import schema from './schema';
@@ -6,8 +7,15 @@ import type { Id } from './_generated/dataModel';
 
 const modules = import.meta.glob('./**/*.ts');
 
-const seedClubPermissionFixture = async () => {
+// Every test convex instance needs the rate-limiter component (lookupClubByCode uses it).
+const newTestConvex = () => {
 	const t = convexTest(schema, modules);
+	rateLimiterTest.register(t);
+	return t;
+};
+
+const seedClubPermissionFixture = async () => {
+	const t = newTestConvex();
 	const ids = await t.run(async (ctx) => {
 		const now = Date.now();
 		const guideRoleId = await ctx.db.insert('clubRoles', {
@@ -150,7 +158,7 @@ describe('active club switching', () => {
 
 describe('discoverability', () => {
 	it('createClub defaults new clubs to discoverable', async () => {
-		const t = convexTest(schema, modules);
+		const t = newTestConvex();
 		await t.run(async (ctx) => {
 			await ctx.db.insert('clubRoles', {
 				key: 'guide',
@@ -248,17 +256,17 @@ describe('discoverability', () => {
 		}
 	});
 
-	it('getClubPreviewByCode keeps working for non-discoverable clubs', async () => {
+	it('lookupClubByCode keeps working for non-discoverable clubs', async () => {
 		const { t, clubId } = await seedClubPermissionFixture();
 		await t.run(async (ctx) => {
 			await ctx.db.patch(clubId, { clubCode: 'NDCLUB', discoverable: false });
 		});
 
-		const preview = await t.query(api.clubs.getClubPreviewByCode, { code: 'NDCLUB' });
-		expect(preview?.id).toBe(clubId);
+		const preview = await t.mutation(api.clubs.lookupClubByCode, { code: 'NDCLUB' });
+		expect(preview.ok && preview.club?.id).toBe(clubId);
 	});
 
-	it('getClubPreviewByCode still returns the full schedule slots (gated behind knowing the code)', async () => {
+	it('lookupClubByCode still returns the full schedule slots (gated behind knowing the code)', async () => {
 		const { t, clubId } = await seedClubPermissionFixture();
 		await t.run(async (ctx) => {
 			await ctx.db.patch(clubId, { clubCode: 'FULLCD', discoverable: false });
@@ -273,8 +281,8 @@ describe('discoverability', () => {
 			});
 		});
 
-		const preview = await t.query(api.clubs.getClubPreviewByCode, { code: 'FULLCD' });
-		expect(preview?.scheduleSlots).toEqual([
+		const preview = await t.mutation(api.clubs.lookupClubByCode, { code: 'FULLCD' });
+		expect(preview.ok && preview.club?.scheduleSlots).toEqual([
 			expect.objectContaining({ location: '221B Baker Street, Room 4' })
 		]);
 	});
@@ -492,36 +500,176 @@ describe('club code rate limiting', () => {
 		expect(membership.role?.key).toBe('learner');
 	});
 
-	it('checkClubCodeLookupRateLimit blocks unauthenticated lookups after the global window is exceeded', async () => {
-		const t = convexTest(schema, modules);
+	it('the club-code lookup functions without a rate limit are gone (CL-817)', async () => {
+		// Before CL-817 the preview was a public query beside a separate, skippable rate-limit
+		// mutation; anyone could call the query directly and guess codes without limit.
+		const clubsModule: Record<string, unknown> = await import('./clubs');
+		expect(clubsModule.lookupClubByCode).toBeDefined();
+		expect(clubsModule.getClubPreviewByCode).toBeUndefined();
+		expect(clubsModule.getClubPreviewDeliveryAssetByCode).toBeUndefined();
+		expect(clubsModule.checkClubCodeLookupRateLimit).toBeUndefined();
+	});
 
-		for (let attempt = 0; attempt < 30; attempt += 1) {
-			const result = await t.mutation(api.clubs.checkClubCodeLookupRateLimit, {
-				code: 'SAMECODE'
+	it('lookupClubByCode returns the preview for a real code and null for an unknown one', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.patch(clubId, { clubCode: 'REALCD' });
+		});
+
+		const found = await t.mutation(api.clubs.lookupClubByCode, { code: 'realcd' });
+		expect(found.ok && found.club?.id).toBe(clubId);
+
+		const missing = await t.mutation(api.clubs.lookupClubByCode, { code: 'NOPE22' });
+		expect(missing).toEqual({ ok: true, club: null });
+	});
+
+	it('lookupClubByCode rate limits one anonymous client by IP', async () => {
+		const t = newTestConvex();
+		const attacker = t.withRequestMetadata({ ip: '203.0.113.7' });
+
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			const result = await attacker.mutation(api.clubs.lookupClubByCode, {
+				code: `GUESS${attempt % 10}`
 			});
-			expect(result).toEqual({ ok: true });
+			expect(result.ok).toBe(true);
 		}
 
-		const blocked = await t.mutation(api.clubs.checkClubCodeLookupRateLimit, {
-			code: 'SAMECODE'
-		});
+		const blocked = await attacker.mutation(api.clubs.lookupClubByCode, { code: 'GUESSX' });
 		expect(blocked).toEqual({ ok: false, error: 'rate_limited' });
 	});
 
-	it('checkClubCodeLookupRateLimit tracks authenticated users separately from the global window', async () => {
-		const t = convexTest(schema, modules);
-
+	it('lookupClubByCode rate limits one signed-in user, whatever their IP', async () => {
+		const t = newTestConvex();
 		for (let attempt = 0; attempt < 20; attempt += 1) {
 			const result = await t
 				.withIdentity({ subject: 'lookup-user' })
-				.mutation(api.clubs.checkClubCodeLookupRateLimit, { code: 'ANYCODE' });
-			expect(result).toEqual({ ok: true });
+				.withRequestMetadata({ ip: `198.51.100.${attempt}` })
+				.mutation(api.clubs.lookupClubByCode, { code: 'ANYCOD' });
+			expect(result.ok).toBe(true);
 		}
 
 		const blocked = await t
 			.withIdentity({ subject: 'lookup-user' })
-			.mutation(api.clubs.checkClubCodeLookupRateLimit, { code: 'ANYCODE' });
+			.withRequestMetadata({ ip: '198.51.100.250' })
+			.mutation(api.clubs.lookupClubByCode, { code: 'ANYCOD' });
 		expect(blocked).toEqual({ ok: false, error: 'rate_limited' });
+	});
+
+	it('lookupClubByCode keeps users and IPs isolated from each other', async () => {
+		const t = newTestConvex();
+		for (let attempt = 0; attempt < 21; attempt += 1) {
+			await t
+				.withIdentity({ subject: 'noisy-user' })
+				.mutation(api.clubs.lookupClubByCode, { code: 'ANYCOD' });
+			await t
+				.withRequestMetadata({ ip: '203.0.113.7' })
+				.mutation(api.clubs.lookupClubByCode, { code: 'ANYCOD' });
+		}
+
+		const otherUser = await t
+			.withIdentity({ subject: 'quiet-user' })
+			.mutation(api.clubs.lookupClubByCode, { code: 'ANYCOD' });
+		expect(otherUser.ok).toBe(true);
+
+		const otherIp = await t
+			.withRequestMetadata({ ip: '192.0.2.1' })
+			.mutation(api.clubs.lookupClubByCode, { code: 'ANYCOD' });
+		expect(otherIp.ok).toBe(true);
+	});
+
+	it('one attacker hammering a real code cannot lock others out of it', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		await t.run(async (ctx) => {
+			await ctx.db.patch(clubId, { clubCode: 'REALCD' });
+		});
+
+		// Before CL-817 anonymous lookups were keyed per code (30 a minute), so this used the
+		// code up for everyone.
+		const attacker = t.withRequestMetadata({ ip: '203.0.113.7' });
+		for (let attempt = 0; attempt < 40; attempt += 1) {
+			await attacker.mutation(api.clubs.lookupClubByCode, { code: 'REALCD' });
+		}
+		expect(await attacker.mutation(api.clubs.lookupClubByCode, { code: 'REALCD' })).toEqual({
+			ok: false,
+			error: 'rate_limited'
+		});
+
+		const anonymousJoiner = await t
+			.withRequestMetadata({ ip: '192.0.2.55' })
+			.mutation(api.clubs.lookupClubByCode, { code: 'REALCD' });
+		expect(anonymousJoiner.ok && anonymousJoiner.club?.id).toBe(clubId);
+
+		const signedInJoiner = await t
+			.withIdentity({ subject: 'real-joiner' })
+			.mutation(api.clubs.lookupClubByCode, { code: 'REALCD' });
+		expect(signedInJoiner.ok && signedInJoiner.club?.id).toBe(clubId);
+	});
+
+	it('lookupClubByCode stops every caller once the global backstop is used up', async () => {
+		const t = newTestConvex();
+		// 600 a minute in total: 30 distinct IPs, 20 lookups each.
+		for (let client = 0; client < 30; client += 1) {
+			const caller = t.withRequestMetadata({ ip: `10.0.0.${client}` });
+			for (let attempt = 0; attempt < 20; attempt += 1) {
+				const result = await caller.mutation(api.clubs.lookupClubByCode, { code: 'ANYCOD' });
+				expect(result.ok).toBe(true);
+			}
+		}
+
+		const fresh = await t
+			.withRequestMetadata({ ip: '10.0.1.1' })
+			.mutation(api.clubs.lookupClubByCode, { code: 'ANYCOD' });
+		expect(fresh).toEqual({ ok: false, error: 'rate_limited' });
+	});
+
+	it('getClubVideoDeliveryAsset only resolves the video of a live club', async () => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		const { clubVideoId, strayVideoId } = await t.run(async (ctx) => {
+			const base = {
+				ownerUserId: 'guide-user',
+				storageProvider: 's3' as const,
+				sourceBucket: 'bucket',
+				status: 'ready' as const,
+				mediaKind: 'video' as const,
+				contentType: 'video/mp4',
+				acceptedContentTypes: ['video/mp4'],
+				maxBytes: 1_000_000,
+				enableCompression: false,
+				enableSafetyScreening: false,
+				sourceObjectRevision: 1,
+				pipelineVersion: 1,
+				attemptCount: 0,
+				stepResults: [],
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			};
+			const clubVideoId = await ctx.db.insert('mediaAssets', {
+				...base,
+				sourceObjectKey: 'club.mp4'
+			});
+			const strayVideoId = await ctx.db.insert('mediaAssets', {
+				...base,
+				sourceObjectKey: 'stray.mp4'
+			});
+			await ctx.db.patch(clubId, { videoMediaAssetId: clubVideoId });
+			return { clubVideoId, strayVideoId };
+		});
+
+		const clubVideo = await t.query(api.clubs.getClubVideoDeliveryAsset, {
+			assetId: clubVideoId
+		});
+		expect(clubVideo?.deliveryObjectKey).toBe('club.mp4');
+
+		expect(
+			await t.query(api.clubs.getClubVideoDeliveryAsset, { assetId: strayVideoId })
+		).toBeNull();
+
+		await t.run(async (ctx) => {
+			await ctx.db.patch(clubId, { abandonedAt: Date.now() });
+		});
+		expect(
+			await t.query(api.clubs.getClubVideoDeliveryAsset, { assetId: clubVideoId })
+		).toBeNull();
 	});
 });
 
@@ -538,7 +686,7 @@ const LEARNER_PERMISSIONS = ['club:read', 'club_member:read_active'];
 
 const seedGovernanceFixture = async (options: { guideCount?: number; learnerCount?: number } = {}) => {
 	const { guideCount = 1, learnerCount = 1 } = options;
-	const t = convexTest(schema, modules);
+	const t = newTestConvex();
 	const now = Date.now();
 
 	const ids = await t.run(async (ctx) => {
@@ -797,8 +945,8 @@ describe('leaveClub', () => {
 			.withIdentity({ subject: 'guide-user-0' })
 			.mutation(api.clubs.leaveClub, { clubId });
 
-		const preview = await t.query(api.clubs.getClubPreviewByCode, { code: 'CLUBCD' });
-		expect(preview).toBeNull();
+		const preview = await t.mutation(api.clubs.lookupClubByCode, { code: 'CLUBCD' });
+		expect(preview).toEqual({ ok: true, club: null });
 
 		await t.run(async (ctx) => {
 			await ctx.db.insert('profiles', {

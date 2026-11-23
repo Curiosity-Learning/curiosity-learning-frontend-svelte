@@ -1,8 +1,7 @@
 import type { PageLoad } from './$types';
 
-export const load: PageLoad = ({ data, params }) => {
+export const load: PageLoad = ({ params }) => {
 	return {
-		...data,
 		code: params.code.toUpperCase()
 	};
 };

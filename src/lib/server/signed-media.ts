@@ -124,6 +124,17 @@ export const getSignedApplicationVideoAsset = async (
 	return signDeliveryAsset(asset as DeliveryAssetRecord | null, config);
 };
 
+// CL-817: the intro video on a join-by-code club preview. The browser looks the club up
+// (lookupClubByCode) and sends back the video's asset id; the asset id is the capability.
+export const getSignedClubVideoAsset = async (
+	convex: ConvexServerClient,
+	assetId: Id<'mediaAssets'>,
+	config?: MediaDeliveryConfig | null
+): Promise<SignedDeliveryAsset | null> => {
+	const asset = await convex.query(api.clubs.getClubVideoDeliveryAsset, { assetId });
+	return signDeliveryAsset(asset as DeliveryAssetRecord | null, config);
+};
+
 export const getSignedProjectMediaAssets = (
 	convex: ConvexServerClient,
 	projectId: Id<'projects'>,
