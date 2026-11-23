@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { accounts, authFile, ids } from './accounts';
-import { signInWithPassword } from './helpers';
+import { main, signInWithPassword } from './helpers';
 
 // Signed out (only the Vercel bypass cookie, if any): a protected page sends the visitor to
 // sign-in with `next`, and signing in returns them to that page.
@@ -13,7 +13,7 @@ test('signing in with email returns to the page that asked for it', async ({ pag
 	await expect(page).toHaveURL(`/auth/sign-in?next=${encodeURIComponent(target)}`);
 	await signInWithPassword(page, accounts.learner, target);
 	await expect(page).toHaveURL(target);
-	await expect(page.locator('main').getByRole('heading', { name: 'Learners' })).toBeVisible();
+	await expect(main(page).getByRole('heading', { name: 'Learners' })).toBeVisible();
 });
 
 test('signing in with a child username returns to the page that asked for it', async ({ page }) => {
@@ -22,7 +22,7 @@ test('signing in with a child username returns to the page that asked for it', a
 	await expect(page).toHaveURL(`/auth/sign-in?next=${encodeURIComponent(target)}`);
 	await signInWithPassword(page, accounts.child, target);
 	await expect(page).toHaveURL(target);
-	await expect(page.locator('main').getByRole('heading', { name: 'Feed', level: 1 })).toBeVisible();
+	await expect(main(page).getByRole('heading', { name: 'Feed', level: 1 })).toBeVisible();
 });
 
 test('a wrong password is refused and stays on sign-in', async ({ page }) => {

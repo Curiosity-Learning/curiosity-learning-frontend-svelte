@@ -43,7 +43,12 @@ export default defineConfig({
 	use: {
 		...devices['Desktop Chrome'],
 		baseURL,
-		trace: 'retain-on-failure'
+		// Traces record request headers, so one taken during the Vercel bypass would write the
+		// secret to disk. Off by default; E2E_TRACE=1 turns them on, never with the secret set.
+		trace:
+			process.env.E2E_TRACE === '1' && !process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+				? 'retain-on-failure'
+				: 'off'
 	},
 	projects: [
 		{ name: 'setup', testMatch: /auth\.setup\.ts$/ },

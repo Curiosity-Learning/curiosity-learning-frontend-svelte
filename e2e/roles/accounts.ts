@@ -25,6 +25,12 @@ export const ids = {
 	parent1LisbonClub: 'k179z4vzp4qeqnbnw88zprsgws8d2ct5',
 	/** Amsterdam club: adult2 is a Guide, cl_e2e_kid_club a Learner. Has sessions and a project. */
 	amsterdamClub: 'k17agxxrytvfnbrvkyrrhegy8n83vbxs',
+	/**
+	 * A seeded pending application ("TEST banner walkthrough", applicant adult2) assigned to
+	 * parent1 for review. It has no `reviewSeasonId`, so it is not in parent1's queue for the
+	 * current season, but its review page opens for them (and only for assigned reviewers).
+	 */
+	reviewedApplication: 'nx72mhqef70zygqkrxja3n09r98dpqt2',
 	/** A past Amsterdam session. */
 	amsterdamSession: 'mh7f4c9yrmakfnehq7fawh1qy98ahd2t',
 	adult1Profile: 'kn77jawjn3rca06e1xw5vf84yd8d21dz',
@@ -72,7 +78,7 @@ export const accounts: Record<RoleKey, RoleAccount> = {
 		passwordEnv: 'E2E_PASSWORD_CLUB_LESS',
 		landingPath: /\/new-club$/
 	},
-	// Guide of a Lisbon club who has had application reviews assigned.
+	// Guide of a Lisbon club with a review assignment (see ids.reviewedApplication).
 	reviewer: {
 		role: 'reviewer',
 		identifier: 'cl-e2e-parent1@mailinator.com',

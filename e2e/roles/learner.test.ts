@@ -27,5 +27,8 @@ test('feeds, a project and profiles render for a learner', async ({ page }) => {
 test('a learner cannot open a club they are not in, or its sessions', async ({ page }) => {
 	await flows.expectClubNotFound(page, ids.amsterdamClub);
 	await page.goto(`/session/${ids.amsterdamSession}/activities`);
-	await expect(main(page).getByRole('tab', { name: 'Attendees' })).toHaveCount(0);
+	await expect(main(page).getByText('Session not found')).toBeVisible();
+	// The session tab bar is part of the route's header and shows either way; the session's own
+	// content must not.
+	await expect(main(page).getByRole('button', { name: 'New activity' })).toHaveCount(0);
 });

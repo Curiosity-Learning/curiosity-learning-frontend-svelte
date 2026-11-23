@@ -32,3 +32,9 @@ test('feeds and profiles render for a child', async ({ page }) => {
 test('a child cannot open a club they are not in', async ({ page }) => {
 	await flows.expectClubNotFound(page, ids.lisbonClub);
 });
+
+test('a child cannot open an application they were not assigned to review', async ({ page }) => {
+	await page.goto(`/applications/review/${ids.reviewedApplication}`);
+	await expect(main(page).getByText("You don't have access to this application.")).toBeVisible();
+	await expect(main(page).getByText('Your review')).toHaveCount(0);
+});

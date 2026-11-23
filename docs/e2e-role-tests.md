@@ -15,14 +15,16 @@ npm run test:e2e:roles              # targets this worktree's URL from .env.loca
 Against a Vercel branch preview:
 
 ```sh
-E2E_BASE_URL=https://<project>-git-<branch>-<team>.vercel.app \
-VERCEL_AUTOMATION_BYPASS_SECRET=<Protection Bypass for Automation secret> \
+E2E_BASE_URL='https://<project>-git-<branch>-<team>.vercel.app' \
+VERCEL_AUTOMATION_BYPASS_SECRET='<Protection Bypass for Automation secret>' \
 npm run test:e2e:roles
 ```
 
 The bypass header is sent once, on a request that sets Vercel's bypass cookie
-(`e2e/roles/helpers.ts`, `primeVercelBypass`). It is not sent on every request, because
-`extraHTTPHeaders` would also send it to Convex and Google and break CORS.
+(`e2e/roles/helpers.ts`, `primeVercelBypass`), and only to an `https://*.vercel.app` base URL. It is not sent on every request, because
+`extraHTTPHeaders` would also send it to Convex and Google and break CORS. Traces are off by
+default because they record request headers; `E2E_TRACE=1` turns them on, and is ignored
+while the bypass secret is set.
 
 On the Mac mini, use Node 24 (`PATH=/opt/homebrew/opt/node@24/bin:$PATH`): under Node 25 a
 failed sign-in through the local auth proxy returns a 500.
@@ -39,7 +41,7 @@ passwords, so it is a local and preview check. `npm test` and `npm run test:e2e:
   https://playwright.dev/docs/auth.
 - The `roles` project depends on `setup`. Each spec starts from its role's saved session.
 - `flows.ts` holds the page visits. Each one checks that the page's main content rendered. It
-  also checks that every visible `<img>` decoded (`naturalWidth > 0`), and that at least N of
+  also checks that every visible `<img>` in the content column (not the header or nav) decoded (`naturalWidth > 0`), and that at least N of
   them are signed CDN media (URLs with `Signature` and `Key-Pair-Id`).
 - The suite only reads data. Its only side effects are sign-ins, which add sessions.
 
@@ -53,10 +55,14 @@ backends copy that data, ids included (`e2e/roles/accounts.ts`).
 | learner    | `cl-e2e-adult1`      | Lisbon club pages, feeds, a project, profiles, settings; no Guide controls; other clubs are not found                   |
 | guide      | `cl-e2e-adult2`      | Amsterdam club with Guide controls, a session and a project; none of those controls in Lisbon, where they are a Learner |
 | parent     | `cl-e2e-parent2`     | Lands on their child's read-only page; club pages redirect there                                                        |
-| child      | `cl_e2e_kid_club`    | Username sign-in; Amsterdam club, a session and a project without Guide controls                                        |
+| child      | `cl_e2e_kid_club`    | Username sign-in; Amsterdam club, a session and a project without Guide controls; no access to an application review    |
 | clubLess   | `cl_e2e_kid_applied` | Lands on `/new-club` with their pending application; club pages redirect there                                          |
-| reviewer   | `cl-e2e-parent1`     | Review queue and review guide; their club                                                                               |
+| reviewer   | `cl-e2e-parent1`     | Review queue (empty, see below), review guide, an assigned application's review page; their club                        |
 | signed out | —                    | Protected page → sign-in with `next` → back to that page (email and username); wrong password                           |
+
+The reviewer's queue is empty on purpose: the review assignments in dev data point at
+applications without a `reviewSeasonId`, so no current-season queue lists them. The assigned
+application's page is opened directly instead.
 
 If the dev data changes (an account loses its club, the Amsterdam sessions are deleted),
 update `accounts.ts` and the expectations with it.

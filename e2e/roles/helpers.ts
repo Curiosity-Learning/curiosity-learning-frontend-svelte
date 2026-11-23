@@ -1,4 +1,4 @@
-import { expect, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { passwordFor, type RoleAccount } from './accounts';
 
 /**
@@ -8,9 +8,27 @@ import { passwordFor, type RoleAccount } from './accounts';
  * Google, the media CDN) ever sees the header, which would break CORS.
  * https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation
  */
+export const isVercelPreviewUrl = (url: string | undefined) => {
+	if (!url) return false;
+	try {
+		const { protocol, hostname } = new URL(url);
+		return protocol === 'https:' && hostname.endsWith('.vercel.app');
+	} catch {
+		return false;
+	}
+};
+
 export const primeVercelBypass = async (context: BrowserContext) => {
 	const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 	if (!secret) return;
+	// Only ever hand the secret to an HTTPS Vercel preview, never to localhost or another host.
+	const baseURL = test.info().project.use.baseURL;
+	if (!isVercelPreviewUrl(baseURL)) {
+		throw new Error(
+			`VERCEL_AUTOMATION_BYPASS_SECRET is set but the base URL (${baseURL}) is not an ` +
+				'https://*.vercel.app preview. Unset the secret, or point E2E_BASE_URL at the preview.'
+		);
+	}
 	const response = await context.request.get('/auth/sign-in', {
 		headers: {
 			'x-vercel-protection-bypass': secret,
@@ -44,27 +62,30 @@ const isSignedMediaUrl = (src: string) =>
 /**
  * Every visible `<img>` on the page must have decoded (`naturalWidth > 0`), and at least
  * `minSigned` of them must be signed CDN media. Hidden images (an avatar whose fallback took
- * over) are skipped: the user never sees them.
+ * over) are skipped: the user never sees them. Only images in the content column count, so the
+ * shell's header and nav can neither mask nor fail a page's content images.
  */
 export const expectImagesLoaded = async (page: Page, { minSigned = 0 } = {}) => {
 	const report = async (): Promise<ImageReport> => {
-		const images = await page.locator('img').evaluateAll((nodes) =>
-			nodes.map((node) => {
-				const img = node as HTMLImageElement;
-				const rect = img.getBoundingClientRect();
-				const style = window.getComputedStyle(img);
-				return {
-					src: img.currentSrc || img.src,
-					visible:
-						rect.width > 0 &&
-						rect.height > 0 &&
-						style.visibility !== 'hidden' &&
-						style.display !== 'none',
-					complete: img.complete,
-					naturalWidth: img.naturalWidth
-				};
-			})
-		);
+		const images = await content(page)
+			.locator('img')
+			.evaluateAll((nodes) =>
+				nodes.map((node) => {
+					const img = node as HTMLImageElement;
+					const rect = img.getBoundingClientRect();
+					const style = window.getComputedStyle(img);
+					return {
+						src: img.currentSrc || img.src,
+						visible:
+							rect.width > 0 &&
+							rect.height > 0 &&
+							style.visibility !== 'hidden' &&
+							style.display !== 'none',
+						complete: img.complete,
+						naturalWidth: img.naturalWidth
+					};
+				})
+			);
 		const visible = images.filter((image) => image.visible && image.src);
 		return {
 			pending: visible.filter((image) => !image.complete).length,
@@ -92,10 +113,26 @@ export const expectImagesLoaded = async (page: Page, { minSigned = 0 } = {}) => 
 	expect(broken, 'visible images that failed to load').toEqual([]);
 };
 
-/** The main column of the app shell, which every signed-in page renders into. */
-export const main = (page: Page) => page.locator('main');
+/**
+ * The page: the root layout's `<main id="main-content">`, which wraps the app shell. Page
+ * titles, tab bars and actions (e.g. "Create session") render into the shell header, so UI
+ * assertions use this.
+ */
+export const main = (page: Page) => page.locator('#main-content');
 
-/** Waits until no "Loading …" placeholder is left in the main column. */
+/**
+ * The content column only (the app shell's own `<main>`, the innermost one), without the
+ * header and nav. Image checks are scoped to it.
+ */
+export const content = (page: Page) => page.locator('main:not(:has(main))');
+
+/**
+ * Waits until no loading placeholder is left in the main column: "Loading …" text, or a
+ * spinner / `LoadingState` that only names itself through `aria-label`.
+ */
 export const expectLoaded = async (page: Page) => {
-	await expect(main(page).getByText(/^Loading\b/)).toHaveCount(0, { timeout: 15_000 });
+	await expect(content(page).getByText(/^Loading\b/)).toHaveCount(0, { timeout: 15_000 });
+	await expect(content(page).locator('[aria-label*="Loading" i]')).toHaveCount(0, {
+		timeout: 15_000
+	});
 };
