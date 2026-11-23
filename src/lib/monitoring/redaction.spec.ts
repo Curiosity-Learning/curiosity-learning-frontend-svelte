@@ -252,16 +252,19 @@ describe('monitoring redaction', () => {
 	});
 
 	it('reads unterminated quoted names in linear time', () => {
-		for (const input of [
-			`username "${'\\'.repeat(50)}`,
+		const inputs = [
+			`username \\"${'\\'.repeat(50)}`,
 			`{\\"firstName\\":\\"${'\\'.repeat(50)}`,
+			`username "${'\\'.repeat(50)}`,
 			`display name "${'\\"'.repeat(5000)}`
-		]) {
+		];
+		const redacted = inputs.map((input) => {
 			const started = performance.now();
-			const redacted = redactText(input);
+			const result = redactText(input);
 			expect(performance.now() - started).toBeLessThan(20);
-			expect(redacted).toContain('[Redacted name]');
-		}
+			return result;
+		});
+		for (const result of redacted) expect(result).toContain('[Redacted name]');
 	});
 
 	it('redacts an unterminated quoted name up to the end of its line', () => {
