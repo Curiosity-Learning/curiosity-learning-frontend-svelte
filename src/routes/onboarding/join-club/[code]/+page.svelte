@@ -13,6 +13,7 @@
 	import { _, t } from '$lib/i18n';
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
+	import { takeClubCodeLookup } from '$lib/domain/club-code-lookup-handoff';
 	import { routes } from '$lib/routes';
 	import { navigateBack } from '$lib/navigation/back';
 	import { formatScheduleSlot } from '$lib/domain/schedule';
@@ -87,7 +88,10 @@
 		clubVideo = null;
 		void (async () => {
 			try {
-				const result = await convexClient.mutation(api.clubs.lookupClubByCode, { code });
+				// Coming from the join-club form, which already looked this code up (CL-817).
+				const result =
+					takeClubCodeLookup(code) ??
+					(await convexClient.mutation(api.clubs.lookupClubByCode, { code }));
 				if (cancelled) return;
 				if (!result.ok) {
 					lookup = { status: 'rateLimited' };

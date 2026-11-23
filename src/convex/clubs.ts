@@ -26,6 +26,7 @@ import { dispatchNotification, notifyGuidesOfNewMember } from './notificationsMo
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 import { consumeClubCodeLookup } from './rateLimiter';
 import { dayOfWeekValidator, isEndTimeAfterStartTime, isValidTimeString } from './scheduleModel';
+import { mediaKindValidator, mediaStorageProviderValidator } from './mediaModel';
 import {
 	addNewGuideToClubsCocGroup,
 	assignClubToCocGroup,
@@ -387,6 +388,52 @@ export const getMyClubSwitcherItems = query({
 	}
 });
 
+const nullable = <T extends Parameters<typeof v.union>[0]>(validator: T) =>
+	v.union(validator, v.null());
+
+const clubScheduleSlotDocValidator = v.object({
+	_id: v.id('clubScheduleSlots'),
+	_creationTime: v.number(),
+	clubId: v.id('clubs'),
+	dayOfWeek: dayOfWeekValidator,
+	startTime: v.string(),
+	endTime: v.string(),
+	location: v.string(),
+	createdAt: v.number(),
+	updatedAt: v.number()
+});
+
+const clubCodePreviewValidator = v.object({
+	success: v.literal(true),
+	id: v.id('clubs'),
+	name: v.string(),
+	description: nullable(v.string()),
+	videoMediaAssetId: nullable(v.id('mediaAssets')),
+	videoUrl: nullable(v.string()),
+	location: nullable(v.string()),
+	locationLatitude: nullable(v.number()),
+	locationLongitude: nullable(v.number()),
+	scheduleSlots: v.array(clubScheduleSlotDocValidator),
+	memberCount: v.number(),
+	createdAt: v.number(),
+	code: v.string()
+});
+
+const lookupClubByCodeResultValidator = v.union(
+	v.object({ ok: v.literal(true), club: nullable(clubCodePreviewValidator) }),
+	v.object({ ok: v.literal(false), error: v.literal('rate_limited') })
+);
+
+const clubVideoDeliveryAssetValidator = v.object({
+	assetId: v.id('mediaAssets'),
+	storageProvider: mediaStorageProviderValidator,
+	deliveryBucket: nullable(v.string()),
+	deliveryObjectKey: nullable(v.string()),
+	mediaKind: mediaKindValidator,
+	contentType: nullable(v.string()),
+	durationSeconds: nullable(v.number())
+});
+
 const getClubPreviewForCode = async (ctx: MutationCtx, rawCode: string) => {
 	const normalizedCode = normalizeInviteCode(rawCode);
 	if (!INVITE_CODE_PATTERN.test(normalizedCode)) {
@@ -405,7 +452,7 @@ const getClubPreviewForCode = async (ctx: MutationCtx, rawCode: string) => {
 		.collect();
 
 	return {
-		success: true,
+		success: true as const,
 		id: club._id,
 		name: club.name,
 		description: club.description ?? null,
@@ -431,6 +478,7 @@ export const lookupClubByCode = mutation({
 	args: {
 		code: v.string()
 	},
+	returns: lookupClubByCodeResultValidator,
 	handler: async (ctx, args) => {
 		if (!(await consumeClubCodeLookup(ctx))) {
 			return { ok: false as const, error: 'rate_limited' as const };
@@ -508,6 +556,7 @@ export const getClubVideoDeliveryAsset = query({
 	args: {
 		assetId: v.id('mediaAssets')
 	},
+	returns: nullable(clubVideoDeliveryAssetValidator),
 	handler: async (ctx, args) => {
 		const club = await ctx.db
 			.query('clubs')
@@ -527,7 +576,7 @@ export const getClubVideoDeliveryAsset = query({
 			storageProvider: asset.storageProvider,
 			deliveryBucket: asset.processedBucket ?? asset.sourceBucket ?? null,
 			deliveryObjectKey: asset.processedObjectKey ?? asset.sourceObjectKey ?? null,
-			mediaKind: asset.mediaKind ?? null,
+			mediaKind: asset.mediaKind,
 			contentType: asset.contentType ?? null,
 			durationSeconds: asset.durationSeconds ?? null
 		};

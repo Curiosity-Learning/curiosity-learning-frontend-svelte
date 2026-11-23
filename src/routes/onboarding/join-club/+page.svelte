@@ -16,6 +16,7 @@
 	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { api } from '$convex/_generated/api';
+	import { handOffClubCodeLookup } from '$lib/domain/club-code-lookup-handoff';
 	import {
 		type MapboxBoundingBox,
 		type MapboxCoordinates,
@@ -256,6 +257,8 @@
 				codeError = t('onboarding.joinClub.notFound');
 				return;
 			}
+			// The preview page reuses this result rather than looking the code up again.
+			handOffClubCodeLookup(joinedCode, lookup);
 			await goto(`${joinClubPath}/${joinedCode}`);
 		} catch {
 			codeError = t('onboarding.joinClub.validateFailure');

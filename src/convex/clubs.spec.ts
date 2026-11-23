@@ -1,7 +1,8 @@
 import { convexTest } from 'convex-test';
 import rateLimiterTest from '@convex-dev/rate-limiter/test';
+import betterAuthTest from '@convex-dev/better-auth/test';
 import { describe, expect, it } from 'vitest';
-import { api } from './_generated/api';
+import { api, components } from './_generated/api';
 import schema from './schema';
 import type { Id } from './_generated/dataModel';
 
@@ -954,5 +955,83 @@ describe('leaveClub', () => {
 			.withIdentity({ subject: 'joiner-user' })
 			.mutation(api.clubs.joinClubWithCode, { code: 'CLUBCD' });
 		expect(joinResult).toEqual({ ok: false, error: 'invalid_code' });
+	});
+});
+
+// CL-817 QA: completeSignupProfile resolves a club code from nextPath and getMine then reveals the
+// match, so it is a code lookup too and must use up the same per-caller limit.
+describe('completeSignupProfile with a club code in nextPath', () => {
+	const signedUpUser = async (code = 'REALCD') => {
+		const { t, clubId } = await seedClubPermissionFixture();
+		betterAuthTest.register(t);
+		await t.run(async (ctx) => {
+			await ctx.db.patch(clubId, { clubCode: code });
+		});
+		const now = Date.now();
+		const authUser = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'user',
+				data: {
+					email: 'joiner@example.com',
+					emailVerified: true,
+					name: 'Joiner Person',
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		const session = (await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'session',
+				data: {
+					token: 'joiner-session',
+					userId: authUser._id,
+					expiresAt: now + 24 * 60 * 60 * 1000,
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		})) as { _id: string };
+		return {
+			t,
+			clubId,
+			user: t.withIdentity({ subject: authUser._id, sessionId: session._id })
+		};
+	};
+
+	it('remembers the club for a normal signup', async () => {
+		const { clubId, user } = await signedUpUser();
+		await user.mutation(api.auth.completeSignupProfile, {
+			signUpWith: 'email',
+			nextPath: '/onboarding/join-club/realcd'
+		});
+		expect(await user.query(api.pendingClubJoins.getMine, {})).toEqual({
+			clubId,
+			source: 'code'
+		});
+	});
+
+	it('throttles repeated probes, so getMine cannot be used to guess codes', async () => {
+		const { user } = await signedUpUser();
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			await user.mutation(api.auth.completeSignupProfile, {
+				signUpWith: 'email',
+				nextPath: `/onboarding/join-club/GUES${String(attempt).padStart(2, '0')}`
+			});
+			expect(await user.query(api.pendingClubJoins.getMine, {})).toBeNull();
+		}
+
+		// The 21st probe hits the real code, but the limit is used up: signup still succeeds and
+		// nothing about the club is revealed.
+		const profile = await user.mutation(api.auth.completeSignupProfile, {
+			signUpWith: 'email',
+			nextPath: '/onboarding/join-club/REALCD'
+		});
+		expect(profile).not.toBeNull();
+		expect(await user.query(api.pendingClubJoins.getMine, {})).toBeNull();
+		expect(await user.mutation(api.clubs.lookupClubByCode, { code: 'REALCD' })).toEqual({
+			ok: false,
+			error: 'rate_limited'
+		});
 	});
 });
