@@ -250,4 +250,45 @@ describe('monitoring redaction', () => {
 	it('sets infer_ip never on events that have no sdk block', () => {
 		expect(redactSentryEvent({ type: undefined }).sdk?.settings?.infer_ip).toBe('never');
 	});
+
+	it('reads unterminated quoted names in linear time', () => {
+		for (const input of [
+			`username "${'\\'.repeat(50)}`,
+			`{\\"firstName\\":\\"${'\\'.repeat(50)}`,
+			`display name "${'\\"'.repeat(5000)}`
+		]) {
+			const started = performance.now();
+			const redacted = redactText(input);
+			expect(performance.now() - started).toBeLessThan(20);
+			expect(redacted).toContain('[Redacted name]');
+		}
+	});
+
+	it('redacts an unterminated quoted name up to the end of its line', () => {
+		expect(redactText('username "Ava Brown\nnext line')).toBe(
+			'username "[Redacted name]"\nnext line'
+		);
+	});
+
+	it('redacts ui breadcrumb labels that contain " > "', () => {
+		expect(
+			redactSentryBreadcrumb({
+				category: 'ui.click',
+				message: 'button[aria-label="Remove ["Ava"] > Brown"]'
+			}).message
+		).toBe('button[aria-label="[Redacted]"]');
+		expect(
+			redactSentryBreadcrumb({
+				category: 'ui.click',
+				message: 'div.row > button[aria-label="Remove ["Ava"] > Brown"][type="button"] > span.x'
+			}).message
+		).toBe('div.row > button[aria-label="[Redacted]"][type="button"] > span.x');
+	});
+
+	it('redacts the rest of a ui breadcrumb when a label never closes', () => {
+		expect(
+			redactSentryBreadcrumb({ category: 'ui.click', message: 'button[aria-label="Ava Brown' })
+				.message
+		).toBe('button[aria-label="[Redacted]"]');
+	});
 });

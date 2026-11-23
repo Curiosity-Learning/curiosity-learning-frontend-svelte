@@ -25,22 +25,85 @@ const USERNAME_LABEL = 'user[ _-]?name';
 const PERSON_NAME_LABEL =
 	"(?:display[ _-]?name|first[ _-]?name|last[ _-]?name|full[ _-]?name|given[ _-]?name|family[ _-]?name|nick[ _-]?name|preferred[ _-]?name|(?:child|parent|guardian)(?:'s)?[ _-]?name)";
 const NAME_LABEL = `(?:${USERNAME_LABEL}|${PERSON_NAME_LABEL})`;
-// After the label: an optional closing quote of a JSON key (`"firstName"` or, inside a string
-// that holds JSON, `\"firstName\"`), then `:` or `=`.
-const LABEL_TAIL = '(?:\\\\?")?\\s*[:=]?\\s*';
-// A quoted value. Escaped quotes inside it (`"Ava \"A\" B"`) are part of the value. A value
-// quoted with `\"` (JSON inside a string) ends at the next `\"` that is not part of a
-// double-escaped inner quote (`\\\"`) or an escaped backslash (`\\`).
-const QUOTED_VALUE = [
-	String.raw`\\"(?:\\\\\\"|\\\\|[^\\\n]|\\(?!"))*\\"`,
-	String.raw`"(?:[^"\\\n]|\\.)*"`,
-	String.raw`'(?:[^'\\\n]|\\.)*'`,
-	'“[^”\\n]*”'
-].join('|');
-const LABELLED_QUOTED_NAME_PATTERN = new RegExp(
-	`(\\b${NAME_LABEL}${LABEL_TAIL})(?:${QUOTED_VALUE})`,
+// A label followed by an optional closing quote of a JSON key (`"firstName"` or, inside a
+// string that holds JSON, `\"firstName\"`), then `:` or `=`. Only the label is matched by a
+// regex; the quoted value after it is read by scanQuotedValue, which never backtracks.
+const LABEL_BEFORE_QUOTE_PATTERN = new RegExp(
+	`\\b${NAME_LABEL}(?:\\\\?")?[ \\t]*[:=]?[ \\t]*`,
 	'gi'
 );
+
+/**
+ * Reads the quoted value that starts at `start`, in one pass (O(n), no regex). Returns the
+ * index just past its closing quote and the opening it used, or null when `start` is not a
+ * quote. An unterminated value runs to the end of the line, so it is still redacted.
+ * - `"…"` and `'…'`: a backslash escapes the next character, so `"Ava \"A\" B"` is one value.
+ * - `\"…\"` (JSON inside a string): `\\\"` is a double-escaped inner quote and `\\` an escaped
+ *   backslash; the value ends at the next other `\"`.
+ * - `“…”`: ends at `”`.
+ */
+const scanQuotedValue = (text: string, start: number): { end: number; open: string } | null => {
+	const lineEnd = (from: number) => {
+		const newline = text.indexOf('\n', from);
+		return newline === -1 ? text.length : newline;
+	};
+	const first = text[start];
+	if (first === '\\' && text[start + 1] === '"') {
+		let i = start + 2;
+		while (i < text.length && text[i] !== '\n') {
+			if (text[i] !== '\\') {
+				i += 1;
+			} else if (text[i + 1] === '"') {
+				return { end: i + 2, open: '\\"' };
+			} else if (text[i + 1] === '\\') {
+				// `\\\"` is an inner quote, `\\` an escaped backslash: both stay in the value.
+				i += text[i + 2] === '\\' && text[i + 3] === '"' ? 4 : 2;
+			} else {
+				i += 1;
+			}
+		}
+		return { end: lineEnd(i), open: '\\"' };
+	}
+	if (first === '"' || first === "'") {
+		let i = start + 1;
+		while (i < text.length && text[i] !== '\n') {
+			if (text[i] === '\\') {
+				i += 2;
+			} else if (text[i] === first) {
+				return { end: i + 1, open: '"' };
+			} else {
+				i += 1;
+			}
+		}
+		return { end: lineEnd(Math.min(i, text.length)), open: '"' };
+	}
+	if (first === '“') {
+		const close = text.indexOf('”', start + 1);
+		const end = lineEnd(start + 1);
+		return { end: close !== -1 && close < end ? close + 1 : end, open: '"' };
+	}
+	return null;
+};
+
+const redactLabelledQuotedNames = (text: string) => {
+	let result = '';
+	let copiedTo = 0;
+	LABEL_BEFORE_QUOTE_PATTERN.lastIndex = 0;
+	for (let match = LABEL_BEFORE_QUOTE_PATTERN.exec(text); match; ) {
+		const valueStart = match.index + match[0].length;
+		const value = scanQuotedValue(text, valueStart);
+		if (value) {
+			// Keep `\"` quoting so JSON held inside a string stays valid.
+			result += `${text.slice(copiedTo, valueStart)}${value.open}[Redacted name]${value.open}`;
+			copiedTo = value.end;
+			LABEL_BEFORE_QUOTE_PATTERN.lastIndex = value.end;
+		} else if (match[0].length === 0) {
+			LABEL_BEFORE_QUOTE_PATTERN.lastIndex += 1;
+		}
+		match = LABEL_BEFORE_QUOTE_PATTERN.exec(text);
+	}
+	return result + text.slice(copiedTo);
+};
 // An unquoted person's name runs to the next delimiter, so `full name: Ava Brown` loses the
 // surname too. It also stops before a word that starts another `key:` / `key=` pair. An
 // unquoted username is one word.
@@ -55,11 +118,37 @@ const LABELLED_BARE_USERNAME_PATTERN = new RegExp(
 	'gi'
 );
 // Element attributes Sentry copies into ui.click / ui.input breadcrumbs, whose values can be
-// a label such as "Remove Ava from club". Sentry does not escape quotes in the value
-// (`[aria-label="Remove ["Ava"] Brown"]`), so the value runs to the quote and `]` that end
-// the attribute: the ones followed by the next attribute, a ` > ` step or the end.
-const ELEMENT_TEXT_ATTRIBUTE_PATTERN =
-	/(\[(?:aria-label|title|alt)=)(["'])[\s\S]*?\2(\])(?=\[|\s+>\s|\s*$)/gi;
+// a label such as "Remove Ava from club". Sentry builds the selector as `tag#id.class[attr="v"]`
+// steps joined by ` > ` and does not escape the value, so `Remove ["Ava"] > Brown` can appear
+// inside it. The value therefore ends only at a quote and `]` after which the rest of the
+// selector still parses: the end, another `[attr=`, or ` > ` and a step whose tag name is
+// followed by `#`, `.`, `[`, ` > ` or the end. If no such closer exists, the rest is redacted.
+const ELEMENT_TEXT_ATTRIBUTE_PATTERN = /\[(?:aria-label|title|alt)=(["'])/gi;
+const SELECTOR_CONTINUATION_PATTERN = /$|\[[\w-]+=| > [a-z][\w-]*(?:[#.[]| > |$)/iy;
+
+const redactElementTextAttributes = (selector: string) => {
+	let result = '';
+	let copiedTo = 0;
+	ELEMENT_TEXT_ATTRIBUTE_PATTERN.lastIndex = 0;
+	for (let match = ELEMENT_TEXT_ATTRIBUTE_PATTERN.exec(selector); match; ) {
+		const quote = match[1];
+		const valueStart = match.index + match[0].length;
+		let end = selector.length;
+		for (let close = selector.indexOf(`${quote}]`, valueStart); close !== -1; ) {
+			SELECTOR_CONTINUATION_PATTERN.lastIndex = close + 2;
+			if (SELECTOR_CONTINUATION_PATTERN.test(selector)) {
+				end = close + 2;
+				break;
+			}
+			close = selector.indexOf(`${quote}]`, close + 1);
+		}
+		result += `${selector.slice(copiedTo, match.index)}${match[0].slice(0, -1)}"[Redacted]"]`;
+		copiedTo = end;
+		ELEMENT_TEXT_ATTRIBUTE_PATTERN.lastIndex = end;
+		match = ELEMENT_TEXT_ATTRIBUTE_PATTERN.exec(selector);
+	}
+	return result + selector.slice(copiedTo);
+};
 
 const sanitizeUrl = (value: string) => {
 	try {
@@ -74,14 +163,7 @@ const sanitizeUrl = (value: string) => {
 };
 
 export const redactText = (value: string) =>
-	value
-		.replace(EMAIL_PATTERN, '[Redacted email]')
-		.replace(LABELLED_QUOTED_NAME_PATTERN, (match, label: string) =>
-			// Keep `\"` quoting so JSON held inside a string stays valid.
-			match.slice(label.length).startsWith('\\"')
-				? `${label}\\"[Redacted name]\\"`
-				: `${label}"[Redacted name]"`
-		)
+	redactLabelledQuotedNames(value.replace(EMAIL_PATTERN, '[Redacted email]'))
 		.replace(LABELLED_BARE_NAME_PATTERN, '$1[Redacted name]')
 		.replace(LABELLED_BARE_USERNAME_PATTERN, '$1[Redacted name]')
 		.replace(SENSITIVE_PATH_PATTERN, '$1[Redacted]')
@@ -125,7 +207,7 @@ const scrubUiBreadcrumb = (breadcrumb: Breadcrumb): Breadcrumb => {
 	) {
 		return {
 			...breadcrumb,
-			message: breadcrumb.message.replace(ELEMENT_TEXT_ATTRIBUTE_PATTERN, '$1"[Redacted]"$3')
+			message: redactElementTextAttributes(breadcrumb.message)
 		};
 	}
 	return breadcrumb;
