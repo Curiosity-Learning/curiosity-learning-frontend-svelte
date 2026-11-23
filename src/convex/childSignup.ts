@@ -47,10 +47,11 @@ const CONSENT_EXPIRY_MS = 90 * 24 * 60 * 60 * 1000;
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
-const normalizeEmail = (value: string) => value.trim().toLowerCase();
+export const normalizeEmail = (value: string) => value.trim().toLowerCase();
+export const isValidParentEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const normalizeInviteCode = (value: string) => value.trim().toUpperCase();
 
-const createConsentToken = () => {
+export const createConsentToken = () => {
 	const bytes = crypto.getRandomValues(new Uint8Array(24));
 	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
@@ -64,7 +65,15 @@ const getPendingJoinCode = (nextPath?: string) => {
 	return INVITE_CODE_PATTERN.test(code) ? code : null;
 };
 
-const sendParentConsentEmail = async (args: {
+export const parentConsentUrl = (token: string) => {
+	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
+	if (!baseUrl) {
+		throw new Error('BETTER_AUTH_URL or PUBLIC_CONVEX_SITE_URL is required for consent links');
+	}
+	return `${baseUrl}/onboarding/parent-consent/${token}`;
+};
+
+export const sendParentConsentEmail = async (args: {
 	parentEmail: string;
 	childUsername: string;
 	consentUrl: string;
@@ -110,7 +119,7 @@ export const registerChild = action({
 					'Username can only contain lowercase letters, numbers, and underscores'
 				);
 			}
-			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) {
+			if (!isValidParentEmail(parentEmail)) {
 				throw new ConvexError('A valid parent email is required');
 			}
 			if (args.password.length < 8) {
@@ -129,14 +138,10 @@ export const registerChild = action({
 				startClubApplicationDraft: args.startClubApplicationDraft
 			});
 
-			const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.PUBLIC_CONVEX_SITE_URL;
-			if (!baseUrl) {
-				throw new Error('BETTER_AUTH_URL or PUBLIC_CONVEX_SITE_URL is required for consent links');
-			}
 			await sendParentConsentEmail({
 				parentEmail,
 				childUsername: username,
-				consentUrl: `${baseUrl}/onboarding/parent-consent/${token}`
+				consentUrl: parentConsentUrl(token)
 			});
 			return { success: true };
 		} catch (error) {

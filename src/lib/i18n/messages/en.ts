@@ -256,6 +256,28 @@ const en = {
 		description: 'Sign in to continue your club experience.'
 	},
 	auth: {
+		pendingConsent: {
+			title: 'Waiting for your parent',
+			sentTo: 'We sent an approval link to {email}.',
+			hint: 'Ask them to check their inbox and spam folder. Wrong address? Change it here.',
+			resend: 'Resend email',
+			change: 'Change parent email',
+			newEmailLabel: "Parent or guardian's email",
+			sendToNewEmail: 'Send to this address',
+			cancel: 'Cancel',
+			sending: 'Sending...',
+			resent: 'We sent the approval link to {email} again.',
+			changed:
+				'We sent a new approval link to {email}. The link in the earlier email no longer works.',
+			notSentTitle: 'No email was sent',
+			rateLimitedHour: 'Too many emails were sent in the last hour. Try again in an hour.',
+			rateLimitedDay: 'The limit for approval emails today is reached. Try again tomorrow.',
+			invalidEmail: 'Enter a valid email address.',
+			sendFailed: 'Something went wrong while sending. Try again in a few minutes.',
+			tooManyAttempts: 'Too many tries. Wait 15 minutes and try again.',
+			alreadyApproved: 'Your parent has already approved your account. You can log in now.',
+			genericError: 'Something went wrong. Please try again.'
+		},
 		errors: {
 			serverError: 'Something went wrong on our end. Please try again.',
 			networkError: 'Unable to connect. Please check your internet and try again.',

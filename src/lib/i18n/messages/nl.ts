@@ -261,6 +261,30 @@ const nl = {
 		description: 'Log in om verder te gaan met je clubervaring.'
 	},
 	auth: {
+		pendingConsent: {
+			title: 'Wachten op je ouder',
+			sentTo: 'We hebben een goedkeuringslink gestuurd naar {email}.',
+			hint: 'Vraag of ze hun inbox en spammap bekijken. Verkeerd adres? Pas het hier aan.',
+			resend: 'E-mail opnieuw sturen',
+			change: 'E-mailadres ouder wijzigen',
+			newEmailLabel: 'E-mailadres van ouder of voogd',
+			sendToNewEmail: 'Naar dit adres sturen',
+			cancel: 'Annuleren',
+			sending: 'Bezig met versturen...',
+			resent: 'We hebben de goedkeuringslink opnieuw naar {email} gestuurd.',
+			changed:
+				'We hebben een nieuwe goedkeuringslink naar {email} gestuurd. De link in de eerdere e-mail werkt niet meer.',
+			notSentTitle: 'Er is geen e-mail verstuurd',
+			rateLimitedHour:
+				'Er zijn het afgelopen uur te veel e-mails verstuurd. Probeer het over een uur opnieuw.',
+			rateLimitedDay:
+				'Het maximum aantal goedkeuringsmails voor vandaag is bereikt. Probeer het morgen opnieuw.',
+			invalidEmail: 'Vul een geldig e-mailadres in.',
+			sendFailed: 'Er ging iets mis bij het versturen. Probeer het over een paar minuten opnieuw.',
+			tooManyAttempts: 'Te veel pogingen. Wacht 15 minuten en probeer het opnieuw.',
+			alreadyApproved: 'Je ouder heeft je account al goedgekeurd. Je kunt nu inloggen.',
+			genericError: 'Er ging iets mis. Probeer het opnieuw.'
+		},
 		signIn: {
 			title: 'Log in',
 			illustrationAlt: 'Illustratie voor inloggen',
