@@ -2,14 +2,13 @@ import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import {
-	action,
 	internalMutation,
 	internalQuery,
-	mutation,
 	query,
 	type MutationCtx,
 	type QueryCtx
 } from './_generated/server';
+import { action, mutation } from './functions';
 import { buildMediaObjectKey } from './mediaStorage';
 import {
 	MEDIA_PIPELINE_VERSION,

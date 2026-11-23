@@ -4,13 +4,12 @@ import { internal } from './_generated/api';
 import { components } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import {
-	action,
 	internalAction,
 	internalMutation,
 	internalQuery,
-	mutation,
 	query
 } from './_generated/server';
+import { action, mutation } from './functions';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { syntheticEmailForUsername } from './childAccounts';
 import { sendEmail } from './email/resend';

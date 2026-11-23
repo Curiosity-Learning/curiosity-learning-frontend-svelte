@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
-import { mutation } from './_generated/server';
-import { getProfileByAuthUserId, requireIdentity } from './permissions';
+import { parentScopedMutation } from './functions';
+import { getProfileByAuthUserId, requireRealIdentity } from './permissions';
 import { isRateLimited, recordRateLimitAttempt } from './rateLimiting';
 
 // PRD 6.15.1/6.15.2: any authenticated user can report a chat message, project update, user, or
@@ -42,7 +42,7 @@ const profileDisplayName = (profile: {
 const truncate = (value: string, maxLength: number) =>
 	value.length > maxLength ? `${value.slice(0, maxLength).trimEnd()}...` : value;
 
-export const submitReport = mutation({
+export const submitReport = parentScopedMutation({
 	args: {
 		category: reportCategoryValidator,
 		description: v.optional(v.string()),
@@ -51,7 +51,9 @@ export const submitReport = mutation({
 		contextText: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
-		const identity = await requireIdentity(ctx);
+		// CL-801: parent-scoped. A parent viewing as their child reports as themselves (PRD: parents
+		// can report issues), so this reads the real identity, never the child's.
+		const identity = await requireRealIdentity(ctx);
 		// PRD 6.14.7 (CL-730): deliberately bypasses `requireProfile`'s suspension gate — the
 		// account-suspended blocking screen must keep "Report Issue" reachable, so a suspended
 		// user must still be able to submit a report.

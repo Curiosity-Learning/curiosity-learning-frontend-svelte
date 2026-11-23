@@ -259,8 +259,8 @@ describe('setChildNotificationEmail: pending address and its confirmation email'
 		expect(notice.text).toContain(
 			"kiddo's notification emails will go to kiddo@example.com once kiddo confirms it."
 		);
-		expect(notice.text).toContain("Not you? Open kiddo's page to undo.");
-		expect(notice.text).toContain(`https://app.example.com/child/${childProfileId}`);
+		expect(notice.text).toContain("Not you? Open kiddo's email settings to undo.");
+		expect(notice.text).toContain(`https://app.example.com/child/${childProfileId}?settings=emails`);
 		expect(notice.text).not.toMatch(/auth\/link|magic-link/);
 		expect(notice.html).not.toMatch(/auth\/link|magic-link/);
 

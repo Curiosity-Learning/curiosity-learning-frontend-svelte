@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { httpAction, internalMutation, mutation, query } from './_generated/server';
+import { httpAction, internalMutation, query } from './_generated/server';
+import { mutation } from './functions';
 import { internal } from './_generated/api';
 
 // CL-770: unsubscribe for non-essential email (today only application reminders). Before this

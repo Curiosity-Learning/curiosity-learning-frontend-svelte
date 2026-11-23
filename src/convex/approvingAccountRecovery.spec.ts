@@ -146,9 +146,7 @@ describe('requestApprovingAccountSignInLink (review S9)', () => {
 		expect(result).toEqual({ status: 'requested' });
 		expect(JSON.stringify(result)).not.toMatch(/parent@|p…@/);
 		// The account B is not linked, and stays unlinked: the link signs in as A.
-		await expect(
-			other.query(api.parentAccounts.getChildOverview, { childProfileId })
-		).rejects.toThrow('You do not have access to this child account');
+		expect(await other.query(api.parentAccounts.getMyLinkedChildren, {})).toEqual([]);
 
 		await settle(t);
 		const emails = sent();

@@ -26,7 +26,7 @@
 // copy carries a one-time sign-in link.
 //
 // What stays per RECIPIENT, not per audience, is the read watermark: only the child reading the
-// room counts. A parent viewing the child's chats (/child/[id]) never marks anything read
+// room counts. A parent viewing as the child (CL-801) never marks anything read (writes are refused)
 // (review edge case 7, accepted): the parent copy repeats at most once per 12h window while the
 // child leaves the batch unread, like the child's own copy.
 //

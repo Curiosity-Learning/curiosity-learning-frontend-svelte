@@ -26,3 +26,13 @@ export const hasErrorCode = (error: unknown, code: string) => {
 	const message = (error as { message?: unknown }).message;
 	return typeof message === 'string' && message.includes(code);
 };
+
+// CL-801: a parent's settings for a child (the child's notification email, the parent's own
+// copies) live in the parent's Settings ("Your children" card, #child-notifications). Emails link
+// there through /child/{id}?settings=emails, which first switches the session back to the parent
+// in case it was viewing as a child, then opens that card.
+export const CHILD_SETTINGS_PARAM = 'settings';
+export const CHILD_SETTINGS_EMAILS_VALUE = 'emails';
+export const CHILD_NOTIFICATIONS_ANCHOR = 'child-notifications';
+export const childEmailSettingsPath = (childProfileId: string) =>
+	`/child/${childProfileId}?${CHILD_SETTINGS_PARAM}=${CHILD_SETTINGS_EMAILS_VALUE}`;

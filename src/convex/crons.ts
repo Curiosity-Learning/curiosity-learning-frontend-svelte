@@ -136,6 +136,22 @@ export const runDailyMaintenance = internalAction({
 			});
 		}
 
+		try {
+			// Parent "View as Child" rows whose login session can no longer exist (viewAs.ts).
+			let deleted = 0;
+			for (let page = 0; page < MAX_EXPIRED_VERIFICATION_PAGES; page++) {
+				const result = await ctx.runMutation(internal.viewAs.deleteStaleViewSessions, {});
+				deleted += result.deleted;
+				if (!result.hasMore) break;
+			}
+			console.log('cron:runDailyMaintenance:deleteStaleViewSessions', { deleted });
+		} catch (error) {
+			await reportConvexError(error, {
+				area: 'auth',
+				operation: 'crons:runDailyMaintenance:deleteStaleViewSessions'
+			});
+		}
+
 		return null;
 	}
 });

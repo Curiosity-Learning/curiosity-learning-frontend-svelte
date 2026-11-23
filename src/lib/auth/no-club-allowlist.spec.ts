@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { clubLessLandingPath, isNoClubAllowedPath } from './no-club-allowlist';
 
 describe('club-less landing (edge case 14)', () => {
-	it("sends an account with a linked child to that child's page, everyone else to /new-club", () => {
-		expect(clubLessLandingPath('k57abc')).toBe('/child/k57abc');
+	// CL-801: Settings, under the "View as" bar, not into the view (that would make "Back to my
+	// account" land straight back in it).
+	it('sends an account with a linked child to Settings, everyone else to /new-club', () => {
+		expect(clubLessLandingPath('k57abc')).toBe('/settings');
 		expect(clubLessLandingPath(null)).toBe('/new-club');
 		expect(clubLessLandingPath(undefined)).toBe('/new-club');
 	});

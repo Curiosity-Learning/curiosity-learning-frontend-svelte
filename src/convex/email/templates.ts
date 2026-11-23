@@ -431,29 +431,29 @@ export const parentUnlinkedEmail = (args: { childName: string }): EmailContent =
 // Edge case 4 (review): a parent-entered child address still unconfirmed after 3 days, most
 // likely a typo or an inbox the child never checks. Sent once per address (crons, see
 // childEmailVerification.sendPendingEmailReminders). Like the routing notice: plain link to the
-// child's page, never a sign-in link.
+// child's email settings (Settings, CL-801), never a sign-in link.
 export const childEmailPendingReminderEmail = (args: {
 	childName: string;
 	// In full (CL-807): this goes to the parent who entered it, and a masked "k…@x.com" could
 	// not be told apart from a sibling's address.
 	email: string;
 	days: number;
-	childPageUrl?: string;
+	emailSettingsUrl?: string;
 }): EmailContent => {
 	const { childName, email, days } = args;
 	const subject = `${childName} hasn't confirmed their email address yet`;
 	const message = `We sent a confirmation link to ${email} ${days} days ago, and ${childName} hasn't confirmed it yet. Until they do, emails about ${childName}'s chats keep coming to you.`;
-	const action = `Check that the address is right, or send a new link from ${childName}'s page.`;
+	const action = `Check that the address is right, or send a new link from ${childName}'s email settings.`;
 	return {
 		subject,
-		text: [message, action, args.childPageUrl].filter(Boolean).join('\n\n'),
+		text: [message, action, args.emailSettingsUrl].filter(Boolean).join('\n\n'),
 		html: layout({
 			preheader: message,
 			title: subject,
 			children: `
 				${paragraph(escapeHtml(message))}
 				${paragraph(escapeHtml(action))}
-				${args.childPageUrl ? `${button(args.childPageUrl, `Open ${childName}'s page`)}${rawLink(args.childPageUrl)}` : ''}
+				${args.emailSettingsUrl ? `${button(args.emailSettingsUrl, `Open ${childName}'s email settings`)}${rawLink(args.emailSettingsUrl)}` : ''}
 			`,
 			footer: `You received this email because you are the parent or guardian on ${childName}'s Curiosity Learning account.`
 		})
@@ -464,15 +464,15 @@ export type ChildRoutingChange = 'pending' | 'confirmed' | 'removed';
 
 // Notice to the PARENT (the approved consent address) whenever their child's email routing
 // changes (CL-768, review S5): the change may have been made by someone else on a signed-in
-// device. A plain link to the child's page — never a sign-in link: undoing a change needs a fresh
+// device. A plain link to the child's email settings — never a sign-in link: undoing a change needs a fresh
 // sign-in anyway (sessionFreshness.ts), and this email must not hand out a session.
 export const childRoutingChangedEmail = (args: {
 	childName: string;
 	change: ChildRoutingChange;
-	// In full (CL-807): it goes to the approving parent, who can see the address on the child's
-	// page anyway, and a masked "k…@x.com" could not be told apart from a sibling's address.
+	// In full (CL-807): it goes to the approving parent, who can see the address in their
+	// settings anyway, and a masked "k…@x.com" could not be told apart from a sibling's address.
 	email?: string;
-	childPageUrl?: string;
+	emailSettingsUrl?: string;
 }): EmailContent => {
 	const { childName, email } = args;
 	const subject =
@@ -487,17 +487,17 @@ export const childRoutingChangedEmail = (args: {
 			: args.change === 'confirmed'
 				? `${childName}'s notification emails now go to ${email}.`
 				: `${childName}'s notification emails will go to ${email} once ${childName} confirms it.`;
-	const undo = `Not you? Open ${childName}'s page to undo.`;
+	const undo = `Not you? Open ${childName}'s email settings to undo.`;
 	return {
 		subject,
-		text: [message, undo, args.childPageUrl].filter(Boolean).join('\n\n'),
+		text: [message, undo, args.emailSettingsUrl].filter(Boolean).join('\n\n'),
 		html: layout({
 			preheader: message,
 			title: subject,
 			children: `
 				${paragraph(escapeHtml(message))}
 				${paragraph(escapeHtml(undo))}
-				${args.childPageUrl ? `${button(args.childPageUrl, `Open ${childName}'s page`)}${rawLink(args.childPageUrl)}` : ''}
+				${args.emailSettingsUrl ? `${button(args.emailSettingsUrl, `Open ${childName}'s email settings`)}${rawLink(args.emailSettingsUrl)}` : ''}
 			`,
 			footer: `You received this email because you are the parent or guardian on ${childName}'s Curiosity Learning account.`
 		})

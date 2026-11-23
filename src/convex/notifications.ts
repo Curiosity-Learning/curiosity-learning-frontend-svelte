@@ -2,19 +2,19 @@ import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import type { ActionCtx, MutationCtx } from './_generated/server';
-import {
-	internalAction,
-	internalMutation,
-	internalQuery,
-	mutation,
-	query
-} from './_generated/server';
+import { internalAction, internalMutation, internalQuery, query } from './_generated/server';
+import { mutation } from './functions';
 import { mintMagicLink } from './magicLinks';
 import { EMAIL_MAGIC_LINK_SECONDS } from '../lib/auth/magic-link';
 import { resolveEmailRecipients, type EmailAudience } from './notificationRouting';
 import { sendEmail } from './email/resend';
 import { notificationEmail } from './email/templates';
-import { getProfileByAuthUserId, requireIdentity, requireProfile } from './permissions';
+import {
+	getProfileByAuthUserId,
+	requireIdentity,
+	requireProfile,
+	getViewerIdentity
+} from './permissions';
 
 export const list = query({
 	args: {},
@@ -77,7 +77,7 @@ export const unreadCount = query({
 		// this is one of the two intentional exemptions): an unread-count badge should degrade to
 		// 0 rather than throw for an unauthenticated caller or a profile that doesn't exist yet,
 		// and there's no reason to hide it from a suspended account either.
-		const identity = await ctx.auth.getUserIdentity();
+		const identity = await getViewerIdentity(ctx);
 		if (!identity) return 0;
 		const profile = await getProfileByAuthUserId(ctx, identity.subject);
 		if (!profile) return 0;

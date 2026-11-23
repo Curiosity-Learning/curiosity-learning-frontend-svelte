@@ -18,7 +18,7 @@
 	const activeContextResponse = useStableQuery(api.clubs.getActiveClubContext, () =>
 		isAuthReady ? {} : 'skip'
 	);
-	// Edge case 14: a club-less parent lands on their child's page, not /new-club.
+	// Edge case 14: a club-less parent lands on Settings (the View as bar), not /new-club.
 	const firstLinkedChildResponse = useStableQuery(api.parentAccounts.getMyFirstLinkedChildId, () =>
 		isAuthReady && clubsResponse.data?.length === 0 ? {} : 'skip'
 	);
@@ -61,26 +61,26 @@
 		if (clubsResponse.error || activeContextResponse.error) return;
 
 		const clubId = pickClubId();
+		// A sign-in link to `/` (the sign-in page's own links) arrives as `/?via=link`: pass the
+		// marker on, so the app layout offers "Not your device?" wherever this lands (CL-807,
+		// CL-801).
+		const viaLink =
+			page.url.searchParams.get(SIGNED_IN_VIA_LINK_PARAM) === SIGNED_IN_VIA_LINK_VALUE;
+		const withMarker = (path: string) => (viaLink ? withSignedInViaLinkMarker(path) : path);
+
 		if (!clubId) {
 			const firstLinkedChildId = firstLinkedChildResponse.error
 				? null
 				: firstLinkedChildResponse.data;
 			if (firstLinkedChildId === undefined) return;
 			redirected = true;
-			const landingPath = clubLessLandingPath(firstLinkedChildId);
-			// A sign-in link to `/` (the sign-in page's own links) arrives as `/?via=link`: pass the
-			// marker on, so the child page offers "Not your device?" (CL-807).
-			const viaLink =
-				page.url.searchParams.get(SIGNED_IN_VIA_LINK_PARAM) === SIGNED_IN_VIA_LINK_VALUE;
-			void goto(
-				viaLink && firstLinkedChildId ? withSignedInViaLinkMarker(landingPath) : landingPath
-			);
+			void goto(withMarker(clubLessLandingPath(firstLinkedChildId)));
 			return;
 		}
 
 		redirected = true;
 		const target = `/club/${clubId}`;
-		if (page.url.pathname !== target) void goto(target);
+		if (page.url.pathname !== target) void goto(withMarker(target));
 	});
 </script>
 

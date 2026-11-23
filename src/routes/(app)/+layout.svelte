@@ -12,6 +12,9 @@
 	import { LoadingState } from '$lib/components/app';
 	import ClubSwitcher from '$lib/components/app/club/club-switcher.svelte';
 	import ReportIssueDialog from '$lib/components/app/report-issue-dialog.svelte';
+	import ViewAsBar from '$lib/components/app/view-as-bar.svelte';
+	import SharedDeviceNotice from '$lib/components/app/shared-device-notice.svelte';
+	import { VIEW_AS_CTX, translateViewAsErrors, type ViewAsContext } from '$lib/app/view-as';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { LAST_CLUB_ID_STORAGE_KEY } from '$lib/auth/onboarding-state';
@@ -65,6 +68,35 @@
 		api.clubApplications.countReviewableApplications,
 		() => (isAuthReady ? {} : 'skip')
 	);
+	// Parent "View as Child" (CL-801): parent accounts get a bar above the whole app to view it
+	// as a linked child, and back. The state query always reads the parent's own links, even while
+	// the rest of the app answers as the child.
+	const viewAsResponse = useStableQuery(api.viewAs.getState, () => (isAuthReady ? {} : 'skip'));
+	let viewAsChildren = $derived(viewAsResponse.data?.children ?? []);
+	let viewingAsChildProfileId = $derived(viewAsResponse.data?.viewingAsChildProfileId ?? null);
+	let showViewAsBar = $derived(viewAsChildren.length > 0);
+	setContext(VIEW_AS_CTX, {
+		get isViewingAsChild() {
+			return viewingAsChildProfileId !== null;
+		},
+		get viewingChildName() {
+			return (
+				viewAsChildren.find((child) => child.childProfileId === viewingAsChildProfileId)
+					?.displayName ?? null
+			);
+		}
+	} satisfies ViewAsContext);
+	translateViewAsErrors(convexClient);
+	// Parent links are created at consent approval; older consents are claimed lazily here, once
+	// per session, so the bar shows up without the parent opening Settings first. Waits for the
+	// Convex client's own sign-in (CL-807: right after a sign-in link the session exists before
+	// Convex has its token).
+	let parentLinksSynced = false;
+	$effect(() => {
+		if (!browser || !isAuthReady || parentLinksSynced) return;
+		parentLinksSynced = true;
+		void convexClient.mutation(api.parentAccounts.syncParentLinks, {}).catch(() => undefined);
+	});
 	let clubs = $derived(clubsResponse.data ?? []);
 	// Edge case 14: only asked for club-less accounts (see clubLessLandingPath).
 	const firstLinkedChildResponse = useStableQuery(api.parentAccounts.getMyFirstLinkedChildId, () =>
@@ -343,6 +375,10 @@
 	} satisfies PageHeaderController);
 </script>
 
+{#snippet viewAsBar()}
+	<ViewAsBar linkedChildren={viewAsChildren} {viewingAsChildProfileId} />
+{/snippet}
+
 {#snippet clubSwitcherTitleContent()}
 	<ClubSwitcher clubs={clubSwitcherItems} {activeClubId} />
 {/snippet}
@@ -371,6 +407,10 @@
 	</Alert>
 {/snippet}
 
+{#if (isSuspended || isBlocked) && showViewAsBar}
+	<!-- A parent viewing as a suspended or blocked child still needs the way back (CL-801). -->
+	{@render viewAsBar()}
+{/if}
 {#if isSuspended}
 	<div class="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
 		<h1 class="type-lg-bold text-foreground">{t('suspendedScreen.title')}</h1>
@@ -426,6 +466,7 @@
 	headerSearch={searchOverride ?? undefined}
 	contentMode={contentModeOverride ?? undefined}
 	banner={bannerOverride ?? undefined}
+	topBar={showViewAsBar ? viewAsBar : undefined}
 	{sidebarProfileName}
 	{sidebarProfileImageUrl}
 	{sidebarProfileInitials}
@@ -478,6 +519,7 @@
 				onAction: () => goto(routes.feedback)
 			})}
 		{/if}
+		<SharedDeviceNotice />
 		{@render children()}
 	{/if}
 </AppShell>

@@ -22,7 +22,12 @@ describe('formatScheduleSlot', () => {
 
 	it('omits the separator when location is empty', () => {
 		expect(
-			formatScheduleSlot({ dayOfWeek: 'monday', startTime: '09:00', endTime: '10:00', location: '' })
+			formatScheduleSlot({
+				dayOfWeek: 'monday',
+				startTime: '09:00',
+				endTime: '10:00',
+				location: ''
+			})
 		).toBe('Mondays 09:00–10:00');
 	});
 });
