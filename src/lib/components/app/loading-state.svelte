@@ -18,7 +18,7 @@
 	}: Props = $props();
 
 	const variantClasses = {
-		page: 'min-h-screen bg-white',
+		page: 'min-h-dvh bg-white',
 		block: 'min-h-32',
 		inline: 'min-h-10 py-2'
 	};

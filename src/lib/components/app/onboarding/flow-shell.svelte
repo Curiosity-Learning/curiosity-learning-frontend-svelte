@@ -43,7 +43,7 @@
 		appFrame ? 'pt-0' : edgeToEdgePanel ? 'pt-0' : 'pt-2 sm:pt-6'
 	);
 	let standardShellHeight =
-		'min-h-[calc(100dvh-2rem)] sm:min-h-[calc(100dvh-3rem)] lg:min-h-[calc(100vh-4rem)]';
+		'min-h-[calc(100dvh-2rem)] sm:min-h-[calc(100dvh-3rem)] lg:min-h-[calc(100dvh-4rem)]';
 </script>
 
 <div
@@ -80,13 +80,13 @@
 
 		<div
 			class={effectiveShowSideIllustration
-				? `${edgeToEdgePanel ? 'min-h-[100dvh] gap-0 lg:min-h-screen lg:grid-cols-2' : 'flex-1 gap-6 pt-6 sm:pt-8 lg:grid-cols-2 lg:gap-14'} grid items-stretch`
-				: `${appFrame ? 'min-h-0' : edgeToEdgePanel ? 'min-h-[100dvh] lg:min-h-screen' : 'flex-1 pt-6 sm:pt-8'} flex flex-col`}
+				? `${edgeToEdgePanel ? 'min-h-dvh gap-0 lg:grid-cols-2' : 'flex-1 gap-6 pt-6 sm:pt-8 lg:grid-cols-2 lg:gap-14'} grid items-stretch`
+				: `${appFrame ? 'min-h-0' : edgeToEdgePanel ? 'min-h-dvh' : 'flex-1 pt-6 sm:pt-8'} flex flex-col`}
 		>
 			<div
 				class={effectiveShowSideIllustration
-					? `onboarding-shell-panel ${edgeToEdgePanel ? 'onboarding-shell-panel--edge' : ''} flex w-full min-w-0 ${edgeToEdgePanel ? 'min-h-[100dvh] max-w-none px-0 lg:min-h-screen' : 'min-h-0 px-1'} flex-1 flex-col ${desktopContentScrollable && !edgeToEdgePanel ? 'lg:max-h-[calc(100vh-8rem)]' : ''}`
-					: `onboarding-shell-panel ${appFrame ? 'onboarding-shell-panel--app min-h-0 max-w-none px-0 pb-0' : edgeToEdgePanel ? 'onboarding-shell-panel--edge min-h-[100dvh] px-0 lg:min-h-screen' : 'mx-auto min-h-0 px-1'} flex w-full min-w-0 flex-1 flex-col`}
+					? `onboarding-shell-panel ${edgeToEdgePanel ? 'onboarding-shell-panel--edge' : ''} flex w-full min-w-0 ${edgeToEdgePanel ? 'min-h-dvh max-w-none px-0' : 'min-h-0 px-1'} flex-1 flex-col ${desktopContentScrollable && !edgeToEdgePanel ? 'lg:max-h-[calc(100dvh-8rem)]' : ''}`
+					: `onboarding-shell-panel ${appFrame ? 'onboarding-shell-panel--app min-h-0 max-w-none px-0 pb-0' : edgeToEdgePanel ? 'onboarding-shell-panel--edge min-h-dvh px-0' : 'mx-auto min-h-0 px-1'} flex w-full min-w-0 flex-1 flex-col`}
 			>
 				{#if headerSupplement && !appFrame}
 					<div class="pb-4 sm:pb-6">
@@ -102,15 +102,25 @@
 			</div>
 
 			{#if effectiveShowSideIllustration}
-				<div
-					class={`hidden min-w-0 ${edgeToEdgePanel ? 'justify-center bg-white lg:h-screen' : 'justify-center lg:h-[calc(100vh-8rem)]'} lg:flex lg:items-center`}
-				>
-					<img
-						src={onboardingIllustration}
-						alt={$_('onboarding.getStarted.illustrationAlt')}
-						class={`h-auto w-full object-contain ${edgeToEdgePanel ? 'max-w-[36rem]' : 'max-w-[32rem]'}`}
-					/>
-				</div>
+				{#if edgeToEdgePanel}
+					<div class="hidden min-w-0 justify-center bg-white lg:flex lg:h-dvh lg:items-center">
+						<img
+							src={onboardingIllustration}
+							alt={$_('onboarding.getStarted.illustrationAlt')}
+							class="h-auto w-full max-w-[36rem] object-contain"
+						/>
+					</div>
+				{:else}
+					<!-- Fills the height the row has left after the header and padding (never the
+					     window height), so the illustration cannot make the page taller. -->
+					<div class="relative hidden min-w-0 lg:block">
+						<img
+							src={onboardingIllustration}
+							alt={$_('onboarding.getStarted.illustrationAlt')}
+							class="absolute inset-x-0 top-0 mx-auto h-full max-h-dvh w-full max-w-[32rem] object-contain"
+						/>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>

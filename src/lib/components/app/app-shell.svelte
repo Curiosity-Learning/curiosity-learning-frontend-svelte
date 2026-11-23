@@ -214,7 +214,7 @@
 <div
 	class={cn(
 		'relative flex flex-col bg-white lg:pb-0',
-		isViewportContent ? 'h-[100dvh] overflow-hidden' : 'min-h-screen',
+		isViewportContent ? 'h-dvh overflow-hidden' : 'min-h-dvh',
 		hideBottomNav ? 'pb-0' : 'pb-[var(--bottom-nav-h)]'
 	)}
 	style="--bottom-nav-h: 4.5rem;"
@@ -223,11 +223,11 @@
 	<div
 		class={cn(
 			'flex flex-1 flex-col lg:flex-row',
-			isViewportContent ? 'min-h-0' : 'min-h-screen'
+			isViewportContent && 'min-h-0'
 		)}
 	>
 		<aside
-			class="hidden w-60 flex-col border-r border-border bg-gray-50 lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start"
+			class="hidden w-60 flex-col border-r border-border bg-gray-50 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:self-start"
 		>
 			<div class="border-b border-border px-5 py-6">
 				<div class="flex items-center gap-3">
@@ -358,7 +358,7 @@
 		<div
 			class={cn(
 				'app-texture-background flex min-w-0 flex-1 flex-col',
-				isViewportContent ? 'min-h-0' : 'min-h-screen'
+				isViewportContent && 'min-h-0'
 			)}
 		>
 			<header class="sticky top-0 z-20 flex shrink-0 justify-center border-b border-border bg-white">

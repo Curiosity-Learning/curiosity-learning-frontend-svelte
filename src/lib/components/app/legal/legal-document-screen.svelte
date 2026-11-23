@@ -34,7 +34,7 @@
 	};
 </script>
 
-<div class="mx-auto flex min-h-screen w-full max-w-[28.75rem] flex-col gap-6 px-4 py-6 sm:py-8">
+<div class="mx-auto flex min-h-dvh w-full max-w-[28.75rem] flex-col gap-6 px-4 py-6 sm:py-8">
 	<ScreenBackButton onclick={() => void handleBack()} />
 
 	<div class="flex flex-col gap-3">

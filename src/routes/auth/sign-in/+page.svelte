@@ -413,7 +413,7 @@
 	};
 </script>
 
-<div class="app-texture-background min-h-screen px-4 py-6 sm:px-8 lg:px-12 lg:py-8">
+<div class="app-texture-background min-h-dvh px-4 py-6 sm:px-8 lg:px-12 lg:py-8">
 	<div class="mx-auto flex w-full max-w-6xl flex-col">
 		<header class="flex items-center justify-between gap-4">
 			<a href={routes.onboardingGetStarted} aria-label={$_('common.appName')} class="shrink-0">
@@ -426,7 +426,7 @@
 		</header>
 
 		<div
-			class="grid min-h-[calc(100vh-8rem)] w-full items-stretch gap-8 pt-6 sm:pt-8 lg:grid-cols-2 lg:gap-14"
+			class="grid min-h-[calc(100dvh-8rem)] w-full items-stretch gap-8 pt-6 sm:pt-8 lg:grid-cols-2 lg:gap-14"
 		>
 			<div class="flex w-full min-w-0 flex-col">
 				<div class="flex flex-1 flex-col pt-2 sm:pt-8">

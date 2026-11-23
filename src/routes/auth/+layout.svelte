@@ -19,12 +19,12 @@
 </script>
 
 {#if isOnboardingStyleRoute}
-	<div class="app-texture-background relative flex min-h-screen flex-col">
+	<div class="app-texture-background relative flex min-h-dvh flex-col">
 		{@render children()}
 	</div>
 {:else}
 	<div
-		class="app-texture-background relative flex min-h-screen flex-col items-center justify-center gap-6 px-4 py-8"
+		class="app-texture-background relative flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-8"
 	>
 		<div class="flex w-full max-w-md flex-col gap-4">
 			<Card>

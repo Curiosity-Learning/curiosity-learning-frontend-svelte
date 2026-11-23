@@ -372,7 +372,7 @@
 {/snippet}
 
 {#if isSuspended}
-	<div class="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+	<div class="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
 		<h1 class="type-lg-bold text-foreground">{t('suspendedScreen.title')}</h1>
 		<p class="type-sm max-w-md text-muted-foreground">
 			{suspendedReason || t('suspendedScreen.defaultReason')}
@@ -392,7 +392,7 @@
 	     the suspension screen above (this is about unresolved feedback, not a suspension) — /feedback
 	     itself and the Report Issue dialog both stay reachable (route check in isFeedbackRoute
 	     above lets /feedback render past this block; the dialog is rendered directly here). -->
-	<div class="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+	<div class="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
 		<h1 class="type-lg-bold text-foreground">{t('feedbackEnforcement.blockedTitle')}</h1>
 		<p class="type-sm max-w-md text-muted-foreground">
 			{t('feedbackEnforcement.blockedBody').replace('{club}', enforcementClubName)}
