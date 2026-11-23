@@ -120,13 +120,22 @@ export const publishBundled = internalMutation({
 	},
 	handler: async (ctx, args) => {
 		const bundled = bundledLegalDocuments[args.documentKey];
+		// Every row ever published under this version, active or not: a consent names only the
+		// version, so one version must never stand for two texts.
+		const sameVersion = await ctx.db
+			.query('legalDocuments')
+			.withIndex('by_document_key_and_version', (q) =>
+				q.eq('documentKey', args.documentKey).eq('version', bundled.version)
+			)
+			.collect();
+		if (sameVersion.some((document) => document.content !== bundled.content)) {
+			throw new ConvexError(
+				`Version ${bundled.version} is already published with different text; bump the version in legalContent.ts`
+			);
+		}
+
 		const current = await getActiveOrLatestByKey(ctx, args.documentKey);
 		if (current?.isActive && current.version === bundled.version) {
-			if (current.content !== bundled.content) {
-				throw new ConvexError(
-					`Version ${bundled.version} is already published with different text; bump the version in legalContent.ts`
-				);
-			}
 			return { published: false, version: bundled.version };
 		}
 

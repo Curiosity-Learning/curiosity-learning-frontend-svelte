@@ -158,4 +158,60 @@ describe('monitoring redaction', () => {
 			'div.member-row > button.remove[aria-label="[Redacted]"][type="button"]'
 		);
 	});
+
+	it('redacts every word of an unquoted labelled name, up to the next delimiter or key', () => {
+		expect(redactText('full name: Ava Brown')).toBe('full name: [Redacted name]');
+		expect(redactText('full name: Ava Brown, club 12')).toBe('full name: [Redacted name], club 12');
+		expect(redactText('username: ava status=500')).toBe('username: [Redacted name] status=500');
+	});
+
+	it('redacts quoted names that contain escaped quotes', () => {
+		expect(redactText('username "Ava \\"Bee\\" Brown" failed')).toBe(
+			'username "[Redacted name]" failed'
+		);
+		expect(redactText('{"firstName":"Ava \\"Bee\\" Brown","id":1}')).toBe(
+			'{"firstName":"[Redacted name]","id":1}'
+		);
+		expect(redactText(String.raw`{\"firstName\":\"Ava Brown\",\"id\":1}`)).not.toMatch(/Ava|Brown/);
+	});
+
+	it('redacts ui breadcrumb labels that contain quotes', () => {
+		const breadcrumb = redactSentryBreadcrumb({
+			category: 'ui.click',
+			message: 'button[aria-label="Remove "Ava" from club"][type="button"]'
+		});
+		expect(breadcrumb.message).toBe('button[aria-label="[Redacted]"][type="button"]');
+	});
+
+	it('does not throw on a breadcrumb with a non-string category', () => {
+		const breadcrumb = { category: 5, message: 'x' } as unknown as Parameters<
+			typeof redactSentryBreadcrumb
+		>[0];
+		expect(() => redactSentryBreadcrumb(breadcrumb)).not.toThrow();
+		expect(() => redactSentryEvent({ type: undefined, breadcrumbs: [breadcrumb] })).not.toThrow();
+	});
+
+	it('scrubs ui labels in breadcrumbs attached to the event directly', () => {
+		const event = redactSentryEvent({
+			type: undefined,
+			breadcrumbs: [{ category: 'ui.click', message: 'a.member[title="Ava Brown"]' }]
+		});
+		expect(event.breadcrumbs?.[0]?.message).toBe('a.member[title="[Redacted]"]');
+	});
+
+	it('tells Sentry not to infer an IP and drops IP headers on server events', () => {
+		const event = redactSentryEvent({
+			type: undefined,
+			sdk: { name: 'sentry.javascript.sveltekit', version: '10.0.0' },
+			request: {
+				url: 'https://example.com/',
+				headers: { 'x-forwarded-for': '203.0.113.7', 'x-real-ip': '203.0.113.7', accept: '*/*' },
+				env: { REMOTE_ADDR: '203.0.113.7' }
+			}
+		});
+		expect(event.sdk?.settings?.infer_ip).toBe('never');
+		expect(event.request?.headers).toEqual({ accept: '*/*' });
+		expect(event.request?.env).toBeUndefined();
+		expect(JSON.stringify(event)).not.toContain('203.0.113.7');
+	});
 });

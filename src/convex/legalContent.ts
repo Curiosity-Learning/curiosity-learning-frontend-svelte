@@ -73,7 +73,8 @@ The service providers we use are:
 - Amazon Web Services (AWS) or a compatible storage provider, to store and deliver uploaded media.
 - Resend, to deliver service emails.
 - Mapbox, for maps and location search.
-- Google, where a user chooses Google sign-in, and Google Workspace, for our team's notifications about new club applications.
+- Google, where a user chooses Google sign-in.
+- Google Workspace, for our team's internal notifications in Google Chat. These notifications can include: new club applications (club name, location, the applicant's name and role, and how they heard about us); safety and content reports (the report category, what was reported, the reporter's name, and the start of the report's description); club interest sign-ups (the email address and location given); and alerts when reviewers' scores for an application differ widely.
 - Sentry, in its European Union data region, for error monitoring.
 
 6. Cookies, similar technologies, and error monitoring

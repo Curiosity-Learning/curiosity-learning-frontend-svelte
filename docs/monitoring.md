@@ -18,15 +18,19 @@ Sent:
 - Allowlisted record ids from `SAFE_IDENTIFIER_KEYS` (`src/lib/monitoring/payload.ts`, `src/convex/monitoring.ts`): application, asset, status, provider, HTTP status, email type, failure code, function name. No profile, user or account ids.
 - Browser, OS and runtime name and version, the environment and release.
 - The page or request URL with its query string and fragment removed, and token path segments (`/verify-email/…`, `/onboarding/parent-consent/…`, `/auth/reset-password/…`) redacted. Route ids such as `/profile/<profileId>` stay.
-- Breadcrumbs: navigations, fetch/XHR URLs (same URL rules), console messages, and UI clicks as CSS selectors.
+- Breadcrumbs: navigations, fetch/XHR URLs (same URL rules), console messages, and UI clicks as CSS selectors. Every breadcrumb gets the same redaction, whether it goes through `beforeBreadcrumb` or arrives already attached to the event (`event.breadcrumbs`), which `beforeSend` scrubs again.
 
 Never sent (fixed in `sentry-config.ts` and `redaction.ts`, not overridable by env):
 
-- `sendDefaultPii: false`, so no IP address (the SDK tells Sentry `infer_ip: never`), user, cookies or request headers with credentials. `event.user` is deleted even if something sets it; the app never calls `setUser`.
+- No IP address. `sendDefaultPii: false` keeps the SDKs from adding one, and the IP setting differs by runtime:
+  - Browser: the SDK itself sends `sdk.settings.infer_ip: "never"`.
+  - SvelteKit server: the SDK sends no `infer_ip` setting and no `user` field, so `redaction.ts` sets `sdk.settings.infer_ip: "never"` on every event and transaction. It also deletes `request.env` and the headers that carry the visitor's IP (`x-forwarded-for`, `x-real-ip`, `x-vercel-forwarded-for`, `x-vercel-ip-*`, `cf-connecting-ip`, `true-client-ip`, `forwarded`).
+  - Convex: reports go through `/api/internal/monitoring/report` and are sent by the SvelteKit server SDK, so the server rules apply; the sender's address is Convex's, not a visitor's.
+- No user, cookies or request headers with credentials. `event.user` is deleted even if something sets it; the app never calls `setUser`.
 - No session replay (both replay sample rates are 0) and no device or advertising identifiers. The web SDK has none; the native SDK (CL-811) must keep it that way.
 - Request bodies, form data, query strings and cookies are deleted; values under keys matching passwords, tokens, secrets, signatures, credentials, emails and bodies become `[Redacted]`.
 - Email addresses anywhere in text become `[Redacted email]`.
-- Names: values under name keys (`username`, `displayName`, `firstName`, `lastName`, `fullName`, `childName`, `parentName`, `guardianName`, … in camel or snake case) become `[Redacted]`. In free text, a value after a name label (`username "ava"`, `display name: Ava`, `{"firstName":"Ava"}`) becomes `[Redacted name]`. The `aria-label`, `title` and `alt` values that Sentry copies into `ui.*` click breadcrumbs become `[Redacted]`, because labels like "Remove Ava" carry names. Plain `name` keys are kept: Sentry uses them for the SDK, browser and OS.
+- Names: values under name keys (`username`, `displayName`, `firstName`, `lastName`, `fullName`, `childName`, `parentName`, `guardianName`, … in camel or snake case) become `[Redacted]`. In free text, a value after a name label (`username "ava"`, `display name: Ava`, `{"firstName":"Ava"}`) becomes `[Redacted name]`. An unquoted value is redacted up to the next comma, semicolon, bracket, line end or `key:` / `key=` pair, so `full name: Ava Brown` loses both words; a quoted value is redacted whole, escaped quotes included. The `aria-label`, `title` and `alt` values that Sentry copies into `ui.*` click breadcrumbs become `[Redacted]`, even when the label itself contains quotes, because labels like "Remove Ava" carry names. Plain `name` keys are kept: Sentry uses them for the SDK, browser and OS.
 
 A name with no label in front of it cannot be recognised, so **error messages must refer to people by id, never by name or username**. Convex errors reach Sentry through `/api/internal/monitoring/report`, which runs the same text redaction on the message and stack.
 

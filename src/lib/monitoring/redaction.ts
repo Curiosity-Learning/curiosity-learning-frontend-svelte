@@ -21,17 +21,28 @@ const NAME_KEY_PATTERN =
 // messages (docs/monitoring.md); this is the safety net for when it does not.
 const NAME_LABEL =
 	"(?:user[ _-]?name|display[ _-]?name|first[ _-]?name|last[ _-]?name|full[ _-]?name|given[ _-]?name|family[ _-]?name|nick[ _-]?name|preferred[ _-]?name|(?:child|parent|guardian)(?:'s)?[ _-]?name)";
+// After the label: an optional closing quote of a JSON key (`"firstName"` or, inside a string
+// that holds JSON, `\"firstName\"`), then `:` or `=`.
+const LABEL_TAIL = '(?:\\\\?")?\\s*[:=]?\\s*';
+// A quoted value. Escaped quotes inside it (`"Ava \"A\" B"`) are part of the value, and a value
+// quoted with `\"` (JSON inside a string) ends at the next `\"`.
+const QUOTED_VALUE =
+	'(?:\\\\"(?:(?!\\\\")[^\\n])*\\\\"|"(?:[^"\\\\\\n]|\\\\.)*"|\'(?:[^\'\\\\\\n]|\\\\.)*\'|“[^”\\n]*”)';
 const LABELLED_QUOTED_NAME_PATTERN = new RegExp(
-	`(\\b${NAME_LABEL}"?\\s*[:=]?\\s*)("[^"]*"|'[^']*'|“[^”]*”)`,
+	`(\\b${NAME_LABEL}${LABEL_TAIL})${QUOTED_VALUE}`,
 	'gi'
 );
+// An unquoted value runs to the next delimiter, so `full name: Ava Brown` loses the surname
+// too. It also stops before a word that starts another `key:` / `key=` pair.
+const BARE_WORD = '[^\\s,;|)}\\]]+';
 const LABELLED_BARE_NAME_PATTERN = new RegExp(
-	`(\\b${NAME_LABEL}\\s*[:=]\\s*)(?!["'“\\[])[^\\s,;)}\\]]+`,
+	`(\\b${NAME_LABEL}\\s*[:=]\\s*)(?!["'“\\[\\\\])${BARE_WORD}(?:[ \\t]+(?!\\S*[:=])${BARE_WORD})*`,
 	'gi'
 );
 // Element attributes Sentry copies into ui.click / ui.input breadcrumbs, whose values can be
-// a label such as "Remove Ava from club".
-const ELEMENT_TEXT_ATTRIBUTE_PATTERN = /(\[(?:aria-label|title|alt)=)("[^"]*"|'[^']*')(\])/gi;
+// a label such as "Remove Ava from club". Sentry does not escape quotes in the value
+// (`[aria-label="Remove "Ava""]`), so the value runs to the quote that is followed by `]`.
+const ELEMENT_TEXT_ATTRIBUTE_PATTERN = /(\[(?:aria-label|title|alt)=)(["'])[\s\S]*?\2(\])/gi;
 
 const sanitizeUrl = (value: string) => {
 	try {
@@ -78,14 +89,49 @@ export const redactUnknown = (value: unknown, key = '', depth = 0): unknown => {
 	return value;
 };
 
+// Headers that carry the visitor's IP address on Vercel and behind proxies.
+const IP_HEADER_PATTERN =
+	/^(?:x-forwarded-for|x-real-ip|x-vercel-forwarded-for|x-vercel-ip.*|cf-connecting-ip|true-client-ip|forwarded)$/i;
+
+// Expects a breadcrumb that already went through redactUnknown.
+const scrubUiBreadcrumb = (breadcrumb: Breadcrumb): Breadcrumb => {
+	if (
+		typeof breadcrumb?.category === 'string' &&
+		breadcrumb.category.startsWith('ui.') &&
+		typeof breadcrumb.message === 'string'
+	) {
+		return {
+			...breadcrumb,
+			message: breadcrumb.message.replace(ELEMENT_TEXT_ATTRIBUTE_PATTERN, '$1"[Redacted]"$3')
+		};
+	}
+	return breadcrumb;
+};
+
 const redactEventPayload = <T extends ErrorEvent | TransactionEvent>(event: T): T => {
 	const redacted = redactUnknown(event) as T;
 	delete redacted.user;
+	// The browser SDK sets this itself when sendDefaultPii is off; the SvelteKit server SDK does
+	// not, so set it on every event to stop Sentry storing the sender's IP.
+	if (redacted.sdk) {
+		redacted.sdk.settings = { ...redacted.sdk.settings, infer_ip: 'never' };
+	}
+	// Breadcrumbs attached to the event directly (scope.addBreadcrumb with a hint, or
+	// event.breadcrumbs from captureEvent) skip beforeBreadcrumb.
+	if (Array.isArray(redacted.breadcrumbs)) {
+		redacted.breadcrumbs = redacted.breadcrumbs.map(scrubUiBreadcrumb);
+	}
 
 	if (redacted.request) {
 		delete redacted.request.cookies;
 		delete redacted.request.data;
 		delete redacted.request.query_string;
+		delete redacted.request.env;
+		if (redacted.request.headers) {
+			for (const header of Object.keys(redacted.request.headers)) {
+				if (IP_HEADER_PATTERN.test(header)) delete redacted.request.headers[header];
+			}
+		}
 		if (redacted.request.url) {
 			redacted.request.url = sanitizeUrl(redacted.request.url);
 		}
@@ -103,10 +149,5 @@ export const redactSentryTransaction = (event: TransactionEvent): TransactionEve
 // Floor for structured logs, independent of whether the call site sanitized its data.
 export const redactSentryLog = (log: Log): Log => redactUnknown(log) as Log;
 
-export const redactSentryBreadcrumb = (breadcrumb: Breadcrumb): Breadcrumb => {
-	const redacted = redactUnknown(breadcrumb) as Breadcrumb;
-	if (redacted.category?.startsWith('ui.') && typeof redacted.message === 'string') {
-		redacted.message = redacted.message.replace(ELEMENT_TEXT_ATTRIBUTE_PATTERN, '$1"[Redacted]"$3');
-	}
-	return redacted;
-};
+export const redactSentryBreadcrumb = (breadcrumb: Breadcrumb): Breadcrumb =>
+	scrubUiBreadcrumb(redactUnknown(breadcrumb) as Breadcrumb);

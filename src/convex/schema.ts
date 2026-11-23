@@ -900,7 +900,8 @@ export default defineSchema({
 	})
 		.index('by_document_key', ['documentKey'])
 		.index('by_document_key_and_active', ['documentKey', 'isActive'])
-		.index('by_document_key_and_updated', ['documentKey', 'updatedAt']),
+		.index('by_document_key_and_updated', ['documentKey', 'updatedAt'])
+		.index('by_document_key_and_version', ['documentKey', 'version']),
 
 	pledges: defineTable({
 		key: v.string(),

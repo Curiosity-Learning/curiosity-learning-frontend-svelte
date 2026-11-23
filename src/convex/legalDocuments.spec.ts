@@ -70,4 +70,62 @@ describe('legalDocuments.publishBundled', () => {
 			t.mutation(internal.legalDocuments.publishBundled, { documentKey: 'privacy_policy' })
 		).rejects.toThrow(/bump the version/);
 	});
+
+	it('refuses changed text under a version that was published before, even when inactive', async () => {
+		const t = convexTest(schema, modules);
+		await seedPrivacyPolicy(t, { version: PRIVACY_POLICY_VERSION, content: 'Earlier text' });
+		await seedPrivacyPolicy(t, { version: '9.9', content: 'Later policy' });
+		await t.run(async (ctx) => {
+			const rows = await ctx.db.query('legalDocuments').collect();
+			for (const row of rows) {
+				await ctx.db.patch(row._id, { isActive: row.version === '9.9' });
+			}
+		});
+
+		await expect(
+			t.mutation(internal.legalDocuments.publishBundled, { documentKey: 'privacy_policy' })
+		).rejects.toThrow(/bump the version/);
+		const active = await t.query(api.legalDocuments.getActiveByKey, {
+			documentKey: 'privacy_policy'
+		});
+		expect(active?.version).toBe('9.9');
+	});
+
+	it('republishes an inactive version whose text matches the bundled text', async () => {
+		const t = convexTest(schema, modules);
+		await seedPrivacyPolicy(t, { version: PRIVACY_POLICY_VERSION, content: privacyPolicyContent });
+		await seedPrivacyPolicy(t, { version: '9.9', content: 'Later policy' });
+		await t.run(async (ctx) => {
+			const rows = await ctx.db.query('legalDocuments').collect();
+			for (const row of rows) {
+				await ctx.db.patch(row._id, { isActive: row.version === '9.9' });
+			}
+		});
+
+		await expect(
+			t.mutation(internal.legalDocuments.publishBundled, { documentKey: 'privacy_policy' })
+		).resolves.toMatchObject({ published: true, version: PRIVACY_POLICY_VERSION });
+	});
+});
+
+describe('privacy policy processors', () => {
+	// googleChat.ts posts these to the team's Google Chat; the policy must say so.
+	it('discloses everything sent to Google Workspace notifications', () => {
+		const line = privacyPolicyContent
+			.split('\n')
+			.find((entry) => entry.startsWith('- Google Workspace'));
+		expect(line).toBeDefined();
+		for (const phrase of [
+			'club applications',
+			"applicant's name",
+			'safety and content reports',
+			"reporter's name",
+			'description',
+			'club interest sign-ups',
+			'email address and location',
+			'scores'
+		]) {
+			expect(line).toContain(phrase);
+		}
+	});
 });
