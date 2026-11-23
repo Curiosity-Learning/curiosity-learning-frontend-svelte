@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import betterAuthTest from '@convex-dev/better-auth/test';
+import rateLimiterTest from '@convex-dev/rate-limiter/test';
 import { hashPassword } from 'better-auth/crypto';
 import { convexTest } from 'convex-test';
 import { ConvexError } from 'convex/values';
@@ -32,6 +33,7 @@ vi.mock('./email/resend', () => ({
 	sendEmail: sendEmailMock
 }));
 
+const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * 60 * 1000;
 const CONSENT_EXPIRY_MS = 90 * DAY;
 
@@ -737,9 +739,13 @@ describe('approveConsent: consent screen v2', () => {
 			}
 		});
 		vi.useFakeTimers();
-		const firstAt = new Date('2026-11-01T10:00:00Z').getTime();
+		// convex-test, like Convex, never runs a transaction at or before the last
+		// commit: the dates sit after the real clock (the legal documents above),
+		// and each child is seeded a minute before its approval.
+		const firstAt = new Date('2030-11-01T10:00:00Z').getTime();
+		vi.setSystemTime(firstAt - MINUTE);
+		const first = await seedChild(firstAt - MINUTE);
 		vi.setSystemTime(firstAt);
-		const first = await seedChild(firstAt);
 		await approve(first.token, { locale: 'en' });
 
 		const firstConsent = await consentFor(first.childProfileId);
@@ -775,8 +781,9 @@ describe('approveConsent: consent screen v2', () => {
 			await ctx.db.patch(terms!._id, { version: '2026-12' });
 		});
 		const secondAt = firstAt + 7 * DAY;
+		vi.setSystemTime(secondAt - MINUTE);
+		const second = await seedChild(secondAt - MINUTE);
 		vi.setSystemTime(secondAt);
-		const second = await seedChild(secondAt);
 		const secondResult = await approve(second.token, { locale: 'xx-unknown' });
 		expect(secondResult.parentAccountCreated).toBe(false);
 
@@ -1077,5 +1084,93 @@ describe('auditAdoptedParentAccounts / stripAdoptedParentCredentials', () => {
 			})
 		).rejects.toThrow('no password account that predates its approval');
 		expect(await countRows(t, 'account')).toBe(2);
+	});
+});
+
+// CL-817 QA: registerChild reads a club code from nextPath, and whoever controls the parent email
+// can approve the consent and see the resulting membership. So it is a code lookup too and uses
+// up the anonymous caller's (IP) limit, like lookupClubByCode.
+describe('registerChild with a club code in nextPath', () => {
+	const setup = async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const t = convexTest(schema, modules);
+		betterAuthTest.register(t);
+		rateLimiterTest.register(t);
+		const clubId = await t.run(async (ctx) => {
+			const now = Date.now();
+			const ownerProfileId = await ctx.db.insert('profiles', {
+				authUserId: 'owner-user',
+				username: 'owner',
+				isVerified: true,
+				firstLoginCompleted: true,
+				updatedAt: now
+			});
+			return await ctx.db.insert('clubs', {
+				name: 'Real Club',
+				clubCode: 'REALCD',
+				discoverable: false,
+				createdByProfileId: ownerProfileId,
+				createdAt: now,
+				updatedAt: now
+			});
+		});
+		let signups = 0;
+		const register = (caller: ReturnType<typeof t.withRequestMetadata>, code: string) => {
+			signups += 1;
+			return caller.action(api.childSignup.registerChild, {
+				username: `kid_${signups}`,
+				password: 'password123',
+				parentEmail: 'attacker@example.com',
+				nextPath: `/onboarding/join-club/${code}`
+			});
+		};
+		const pendingClubFor = (username: string) =>
+			t.run(async (ctx) => {
+				const profile = await ctx.db
+					.query('profiles')
+					.withIndex('by_username', (q) => q.eq('username', username))
+					.unique();
+				const pending = await ctx.db
+					.query('pendingClubJoins')
+					.withIndex('by_profile', (q) => q.eq('profileId', profile!._id))
+					.first();
+				return pending?.clubId ?? null;
+			});
+		return { t, clubId, register, pendingClubFor };
+	};
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllEnvs();
+	});
+
+	it('remembers the club for a normal child signup', async () => {
+		const { t, clubId, register, pendingClubFor } = await setup();
+		await register(t.withRequestMetadata({ ip: '192.0.2.10' }), 'realcd');
+		expect(await pendingClubFor('kid_1')).toBe(clubId);
+	});
+
+	it('throttles repeated probes from one client, while the accounts are still created', async () => {
+		const { t, clubId, register, pendingClubFor } = await setup();
+		// The 20/min bucket refills one token every 3 s, and each signup hashes a password, so on a
+		// slow runner a real clock refills one mid-loop. Freeze Date only (timers keep working), after
+		// the real clock: convex-test never runs a transaction before the last commit.
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date('2030-11-01T10:00:00Z'));
+		const attacker = t.withRequestMetadata({ ip: '203.0.113.7' });
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			expect(await register(attacker, `GUES${String(attempt).padStart(2, '0')}`)).toEqual({
+				success: true
+			});
+		}
+
+		// The 21st probe hits the real code, but the limit is used up: the account is created and
+		// the club is not recorded, so approving the consent reveals nothing.
+		expect(await register(attacker, 'REALCD')).toEqual({ success: true });
+		expect(await pendingClubFor('kid_21')).toBeNull();
+
+		// Another client is not affected.
+		await register(t.withRequestMetadata({ ip: '192.0.2.10' }), 'REALCD');
+		expect(await pendingClubFor('kid_22')).toBe(clubId);
 	});
 });

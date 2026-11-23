@@ -8,23 +8,33 @@
 	import { PageHeaderBackButton, PageHeaderTitle, ScreenBackButton } from '$lib/components/app';
 	import FlowShell from '$lib/components/app/onboarding/flow-shell.svelte';
 	import { authClient } from '$lib/auth-client';
-	import { useStableQuery } from '$lib/convex/use-stable-query.svelte';
 	import { useConvexClient } from 'convex-svelte';
 	import { useAuth } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { _, t } from '$lib/i18n';
 	import type { PageProps } from './$types';
 	import { api } from '$convex/_generated/api';
+	import { takeClubCodeLookup } from '$lib/domain/club-code-lookup-handoff';
 	import { routes } from '$lib/routes';
 	import { navigateBack } from '$lib/navigation/back';
 	import { formatScheduleSlot } from '$lib/domain/schedule';
+	import type { FunctionReturnType } from 'convex/server';
 	import type { SignedDeliveryAsset } from '$lib/server/signed-media';
 
-	let { data }: { data: PageProps['data'] & { initialClubVideo: SignedDeliveryAsset | null } } =
-		$props();
+	// Also rendered by (app)/new-club/join/[code], so only the shared `code` is required.
+	let { data }: { data: Pick<PageProps['data'], 'code'> } = $props();
+
+	type ClubPreview = Extract<
+		FunctionReturnType<typeof api.clubs.lookupClubByCode>,
+		{ ok: true }
+	>['club'];
+	type Lookup =
+		| { status: 'loading' }
+		| { status: 'rateLimited' }
+		| { status: 'failed' }
+		| { status: 'done'; club: ClubPreview };
 
 	const auth = useAuth();
 	const convexClient = useConvexClient();
-	const preview = useStableQuery(api.clubs.getClubPreviewByCode, () => ({ code: data.code }));
 	const FORCE_SIGNUP_GOOGLE_PENDING_KEY = 'cl_force_signup_google_pending_v1';
 
 	let pending = $state(false);
@@ -32,7 +42,11 @@
 	let videoLoadFailed = $state(false);
 	let forcedGoogleSignupRecoveryPending = $state(false);
 
-	let club = $derived(preview.data);
+	// CL-817: the lookup is a rate-limited mutation, run from the browser so the limit is keyed
+	// on the visitor (their account or IP), not on the server.
+	let lookup = $state<Lookup>({ status: 'loading' });
+	let clubVideo = $state<SignedDeliveryAsset | null>(null);
+	let club = $derived(lookup.status === 'done' ? lookup.club : null);
 	let isAppNewClubFlow = $derived(page.url.pathname.startsWith(routes.newClubJoin));
 	let joinClubPath = $derived(isAppNewClubFlow ? routes.newClubJoin : routes.onboardingJoinClub);
 	let currentJoinPath = $derived(`${joinClubPath}/${data.code}`);
@@ -45,15 +59,57 @@
 	let scheduleLabels = $derived((club?.scheduleSlots ?? []).map(formatScheduleSlot));
 	let clubVideoUrl = $derived.by(() => {
 		const clubVideoAssetId = club?.videoMediaAssetId ?? null;
-		if (clubVideoAssetId && data.initialClubVideo?.assetId === clubVideoAssetId) {
-			return data.initialClubVideo.signedUrl;
+		if (clubVideoAssetId && clubVideo?.assetId === clubVideoAssetId) {
+			return clubVideo.signedUrl;
 		}
+		return null;
+	});
 
-		if (clubVideoAssetId) {
+	const loadClubVideo = async (assetId: string) => {
+		try {
+			const response = await fetch('/api/media/club-video', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ assetId })
+			});
+			if (!response.ok) return null;
+			const body = (await response.json()) as { asset: SignedDeliveryAsset | null };
+			return body.asset;
+		} catch {
 			return null;
 		}
+	};
 
-		return null;
+	$effect(() => {
+		if (!browser) return;
+		const code = data.code;
+		let cancelled = false;
+		lookup = { status: 'loading' };
+		clubVideo = null;
+		void (async () => {
+			try {
+				// Coming from the join-club form, which already looked this code up (CL-817).
+				const result =
+					takeClubCodeLookup(code) ??
+					(await convexClient.mutation(api.clubs.lookupClubByCode, { code }));
+				if (cancelled) return;
+				if (!result.ok) {
+					lookup = { status: 'rateLimited' };
+					return;
+				}
+				lookup = { status: 'done', club: result.club };
+				const assetId = result.club?.videoMediaAssetId;
+				if (assetId) {
+					const signed = await loadClubVideo(assetId);
+					if (!cancelled) clubVideo = signed;
+				}
+			} catch {
+				if (!cancelled) lookup = { status: 'failed' };
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	$effect(() => {
@@ -157,9 +213,20 @@
 		</div>
 	{/snippet}
 	<div class={contentClass}>
-		{#if preview.isLoading}
+		{#if lookup.status === 'loading'}
 			<div class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
 				<p class="type-lead text-gray-600">{$_('onboarding.joinClubDetails.loading')}</p>
+			</div>
+		{:else if lookup.status === 'rateLimited' || lookup.status === 'failed'}
+			<div class="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-5">
+				<p class="type-lead text-red-700">
+					{lookup.status === 'rateLimited'
+						? $_('onboarding.joinClub.rateLimited')
+						: $_('onboarding.joinClub.validateFailure')}
+				</p>
+				<Button href={joinClubPath} variant="outline" size="xl" class="h-12 w-full">
+					{$_('onboarding.joinClubDetails.enterAnother')}
+				</Button>
 			</div>
 		{:else if !club}
 			<div class="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-5">
@@ -219,7 +286,9 @@
 			</div>
 
 			{#if errorMessage}
-				<p class="type-body-compact rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+				<p
+					class="type-body-compact rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700"
+				>
 					{errorMessage}
 				</p>
 			{/if}
