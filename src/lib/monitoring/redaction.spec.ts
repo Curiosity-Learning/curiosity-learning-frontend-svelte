@@ -294,4 +294,13 @@ describe('monitoring redaction', () => {
 				.message
 		).toBe('button[aria-label="[Redacted]"]');
 	});
+
+	it('redacts a quoted name after a newline or directly after the label', () => {
+		expect(redactText('{"username":\n"ava"}')).toBe('{"username":\n"[Redacted name]"}');
+		expect(redactText('{\\"firstName\\":\n\\"Ava\\"}')).toBe(
+			'{\\"firstName\\":\n\\"[Redacted name]\\"}'
+		);
+		expect(redactText('username"ava" taken')).toBe('username"[Redacted name]" taken');
+		expect(redactText('username "ava" taken')).toBe('username "[Redacted name]" taken');
+	});
 });

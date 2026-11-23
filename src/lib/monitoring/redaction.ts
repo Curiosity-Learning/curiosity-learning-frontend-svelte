@@ -26,10 +26,12 @@ const PERSON_NAME_LABEL =
 	"(?:display[ _-]?name|first[ _-]?name|last[ _-]?name|full[ _-]?name|given[ _-]?name|family[ _-]?name|nick[ _-]?name|preferred[ _-]?name|(?:child|parent|guardian)(?:'s)?[ _-]?name)";
 const NAME_LABEL = `(?:${USERNAME_LABEL}|${PERSON_NAME_LABEL})`;
 // A label followed by an optional closing quote of a JSON key (`"firstName"` or, inside a
-// string that holds JSON, `\"firstName\"`), then `:` or `=`. Only the label is matched by a
+// string that holds JSON, `\"firstName\"`), then an optional `:` or `=`, with any whitespace,
+// newlines included, around it. The key's closing quote is taken only when a `:` or `=`
+// follows, so in `username"ava"` the quote opens the value. Only the label is matched by a
 // regex; the quoted value after it is read by scanQuotedValue, which never backtracks.
 const LABEL_BEFORE_QUOTE_PATTERN = new RegExp(
-	`\\b${NAME_LABEL}(?:\\\\?")?[ \\t]*[:=]?[ \\t]*`,
+	`\\b${NAME_LABEL}(?:\\\\?"(?=\\s*[:=]))?\\s*[:=]?\\s*`,
 	'gi'
 );
 
