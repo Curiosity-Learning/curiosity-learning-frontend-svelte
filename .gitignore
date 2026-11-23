@@ -21,12 +21,16 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test
+!.env.e2e.example
 
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 # Playwright
 test-results
+playwright-report/
+# Session cookies saved by the signed-in role suite (e2e/roles/auth.setup.ts)
+playwright/.auth/
 docs/screenshots/
 # SQLite
 *.db

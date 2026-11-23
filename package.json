@@ -23,6 +23,7 @@
 		"test": "npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright test",
 		"test:e2e:local": "playwright test --config playwright.local.config.ts",
+		"test:e2e:roles": "playwright test --config playwright.roles.config.ts",
 		"convex:codegen": "convex codegen",
 		"ci": "npm run check && npm run lint:ci && npm run build",
 		"worktree:setup": "node scripts/worktree/cli.mjs setup",
