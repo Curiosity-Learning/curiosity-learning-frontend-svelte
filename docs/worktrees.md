@@ -7,7 +7,7 @@ merged to `main`.
 | Where                 | App URL                                | Convex backend                                                    | Data                                  |
 | --------------------- | -------------------------------------- | ----------------------------------------------------------------- | ------------------------------------- |
 | Production (`main`)   | production domain                      | `dependable-albatross-999` (prod)                                 | real                                  |
-| PR / branch preview   | Vercel branch URL (`…-git-<branch>-…`) | a Convex **preview** backend per branch (auto-deleted)            | copy of shared dev on the first build |
+| PR / branch preview   | Vercel branch URL (`…-git-<branch>-…`) | a Convex **preview** backend per branch (deleted after merge)     | copy of shared dev on the first build |
 | Worktree (local)      | `http://<worktree>.localhost:<port>`   | a Convex **dev** backend per worktree (`dev/wt/<machine>/<name>`) | copy of shared dev at setup           |
 | Main checkout (local) | `http://localhost:5173`                | `good-echidna-357` (shared dev)                                   | shared test data                      |
 
@@ -55,13 +55,16 @@ Other commands:
 npm run worktree:status         # every worktree, its backend and URL; orphaned backends
 npm run worktree:refresh-data   # replace this worktree's data with a fresh copy of shared dev
 npm run worktree:setup -- --refresh-env   # recopy env vars from shared dev
-npm run worktree:remove [path]  # delete the worktree's backend and the worktree (branch kept)
-npm run worktree:prune [--yes]  # delete THIS machine's backends whose worktree is gone (dry run without --yes)
+npm run worktree:remove [path]  # delete the worktree's backend, its PR's preview backend (if merged/closed) and the worktree (branch kept)
+npm run worktree:prune [--yes]  # list (and with --yes delete) THIS machine's backends whose worktree is gone,
+                                # and preview backends whose PR is merged/closed or whose branch is gone
 ```
 
 Settling a T3 thread, or removing a worktree from T3 or Claude Code, does not delete its
 backend. Agents run `npm run worktree:remove` after the merge. For leftovers, run
-`npm run worktree:prune -- --yes` from time to time.
+`npm run worktree:prune` (dry run) and then `npm run worktree:prune -- --yes` from time to time.
+The Convex team has a limit of 40 deployments; once it is hit, new worktrees and previews fail
+with `DeploymentQuotaReached`.
 
 ## Working from more than one machine
 
@@ -92,7 +95,7 @@ branch on one, `git fetch` on the other.
 (`npx convex deploy` to prod, then `npm run build`). Preview builds:
 
 1. deploy the branch’s functions and schema to its Convex preview backend first (named after the branch, reused
-   across pushes; Convex deletes inactive previews automatically);
+   across pushes; Convex only deletes inactive previews after several days);
 2. point that backend's `BETTER_AUTH_URL` at the branch's stable Vercel URL;
 3. on the branch's first build, copy shared dev data in (same field-dropping as worktrees);
 4. build the app.
@@ -109,6 +112,26 @@ Configuration (already set up 2026-11-10):
   except `BETTER_AUTH_URL` and `PUBLIC_CONVEX_SITE_URL`, which the build sets per preview).
 
 Previews use the dev Resend key, so emails from a preview are really sent, as on shared dev.
+
+### Deleting preview backends (CL-810)
+
+`--preview-name "$VERCEL_GIT_COMMIT_REF"` makes the git branch name the backend's
+`previewIdentifier` (shown as `preview/<branch with / turned into ->`). Each preview backend uses
+one of the team's 40 deployment slots until it is deleted, by any of:
+
+- `npm run worktree:remove`: deletes the branch's preview backend when `gh` reports its PR as
+  merged or closed. With an open PR (or none), it keeps the backend and says so.
+- `npm run worktree:prune [--yes]`: lists every preview backend with keep/delete and the reason.
+  It deletes those whose PR is merged or closed, or whose branch is gone from origin with no
+  open PR. A branch that still exists without a PR keeps its preview. With `--yes` it deletes.
+- `.github/workflows/delete-preview-backend.yml`: on `pull_request: closed`, runs
+  `node scripts/worktree/cli.mjs delete-preview <branch>` with the same rules. It needs the repo
+  secret `CONVEX_TEAM_ACCESS_TOKEN` (Convex dashboard → Team settings → Access tokens); without
+  it the job is skipped.
+
+None of them ever deletes production (`dependable-albatross-999`) or shared dev
+(`good-echidna-357`); only deployments of type `preview` are considered. The decision rules live
+in `scripts/worktree/preview-backends.mjs` and are unit tested.
 
 ## Why it is built this way
 
