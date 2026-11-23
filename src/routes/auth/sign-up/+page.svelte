@@ -5,7 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
-	import Icon from '@iconify/svelte';
+	import GoogleIcon from '$lib/components/app/google-icon.svelte';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -1538,7 +1538,7 @@
 								<LoaderCircleIcon class="size-4 animate-spin" />
 								{$_('auth.signUp.continuingWithGoogle')}
 							{:else}
-								<Icon icon="logos:google-icon" width="20" height="20" aria-hidden="true" />
+								<GoogleIcon />
 								{$_('auth.signUp.continueWithGoogle')}
 							{/if}
 						</Button>

@@ -9,6 +9,14 @@
 - **Identity:** `identity.subject` is resolved to `profiles.authUserId` at the auth boundary. App-owned relationships use `profiles._id`.
 - **Trusted origins:** Configured in `src/convex/auth.ts`. LAN origins only enabled when `ALLOW_LAN_TRUSTED_ORIGINS === 'true'`.
 
+## Content-Security-Policy (CL-818, report-only)
+
+- **Mode:** `Content-Security-Policy-Report-Only` only. Browsers report violations and block nothing. Switch `reportOnly` to `directives` in `svelte.config.js` once Sentry shows about two weeks without unexpected reports, after testing maps, uploads, video and Google sign-in.
+- **Where:** the baseline directives live in `src/lib/security/csp.js` and feed `kit.csp` (`mode: 'auto'`: a fresh nonce per rendered page; no page is prerendered today). `src/lib/security/csp-handle.ts`, run from `hooks.server.ts`, adds the hosts that only runtime env knows (`MEDIA_CDN_BASE_URL`, `MEDIA_S3_PUBLIC_BASE_URL`) and points `report-uri` / `report-to` (plus a `Reporting-Endpoints` header) at Sentry's security endpoint built from `PUBLIC_SENTRY_DSN`, tagged with the Sentry environment. No reports are sent when Sentry is disabled.
+- **Allowed:** Convex (`*.convex.cloud` https+wss, `*.convex.site`), media (`*.curiositylearning.org`, `*.amazonaws.com`, `*.cloudfront.net`), Mapbox (`api`, `events`, `*.tiles`; `worker-src blob:`), Sentry EU ingest, Google avatars (`*.googleusercontent.com`), `form-action https://accounts.google.com`. Also `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`.
+- **Known limits:** `style-src` needs `'unsafe-inline'` (Svelte transitions inject `<style>`). Pages carry a nonce, so rendered HTML must not be cached and shared between visitors. A prerendered page would get the policy in a `<meta>` tag, which ignores `report-uri` and `frame-ancestors`.
+- **Third parties:** the Google icon on the sign-in/up pages is bundled (`google-icon.svelte`), so nothing is fetched from `api.iconify.design`. Fonts are local (`@fontsource`).
+
 ## Parent Accounts & Sign-in Links
 
 - **Parent account at consent approval.** `childSignup.approveConsent` finds or creates the Better Auth user for `parentChildConsents.parentEmail` (the consent token was only ever emailed there, so holding it proves ownership of the address). A new user is created verified and password-less. Settings offers "Set a password" to accounts without a `credential` account (`auth.getMySignInMethods`, caller-scoped; never to child accounts): it sends Better Auth's password-reset email to the caller's own address, which creates the credential account. `/auth/reset-password?token=…` opens for a signed-in visitor too (`auth/+layout.server.ts`; without a token a signed-in visitor is still redirected), so the link works in the browser that asked for it. A club-less account with a `parentLinks` row lands on `/child/{firstLinkedChildId}` instead of `/new-club` (`parentAccounts.getMyFirstLinkedChildId`, `clubLessLandingPath`).
