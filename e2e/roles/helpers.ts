@@ -127,12 +127,20 @@ export const main = (page: Page) => page.locator('#main-content');
 export const content = (page: Page) => page.locator('main:not(:has(main))');
 
 /**
- * Waits until no loading placeholder is left in the main column: "Loading …" text, or a
- * spinner / `LoadingState` that only names itself through `aria-label`.
+ * Waits until no loading placeholder is left in the content column:
+ * - "Loading …" text;
+ * - anything labelled "Loading" through `aria-label`;
+ * - any `role="status"` element (`LoadingState`, and `Spinner`, whatever label it carries);
+ * - any `.animate-spin` icon.
  */
 export const expectLoaded = async (page: Page) => {
-	await expect(content(page).getByText(/^Loading\b/)).toHaveCount(0, { timeout: 15_000 });
-	await expect(content(page).locator('[aria-label*="Loading" i]')).toHaveCount(0, {
-		timeout: 15_000
-	});
+	const placeholders = [
+		content(page).getByText(/^Loading\b/),
+		content(page).locator('[aria-label*="Loading" i]'),
+		content(page).locator('[role="status"]'),
+		content(page).locator('.animate-spin')
+	];
+	for (const placeholder of placeholders) {
+		await expect(placeholder).toHaveCount(0, { timeout: 15_000 });
+	}
 };

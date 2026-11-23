@@ -17,6 +17,9 @@ test('the review queue and the review guide render', async ({ page }) => {
 	).toBeVisible();
 	await expect(main(page).getByText('How to review')).toBeVisible();
 	await expect(main(page).getByText('No applications assigned')).toBeVisible();
+	await expect(
+		main(page).getByText('Nothing is assigned to you for review this season.')
+	).toBeVisible();
 	await expectImagesLoaded(page);
 
 	await main(page).getByRole('link', { name: 'Read the review guide' }).click();
