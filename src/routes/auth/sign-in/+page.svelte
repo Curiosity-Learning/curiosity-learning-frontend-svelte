@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ScreenBackButton } from '$lib/components/app';
-	import Icon from '@iconify/svelte';
+	import GoogleIcon from '$lib/components/app/google-icon.svelte';
 	import { page } from '$app/state';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
@@ -640,7 +640,7 @@
 								<LoaderCircleIcon class="size-4 animate-spin" />
 								{$_('auth.signIn.continuingWithGoogle')}
 							{:else}
-								<Icon icon="logos:google-icon" width="20" height="20" aria-hidden="true" />
+								<GoogleIcon />
 								{$_('auth.signIn.continueWithGoogle')}
 							{/if}
 						</Button>
