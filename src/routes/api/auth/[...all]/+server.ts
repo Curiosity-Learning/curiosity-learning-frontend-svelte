@@ -1,7 +1,9 @@
 import { createSvelteKitHandler } from '@mmailaender/convex-better-auth-svelte/sveltekit';
+import { PUBLIC_CONVEX_SITE_URL } from '$env/static/public';
 import type { RequestHandler } from './$types';
 
-const handler = createSvelteKitHandler();
+// The Svelte adapter (0.10+) reads no env vars itself: pass the Convex HTTP actions URL.
+const handler = createSvelteKitHandler({ convexSiteUrl: PUBLIC_CONVEX_SITE_URL });
 
 const isAbortError = (error: unknown) =>
 	error instanceof DOMException

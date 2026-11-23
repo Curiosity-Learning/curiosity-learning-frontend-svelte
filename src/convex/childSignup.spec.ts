@@ -323,7 +323,7 @@ describe('approveConsent', () => {
 			paginationOpts: { cursor: null, numItems: 10 }
 		})) as { page: Array<{ value: string; expiresAt: number }> };
 		expect(verification.page.map((row) => JSON.parse(row.value))).toEqual([
-			{ email: 'parent@example.com' }
+			{ type: 'magic-link', email: 'parent@example.com' }
 		]);
 		// Shown on screen right after approval: 30 minutes (review S3).
 		expect(verification.page[0].expiresAt).toBeLessThanOrEqual(
@@ -1077,5 +1077,46 @@ describe('auditAdoptedParentAccounts / stripAdoptedParentCredentials', () => {
 			})
 		).rejects.toThrow('no password account that predates its approval');
 		expect(await countRows(t, 'account')).toBe(2);
+	});
+});
+
+// CL-815: child accounts are built by hand (user + credential account rows, password hashed with
+// better-auth/crypto) instead of through Better Auth's sign-up. This pins that such an account
+// still signs in with its username through the real Better Auth route after an upgrade.
+describe('hand-built child account sign-in (CL-815)', () => {
+	it('signs in with username and password, and refuses a wrong password with 401', async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		vi.stubEnv('CONVEX_SITE_URL', 'https://site.example.com');
+		vi.stubEnv('BETTER_AUTH_SECRET', 'test-secret-'.repeat(4));
+		const t = convexTest(schema, modules);
+		betterAuthTest.register(t);
+		await t.mutation(internal.childSignup.createPendingChildAccount, {
+			username: 'kiddo_815',
+			parentEmail: 'parent@example.com',
+			passwordHash: await hashPassword('child-password-1'),
+			token: 'consent-token-815'
+		});
+		// What approveConsent does to the child's auth user (requireEmailVerification is on).
+		await t.mutation(components.betterAuth.adapter.updateOne, {
+			input: {
+				model: 'user',
+				where: [{ field: 'username', value: 'kiddo_815' }],
+				update: { emailVerified: true }
+			}
+		});
+		const signIn = (password: string) =>
+			t.fetch('/api/auth/sign-in/username', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', origin: 'https://app.example.com' },
+				body: JSON.stringify({ username: 'KIDDO_815', password })
+			});
+
+		// Typed in capitals: the name is validated after lowercasing, like it is stored.
+		const ok = await signIn('child-password-1');
+		expect(ok.status).toBe(200);
+		expect(ok.headers.get('set-cookie')).toContain('better-auth.session_token=');
+
+		const wrong = await signIn('not-the-password');
+		expect(wrong.status).toBe(401);
 	});
 });

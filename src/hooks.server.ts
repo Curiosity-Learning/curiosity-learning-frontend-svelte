@@ -4,7 +4,6 @@ import { sequence } from '@sveltejs/kit/hooks';
 import { getToken } from '@mmailaender/convex-better-auth-svelte/sveltekit';
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
-import { createAuth } from '$convex/auth';
 import { buildSharedSentryOptions } from '$lib/monitoring/sentry-config';
 import { logApiRequests } from '$lib/monitoring/api-logging';
 
@@ -12,9 +11,7 @@ Sentry.init(
 	buildSharedSentryOptions({
 		dsn: publicEnv.PUBLIC_SENTRY_DSN,
 		environment:
-			privateEnv.SENTRY_ENVIRONMENT?.trim() ||
-			privateEnv.VERCEL_ENV?.trim() ||
-			privateEnv.NODE_ENV,
+			privateEnv.SENTRY_ENVIRONMENT?.trim() || privateEnv.VERCEL_ENV?.trim() || privateEnv.NODE_ENV,
 		enabledFlag: publicEnv.PUBLIC_SENTRY_ENABLED,
 		tracesSampleRate: publicEnv.PUBLIC_SENTRY_TRACES_SAMPLE_RATE,
 		profilesSampleRate: publicEnv.PUBLIC_SENTRY_PROFILES_SAMPLE_RATE,
@@ -23,7 +20,8 @@ Sentry.init(
 );
 
 const handleAuthToken: Handle = async ({ event, resolve }) => {
-	event.locals.token = await getToken(createAuth, event.cookies);
+	// Reads the Convex JWT cookie directly (adapter 0.10): no createAuth() during SSR.
+	event.locals.token = getToken(event.cookies);
 	return resolve(event);
 };
 

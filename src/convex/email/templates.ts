@@ -135,6 +135,14 @@ const otpLabelByType = {
 		title: 'Reset your password',
 		purpose: 'reset your password',
 		preheader: 'Use this 6-digit code to reset your Curiosity Learning password.'
+	},
+	// Better Auth 1.7's emailOTP can also send change-email codes; the app does not offer email
+	// changes yet, but the plugin's type includes it.
+	'change-email': {
+		subject: 'Confirm your new email code',
+		title: 'Confirm your new email',
+		purpose: 'confirm your new email address',
+		preheader: 'Use this 6-digit code to confirm your new Curiosity Learning email address.'
 	}
 } as const;
 

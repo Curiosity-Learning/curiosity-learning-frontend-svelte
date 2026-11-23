@@ -43,6 +43,10 @@ export default defineConfig({
 				test: {
 					name: 'server',
 					environment: 'node',
+					// The first test in a spec that touches the betterAuth component lazily imports
+					// the component's modules (and Better Auth 1.7 with them), which takes several
+					// seconds on its own under a full parallel run (CL-815).
+					testTimeout: 30_000,
 					include: ['src/**/*.{test,spec}.{js,ts}'],
 					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}', '**/._*']
 				}

@@ -30,18 +30,31 @@ import {
 //
 // KEEP IN SYNC ON BETTER AUTH UPGRADES. This writes the `verification` row exactly the way the
 // magic-link plugin's sign-in endpoint does and builds the URL its verify endpoint reads
-// (better-auth/dist/plugins/magic-link/index.mjs, checked against better-auth 1.4.9):
+// (better-auth/dist/plugins/magic-link/index.mjs, checked against better-auth 1.7.27):
 // - token: 32 random letters (generateRandomString(32, 'a-z', 'A-Z'));
-// - identifier: storeToken(token) — with `storeToken: 'hashed'` (set in auth.ts) that is
-//   defaultKeyHasher: base64url(SHA-256(token)) without padding (magic-link/utils.mjs);
-// - value: JSON.stringify({ email }) — verify parses { email, name } and signs in the user found
-//   by findUserByEmail(email) (lowercased); with `disableSignUp` an unknown email fails;
+// - identifier: `magic-link:${storeToken(token)}` — with `storeToken: 'hashed'` (set in auth.ts)
+//   storeToken is defaultKeyHasher: base64url(SHA-256(token)) without padding
+//   (magic-link/utils.mjs). The `magic-link:` prefix is new in 1.7 (GHSA-965c fix: verification
+//   rows of other flows can no longer be redeemed as sign-in links);
+// - value: JSON.stringify({ type: 'magic-link', email }) — verify parses it with a STRICT schema
+//   ({ type: 'magic-link', email, name? }, no other keys; the `type` is new in 1.7) and signs in
+//   the user found by findUserByEmail(email); with `disableSignUp` an unknown email fails;
 // - expiresAt: now + expiresIn seconds;
 // - URL: `${basePath}/magic-link/verify?token=…&callbackURL=…&errorCallbackURL=…` — built in the
 //   browser by the /auth/link interstitial (lib/auth/magic-link.ts buildMagicLinkVerifyPath);
 //   what we hand out is `${appOrigin}/auth/link#t=…&next=…&as=…`.
 // magicLinks.spec.ts asserts this row against the real component; if the plugin changes its
 // storage or verify contract, that spec (and these links) must be updated together.
+
+// Better Auth 1.7's magic-link verification identifier prefix and record type.
+export const MAGIC_LINK_IDENTIFIER_PREFIX = 'magic-link:';
+export const MAGIC_LINK_RECORD_TYPE = 'magic-link';
+
+export const magicLinkVerificationIdentifier = (hashedToken: string) =>
+	`${MAGIC_LINK_IDENTIFIER_PREFIX}${hashedToken}`;
+
+export const magicLinkVerificationValue = (email: string) =>
+	JSON.stringify({ type: MAGIC_LINK_RECORD_TYPE, email });
 
 const TOKEN_LENGTH = 32;
 const TOKEN_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -175,8 +188,8 @@ export const mintMagicLink = async (
 		input: {
 			model: 'verification',
 			data: {
-				identifier: await hashMagicLinkToken(token),
-				value: JSON.stringify({ email }),
+				identifier: magicLinkVerificationIdentifier(await hashMagicLinkToken(token)),
+				value: magicLinkVerificationValue(email),
 				expiresAt: now + args.expiresInSeconds * 1000,
 				createdAt: now,
 				updatedAt: now
@@ -189,7 +202,7 @@ export const mintMagicLink = async (
 
 // For the plugin's own emailed links (auth.ts sendMagicLink): the plugin hands us its verify URL;
 // re-point it at the interstitial like every other emailed link. The plugin's callbackURL is our
-// toMagicLinkCallbackParam(path), query-encoded; null when the URL is not the shape we expect
+// toMagicLinkCallbackParam(path) (the path itself since 1.7), query-encoded; null when the URL is not the shape we expect
 // (the caller then sends the plugin's URL unchanged rather than nothing).
 export const pluginVerifyUrlToInterstitial = (verifyUrl: string, email: string) => {
 	const appOrigin = getAppOrigin();
@@ -199,7 +212,9 @@ export const pluginVerifyUrlToInterstitial = (verifyUrl: string, email: string) 
 		const token = url.searchParams.get('token');
 		const callback = url.searchParams.get('callbackURL');
 		if (!token) return null;
-		const next = callback ? decodeURIComponent(callback) : '/';
+		// searchParams.get already undoes the query encoding; 1.7 adds no second layer (see
+		// toMagicLinkCallbackParam).
+		const next = callback ?? '/';
 		if (!isMagicLinkCallbackPath(next)) return null;
 		return buildMagicLinkInterstitialUrl(appOrigin, { token, next, email });
 	} catch {
@@ -229,5 +244,80 @@ export const deleteExpiredVerifications = internalMutation({
 			}
 		);
 		return { deleted: result.count, hasMore: !result.isDone };
+	}
+});
+
+// CL-815: Better Auth 1.7 reads magic-link rows as `magic-link:<hash>` with a typed value (see
+// the KEEP IN SYNC note above); rows written under 1.4.9 (`<hash>`, `{ email }`) no longer
+// verify. Parent emails carry links that stay valid for 48 hours, so rather than let every link
+// already in an inbox fail after the deploy, this rewrites the unexpired legacy rows into the new
+// shape. Run once right after deploying the upgrade (`npx convex run
+// magicLinks:migrateLegacyMagicLinkVerifications`); it pages itself through the scheduler and is
+// idempotent (a migrated row no longer matches). Remove it once the 48-hour window has passed.
+//
+// A legacy row is recognised by both halves of its old shape, so no other flow's row is touched:
+// - identifier: a bare base64url SHA-256 (43 chars, no `:`) — OTP rows are
+//   `<type>-otp-<email>` and reset rows `reset-password:<token>`;
+// - value: JSON with a string `email` and no keys other than `email` / `name`.
+const LEGACY_MAGIC_LINK_IDENTIFIER = /^[A-Za-z0-9_-]{43}$/;
+const LEGACY_MAGIC_LINK_PAGE_SIZE = 100;
+
+export const toMigratedMagicLinkRow = (row: { identifier: string; value: string }) => {
+	if (!LEGACY_MAGIC_LINK_IDENTIFIER.test(row.identifier)) return null;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(row.value);
+	} catch {
+		return null;
+	}
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+	const record = parsed as Record<string, unknown>;
+	if (typeof record.email !== 'string') return null;
+	if (Object.keys(record).some((key) => key !== 'email' && key !== 'name')) return null;
+	return {
+		identifier: magicLinkVerificationIdentifier(row.identifier),
+		value: JSON.stringify({
+			type: MAGIC_LINK_RECORD_TYPE,
+			email: record.email,
+			...(typeof record.name === 'string' ? { name: record.name } : {})
+		})
+	};
+};
+
+export const migrateLegacyMagicLinkVerifications = internalMutation({
+	args: { cursor: v.optional(v.union(v.string(), v.null())) },
+	returns: v.object({ migrated: v.number(), isDone: v.boolean() }),
+	handler: async (ctx, args) => {
+		const page = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+			model: 'verification',
+			where: [{ field: 'expiresAt', operator: 'gt', value: Date.now() }],
+			paginationOpts: { cursor: args.cursor ?? null, numItems: LEGACY_MAGIC_LINK_PAGE_SIZE }
+		})) as {
+			page: Array<{ _id: string; identifier: string; value: string }>;
+			isDone: boolean;
+			continueCursor: string;
+		};
+		let migrated = 0;
+		for (const row of page.page) {
+			const next = toMigratedMagicLinkRow(row);
+			if (!next) continue;
+			await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+				input: {
+					model: 'verification',
+					where: [{ field: '_id', value: row._id }],
+					update: { ...next, updatedAt: Date.now() }
+				}
+			});
+			migrated += 1;
+		}
+		if (!page.isDone) {
+			await ctx.scheduler.runAfter(0, internal.magicLinks.migrateLegacyMagicLinkVerifications, {
+				cursor: page.continueCursor
+			});
+		}
+		console.log(
+			`migrateLegacyMagicLinkVerifications: migrated ${migrated} row(s)${page.isDone ? ', done' : ', continuing'}`
+		);
+		return { migrated, isDone: page.isDone };
 	}
 });

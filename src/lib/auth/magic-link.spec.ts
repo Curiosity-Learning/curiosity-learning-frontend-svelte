@@ -43,14 +43,13 @@ describe('buildMagicLinkErrorPath', () => {
 });
 
 describe('toMagicLinkCallbackParam', () => {
-	it('survives the extra decodeURIComponent the verify endpoint applies', () => {
+	// Better Auth 1.7 reads callback params with plain query decoding (1.4 added a second
+	// decodeURIComponent, which this used to escape for): the encoded `next` must go unchanged.
+	it('sends the path unchanged, encoded `next` included', () => {
 		const path = buildMagicLinkErrorPath('/child/abc?room=xyz');
 		const param = toMagicLinkCallbackParam(path);
-		expect(decodeURIComponent(param)).toBe(path);
-		// Both the wire form (checked on POST) and the decoded form (checked on verify) must pass
-		// Better Auth's relative-callback check.
+		expect(param).toBe(path);
 		expect(isMagicLinkCallbackPath(param)).toBe(true);
-		expect(isMagicLinkCallbackPath(decodeURIComponent(param))).toBe(true);
 	});
 
 	it('is the identity for paths without escapes', () => {
@@ -125,17 +124,15 @@ describe('interstitial fragment', () => {
 		expect(url.searchParams.get('token')).toBe('abcDEF');
 		// The landing page gets the via=link marker; the expired-link fallback continues to the
 		// unmarked page.
-		expect(decodeURIComponent(url.searchParams.get('callbackURL')!)).toBe(
-			'/child/abc?room=xyz&via=link'
-		);
-		expect(decodeURIComponent(url.searchParams.get('errorCallbackURL')!)).toBe(
+		expect(url.searchParams.get('callbackURL')).toBe('/child/abc?room=xyz&via=link');
+		expect(url.searchParams.get('errorCallbackURL')).toBe(
 			buildMagicLinkErrorPath('/child/abc?room=xyz')
 		);
 		const bare = new URL(
 			buildMagicLinkVerifyPath({ token: 'abcDEF', next: '/child/abc' }),
 			'https://app.example.com'
 		);
-		expect(decodeURIComponent(bare.searchParams.get('callbackURL')!)).toBe('/child/abc?via=link');
+		expect(bare.searchParams.get('callbackURL')).toBe('/child/abc?via=link');
 		expect(isMagicLinkCallbackPath('/child/abc?room=xyz&via=link')).toBe(true);
 	});
 });

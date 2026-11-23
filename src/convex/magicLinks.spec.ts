@@ -2,18 +2,17 @@
 
 // magicLinks.mintMagicLink writes Better Auth magic-link verification rows directly instead of
 // going through the plugin's endpoint. These specs mount the real betterAuth component and pin
-// the row to the exact shape the plugin's verify endpoint reads (better-auth 1.4.9,
+// the row to the exact shape the plugin's verify endpoint reads (better-auth 1.7.27,
 // plugins/magic-link/index.mjs + utils.mjs, with storeToken: 'hashed'). If a Better Auth upgrade
 // changes that contract, these must fail before parents' sign-in links do.
 
 import betterAuthTest from '@convex-dev/better-auth/test';
-import { createHash } from '@better-auth/utils/hash';
-import { base64Url } from '@better-auth/utils/base64';
+import { createHash } from 'node:crypto';
 import { hashPassword } from 'better-auth/crypto';
 import { convexTest } from 'convex-test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { components } from './_generated/api';
-import { hashMagicLinkToken, mintMagicLink } from './magicLinks';
+import { hashMagicLinkToken, mintMagicLink, toMigratedMagicLinkRow } from './magicLinks';
 import { internal } from './_generated/api';
 import schema from './schema';
 import {
@@ -37,12 +36,13 @@ vi.mock('./email/resend', () => ({
 	sendEmail: sendEmailMock
 }));
 
-// better-auth's own defaultKeyHasher (magic-link/utils.mjs), rebuilt from the same primitives.
+// better-auth's own defaultKeyHasher (magic-link/utils.mjs: base64url(SHA-256), no padding),
+// rebuilt independently with node:crypto.
 const pluginKeyHasher = async (token: string) =>
-	base64Url.encode(
-		new Uint8Array(await createHash('SHA-256').digest(new TextEncoder().encode(token))),
-		{ padding: false }
-	);
+	createHash('sha256').update(token).digest('base64url');
+
+// The 1.7 plugin's verification identifier for a token (magicLinkIdentifier in index.mjs).
+const pluginIdentifier = async (token: string) => `magic-link:${await pluginKeyHasher(token)}`;
 
 type VerificationRow = {
 	identifier: string;
@@ -136,20 +136,18 @@ describe('mintMagicLink', () => {
 		expect(parsed?.token).toMatch(/^[a-zA-Z]{32}$/);
 		expect(parsed?.next).toBe('/child/abc?room=xyz');
 		expect(parsed?.as).toBe('parent@example.com');
-		// What the interstitial's button opens: the verify endpoint with callbacks whose extra
-		// decodeURIComponent() yields exactly the intended paths.
+		// What the interstitial's button opens: the verify endpoint with exactly the intended
+		// callback paths (Better Auth 1.7 decodes them once, like any query param).
 		const verify = new URL(interstitialToVerifyPath(link!), 'https://app.example.com');
 		expect(verify.pathname).toBe('/api/auth/magic-link/verify');
 		// The landing page is marked as reached through a sign-in link (CL-769 banner).
-		expect(decodeURIComponent(verify.searchParams.get('callbackURL')!)).toBe(
-			'/child/abc?room=xyz&via=link'
-		);
-		expect(decodeURIComponent(verify.searchParams.get('errorCallbackURL')!)).toBe(
+		expect(verify.searchParams.get('callbackURL')).toBe('/child/abc?room=xyz&via=link');
+		expect(verify.searchParams.get('errorCallbackURL')).toBe(
 			'/auth/sign-in?next=%2Fchild%2Fabc%3Froom%3Dxyz&link=expired'
 		);
 	});
 
-	it('stores the row the magic-link plugin reads: hashed identifier, email JSON, the given lifetime', async () => {
+	it('stores the row the magic-link plugin reads: prefixed hashed identifier, typed email JSON, the given lifetime', async () => {
 		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
 		const t = await setup();
 		const before = Date.now();
@@ -157,15 +155,16 @@ describe('mintMagicLink', () => {
 		const link = await mint(t, '/child/abc', 30 * 60);
 		const token = parseMagicLinkInterstitialFragment(new URL(link!).hash)!.token;
 
-		// storeToken: 'hashed' → the plugin looks the row up by its own hash of the token.
-		const identifier = await pluginKeyHasher(token);
-		expect(await hashMagicLinkToken(token)).toBe(identifier);
+		// storeToken: 'hashed' → the plugin looks the row up by `magic-link:` + its own hash.
+		expect(await hashMagicLinkToken(token)).toBe(await pluginKeyHasher(token));
+		const identifier = await pluginIdentifier(token);
 		const row = await findVerification(t, identifier);
 		expect(row).not.toBeNull();
-		// Never the raw token at rest.
+		// Never the raw token at rest, and never the pre-1.7 unprefixed identifier.
 		expect(await findVerification(t, token)).toBeNull();
-		// verify: JSON.parse(value) → { email, name } → findUserByEmail(email).
-		expect(JSON.parse(row!.value)).toEqual({ email: 'parent@example.com' });
+		expect(await findVerification(t, await pluginKeyHasher(token))).toBeNull();
+		// verify: strict { type: 'magic-link', email, name? } → findUserByEmail(email).
+		expect(JSON.parse(row!.value)).toEqual({ type: 'magic-link', email: 'parent@example.com' });
 		expect(row!.expiresAt).toBeGreaterThanOrEqual(before + 30 * 60 * 1000);
 		expect(row!.expiresAt).toBeLessThanOrEqual(Date.now() + 30 * 60 * 1000);
 		expect(typeof row!.createdAt).toBe('number');
@@ -213,10 +212,13 @@ describe('mintMagicLink', () => {
 		expect(fallback.searchParams.get('error')).toBe('INVALID_TOKEN');
 	});
 
-	// Review S10: the verify endpoint decodes callback params a second time and we escape for
-	// it (toMagicLinkCallbackParam). If an upgrade drops that extra decode, the error redirect's
-	// `next` would keep a literal %25 and silently send the user to "/" — this pins it.
-	it('an expired link redirects to the sign-in fallback with EXPIRED_TOKEN and `next` intact, query included', async () => {
+	// Review S10: the error redirect's `next` carries an encoded query, which only survives if
+	// toMagicLinkCallbackParam matches how the verify endpoint decodes callback params (1.4
+	// decoded them twice, 1.7 once). A mismatch leaves a literal %2F / %25 in `next` and silently
+	// sends the user to "/" — this pins it.
+	// Better Auth 1.7 no longer tells an expired token apart from an unknown one (both
+	// INVALID_TOKEN); the sign-in page keys on our `link=expired` marker either way.
+	it('an expired link redirects to the sign-in fallback with `next` intact, query included', async () => {
 		stubAuthEnv();
 		const t = await setup();
 		const link = (await mint(t, '/child/abc?room=xyz'))!;
@@ -225,7 +227,7 @@ describe('mintMagicLink', () => {
 		await t.mutation(components.betterAuth.adapter.updateOne, {
 			input: {
 				model: 'verification',
-				where: [{ field: 'identifier', value: await hashMagicLinkToken(token) }],
+				where: [{ field: 'identifier', value: await pluginIdentifier(token) }],
 				update: { expiresAt: Date.now() - 1000 }
 			}
 		});
@@ -234,7 +236,7 @@ describe('mintMagicLink', () => {
 		expect(response.status).toBe(302);
 		const fallback = new URL(response.headers.get('location')!);
 		expect(fallback.pathname).toBe('/auth/sign-in');
-		expect(fallback.searchParams.get('error')).toBe('EXPIRED_TOKEN');
+		expect(fallback.searchParams.get('error')).toBe('INVALID_TOKEN');
 		expect(fallback.searchParams.get('link')).toBe('expired');
 		expect(fallback.searchParams.get('next')).toBe('/child/abc?room=xyz');
 		expect(response.headers.get('set-cookie') ?? '').not.toContain('better-auth.session_token=');
@@ -523,7 +525,7 @@ describe('deleteExpiredVerifications (daily cron)', () => {
 		await t.mutation(components.betterAuth.adapter.updateOne, {
 			input: {
 				model: 'verification',
-				where: [{ field: 'identifier', value: await hashMagicLinkToken(expiredToken) }],
+				where: [{ field: 'identifier', value: await pluginIdentifier(expiredToken) }],
 				update: { expiresAt: Date.now() - 1000 }
 			}
 		});
@@ -531,8 +533,8 @@ describe('deleteExpiredVerifications (daily cron)', () => {
 		const result = await t.mutation(internal.magicLinks.deleteExpiredVerifications, {});
 
 		expect(result).toEqual({ deleted: 1, hasMore: false });
-		expect(await findVerification(t, await hashMagicLinkToken(expiredToken))).toBeNull();
-		expect(await findVerification(t, await hashMagicLinkToken(liveToken))).not.toBeNull();
+		expect(await findVerification(t, await pluginIdentifier(expiredToken))).toBeNull();
+		expect(await findVerification(t, await pluginIdentifier(liveToken))).not.toBeNull();
 	});
 });
 
@@ -650,5 +652,179 @@ describe('sessions created by a sign-in link', () => {
 
 		const [created] = await sessionsOf(t);
 		expect(created.expiresAt).toBeGreaterThanOrEqual(now + 30 * DAY_MS);
+	});
+});
+
+// CL-815: links minted under Better Auth 1.4.9 sit in parents' inboxes for up to 48 hours. The
+// migration rewrites their rows into the 1.7 shape so they keep signing in after the deploy.
+describe('migrateLegacyMagicLinkVerifications (CL-815 deploy step)', () => {
+	const LEGACY_TOKEN = 'abcdefghijklmnopqrstuvwxyzABCDEF';
+
+	const insertVerification = async (
+		t: Awaited<ReturnType<typeof setup>>,
+		row: { identifier: string; value: string; expiresAt?: number }
+	) => {
+		const now = Date.now();
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'verification',
+				data: {
+					identifier: row.identifier,
+					value: row.value,
+					expiresAt: row.expiresAt ?? now + 60 * 60 * 1000,
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+	};
+
+	it('recognises only the 1.4.9 magic-link row shape', async () => {
+		const hash = await pluginKeyHasher(LEGACY_TOKEN);
+		expect(toMigratedMagicLinkRow({ identifier: hash, value: '{"email":"a@b.co"}' })).toEqual({
+			identifier: `magic-link:${hash}`,
+			value: JSON.stringify({ type: 'magic-link', email: 'a@b.co' })
+		});
+		expect(
+			toMigratedMagicLinkRow({ identifier: hash, value: '{"email":"a@b.co","name":"A"}' })
+		).toEqual({
+			identifier: `magic-link:${hash}`,
+			value: JSON.stringify({ type: 'magic-link', email: 'a@b.co', name: 'A' })
+		});
+		// Already migrated / written by 1.7.
+		expect(
+			toMigratedMagicLinkRow({
+				identifier: `magic-link:${hash}`,
+				value: JSON.stringify({ type: 'magic-link', email: 'a@b.co' })
+			})
+		).toBeNull();
+		// Other flows' rows.
+		expect(toMigratedMagicLinkRow({ identifier: 'reset-password:abc', value: 'user1' })).toBeNull();
+		expect(
+			toMigratedMagicLinkRow({ identifier: 'sign-in-otp-a@b.co', value: '123456:0' })
+		).toBeNull();
+		// Right identifier shape, wrong value shapes.
+		expect(toMigratedMagicLinkRow({ identifier: hash, value: 'user1' })).toBeNull();
+		expect(
+			toMigratedMagicLinkRow({ identifier: hash, value: '{"email":"a@b.co","x":1}' })
+		).toBeNull();
+		expect(toMigratedMagicLinkRow({ identifier: hash, value: '["a@b.co"]' })).toBeNull();
+	});
+
+	it('makes a link minted before the upgrade sign in again, and leaves other rows alone', async () => {
+		stubAuthEnv();
+		const t = await setup();
+		const hash = await pluginKeyHasher(LEGACY_TOKEN);
+		// Exactly what 1.4.9's mintMagicLink stored.
+		await insertVerification(t, {
+			identifier: hash,
+			value: JSON.stringify({ email: 'parent@example.com' })
+		});
+		await insertVerification(t, { identifier: 'reset-password:resettoken', value: 'someone' });
+		const verifyPath = buildMagicLinkVerifyPath({ token: LEGACY_TOKEN, next: '/child/abc' });
+
+		// Before the migration the 1.7 verify endpoint cannot find the legacy row.
+		const before = await t.fetch(verifyPath, { method: 'GET' });
+		expect(new URL(before.headers.get('location')!).searchParams.get('error')).toBe(
+			'INVALID_TOKEN'
+		);
+
+		const result = await t.mutation(internal.magicLinks.migrateLegacyMagicLinkVerifications, {});
+		expect(result).toEqual({ migrated: 1, isDone: true });
+		expect(await findVerification(t, hash)).toBeNull();
+		expect((await findVerification(t, 'reset-password:resettoken'))?.value).toBe('someone');
+
+		const after = await t.fetch(verifyPath, { method: 'GET' });
+		expect(after.status).toBe(302);
+		expect(after.headers.get('location')).toBe('https://app.example.com/child/abc?via=link');
+		expect(after.headers.get('set-cookie')).toContain('better-auth.session_token=');
+
+		// Idempotent.
+		expect(await t.mutation(internal.magicLinks.migrateLegacyMagicLinkVerifications, {})).toEqual({
+			migrated: 0,
+			isDone: true
+		});
+	});
+
+	it('skips expired legacy rows (the daily cleanup removes them)', async () => {
+		vi.stubEnv('BETTER_AUTH_URL', 'https://app.example.com');
+		const t = await setup();
+		const hash = await pluginKeyHasher(LEGACY_TOKEN);
+		await insertVerification(t, {
+			identifier: hash,
+			value: JSON.stringify({ email: 'parent@example.com' }),
+			expiresAt: Date.now() - 1000
+		});
+
+		const result = await t.mutation(internal.magicLinks.migrateLegacyMagicLinkVerifications, {});
+
+		expect(result).toEqual({ migrated: 0, isDone: true });
+		expect(await findVerification(t, hash)).not.toBeNull();
+	});
+});
+
+// CL-815 regression tests for the advisories the upgrade fixes.
+describe('Better Auth security advisories (CL-815)', () => {
+	// GHSA-qq9h-g4jm-xgf3: someone pre-registers the victim's address with a password they know.
+	// On 1.4.9 that password started working once the real owner proved the mailbox through an
+	// email code. 1.7 removes every unproven credential when the mailbox is first proven.
+	it('an email-code sign-in strips a password set before the address was proven', async () => {
+		stubAuthEnv();
+		const t = await setup({ emailVerified: false });
+		const user = (await t.query(components.betterAuth.adapter.findOne, {
+			model: 'user',
+			where: [{ field: 'email', value: 'parent@example.com' }]
+		})) as { _id: string };
+		const now = Date.now();
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'account',
+				data: {
+					accountId: user._id,
+					providerId: 'credential',
+					userId: user._id,
+					password: await hashPassword('attacker-password-1'),
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+		const json = { 'content-type': 'application/json', origin: 'https://app.example.com' };
+
+		const send = await t.fetch('/api/auth/email-otp/send-verification-otp', {
+			method: 'POST',
+			headers: json,
+			body: JSON.stringify({ email: 'parent@example.com', type: 'sign-in' })
+		});
+		expect(send.status).toBe(200);
+		const otp = sendEmailMock.mock.calls.at(-1)![0].text.match(/\b(\d{6})\b/)![1];
+
+		const signIn = await t.fetch('/api/auth/sign-in/email-otp', {
+			method: 'POST',
+			headers: json,
+			body: JSON.stringify({ email: 'parent@example.com', otp })
+		});
+		expect(signIn.status).toBe(200);
+
+		const accounts = (await t.query(components.betterAuth.adapter.findMany, {
+			model: 'account',
+			where: [{ field: 'userId', value: user._id }],
+			paginationOpts: { cursor: null, numItems: 10 }
+		})) as { page: Array<{ providerId: string }> };
+		expect(accounts.page.map((account) => account.providerId)).not.toContain('credential');
+		const attacker = await t.fetch('/api/auth/sign-in/email', {
+			method: 'POST',
+			headers: json,
+			body: JSON.stringify({ email: 'parent@example.com', password: 'attacker-password-1' })
+		});
+		expect(attacker.status).toBe(401);
+	});
+
+	// GHSA-g38m-r43w-p2q7: Google sign-in must not link itself to an unverified local account.
+	it('pins accountLinking.requireLocalEmailVerified', async () => {
+		stubAuthEnv();
+		const { createAuth } = await import('./auth');
+		const auth = createAuth({} as Parameters<typeof createAuth>[0]);
+		expect(auth.options.account?.accountLinking?.requireLocalEmailVerified).toBe(true);
 	});
 });
