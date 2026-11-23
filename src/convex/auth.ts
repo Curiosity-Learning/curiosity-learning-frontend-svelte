@@ -1,7 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { emailOTP, magicLink, username } from 'better-auth/plugins';
 import { createClient } from '@convex-dev/better-auth';
-import { convex } from '@convex-dev/better-auth/plugins';
+import { convex, crossDomain } from '@convex-dev/better-auth/plugins';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import type { GenericActionCtx, GenericDataModel } from 'convex/server';
 import { ConvexError, v } from 'convex/values';
@@ -20,6 +20,7 @@ import { setPendingClubJoin } from './pendingClubJoinsModel';
 import { consumeClubCodeLookup } from './rateLimiter';
 import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
 import { autoCreateJoinRequestFromNextPath } from './joinRequests';
+import { googleClientIds, isNativeAppAuthEnabled, nativeAppTrustedOrigins } from './nativeAppAuth';
 
 export const authComponent = createClient(components.betterAuth);
 
@@ -62,18 +63,29 @@ const readEnv = (...keys: string[]) => {
 	return undefined;
 };
 
-const googleClientId = readEnv('GOOGLE_CLIENT_ID', 'AUTH_GOOGLE_ID');
-const googleClientSecret = readEnv('GOOGLE_CLIENT_SECRET', 'AUTH_GOOGLE_SECRET');
-const socialProviders =
-	googleClientId && googleClientSecret
+// Read per createAuth call (not at module load) so the CL-819 native-app flag and the iOS client
+// id can be toggled per test; googleClientIds adds the iOS audience only when NATIVE_APP_AUTH=true.
+const buildSocialProviders = () => {
+	const clientId = googleClientIds();
+	const clientSecret = readEnv('GOOGLE_CLIENT_SECRET', 'AUTH_GOOGLE_SECRET');
+	return clientId && clientSecret
 		? {
 				google: {
-					clientId: googleClientId,
-					clientSecret: googleClientSecret,
+					clientId,
+					clientSecret,
 					disableImplicitSignUp: true
 				}
 			}
 		: undefined;
+};
+
+// CL-819 spike: the Capacitor app has no cookie jar of its own on the Convex site, so it carries
+// the session in a Better-Auth-Cookie header (crossDomain plugin). Only when NATIVE_APP_AUTH=true.
+// siteUrl is the web app's origin: native magic-link/OAuth returns land on a universal link there.
+const nativeAppPlugins = () =>
+	isNativeAppAuthEnabled() && process.env.BETTER_AUTH_URL
+		? [crossDomain({ siteUrl: process.env.BETTER_AUTH_URL })]
+		: [];
 
 // Share auth cookies across sibling subdomains (admin split): Google OAuth started on the admin
 // portal sets better-auth's signed state cookie via the admin origin's /api/auth proxy, but
@@ -251,7 +263,7 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 			sendOnSignIn: true,
 			autoSignInAfterVerification: true
 		},
-		socialProviders,
+		socialProviders: buildSocialProviders(),
 		...(authCookieDomain
 			? {
 					advanced: {
@@ -333,9 +345,10 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 				// up: by default 1.7 validates the raw input, so "Kiddo" would fail sign-in.
 				validationOrder: { username: 'post-normalization' }
 			}),
-			convex({ authConfig })
+			convex({ authConfig }),
+			...nativeAppPlugins()
 		],
-		trustedOrigins
+		trustedOrigins: [...trustedOrigins, ...nativeAppTrustedOrigins()]
 	});
 
 export const getCurrentUser = query({

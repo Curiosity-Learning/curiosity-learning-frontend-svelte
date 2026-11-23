@@ -8,6 +8,7 @@
 		"dev": "node scripts/worktree/dev.mjs",
 		"dev:backend": "convex dev",
 		"build": "vite build",
+		"build:capacitor-spike": "CAPACITOR_SPIKE_BUILD=1 svelte-kit sync && CAPACITOR_SPIKE_BUILD=1 vite build && cap sync",
 		"preview": "vite preview",
 		"postinstall": "node scripts/worktree/cli.mjs ensure",
 		"prepare": "svelte-kit sync || echo ''",
@@ -34,11 +35,13 @@
 		"worktree:refresh-data": "node scripts/worktree/cli.mjs refresh-data"
 	},
 	"devDependencies": {
+		"@capacitor/cli": "8.6.2",
 		"@eslint/compat": "^2.0.2",
 		"@eslint/js": "^9.39.2",
 		"@internationalized/date": "^3.11.0",
 		"@lucide/svelte": "^1.7.0",
 		"@playwright/test": "^1.58.1",
+		"@sveltejs/adapter-static": "3.0.11",
 		"@sveltejs/adapter-vercel": "^6.3.3",
 		"@sveltejs/kit": "^2.50.2",
 		"@sveltejs/vite-plugin-svelte": "^6.2.4",
@@ -78,10 +81,16 @@
 		"vitest-browser-svelte": "^2.0.2"
 	},
 	"dependencies": {
+		"@aparajita/capacitor-secure-storage": "8.0.1",
 		"@aws-sdk/client-rekognition": "^3.1084.0",
 		"@aws-sdk/client-s3": "^3.940.0",
 		"@aws-sdk/s3-presigned-post": "^3.1019.0",
 		"@aws-sdk/s3-request-presigner": "^3.940.0",
+		"@capacitor/android": "8.6.2",
+		"@capacitor/app": "8.1.2",
+		"@capacitor/core": "8.6.2",
+		"@capacitor/ios": "8.6.2",
+		"@capgo/capacitor-social-login": "8.7.13",
 		"@convex-dev/better-auth": "0.13.1",
 		"@convex-dev/rate-limiter": "^0.4.3",
 		"@fontsource/bevan": "^5.2.7",
@@ -90,6 +99,7 @@
 		"@mmailaender/convex-better-auth-svelte": "0.10.0",
 		"@sentry/sveltekit": "^10.57.0",
 		"convex": "^1.51.0",
+		"convex-helpers": "0.1.136",
 		"convex-svelte": "0.15.1",
 		"mapbox-gl": "^3.20.0",
 		"svix": "^1.95.2"
