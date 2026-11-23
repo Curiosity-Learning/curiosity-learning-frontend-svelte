@@ -5,6 +5,7 @@
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { createSvelteAuthClient } from '@mmailaender/convex-better-auth-svelte/svelte';
 	import { authClient } from '$lib/auth-client';
+	import { PUBLIC_CONVEX_URL } from '$env/static/public';
 	import { initI18n } from '$lib/i18n';
 	import type { LayoutData } from './$types';
 
@@ -12,6 +13,8 @@
 
 	createSvelteAuthClient({
 		authClient,
+		// The adapter (0.10+) reads no env vars itself.
+		convexUrl: PUBLIC_CONVEX_URL,
 		getServerState: () => data.authState
 	});
 

@@ -186,6 +186,15 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 		session: {
 			expiresIn: REMEMBERED_SESSION_SECONDS
 		},
+		account: {
+			accountLinking: {
+				// GHSA-g38m-r43w-p2q7 (CL-815): Google sign-in must never attach itself to a local
+				// account whose email was never proven — someone could pre-register the victim's
+				// address with a password and inherit the Google login. Better Auth 1.7 already
+				// defaults this to true; pinned so a future default change cannot reopen it.
+				requireLocalEmailVerified: true
+			}
+		},
 		databaseHooks: {
 			session: {
 				create: {
@@ -319,7 +328,10 @@ export const createAuth = (ctx: GenericCtx<GenericDataModel>) =>
 				minUsernameLength: 3,
 				maxUsernameLength: 30,
 				usernameNormalization: (value) => value.trim().toLowerCase(),
-				usernameValidator: (value) => /^[a-z0-9_]+$/.test(value)
+				usernameValidator: (value) => /^[a-z0-9_]+$/.test(value),
+				// Validate the normalized (lowercased, trimmed) name, i.e. what is stored and looked
+				// up: by default 1.7 validates the raw input, so "Kiddo" would fail sign-in.
+				validationOrder: { username: 'post-normalization' }
 			}),
 			convex({ authConfig })
 		],

@@ -114,19 +114,19 @@ export const isMagicLinkFailure = (params: URLSearchParams) =>
 	params.get(MAGIC_LINK_FAILED_PARAM) === MAGIC_LINK_FAILED_VALUE ||
 	MAGIC_LINK_ERROR_CODES.has(params.get('error') ?? '');
 
-// Better Auth only accepts relative callback URLs that match this pattern (copied from
-// better-auth/dist/auth/trusted-origins.mjs, matchesOriginPattern with allowRelativePaths):
-// anything else is rejected with 403 before the link is even checked.
+// The relative callback URLs we hand to Better Auth. Originally copied from better-auth 1.4's
+// trusted-origins.mjs; 1.7 accepts any same-origin relative URL (isSafeRelativeURL), so this is
+// now our own, stricter allow-list: anything else falls back to a plain link or to home.
 const RELATIVE_CALLBACK_PATTERN = /^\/(?!\/|\\|%2f|%5c)[\w\-.+/@]*(?:\?[\w\-.+/=&%@]*)?$/;
 
 export const isMagicLinkCallbackPath = (path: string) => RELATIVE_CALLBACK_PATTERN.test(path);
 
-// The verify endpoint runs decodeURIComponent() over callbackURL/errorCallbackURL (on top of
-// normal query-string decoding) both before validating them against the pattern above and
-// before redirecting. Escaping every '%' as '%25' makes that extra decode return exactly the
-// path we meant — without it, the encoded `next` in the error path would decode to a second '?',
-// fail the pattern, and turn every click (valid token or not) into a 403.
-export const toMagicLinkCallbackParam = (path: string) => path.replaceAll('%', '%25');
+// The value we send as callbackURL/errorCallbackURL. Better Auth 1.4 ran an extra
+// decodeURIComponent() over these (so we escaped every '%' as '%25'); 1.7 (CL-815) reads them
+// as plain relative URLs, validated by isSafeRelativeURL and redirected to unchanged, so the
+// path goes as is. Kept as the one place to adapt if a later upgrade changes that again;
+// magicLinks.spec.ts pins the round trip through the real verify endpoint.
+export const toMagicLinkCallbackParam = (path: string) => path;
 
 // Where a failed link lands: the sign-in page, which offers to email a fresh link and then
 // continues to `next`.

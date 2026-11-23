@@ -1,9 +1,9 @@
-import { getAuthState } from '@mmailaender/convex-better-auth-svelte/sveltekit';
-import { createAuth } from '$convex/auth';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = async ({ cookies }) => {
+// hooks.server.ts has already read the Convex JWT cookie into locals.token; a present token is
+// what the Svelte adapter's getAuthState() treats as signed in.
+export const load: LayoutServerLoad = async ({ locals }) => {
 	return {
-		authState: await getAuthState(createAuth, cookies)
+		authState: { isAuthenticated: Boolean(locals.token) }
 	};
 };
