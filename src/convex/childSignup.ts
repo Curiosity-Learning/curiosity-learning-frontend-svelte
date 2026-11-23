@@ -24,6 +24,7 @@ import {
 } from './childEmailVerification';
 import { getActiveOrLatestByKey } from './legalDocuments';
 import { recordRateLimitAttempt } from './rateLimiting';
+import { consumeClubCodeLookup } from './rateLimiter';
 import {
 	getClubRoleByKey,
 	getMembershipByProfileId,
@@ -229,7 +230,12 @@ export const createPendingChildAccount = internalMutation({
 		});
 
 		const pendingJoinCode = getPendingJoinCode(args.nextPath);
-		if (pendingJoinCode) {
+		// CL-817: a code in nextPath is a club-code lookup. Whoever controls the parent email can
+		// approve the consent and see the resulting membership, so it uses up the caller's lookup
+		// limit (by IP: registerChild is anonymous and called from the browser, and this nested
+		// mutation inherits its request metadata). When limited, the child account is still created
+		// and the code is just not remembered.
+		if (pendingJoinCode && (await consumeClubCodeLookup(ctx))) {
 			const club = await ctx.db
 				.query('clubs')
 				.withIndex('by_club_code', (q) => q.eq('clubCode', pendingJoinCode))
