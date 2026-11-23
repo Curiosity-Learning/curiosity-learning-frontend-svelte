@@ -1,9 +1,10 @@
 import * as Sentry from '@sentry/sveltekit';
 import type { Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
-import { getToken } from '@mmailaender/convex-better-auth-svelte/sveltekit';
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
+import { PUBLIC_CONVEX_SITE_URL } from '$env/static/public';
+import { resolveConvexToken } from '$lib/server/convex-token';
 import { buildSharedSentryOptions } from '$lib/monitoring/sentry-config';
 import { logApiRequests } from '$lib/monitoring/api-logging';
 
@@ -20,8 +21,18 @@ Sentry.init(
 );
 
 const handleAuthToken: Handle = async ({ event, resolve }) => {
-	// Reads the Convex JWT cookie directly (adapter 0.10): no createAuth() during SSR.
-	event.locals.token = getToken(event.cookies);
+	// The auth proxy itself needs no Convex token (and must not fetch one per request).
+	if (event.url.pathname.startsWith('/api/auth/')) return resolve(event);
+	// From the convex_jwt cookie; right after a sign-in (when @convex-dev/better-auth 0.13 has
+	// expired that cookie) from /convex/token with the visitor's session cookie — see
+	// lib/server/convex-token.ts (CL-815).
+	event.locals.token = await resolveConvexToken({
+		cookies: event.cookies,
+		requestHeaders: event.request.headers,
+		requestUrl: event.url,
+		convexSiteUrl: PUBLIC_CONVEX_SITE_URL,
+		fetch: globalThis.fetch
+	});
 	return resolve(event);
 };
 

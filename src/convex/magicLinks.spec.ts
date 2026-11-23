@@ -23,6 +23,7 @@ import {
 	parseMagicLinkInterstitialFragment,
 	toMagicLinkCallbackParam
 } from '../lib/auth/magic-link';
+import { parseSetCookie, resolveConvexToken } from '../lib/server/convex-token';
 
 const modules = import.meta.glob('./**/*.ts');
 
@@ -826,5 +827,136 @@ describe('Better Auth security advisories (CL-815)', () => {
 		const { createAuth } = await import('./auth');
 		const auth = createAuth({} as Parameters<typeof createAuth>[0]);
 		expect(auth.options.account?.accountLinking?.requireLocalEmailVerified).toBe(true);
+	});
+});
+
+// CL-815 (QA blocker): @convex-dev/better-auth 0.13 expires the convex_jwt cookie on every
+// request that starts a session, so the first server-rendered page after a sign-in has only the
+// session cookie. hooks.server.ts resolves the Convex token from it (lib/server/convex-token.ts);
+// these run that resolver against the real component with the cookies the browser holds right
+// after a password sign-in and right after a magic-link click.
+describe('first SSR request after a sign-in gets a Convex token (CL-815)', () => {
+	type Jar = Map<string, string>;
+
+	// What the browser keeps from a response's Set-Cookie headers.
+	const applySetCookies = (target: Jar, response: Response) => {
+		for (const header of response.headers.getSetCookie()) {
+			const parsed = parseSetCookie(header);
+			if (!parsed) continue;
+			if (!parsed.value || parsed.options.maxAge === 0) target.delete(parsed.name);
+			else target.set(parsed.name, parsed.value);
+		}
+	};
+
+	const cookiesOf = (target: Jar) => ({
+		get: (name: string) => target.get(name),
+		set: (name: string, value: string) => {
+			target.set(name, value);
+		}
+	});
+
+	const cookieHeader = (target: Jar) =>
+		[...target].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join('; ');
+
+	const resolveFor = (t: Awaited<ReturnType<typeof setup>>, target: Jar) =>
+		resolveConvexToken({
+			cookies: cookiesOf(target),
+			requestHeaders: new Headers({ cookie: cookieHeader(target) }),
+			requestUrl: new URL('https://app.example.com/feed/my-clubs'),
+			convexSiteUrl: 'https://site.example.com',
+			// convex-test serves the app's http routes by path.
+			fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = new URL(String(input));
+				return t.fetch(`${url.pathname}${url.search}`, init);
+			}) as typeof globalThis.fetch
+		});
+
+	const jwtPayload = (token: string) =>
+		JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as {
+			sub: string;
+			sessionId: string;
+		};
+
+	const expectTokenForSession = async (
+		t: Awaited<ReturnType<typeof setup>>,
+		target: Jar,
+		userId: string
+	) => {
+		// The problem being fixed: a session cookie, but no Convex JWT cookie.
+		const names = [...target.keys()];
+		expect(names.some((name) => name.endsWith('session_token'))).toBe(true);
+		expect(names.some((name) => name.endsWith('convex_jwt'))).toBe(false);
+
+		const token = await resolveFor(t, target);
+
+		expect(token).toBeTruthy();
+		const payload = jwtPayload(token!);
+		expect(payload.sub).toBe(userId);
+		const sessions = (await t.query(components.betterAuth.adapter.findMany, {
+			model: 'session',
+			where: [{ field: 'userId', value: userId }],
+			paginationOpts: { cursor: null, numItems: 10 }
+		})) as { page: Array<{ _id: string }> };
+		expect(sessions.page.map((session) => session._id)).toContain(payload.sessionId);
+		// Kept for the next requests, which then read it straight from the cookie.
+		expect([...target.keys()].some((name) => name.endsWith('convex_jwt'))).toBe(true);
+	};
+
+	const userIdOf = async (t: Awaited<ReturnType<typeof setup>>) =>
+		(
+			(await t.query(components.betterAuth.adapter.findOne, {
+				model: 'user',
+				where: [{ field: 'email', value: 'parent@example.com' }]
+			})) as { _id: string }
+		)._id;
+
+	it('after an email + password sign-in', async () => {
+		stubAuthEnv();
+		const t = await setup();
+		const userId = await userIdOf(t);
+		const now = Date.now();
+		await t.mutation(components.betterAuth.adapter.create, {
+			input: {
+				model: 'account',
+				data: {
+					accountId: userId,
+					providerId: 'credential',
+					userId,
+					password: await hashPassword('a-long-password-1'),
+					createdAt: now,
+					updatedAt: now
+				}
+			}
+		});
+		const target: Jar = new Map();
+		const signIn = await t.fetch('/api/auth/sign-in/email', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', origin: 'https://app.example.com' },
+			body: JSON.stringify({ email: 'parent@example.com', password: 'a-long-password-1' })
+		});
+		expect(signIn.status).toBe(200);
+		applySetCookies(target, signIn);
+
+		await expectTokenForSession(t, target, userId);
+	});
+
+	it('after a magic-link click', async () => {
+		stubAuthEnv();
+		const t = await setup();
+		const userId = await userIdOf(t);
+		const target: Jar = new Map();
+		const verify = await t.fetch(interstitialToVerifyPath((await mint(t))!), { method: 'GET' });
+		expect(verify.status).toBe(302);
+		applySetCookies(target, verify);
+
+		await expectTokenForSession(t, target, userId);
+	});
+
+	it('a signed-out browser (stale session cookie) gets no token', async () => {
+		stubAuthEnv();
+		const t = await setup();
+		const target: Jar = new Map([['better-auth.session_token', 'not-a-session.sig']]);
+
+		expect(await resolveFor(t, target)).toBeUndefined();
 	});
 });
