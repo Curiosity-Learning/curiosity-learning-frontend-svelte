@@ -13,8 +13,6 @@
 	import { _, t } from '$lib/i18n';
 	import { navigateBack } from '$lib/navigation/back';
 	import { showGlobalSnackbar } from '$lib/components/app/snackbar';
-	import { useConvexClient } from 'convex-svelte';
-	import { api } from '$convex/_generated/api';
 	import resetPasswordImage from '$lib/assets/svg/reset_password.png';
 
 	let token = $derived(page.url.searchParams.get('token') ?? '');
@@ -25,7 +23,6 @@
 	let nextPath = $derived(rawNextPath.startsWith('/') ? rawNextPath : '/');
 	let signInHref = $derived(`/auth/sign-in?next=${encodeURIComponent(nextPath)}`);
 	const signUpHref = '/onboarding/get-started';
-	const convexClient = useConvexClient();
 	// Someone already signed in (setting a password from Settings) is not new here: no
 	// "I'm new, sign me up" link for them (CL-807).
 	const session = authClient.useSession();
@@ -43,21 +40,6 @@
 	let trimmedConfirmPassword = $derived(confirmPassword.trim());
 
 	const normalizeIdentifier = (value: string) => value.trim().toLowerCase();
-	const isEmailLike = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-
-	const resolveIdentifierEmail = async (rawIdentifier: string) => {
-		const normalizedIdentifier = normalizeIdentifier(rawIdentifier);
-		if (!normalizedIdentifier) {
-			return null;
-		}
-		if (isEmailLike(normalizedIdentifier)) {
-			return normalizedIdentifier;
-		}
-		const result = await convexClient.query(api.auth.resolveAuthIdentifier, {
-			identifier: normalizedIdentifier
-		});
-		return result.email;
-	};
 
 	const goToSignIn = async () => {
 		await goto(signInHref, { replaceState: true });
@@ -71,8 +53,10 @@
 		errorMessage = '';
 		pending = true;
 		try {
-			const resolvedEmail = await resolveIdentifierEmail(identifier);
-			if (!resolvedEmail) {
+			// A username is sent as is: the server swaps in the account's address and answers the
+			// same whether or not it exists (auth.ts hooks, CL-775), so the browser never learns it.
+			const emailOrUsername = normalizeIdentifier(identifier);
+			if (!emailOrUsername) {
 				errorMessage = t('auth.resetPassword.requestInvalidIdentifier');
 				return;
 			}
@@ -82,7 +66,7 @@
 				redirectTo.searchParams.set('parent', '1');
 			}
 			const { error } = await authClient.requestPasswordReset({
-				email: resolvedEmail,
+				email: emailOrUsername,
 				redirectTo: redirectTo.toString()
 			});
 			if (error) {

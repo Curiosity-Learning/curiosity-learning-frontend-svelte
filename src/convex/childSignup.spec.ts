@@ -13,7 +13,6 @@ import { PARENT_CONSENT_WORDING_KEY } from './childSignup';
 import { NOTIFICATION_EMAIL_IS_PARENT } from '../lib/domain/child-notification-email';
 import {
 	CONSENT_SCREEN_MAGIC_LINK_SECONDS,
-	isPasswordlessSignInAccount,
 	parseMagicLinkInterstitialFragment
 } from '../lib/auth/magic-link';
 
@@ -891,12 +890,12 @@ describe('the parent account after approval', () => {
 			hasGoogle: false,
 			isChildAccount: false
 		});
-		// Review S9: so the sign-in page offers "Email me a sign-in link" for this address.
-		expect(
-			isPasswordlessSignInAccount(
-				await t.query(api.auth.getSignupAccountStatusByEmail, { email: 'Parent@Example.com' })
-			)
-		).toBe(true);
+		// CL-775: the public sign-up lookup does not say the account has no password (that would
+		// mark the address as a parent's); it answers the same once a password exists, below.
+		const passwordlessAnswer = await t.mutation(api.auth.checkSignupEmail, {
+			email: 'Parent@Example.com'
+		});
+		expect(passwordlessAnswer).toMatchObject({ exists: true, hasGoogle: false, googleOnly: false });
 		// The child has a password and is never offered the card.
 		await t.mutation(components.betterAuth.adapter.create, {
 			input: {
@@ -930,11 +929,9 @@ describe('the parent account after approval', () => {
 			}
 		});
 		expect((await parent.query(api.auth.getMySignInMethods, {})).hasPassword).toBe(true);
-		expect(
-			isPasswordlessSignInAccount(
-				await t.query(api.auth.getSignupAccountStatusByEmail, { email: 'parent@example.com' })
-			)
-		).toBe(false);
+		expect(await t.mutation(api.auth.checkSignupEmail, { email: 'parent@example.com' })).toEqual(
+			passwordlessAnswer
+		);
 
 		expect(await parent.query(api.parentAccounts.getMyFirstLinkedChildId, {})).toBe(childProfileId);
 		expect(await child.query(api.parentAccounts.getMyFirstLinkedChildId, {})).toBeNull();
