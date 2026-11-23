@@ -1,4 +1,10 @@
-export const privacyPolicyContent = `Last updated: April 30, 2026
+// The text and version /privacy shows once published with
+// `npx convex run legalDocuments:publishBundled '{"documentKey":"privacy_policy"}'`.
+// Bump the version with every change: a parent consent records the version agreed to.
+export const PRIVACY_POLICY_VERSION = '1.2';
+export const TERMS_AND_CONDITIONS_VERSION = '1.1';
+
+export const privacyPolicyContent = `Last updated: November 23, 2026
 
 This Privacy Policy explains how Curiosity Learning collects, uses, stores, and shares information when people use the Curiosity Learning app and related services. It is written for learners, parents or guardians, guides, and club organizers.
 
@@ -15,6 +21,7 @@ We collect information that you or your parent, guardian, guide, or club provide
 - Media and files that users upload, such as profile images, project files, application videos, and other images or videos used in the app.
 - Communications information, including email verification, sign-in, password reset, parent approval emails, and in-app chat or notification content.
 - Technical information such as device and browser details, IP address, log data, authentication cookies, security events, and approximate location data derived from technical signals when needed for security or app functionality.
+- Error reports, which describe what went wrong when the app, website, or backend fails. Section 6 explains what they contain.
 
 2. Information about children
 
@@ -34,7 +41,7 @@ We use information to:
 - Obtain, record, and manage parent or guardian consent.
 - Send service emails such as verification codes, sign-in codes, password reset links, and parent approval links.
 - Prevent abuse, protect users, investigate security issues, and enforce these policies.
-- Maintain, debug, improve, and measure the reliability of the service.
+- Maintain, debug, improve, and measure the reliability of the service, including through error monitoring.
 - Comply with legal obligations and respond to lawful requests.
 
 We do not sell personal information. We do not use learner personal information for targeted advertising.
@@ -54,16 +61,26 @@ We share information only as needed to operate and protect the service:
 
 - With other users in the same club, project, chat, or workflow when the app feature is designed to share that information.
 - With guides, reviewers, club organizers, parents, or guardians where needed to manage learning, applications, consent, safety, or support.
-- With service providers that host, secure, email, authenticate, store, or process app data for us, such as backend hosting, authentication, email delivery, media storage, and map/location services.
+- With service providers that host, secure, email, authenticate, store, monitor, or process app data for us, such as website and backend hosting, email delivery, media storage, error monitoring, and map/location services.
 - With a school, club, organization, or guide that administers the relevant learning space.
 - If required by law, legal process, or to protect the rights, safety, and security of users, Curiosity Learning, or others.
 - In connection with a merger, reorganization, or similar business transfer, provided appropriate privacy protections remain in place.
 
-Service providers may include Convex for backend data hosting, Better Auth-related authentication infrastructure, Resend for email delivery, AWS or compatible storage providers for media storage, Mapbox for map and location features, and Google where a user chooses Google sign-in.
+The service providers we use are:
 
-6. Cookies and similar technologies
+- Vercel, to host the website and app and handle web requests.
+- Convex, to host the backend database and server functions, including account and sign-in data. Sign-in runs on Better Auth software inside our Convex backend, not with a separate provider.
+- Amazon Web Services (AWS) or a compatible storage provider, to store and deliver uploaded media.
+- Resend, to deliver service emails.
+- Mapbox, for maps and location search.
+- Google, where a user chooses Google sign-in, and Google Workspace, for our team's notifications about new club applications.
+- Sentry, in its European Union data region, for error monitoring.
 
-We use essential cookies and similar technologies to keep users signed in, secure accounts, remember preferences, and operate the app. We may use functional or diagnostic technologies to understand and improve app reliability. We do not use cookies for targeted advertising.
+6. Cookies, similar technologies, and error monitoring
+
+We use essential cookies and similar technologies to keep users signed in, secure accounts, remember preferences, and operate the app. We do not use cookies for targeted advertising.
+
+When something goes wrong in the app, the website, or our backend, an error report is sent to Sentry, which stores it in its European Union data region. We use these reports only to find and fix problems. A report contains technical details: the error message, where in the code the error happened, the browser or operating system and its version, the address of the page without its query string, and the technical steps just before the error, such as pages opened and buttons pressed. Our error messages refer to people by internal ids, not by name. Before a report leaves the app or our servers, we remove email addresses, any names or usernames we can detect, passwords, sign-in and consent links and codes, cookies, form contents, and request bodies. Reports do not include account details, and we set up Sentry not to record IP addresses or device identifiers. We do not record sessions or screens, and we do not use Sentry for analytics or advertising.
 
 7. Media, messages, and user content
 
@@ -85,7 +102,7 @@ You can update some information in the app. For other requests, contact the club
 
 11. International transfers
 
-The service providers used to operate Curiosity Learning may process information in countries other than where you live. Where required, appropriate safeguards should be used for international transfers.
+The service providers used to operate Curiosity Learning may process information in countries other than where you live. Where required, appropriate safeguards should be used for international transfers. Error reports are stored in Sentry's European Union data region.
 
 12. Changes to this policy
 

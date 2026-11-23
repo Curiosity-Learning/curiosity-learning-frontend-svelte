@@ -187,6 +187,7 @@ Notes:
 | `POST /api/webhooks/resend`            | Resend webhook signature   | Captures delivery failures without storing recipient or message data |
 
 - Sentry default PII collection, tracing, replay, and Sentry logs are disabled.
+- Names and usernames are redacted from Sentry events, breadcrumbs and Convex reports by key and by label; error messages must use ids, not names. What Sentry receives is listed in `docs/monitoring.md`.
 - Monitoring redacts cookies, authorization headers, request bodies, query strings, emails, consent/reset/email-confirmation (`/verify-email/{token}`) tokens, sign-in link tokens (`#t=`, `?token=`), and signed URL parameters.
 - Entity IDs, operation names, provider names, statuses, and failure codes are allowed when needed to debug an operational failure.
 - `MONITORING_REPORT_SECRET`, `RESEND_WEBHOOK_SECRET`, and `SENTRY_AUTH_TOKEN` must remain outside the repository.
@@ -199,6 +200,7 @@ Notes:
 | `notifications.list/markRead`              | Yes    | —          | `markRead` enforces ownership                    |
 | `legalDocuments.getActiveByKey/listActive` | No     | —          | Public                                           |
 | `legalDocuments.upsertActive`              | Yes    | —          | **Gap:** any auth user can edit legal docs       |
+| `legalDocuments.publishBundled` (internal) | CLI    | —          | Publishes `legalContent.ts` text; idempotent     |
 | `privacyPolicy.getActive/upsertActive`     | Yes/No | —          | Legacy alias behavior backed by `legalDocuments` |
 
 ### Chat
