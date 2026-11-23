@@ -1,19 +1,17 @@
 import { v } from 'convex/values';
 import { components } from './_generated/api';
 import { internalAction } from './_generated/server';
+import { summarizeBetterAuthUpgradeAudit } from './authUpgradeAuditModel';
 
 // CL-815 pre-deploy check for the Better Auth 1.7 upgrade (read-only; remove after the deploy).
-// Run against a deployment BEFORE deploying the upgrade to it:
-//   npx convex run authUpgradeAudit:auditBetterAuthUpgrade            (worktree / dev)
-//   npx convex run authUpgradeAudit:auditBetterAuthUpgrade --prod     (prod: needs Ron's OK)
-// Only ids and counts come back, never emails.
-// - duplicateAccountKeys: (providerId, accountId) pairs with more than one account row. The 1.7
-//   upgrade guide asks for none: Better Auth 1.7 rejects an account lookup that matches several.
-// - unverifiedWithPassword: users whose email was never confirmed but who have a password. On
-//   their next magic-link / email-OTP sign-in 1.7 deletes that password (GHSA-qq9h fix), so they
-//   will have to reset it.
-// - unverifiedWithOtherAccounts: unverified users with a linked non-password account (Google);
-//   that link is dropped the same way.
+// Internal: CLI only. Only ids and counts come back, never emails. See authUpgradeAuditModel.ts
+// for what is reported.
+//
+// This action only exists on deployments that already run this branch (worktree, preview, dev
+// after merge). For prod BEFORE the deploy, use the local script instead, which reads
+// `npx convex data` dumps (see docs/security.md, "Before deploying the Better Auth 1.7 upgrade"):
+//   node scripts/better-auth-upgrade-audit.ts accounts.jsonl users.jsonl
+//   npx convex run authUpgradeAudit:auditBetterAuthUpgrade      (deployments with this branch)
 const PAGE_SIZE = 200;
 
 type Page<T> = { page: T[]; isDone: boolean; continueCursor: string };
@@ -41,43 +39,17 @@ export const auditBetterAuthUpgrade = internalAction({
 			if (result.isDone) break;
 			cursor = result.continueCursor;
 		}
-		const unverifiedUserIds = new Set<string>();
-		let users = 0;
+		const users: Array<{ _id: string; emailVerified?: boolean }> = [];
 		for (let cursor: string | null = null; ; ) {
 			const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
 				model: 'user',
 				where: [],
 				paginationOpts: { cursor, numItems: PAGE_SIZE }
 			})) as Page<{ _id: string; emailVerified?: boolean }>;
-			users += result.page.length;
-			for (const user of result.page) {
-				if (user.emailVerified !== true) unverifiedUserIds.add(user._id);
-			}
+			users.push(...result.page);
 			if (result.isDone) break;
 			cursor = result.continueCursor;
 		}
-
-		const keyCounts = new Map<string, { providerId: string; accountId: string; count: number }>();
-		const withPassword = new Set<string>();
-		const withOther = new Set<string>();
-		for (const account of accounts) {
-			const key = `${account.providerId}\u0000${account.accountId}`;
-			const entry = keyCounts.get(key) ?? {
-				providerId: account.providerId,
-				accountId: account.accountId,
-				count: 0
-			};
-			entry.count += 1;
-			keyCounts.set(key, entry);
-			if (!unverifiedUserIds.has(account.userId)) continue;
-			(account.providerId === 'credential' ? withPassword : withOther).add(account.userId);
-		}
-		return {
-			accounts: accounts.length,
-			users,
-			duplicateAccountKeys: [...keyCounts.values()].filter((entry) => entry.count > 1),
-			unverifiedWithPassword: { count: withPassword.size, userIds: [...withPassword] },
-			unverifiedWithOtherAccounts: { count: withOther.size, userIds: [...withOther] }
-		};
+		return summarizeBetterAuthUpgradeAudit(accounts, users);
 	}
 });

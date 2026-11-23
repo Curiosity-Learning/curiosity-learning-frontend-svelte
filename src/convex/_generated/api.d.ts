@@ -15,6 +15,7 @@ import type * as applicationReminders from "../applicationReminders.js";
 import type * as auth from "../auth.js";
 import type * as authEmail from "../authEmail.js";
 import type * as authUpgradeAudit from "../authUpgradeAudit.js";
+import type * as authUpgradeAuditModel from "../authUpgradeAuditModel.js";
 import type * as booklet from "../booklet.js";
 import type * as chat from "../chat.js";
 import type * as chatEmail from "../chatEmail.js";
@@ -92,6 +93,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authEmail: typeof authEmail;
   authUpgradeAudit: typeof authUpgradeAudit;
+  authUpgradeAuditModel: typeof authUpgradeAuditModel;
   booklet: typeof booklet;
   chat: typeof chat;
   chatEmail: typeof chatEmail;
