@@ -22,10 +22,12 @@ test.beforeAll(() => {
 test('public routing smoke checks', async ({ page }) => {
 	await page.goto(`${BASE_URL}/`);
 	await expect(page).toHaveURL(/\/onboarding\/get-started$/);
-	await expect(page.getByText('Welcome to Curiosity Learning')).toBeVisible();
+	await expect(
+		page.getByRole('heading', { name: 'Nurture your love for learning.', level: 1 })
+	).toBeVisible();
 
 	await page.goto(`${BASE_URL}/auth/sign-in`);
-	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
 
 	await page.goto(`${BASE_URL}/feed`);
 	await expect(page).toHaveURL(/\/auth\/sign-in/);

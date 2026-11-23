@@ -67,6 +67,7 @@ import type * as projectInvites from "../projectInvites.js";
 import type * as projectJoinRequests from "../projectJoinRequests.js";
 import type * as projects from "../projects.js";
 import type * as projectsModel from "../projectsModel.js";
+import type * as rateLimiter from "../rateLimiter.js";
 import type * as rateLimiting from "../rateLimiting.js";
 import type * as reports from "../reports.js";
 import type * as reviewAssignmentModel from "../reviewAssignmentModel.js";
@@ -145,6 +146,7 @@ declare const fullApi: ApiFromModules<{
   projectJoinRequests: typeof projectJoinRequests;
   projects: typeof projects;
   projectsModel: typeof projectsModel;
+  rateLimiter: typeof rateLimiter;
   rateLimiting: typeof rateLimiting;
   reports: typeof reports;
   reviewAssignmentModel: typeof reviewAssignmentModel;
@@ -186,4 +188,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

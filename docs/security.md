@@ -16,6 +16,15 @@
   - Checked and not applicable: GHSA-965c-763c-88jm (we hash magic-link tokens and set no `verification.storeIdentifier`; 1.7 also prefixes magic-link identifiers), GHSA-pgx2-m66h-x29f / GHSA-9qq3-v9g3-cxhw (fixed `baseURL`), GHSA-j8qq-g9pm-v3c2 (cross-domain plugin unused; fixed in component ≥0.12.6 for the native app), GHSA-4qvm-r4pr-v3wg (no twoFactor).
 - **Usernames** are validated after normalization (`validationOrder.username: 'post-normalization'`): 1.7 otherwise validates the raw input, so a username typed with capitals would fail sign-in.
 
+## Content-Security-Policy (CL-818, report-only)
+
+- **Mode:** `Content-Security-Policy-Report-Only` only. Browsers report violations and block nothing. Switch `reportOnly` to `directives` in `svelte.config.js` once Sentry shows about two weeks without unexpected reports, after testing maps, uploads, video and Google sign-in.
+- **Where:** the baseline directives live in `src/lib/security/csp.js` and feed `kit.csp` (`mode: 'auto'`: a fresh nonce per rendered page; no page is prerendered today). `src/lib/security/csp-handle.ts`, run from `hooks.server.ts`, adds the hosts that only runtime env knows (`MEDIA_CDN_BASE_URL`, `MEDIA_S3_PUBLIC_BASE_URL`) and points `report-uri` / `report-to` (plus a `Reporting-Endpoints` header) at Sentry's security endpoint built from `PUBLIC_SENTRY_DSN`, tagged with the Sentry environment. No reports are sent when Sentry is disabled, or when the DSN is not a plain `https` DSN with an alphanumeric key, a numeric project id and no `?` or `#` (so DSN punctuation can never change how the headers parse).
+- **No reports from pages with a secret in the URL.** Browsers post reports straight to Sentry, past the SDK's redaction, and include the page URL (`document-uri`) and `referrer`. So `/auth/*`, `/verify-email/*`, `/onboarding/parent-consent/*`, `/onboarding/join-club/*`, `/new-club/join*`, `/join/*`, `/email/*` and any URL with a token-like query parameter (`t`, `token`, `code`, `secret`, `key`, `sig`, `otp`, `callbackURL`, `*token*`, …) get no `report-uri` and no `Reporting-Endpoints`. The policy keeps `report-to csp-endpoint`, which SvelteKit requires, but with the group undefined the browser has nowhere to send. Every response on those routes, redirects included, also sends `Referrer-Policy: strict-origin`, so the next page's reports carry only our origin as `referrer`. Known gap: the policy belongs to the first page loaded, so client-side navigation from an ordinary page into a sensitive one keeps reporting with the new URL. Emailed tokens always arrive by a full page load; only join codes typed in the app take this path.
+- **Allowed:** Convex (`*.convex.cloud` https+wss, `*.convex.site`), media (`*.curiositylearning.org`, `*.amazonaws.com`, `*.cloudfront.net`), Mapbox (`api`, `events`, `*.tiles`; `worker-src blob:`), Sentry EU ingest, Google avatars (`*.googleusercontent.com`), `form-action https://accounts.google.com`. Also `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`.
+- **Known limits:** `style-src` needs `'unsafe-inline'` (Svelte transitions inject `<style>`). Pages carry a nonce, so rendered HTML must not be cached and shared between visitors. A prerendered page would get the policy in a `<meta>` tag, which ignores `report-uri` and `frame-ancestors`.
+- **Third parties:** the Google icon on the sign-in/up pages is bundled (`google-icon.svelte`), so nothing is fetched from `api.iconify.design`. Fonts are local (`@fontsource`).
+
 ## Parent Accounts & Sign-in Links
 
 - **Parent account at consent approval.** `childSignup.approveConsent` finds or creates the Better Auth user for `parentChildConsents.parentEmail` (the consent token was only ever emailed there, so holding it proves ownership of the address). A new user is created verified and password-less. Settings offers "Set a password" to accounts without a `credential` account (`auth.getMySignInMethods`, caller-scoped; never to child accounts): it sends Better Auth's password-reset email to the caller's own address, which creates the credential account. `/auth/reset-password?token=…` opens for a signed-in visitor too (`auth/+layout.server.ts`; without a token a signed-in visitor is still redirected), so the link works in the browser that asked for it. A club-less account with a `parentLinks` row lands on `/child/{firstLinkedChildId}` instead of `/new-club` (`parentAccounts.getMyFirstLinkedChildId`, `clubLessLandingPath`).
@@ -203,6 +212,8 @@ Notes:
 | `POST /api/webhooks/resend`            | Resend webhook signature   | Captures delivery failures without storing recipient or message data |
 
 - Sentry default PII collection, tracing, replay, and Sentry logs are disabled.
+- Names and usernames are redacted from Sentry events, breadcrumbs and Convex reports by key and by label; error messages must use ids, not names. What Sentry receives is listed in `docs/monitoring.md`.
+- Sentry stores no visitor IP with events: Relay is told `infer_ip: never` (by the browser SDK itself, and by `redaction.ts` on every SvelteKit server event, whose SDK does not set it), and `redaction.ts` strips IP headers and `request.env`. Browser requests still reach Sentry's EU ingest endpoint over HTTPS from the visitor's address; that connection address is not stored in the event.
 - Monitoring redacts cookies, authorization headers, request bodies, query strings, emails, consent/reset/email-confirmation (`/verify-email/{token}`) tokens, sign-in link tokens (`#t=`, `?token=`), and signed URL parameters.
 - Entity IDs, operation names, provider names, statuses, and failure codes are allowed when needed to debug an operational failure.
 - `MONITORING_REPORT_SECRET`, `RESEND_WEBHOOK_SECRET`, and `SENTRY_AUTH_TOKEN` must remain outside the repository.
@@ -215,6 +226,7 @@ Notes:
 | `notifications.list/markRead`              | Yes    | —          | `markRead` enforces ownership                    |
 | `legalDocuments.getActiveByKey/listActive` | No     | —          | Public                                           |
 | `legalDocuments.upsertActive`              | Yes    | —          | **Gap:** any auth user can edit legal docs       |
+| `legalDocuments.publishBundled` (internal) | CLI    | —          | Publishes `legalContent.ts` text; idempotent     |
 | `privacyPolicy.getActive/upsertActive`     | Yes/No | —          | Legacy alias behavior backed by `legalDocuments` |
 
 ### Chat

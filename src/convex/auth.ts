@@ -17,6 +17,7 @@ import { CHILD_EMAIL_DOMAIN } from './childAccounts';
 import { assertDateOfBirthChangeAllowed, isSyntheticChildEmail } from './notificationRouting';
 import { getProfileAuthUserId, getProfileByAuthUserId, requireIdentity } from './permissions';
 import { setPendingClubJoin } from './pendingClubJoinsModel';
+import { consumeClubCodeLookup } from './rateLimiter';
 import { MAX_USERNAME_LENGTH, sanitizeUsernameFromEmail } from './usernameValidator';
 import { autoCreateJoinRequestFromNextPath } from './joinRequests';
 
@@ -647,7 +648,10 @@ export const completeSignupProfile = mutation({
 			await ctx.db.patch(existing._id, patch);
 		}
 
-		if (pendingJoinCode) {
+		// CL-817: a code in nextPath is a club-code lookup too (getMine then reveals the match), so
+		// it uses up the caller's lookup limit. When limited, the signup still completes and the code
+		// is just not remembered; the join page can be opened again later.
+		if (pendingJoinCode && (await consumeClubCodeLookup(ctx))) {
 			const club = await ctx.db
 				.query('clubs')
 				.withIndex('by_club_code', (q) => q.eq('clubCode', pendingJoinCode))
