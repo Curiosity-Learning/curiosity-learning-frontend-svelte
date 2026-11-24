@@ -31,7 +31,8 @@ export type SyncStorageCache = {
 
 export const createSyncStorageCache = (
 	store: AsyncSecureStore,
-	keys: readonly string[]
+	keys: readonly string[],
+	options: { onError?: (error: unknown) => void } = {}
 ): SyncStorageCache => {
 	const memory = new Map<string, string>();
 	let hydrated = false;
@@ -39,11 +40,13 @@ export const createSyncStorageCache = (
 	// Writes are chained so the secure store sees them in the order the client made them (a
 	// sign-in's set followed by a sign-out's clear must not land the other way round).
 	let queue: Promise<void> = Promise.resolve();
+	const fail = (error: unknown) => {
+		lastError = error;
+		options.onError?.(error);
+	};
 
 	const enqueue = (write: () => Promise<void>) => {
-		queue = queue.then(write).catch((error: unknown) => {
-			lastError = error;
-		});
+		queue = queue.then(write).catch(fail);
 		return queue;
 	};
 
@@ -54,7 +57,7 @@ export const createSyncStorageCache = (
 					try {
 						return [key, await store.getItem(key)] as const;
 					} catch (error) {
-						lastError = error;
+						fail(error);
 						return [key, null] as const;
 					}
 				})

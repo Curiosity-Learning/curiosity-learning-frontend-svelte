@@ -36,7 +36,10 @@ const nativeSecureStore = async (): Promise<AsyncSecureStore> => {
 export type SpikeAuth = {
 	authClient: ReturnType<typeof buildAuthClient>;
 	storage: SyncStorageCache;
-	backend: 'keychain/keystore' | 'memory (browser preview)';
+	backend:
+		| 'keychain/keystore'
+		| 'memory (browser preview)'
+		| 'memory (KEYCHAIN/KEYSTORE SETUP FAILED: nothing persists)';
 	siteUrl: string;
 };
 
@@ -51,18 +54,28 @@ const buildAuthClient = (siteUrl: string, storage: SyncStorageCache) =>
 		]
 	});
 
-/** Builds the auth client after the cache is hydrated, so the very first request is signed in. */
-export const createSpikeAuth = async (siteUrl: string): Promise<SpikeAuth> => {
-	const native = Capacitor.isNativePlatform();
-	const store = native ? await nativeSecureStore() : createMemorySecureStore();
-	const storage = createSyncStorageCache(store, SPIKE_STORAGE_KEYS);
+/**
+ * Builds the auth client after the cache is hydrated, so the very first request is signed in.
+ * Keychain/Keystore failures (setup, reads, writes) go to onStorageError for the phone UI.
+ */
+export const createSpikeAuth = async (
+	siteUrl: string,
+	onStorageError?: (error: unknown) => void
+): Promise<SpikeAuth> => {
+	let store: AsyncSecureStore = createMemorySecureStore();
+	let backend: SpikeAuth['backend'] = 'memory (browser preview)';
+	if (Capacitor.isNativePlatform()) {
+		try {
+			store = await nativeSecureStore();
+			backend = 'keychain/keystore';
+		} catch (error) {
+			onStorageError?.(error);
+			backend = 'memory (KEYCHAIN/KEYSTORE SETUP FAILED: nothing persists)';
+		}
+	}
+	const storage = createSyncStorageCache(store, SPIKE_STORAGE_KEYS, { onError: onStorageError });
 	await storage.hydrate();
-	return {
-		authClient: buildAuthClient(siteUrl, storage),
-		storage,
-		backend: native ? 'keychain/keystore' : 'memory (browser preview)',
-		siteUrl
-	};
+	return { authClient: buildAuthClient(siteUrl, storage), storage, backend, siteUrl };
 };
 
 /** A Convex JWT for the current session (null when signed out). */
@@ -71,14 +84,4 @@ export const fetchConvexToken = async (auth: SpikeAuth): Promise<string | null> 
 		method: 'GET'
 	});
 	return data?.token ?? null;
-};
-
-/** Asks the server whether a given Better-Auth-Cookie value still names a live session. */
-export const isCookieSessionLive = async (siteUrl: string, cookie: string) => {
-	const response = await fetch(`${siteUrl}/api/auth/get-session`, {
-		credentials: 'omit',
-		headers: { 'Better-Auth-Cookie': cookie }
-	});
-	const body = (await response.json().catch(() => null)) as { session?: unknown } | null;
-	return Boolean(body?.session);
 };

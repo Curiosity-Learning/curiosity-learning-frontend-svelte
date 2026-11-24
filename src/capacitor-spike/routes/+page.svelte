@@ -6,12 +6,14 @@
 	import { env } from '$env/dynamic/public';
 	import { api } from '$convex/_generated/api';
 	import { NATIVE_APP_ORIGINS } from '$convex/nativeAppAuth';
+	import { createSpikeAuth, fetchConvexToken, type SpikeAuth } from '../lib/spike-auth';
 	import {
-		createSpikeAuth,
-		fetchConvexToken,
-		isCookieSessionLive,
-		type SpikeAuth
-	} from '../lib/spike-auth';
+		checkRevocation,
+		createLinkDeduper,
+		describeStorageError,
+		redactPath,
+		redactUrl
+	} from '../lib/diagnostics';
 	import { parseIncomingLink } from '../lib/deep-links';
 	import { missingGoogleConfig, nativeGoogleIdToken } from '../lib/google';
 
@@ -48,6 +50,9 @@
 	let video = $state<Media>(null);
 	let corsProbe = $state<string>('not run yet');
 	let log = $state<Line[]>([]);
+	let storageError = $state<string | null>(null);
+
+	const links = createLinkDeduper();
 
 	let convex: ConvexClient | null = null;
 	let unsubscribe: (() => void) | null = null;
@@ -100,12 +105,16 @@
 		busy = true;
 		try {
 			const before = auth.authClient.getCookie();
-			await auth.authClient.signOut();
+			const signedOut = await auth.authClient.signOut();
 			await auth.storage.flush();
-			const stillLive = before ? await isCookieSessionLive(siteUrl, before) : false;
-			revocation = stillLive
-				? 'FAIL: the old session cookie still works on the server'
-				: 'PASS: the old session cookie is rejected by the server (session row revoked)';
+			const check = await checkRevocation(siteUrl, before);
+			revocation = signedOut.error
+				? `ERROR: sign-out request failed (${signedOut.error.status ?? ''} ${signedOut.error.message ?? ''}); ${check.detail}`
+				: check.status === 'revoked'
+					? `PASS: ${check.detail} (session row revoked)`
+					: check.status === 'still-live'
+						? `FAIL: ${check.detail}`
+						: `ERROR (not a pass): ${check.detail}`;
 			note(`Signed out; ${revocation}`);
 			await refreshSession();
 		} catch (error) {
@@ -146,8 +155,13 @@
 	};
 
 	const handleLink = async (url: string) => {
-		lastLink = url;
 		if (!auth) return;
+		// iOS can hand over a cold-start link twice (appUrlOpen + getLaunchUrl): redeem it once.
+		if (!links.claim(url)) {
+			note('Duplicate delivery of the same link ignored');
+			return;
+		}
+		lastLink = redactUrl(url);
 		const link = parseIncomingLink(url, linkOrigin);
 		note(`Link received (${link.kind})`);
 		try {
@@ -172,7 +186,7 @@
 				});
 				linkStatus = result.error
 					? `Sign-in link rejected (expired or already used): ${result.error.message ?? result.error.status}`
-					: `PASS: signed in from the emailed link (would continue to ${link.next})`;
+					: `PASS: signed in from the emailed link (would continue to ${redactPath(link.next)})`;
 			} else {
 				linkStatus = `Ignored: ${link.reason}`;
 			}
@@ -240,7 +254,10 @@
 				startup = 'PUBLIC_CONVEX_URL / PUBLIC_CONVEX_SITE_URL missing from the spike build';
 				return;
 			}
-			auth = await createSpikeAuth(siteUrl);
+			auth = await createSpikeAuth(siteUrl, (error) => {
+				storageError = describeStorageError(error);
+				if (storageError) note(storageError);
+			});
 			const hydratedCookie = auth.storage.getItem('better-auth_cookie');
 			startup = `storage: ${auth.backend}; ${
 				hydratedCookie && hydratedCookie !== '{}'
@@ -279,6 +296,9 @@
 <main>
 	<h1>CL-819 Capacitor sign-in spike</h1>
 	<p class="muted">{platform} · {startup}</p>
+	{#if storageError}
+		<p class="error">{storageError}</p>
+	{/if}
 
 	<section>
 		<h2>1. Password sign-in + live Convex query</h2>
@@ -312,6 +332,9 @@
 			restored, and section 1 must show you signed in without typing anything.
 		</p>
 		<p class="muted">Stored keys: {auth ? auth.storage.keys().join(', ') || 'none' : '…'}</p>
+		<p class={storageError ? 'error' : 'muted'}>
+			{storageError ?? 'No Keychain/Keystore errors so far'}
+		</p>
 	</section>
 
 	<section>
@@ -436,6 +459,10 @@
 	video {
 		max-width: 100%;
 		border-radius: 6px;
+	}
+	.error {
+		color: #b00020;
+		font-weight: 600;
 	}
 	.muted {
 		color: #666;

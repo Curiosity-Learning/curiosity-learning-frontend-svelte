@@ -43,9 +43,26 @@ Google sheet, the universal link opening the app from Mail, and CloudFront media
 5. **Better Auth's Origin check is off under `NODE_ENV=test`.** Existing specs that assert
    origin behavior prove nothing; `nativeAppAuth.spec.ts` forces production mode.
 
+## Recommendation for CL-811 (production)
+
+From the independent QA review (GPT-6.2 Sol): **do not ship `@convex-dev/better-auth`'s
+`crossDomain` plugin.** It sets `skipStateCookieCheck: true` (and database-only OAuth state) on
+the whole Better Auth instance. That weakens web Google OAuth's login-CSRF protection for
+every web user just to serve the app. CL-811 should replace it with a native-only session-header
+adapter:
+
+- accept `Better-Auth-Cookie` and return `Set-Better-Auth-Cookie` only on requests from the two
+  native origins;
+- leave web OAuth, its state-cookie check and its callback URLs exactly as they are;
+- sign in to Google natively with the direct `idToken` exchange (no redirect, so no OAuth state
+  is needed);
+- complete emailed links in-app with the token verify (finding 4), not the one-time token.
+
 ## 0. One-time machine setup
 
-- Xcode 16+ with an Apple developer team. Android Studio with SDK 35+.
+- Xcode 26+ (Capacitor 8's requirement) with an Apple developer team.
+- Android Studio with the Android 16 SDK (API 36): `android/variables.gradle` compiles and
+  targets 36, minimum 24.
 - Node 24: `export PATH=/opt/homebrew/opt/node@24/bin:$PATH`
 - `git fetch && git switch ron/cl-819-spike-capacitor-sign-in && npm install`
 - `npm run worktree:setup` if this is a new checkout (gives it its own backend).
@@ -146,7 +163,7 @@ Domains is already in `App/App.entitlements`) → run on the iPhone.
    shows `authenticated`, and `auth.getCurrentUser (live)` shows the user.
 2. **Kill + relaunch**: force-quit and reopen. The top line says "a session cookie was restored
    at launch", and panel 1 is signed in without typing anything.
-3. **Sign-out**: press it. Expect `PASS: the old session cookie is rejected by the server`. Server
+3. **Sign-out**: press it. Expect `PASS: get-session answered 200 null for the old cookie (session row revoked)`. Server
    side, the user has no session row:
    `npx convex run --component betterAuth adapter:findMany '{"model":"session","where":[{"field":"userId","value":"<user _id>"}],"paginationOpts":{"cursor":null,"numItems":10}}'`
 4. **Google**: the native sheet opens. Expect `PASS: signed in with a native Google ID token`.
@@ -158,7 +175,11 @@ Domains is already in `App/App.entitlements`) → run on the iPhone.
 7. **Origins**: iOS shows `capacitor://localhost`, Android `https://localhost`, both "(one of the
    two native origins)". The CORS probe says `PASS`.
 
-Record screenshots of each panel per platform for the Fibery findings comment.
+Record screenshots of each panel per platform for the Fibery findings comment. The harness
+redacts tokens, OAuth parameters and the address in every link it shows, so screenshots are
+safe to post. Panel 3 says `PASS` only when the server answers HTTP 200 with no session for the
+old cookie. A network or HTTP error shows as `ERROR (not a pass)`. Any Keychain/Keystore failure
+shows in red at the top and in panel 2.
 
 ## Code map
 

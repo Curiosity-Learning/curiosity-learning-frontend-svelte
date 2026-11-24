@@ -104,11 +104,16 @@ describe('createSyncStorageCache (CL-819)', () => {
 			},
 			removeItem: async () => {}
 		};
-		const cache = createSyncStorageCache(failing, KEYS);
+		const reported: unknown[] = [];
+		const cache = createSyncStorageCache(failing, KEYS, {
+			onError: (error) => reported.push(error)
+		});
 		await cache.hydrate();
 		expect(cache.hydrated).toBe(true);
 		await cache.setItem('better-auth_cookie', 'v');
 		expect(cache.getItem('better-auth_cookie')).toBe('v');
 		expect(String(cache.lastError)).toContain('keychain locked');
+		// Two failed reads at hydrate, one failed write: each reaches the phone UI.
+		expect(reported).toHaveLength(3);
 	});
 });
