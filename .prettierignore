@@ -9,3 +9,7 @@ bun.lockb
 /static/
 /drizzle/
 /src/convex/_generated/
+
+# CL-819 spike native projects (contain copies of the built SPA)
+/ios/
+/android/

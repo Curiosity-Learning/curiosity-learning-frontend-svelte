@@ -55,7 +55,8 @@ export default defineConfig(
 		}
 	},
 	{
-		ignores: ['src/convex/_generated/**']
+		// CL-819 spike: native projects carry copies of the built SPA.
+		ignores: ['src/convex/_generated/**', 'ios/**', 'android/**']
 	},
 	{
 		files: ['src/lib/components/ui/button/button.svelte']

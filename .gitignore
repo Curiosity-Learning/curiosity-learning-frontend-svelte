@@ -34,3 +34,7 @@ playwright/.auth/
 docs/screenshots/
 # SQLite
 *.db
+
+# CL-819 Capacitor spike build output
+/build-capacitor
+/.svelte-kit-capacitor

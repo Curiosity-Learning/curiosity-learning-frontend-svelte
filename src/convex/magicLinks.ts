@@ -204,6 +204,12 @@ export const mintMagicLink = async (
 // re-point it at the interstitial like every other emailed link. The plugin's callbackURL is our
 // toMagicLinkCallbackParam(path) (the path itself since 1.7), query-encoded; null when the URL is not the shape we expect
 // (the caller then sends the plugin's URL unchanged rather than nothing).
+const toAppRelativePath = (callback: string, appOrigin: string) => {
+	if (!/^https?:\/\//i.test(callback)) return callback;
+	const url = new URL(callback);
+	return url.origin === appOrigin ? `${url.pathname}${url.search}${url.hash}` : callback;
+};
+
 export const pluginVerifyUrlToInterstitial = (verifyUrl: string, email: string) => {
 	const appOrigin = getAppOrigin();
 	if (!appOrigin) return null;
@@ -214,7 +220,10 @@ export const pluginVerifyUrlToInterstitial = (verifyUrl: string, email: string) 
 		if (!token) return null;
 		// searchParams.get already undoes the query encoding; 1.7 adds no second layer (see
 		// toMagicLinkCallbackParam).
-		const next = callback ?? '/';
+		// CL-819 spike: with the crossDomain plugin on (NATIVE_APP_AUTH), Better Auth has already
+		// made a relative callbackURL absolute on the app origin; take the path back so the email
+		// still carries the /auth/link interstitial (the universal link the native app opens).
+		const next = callback ? toAppRelativePath(callback, appOrigin) : '/';
 		if (!isMagicLinkCallbackPath(next)) return null;
 		return buildMagicLinkInterstitialUrl(appOrigin, { token, next, email });
 	} catch {
